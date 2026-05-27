@@ -17,7 +17,7 @@ The default clients are synchronous:
 from polymarket import PublicClient
 
 client = PublicClient()
-market = client.get_market("540816")
+market = client.get_market(id="540816")
 ```
 
 Async clients use explicit async client classes while retaining the same mental model:
@@ -26,7 +26,7 @@ Async clients use explicit async client classes while retaining the same mental 
 from polymarket import AsyncPublicClient
 
 client = AsyncPublicClient()
-market = await client.get_market("540816")
+market = await client.get_market(id="540816")
 ```
 
 We evaluated common Python SDKs in trading, exchange, and Web3 ecosystems. The most Pythonic convention is to keep unprefixed clients synchronous and expose async variants with an `Async` prefix, rather than using mode flags or adding separate `_async` methods to every sync client.
@@ -41,7 +41,7 @@ Clients that own network transports should support explicit cleanup. Synchronous
 from polymarket import PublicClient
 
 with PublicClient() as client:
-    market = client.get_market("540816")
+    market = client.get_market(id="540816")
 ```
 
 Async clients should support the corresponding async context-manager pattern:
@@ -50,7 +50,7 @@ Async clients should support the corresponding async context-manager pattern:
 from polymarket import AsyncPublicClient
 
 async with AsyncPublicClient() as client:
-    market = await client.get_market("540816")
+    market = await client.get_market(id="540816")
 ```
 
 Clients should also expose explicit `close()` methods. Async clients should expose `await client.close()` so callers that do not use `async with` can still release async HTTP sessions, sockets, or other transport resources deterministically.
