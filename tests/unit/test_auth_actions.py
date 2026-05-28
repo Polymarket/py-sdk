@@ -1,9 +1,13 @@
+from datetime import UTC, datetime
+
 import pytest
 
 from polymarket._internal.actions.auth import (
     build_l1_auth_headers,
     parse_api_key_creds,
     parse_api_keys_response,
+    parse_builder_api_key_creds,
+    parse_builder_api_keys_response,
 )
 from polymarket._internal.l1_auth import ApiKeyAuthSignature
 from polymarket.errors import UnexpectedResponseError
@@ -60,3 +64,38 @@ def test_parse_api_keys_response_rejects_missing_field() -> None:
 def test_parse_api_keys_response_rejects_non_string_entry() -> None:
     with pytest.raises(UnexpectedResponseError):
         parse_api_keys_response({"apiKeys": [1, 2]})
+
+
+def test_parse_builder_api_key_creds_returns_builder_auth() -> None:
+    creds = parse_builder_api_key_creds(
+        {"key": "builder-key", "secret": "dGVzdA==", "passphrase": "builder-pass"}
+    )
+
+    assert creds.key == "builder-key"
+    assert creds.secret == "dGVzdA=="
+    assert creds.passphrase == "builder-pass"
+
+
+def test_parse_builder_api_key_creds_rejects_missing_field() -> None:
+    with pytest.raises(UnexpectedResponseError):
+        parse_builder_api_key_creds({"key": "builder-key", "secret": "dGVzdA=="})
+
+
+def test_parse_builder_api_keys_response_accepts_strings_and_metadata() -> None:
+    keys = parse_builder_api_keys_response(
+        [
+            "builder-key-1",
+            {"key": "builder-key-2", "createdAt": 1700000000000, "revokedAt": None},
+        ]
+    )
+
+    assert keys[0].key == "builder-key-1"
+    assert keys[0].created_at is None
+    assert keys[1].key == "builder-key-2"
+    assert keys[1].created_at == datetime.fromtimestamp(1700000000, tz=UTC)
+    assert keys[1].revoked_at is None
+
+
+def test_parse_builder_api_keys_response_rejects_non_list() -> None:
+    with pytest.raises(UnexpectedResponseError):
+        parse_builder_api_keys_response({"apiKeys": ["builder-key"]})

@@ -3,9 +3,10 @@ from typing import cast
 from pydantic import TypeAdapter, ValidationError
 
 from polymarket._internal.l1_auth import ApiKeyAuthSignature
+from polymarket.auth import BuilderApiKey
 from polymarket.clients._transport import AsyncTransport, SyncTransport
 from polymarket.errors import RequestRejectedError, UnexpectedResponseError
-from polymarket.models.clob import ApiKeyCreds
+from polymarket.models.clob import ApiKeyCreds, BuilderApiKeyInfo
 
 _ApiKeysListAdapter = TypeAdapter(tuple[str, ...])
 
@@ -31,6 +32,23 @@ def parse_api_keys_response(data: object) -> tuple[str, ...]:
         return _ApiKeysListAdapter.validate_python(api_keys)
     except ValidationError as error:
         raise UnexpectedResponseError("api keys response did not match expected shape") from error
+
+
+def parse_builder_api_key_creds(data: object) -> BuilderApiKey:
+    if not isinstance(data, dict):
+        raise UnexpectedResponseError("builder api key response did not match expected shape")
+
+    payload = cast(dict[str, object], data)
+    key = payload.get("key")
+    secret = payload.get("secret")
+    passphrase = payload.get("passphrase")
+    if not isinstance(key, str) or not isinstance(secret, str) or not isinstance(passphrase, str):
+        raise UnexpectedResponseError("builder api key response did not match expected shape")
+    return BuilderApiKey(key=key, secret=secret, passphrase=passphrase)
+
+
+def parse_builder_api_keys_response(data: object) -> tuple[BuilderApiKeyInfo, ...]:
+    return BuilderApiKeyInfo.parse_response_list(data)
 
 
 async def create_api_key(clob: AsyncTransport, signature: ApiKeyAuthSignature) -> ApiKeyCreds:
@@ -64,6 +82,24 @@ async def delete_api_key(secure_clob: AsyncTransport) -> None:
     if payload != "OK":
         raise UnexpectedResponseError(
             f"delete api key response did not match expected shape: {payload!r}"
+        )
+
+
+async def create_builder_api_key(secure_clob: AsyncTransport) -> BuilderApiKey:
+    payload = await secure_clob.post_json("/auth/builder-api-key")
+    return parse_builder_api_key_creds(payload)
+
+
+async def fetch_builder_api_keys(secure_clob: AsyncTransport) -> tuple[BuilderApiKeyInfo, ...]:
+    payload = await secure_clob.get_json("/auth/builder-api-key")
+    return parse_builder_api_keys_response(payload)
+
+
+async def revoke_builder_api_key(secure_clob: AsyncTransport) -> None:
+    payload = await secure_clob.delete_json("/auth/builder-api-key")
+    if payload != "OK":
+        raise UnexpectedResponseError(
+            f"revoke builder api key response did not match expected shape: {payload!r}"
         )
 
 
@@ -101,10 +137,30 @@ def delete_api_key_sync(secure_clob: SyncTransport) -> None:
         )
 
 
+def create_builder_api_key_sync(secure_clob: SyncTransport) -> BuilderApiKey:
+    payload = secure_clob.post_json("/auth/builder-api-key")
+    return parse_builder_api_key_creds(payload)
+
+
+def fetch_builder_api_keys_sync(secure_clob: SyncTransport) -> tuple[BuilderApiKeyInfo, ...]:
+    payload = secure_clob.get_json("/auth/builder-api-key")
+    return parse_builder_api_keys_response(payload)
+
+
+def revoke_builder_api_key_sync(secure_clob: SyncTransport) -> None:
+    payload = secure_clob.delete_json("/auth/builder-api-key")
+    if payload != "OK":
+        raise UnexpectedResponseError(
+            f"revoke builder api key response did not match expected shape: {payload!r}"
+        )
+
+
 __all__ = [
     "build_l1_auth_headers",
     "create_api_key",
     "create_api_key_sync",
+    "create_builder_api_key",
+    "create_builder_api_key_sync",
     "create_or_derive_api_key",
     "create_or_derive_api_key_sync",
     "delete_api_key",
@@ -113,6 +169,12 @@ __all__ = [
     "derive_api_key_sync",
     "fetch_api_keys",
     "fetch_api_keys_sync",
+    "fetch_builder_api_keys",
+    "fetch_builder_api_keys_sync",
     "parse_api_key_creds",
     "parse_api_keys_response",
+    "parse_builder_api_key_creds",
+    "parse_builder_api_keys_response",
+    "revoke_builder_api_key",
+    "revoke_builder_api_key_sync",
 ]

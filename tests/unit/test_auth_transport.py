@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 import httpx
 import pytest
 
-from polymarket import ApiKeyCreds, AsyncSecureClient
+from polymarket import ApiKeyCreds, AsyncSecureClient, BuilderApiKey, BuilderApiKeyInfo
 from polymarket.clients._transport import AsyncTransport
 from polymarket.errors import RequestRejectedError, UnexpectedResponseError
 
@@ -207,6 +207,91 @@ def test_delete_api_key_raises_unexpected_response_on_non_ok_payload() -> None:
 
     with pytest.raises(UnexpectedResponseError):
         asyncio.run(run())
+
+
+def test_create_builder_api_key_sends_l2_headers() -> None:
+    captured: list[httpx.Request] = []
+
+    async def run() -> BuilderApiKey:
+        client = await AsyncSecureClient._create(
+            private_key=PRIVATE_KEY,
+            wallet=SIGNER_ADDRESS,
+            credentials=FAKE_CREDS,
+            validate_credentials=False,
+        )
+        try:
+            _install_clob(
+                client,
+                _capture(
+                    captured,
+                    200,
+                    {"key": "builder-key", "secret": "dGVzdA==", "passphrase": "builder-pass"},
+                ),
+                secure=True,
+            )
+            return await client.create_builder_api_key()
+        finally:
+            await client.close()
+
+    creds = asyncio.run(run())
+
+    assert creds.key == "builder-key"
+    assert captured[0].method == "POST"
+    assert urlparse(str(captured[0].url)).path == "/auth/builder-api-key"
+    headers = captured[0].headers
+    assert headers.get("POLY_API_KEY") == FAKE_CREDS.key
+    assert headers.get("POLY_SIGNATURE")
+
+
+def test_fetch_builder_api_keys_sends_l2_headers() -> None:
+    captured: list[httpx.Request] = []
+
+    async def run() -> tuple[BuilderApiKeyInfo, ...]:
+        client = await AsyncSecureClient._create(
+            private_key=PRIVATE_KEY,
+            wallet=SIGNER_ADDRESS,
+            credentials=FAKE_CREDS,
+            validate_credentials=False,
+        )
+        try:
+            _install_clob(
+                client,
+                _capture(captured, 200, [{"key": "builder-key", "createdAt": 1700000000000}]),
+                secure=True,
+            )
+            return await client.fetch_builder_api_keys()
+        finally:
+            await client.close()
+
+    keys = asyncio.run(run())
+
+    assert keys[0].key == "builder-key"
+    assert captured[0].method == "GET"
+    assert urlparse(str(captured[0].url)).path == "/auth/builder-api-key"
+    assert captured[0].headers.get("POLY_API_KEY") == FAKE_CREDS.key
+
+
+def test_revoke_builder_api_key_uses_secure_clob() -> None:
+    captured: list[httpx.Request] = []
+
+    async def run() -> None:
+        client = await AsyncSecureClient._create(
+            private_key=PRIVATE_KEY,
+            wallet=SIGNER_ADDRESS,
+            credentials=FAKE_CREDS,
+            validate_credentials=False,
+        )
+        try:
+            _install_clob(client, _capture(captured, 200, "OK"), secure=True)
+            await client.revoke_builder_api_key()
+        finally:
+            await client.close()
+
+    asyncio.run(run())
+
+    assert captured[0].method == "DELETE"
+    assert urlparse(str(captured[0].url)).path == "/auth/builder-api-key"
+    assert captured[0].headers.get("POLY_API_KEY") == FAKE_CREDS.key
 
 
 def test_fetch_api_keys_propagates_401_as_request_rejected() -> None:

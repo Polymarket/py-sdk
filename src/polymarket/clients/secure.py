@@ -100,7 +100,7 @@ from polymarket._internal.wallet import (
     derive_current_deposit_wallet_address_sync,
     signature_type_for,
 )
-from polymarket.auth import ApiKey
+from polymarket.auth import ApiKey, BuilderApiKey
 from polymarket.clients._transport import SyncHeaderResolver, SyncTransport
 from polymarket.environments import PRODUCTION, Environment
 from polymarket.errors import (
@@ -113,6 +113,7 @@ from polymarket.models import (
     ApiKeyCreds,
     AssetType,
     BalanceAllowance,
+    BuilderApiKeyInfo,
     BuilderFeeRates,
     ClobTrade,
     Comment,
@@ -1328,6 +1329,18 @@ class SecureClient:
     def fetch_api_keys(self) -> tuple[str, ...]:
         """Fetch API key identifiers for the authenticated account."""
         return _auth_actions.fetch_api_keys_sync(self._ctx.secure_clob)
+
+    def create_builder_api_key(self) -> BuilderApiKey:
+        """Create a builder API key for the authenticated account."""
+        return _auth_actions.create_builder_api_key_sync(self._ctx.secure_clob)
+
+    def fetch_builder_api_keys(self) -> tuple[BuilderApiKeyInfo, ...]:
+        """Fetch builder API key records for the authenticated account."""
+        return _auth_actions.fetch_builder_api_keys_sync(self._ctx.secure_clob)
+
+    def revoke_builder_api_key(self) -> None:
+        """Revoke a builder API key for the authenticated account."""
+        _auth_actions.revoke_builder_api_key_sync(self._ctx.secure_clob)
 
     def delete_api_key(self) -> None:
         """Delete the API key currently used by this client."""

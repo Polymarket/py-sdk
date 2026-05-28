@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 import httpx
 import pytest
 
-from polymarket import ApiKeyCreds, PublicClient, SecureClient
+from polymarket import ApiKeyCreds, BuilderApiKey, BuilderApiKeyInfo, PublicClient, SecureClient
 from polymarket.clients._transport import SyncTransport
 from polymarket.errors import RequestRejectedError, UnexpectedResponseError
 
@@ -76,6 +76,54 @@ def test_delete_api_key_raises_unexpected_response_on_non_ok_payload() -> None:
     with pytest.raises(UnexpectedResponseError), _make_client() as client:
         _install_secure_clob(client, _capture([], 200, "FAIL"))
         client.delete_api_key()
+
+
+def test_create_builder_api_key_sends_l2_headers() -> None:
+    captured: list[httpx.Request] = []
+
+    with _make_client() as client:
+        _install_secure_clob(
+            client,
+            _capture(
+                captured,
+                200,
+                {"key": "builder-key", "secret": "dGVzdA==", "passphrase": "builder-pass"},
+            ),
+        )
+        creds: BuilderApiKey = client.create_builder_api_key()
+
+    assert creds.key == "builder-key"
+    assert captured[0].method == "POST"
+    assert urlparse(str(captured[0].url)).path == "/auth/builder-api-key"
+    assert captured[0].headers.get("POLY_API_KEY") == FAKE_CREDS.key
+
+
+def test_fetch_builder_api_keys_sends_l2_headers() -> None:
+    captured: list[httpx.Request] = []
+
+    with _make_client() as client:
+        _install_secure_clob(
+            client,
+            _capture(captured, 200, [{"key": "builder-key", "createdAt": 1700000000000}]),
+        )
+        keys: tuple[BuilderApiKeyInfo, ...] = client.fetch_builder_api_keys()
+
+    assert keys[0].key == "builder-key"
+    assert captured[0].method == "GET"
+    assert urlparse(str(captured[0].url)).path == "/auth/builder-api-key"
+    assert captured[0].headers.get("POLY_API_KEY") == FAKE_CREDS.key
+
+
+def test_revoke_builder_api_key_uses_secure_clob() -> None:
+    captured: list[httpx.Request] = []
+
+    with _make_client() as client:
+        _install_secure_clob(client, _capture(captured, 200, "OK"))
+        client.revoke_builder_api_key()
+
+    assert captured[0].method == "DELETE"
+    assert urlparse(str(captured[0].url)).path == "/auth/builder-api-key"
+    assert captured[0].headers.get("POLY_API_KEY") == FAKE_CREDS.key
 
 
 def test_end_authentication_calls_delete_and_returns_public_client() -> None:
