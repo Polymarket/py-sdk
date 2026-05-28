@@ -32,7 +32,7 @@ Synchronous client:
 from polymarket import Market, PublicClient
 
 with PublicClient() as client:
-    market: Market = client.get_market(url="https://polymarket.com/event/example-market")
+    market: Market = client.get_market(url="https://polymarket.com/market/example-market")
 ```
 
 Asynchronous client:
@@ -46,7 +46,7 @@ from polymarket import AsyncPublicClient, Market
 async def main() -> None:
     async with AsyncPublicClient() as client:
         market: Market = await client.get_market(
-            url="https://polymarket.com/event/example-market"
+            url="https://polymarket.com/market/example-market"
         )
 
 
