@@ -319,7 +319,7 @@ class Event(BaseModel):
             "featured_image": data.get("featuredImage"),
             "created_at": data.get("createdAt"),
             "updated_at": data.get("updatedAt"),
-            "published_at": data.get("published_at"),
+            "published_at": data.get("publishedAt"),
             "state": {
                 "active": data.get("active"),
                 "closed": data.get("closed"),

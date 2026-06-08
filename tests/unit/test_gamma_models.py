@@ -239,6 +239,7 @@ def test_event_normalizes_groups_from_flat_payload() -> None:
         featuredImage="https://example.test/f.png",
         createdAt="2026-01-01T00:00:00Z",
         updatedAt="2026-02-01T00:00:00Z",
+        publishedAt="2026-03-01T00:00:00Z",
         active=True,
         closed=False,
         archived=False,
@@ -315,6 +316,7 @@ def test_event_normalizes_groups_from_flat_payload() -> None:
     assert event.title == "An Event"
     assert event.featured_image == "https://example.test/f.png"
     assert event.created_at == datetime(2026, 1, 1, tzinfo=UTC)
+    assert event.published_at == datetime(2026, 3, 1, tzinfo=UTC)
     assert event.state.featured is True
     assert event.schedule.start_date == datetime(2026, 5, 1, tzinfo=UTC)
     assert event.metrics.volume == Decimal("500")
