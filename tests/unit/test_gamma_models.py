@@ -239,7 +239,7 @@ def test_event_normalizes_groups_from_flat_payload() -> None:
         featuredImage="https://example.test/f.png",
         createdAt="2026-01-01T00:00:00Z",
         updatedAt="2026-02-01T00:00:00Z",
-        publishedAt="2026-03-01T00:00:00Z",
+        published_at="2026-03-01T00:00:00Z",
         active=True,
         closed=False,
         archived=False,
@@ -340,6 +340,12 @@ def test_event_normalizes_groups_from_flat_payload() -> None:
     assert event.series[0].volume == Decimal("1000")
     assert event.tags[0].label == "Tag 1"
     assert event.metadata == {"k": "v"}
+
+
+def test_event_accepts_camel_case_published_at_from_flat_payload() -> None:
+    event = Event.parse_response(_minimal_event_payload(publishedAt="2026-03-01T00:00:00Z"))
+
+    assert event.published_at == datetime(2026, 3, 1, tzinfo=UTC)
 
 
 def test_event_skips_markets_with_non_binary_outcomes() -> None:

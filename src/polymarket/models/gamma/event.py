@@ -319,7 +319,9 @@ class Event(BaseModel):
             "featured_image": data.get("featuredImage"),
             "created_at": data.get("createdAt"),
             "updated_at": data.get("updatedAt"),
-            "published_at": data.get("publishedAt"),
+            "published_at": data.get("published_at")
+            if "published_at" in data
+            else data.get("publishedAt"),
             "state": {
                 "active": data.get("active"),
                 "closed": data.get("closed"),
