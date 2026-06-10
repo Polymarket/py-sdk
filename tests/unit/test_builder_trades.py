@@ -261,6 +261,7 @@ class TestPublicClientListBuilderTrades:
                     base_url=PRODUCTION.clob_url,
                     client=httpx.Client(base_url=PRODUCTION.clob_url, transport=handler),
                 ),
+                rfq=client._ctx.rfq,
             )
 
             page = client.list_builder_trades(
@@ -312,6 +313,7 @@ class TestAsyncPublicClientListBuilderTrades:
                             base_url=PRODUCTION.clob_url, transport=httpx.MockTransport(handler)
                         ),
                     ),
+                    rfq=client._ctx.rfq,
                 )
                 ids: list[str] = []
                 async for trade in client.list_builder_trades(

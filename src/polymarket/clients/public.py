@@ -11,6 +11,7 @@ from polymarket._internal.actions import clob as _clob_actions
 from polymarket._internal.actions import data as _data_actions
 from polymarket._internal.actions import gamma as _gamma_actions
 from polymarket._internal.actions import rewards as _rewards_actions
+from polymarket._internal.actions import rfq as _rfq_actions
 from polymarket._internal.actions.data import (
     ActivitySortBy,
     ActivityTypeFilter,
@@ -87,6 +88,7 @@ from polymarket.models.data import (
     TradedMarketCount,
     TraderLeaderboardEntry,
 )
+from polymarket.models.rfq import ComboMarket
 from polymarket.models.types import CtfConditionId
 from polymarket.pagination import Page, Paginator
 
@@ -108,6 +110,7 @@ class PublicClient:
             gamma=SyncTransport(base_url=environment.gamma_url, logger=logger),
             data=SyncTransport(base_url=environment.data_url, logger=logger),
             clob=SyncTransport(base_url=environment.clob_url, logger=logger),
+            rfq=SyncTransport(base_url=environment.rfq_url, logger=logger),
         )
 
     @property
@@ -134,7 +137,10 @@ class PublicClient:
             try:
                 self._ctx.data.close()
             finally:
-                self._ctx.clob.close()
+                try:
+                    self._ctx.clob.close()
+                finally:
+                    self._ctx.rfq.close()
 
     def get_market(
         self,
@@ -747,6 +753,21 @@ class PublicClient:
             volume_num_max=volume_num_max,
             volume_num_min=volume_num_min,
         )
+        return sync_paginate_keyset(self._ctx, spec, page_size=page_size)
+
+    def list_combo_markets(
+        self,
+        *,
+        exclude: str | Sequence[str] | None = None,
+        page_size: int = 20,
+    ) -> Paginator[ComboMarket]:
+        """List markets available for Combos.
+
+        Returns:
+            A paginator over matching Combo markets.
+        """
+        _rfq_actions.validate_combo_markets_page_size(page_size)
+        spec = _rfq_actions.list_combo_markets_spec(exclude=exclude)
         return sync_paginate_keyset(self._ctx, spec, page_size=page_size)
 
     def list_series(

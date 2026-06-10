@@ -19,6 +19,7 @@ class SyncClientContext:
     gamma: SyncTransport
     data: SyncTransport
     clob: SyncTransport
+    rfq: SyncTransport
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +40,7 @@ class AsyncClientContext:
     gamma: AsyncTransport
     data: AsyncTransport
     clob: AsyncTransport
+    rfq: AsyncTransport
 
 
 @dataclass(frozen=True, slots=True)

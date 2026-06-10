@@ -35,6 +35,7 @@ class Environment:
     relayer_url: str
     gamma_url: str
     data_url: str
+    rfq_url: str
     rtds_ws_url: str
     sports_ws_url: str
     rpc_url: str
@@ -76,6 +77,7 @@ PRODUCTION = Environment(
     relayer_url="https://relayer-v2.polymarket.com",
     gamma_url="https://gamma-api.polymarket.com",
     data_url="https://data-api.polymarket.com",
+    rfq_url="https://combos-rfq-api.polymarket.sh",
     rtds_ws_url="wss://ws-live-data.polymarket.com",
     sports_ws_url="wss://sports-api.polymarket.com/ws",
     rpc_url="https://polygon.drpc.org",

@@ -32,6 +32,8 @@ def _sync_transport_for(ctx: SyncClientContext, service: Service) -> SyncTranspo
             return ctx.gamma
         case "data":
             return ctx.data
+        case "rfq":
+            return ctx.rfq
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -42,6 +44,8 @@ def _async_transport_for(ctx: AsyncClientContext, service: Service) -> AsyncTran
             return ctx.gamma
         case "data":
             return ctx.data
+        case "rfq":
+            return ctx.rfq
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -175,7 +179,7 @@ def sync_paginate_keyset(
             "limit": page_size,
         }
         if server_cursor is not None:
-            params["after_cursor"] = server_cursor
+            params[spec.cursor_param] = server_cursor
         payload = transport.get_json(spec.path, params=params)
         keyset_page = spec.parse_page(payload)
         return compute_keyset_page(
@@ -216,7 +220,7 @@ def async_paginate_keyset(
             "limit": page_size,
         }
         if server_cursor is not None:
-            params["after_cursor"] = server_cursor
+            params[spec.cursor_param] = server_cursor
         payload = await transport.get_json(spec.path, params=params)
         keyset_page = spec.parse_page(payload)
         return compute_keyset_page(

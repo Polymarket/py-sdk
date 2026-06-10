@@ -81,6 +81,7 @@ def _env_with(
         relayer_url=PRODUCTION.relayer_url,
         gamma_url=PRODUCTION.gamma_url,
         data_url=PRODUCTION.data_url,
+        rfq_url=PRODUCTION.rfq_url,
         rtds_ws_url=rtds_ws_url,
         sports_ws_url=sports_ws_url,
         rpc_url=PRODUCTION.rpc_url,

@@ -2,7 +2,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Generic, Literal, TypeVar
 
-Service = Literal["gamma", "data"]
+Service = Literal["gamma", "data", "rfq"]
 Method = Literal["GET"]
 
 QueryParamScalar = str | int | float | bool
@@ -41,6 +41,7 @@ class KeysetPaginatedSpec(Generic[T]):
     path: str
     parse_page: Callable[[object], "KeysetPagePayload[T]"]
     base_params: Mapping[str, QueryParamValue] | None = None
+    cursor_param: str = "after_cursor"
 
 
 @dataclass(frozen=True, slots=True)

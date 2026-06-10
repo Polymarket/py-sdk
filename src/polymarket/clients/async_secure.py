@@ -28,6 +28,7 @@ from polymarket._internal.actions import clob as _clob_actions
 from polymarket._internal.actions import data as _data_actions
 from polymarket._internal.actions import gamma as _gamma_actions
 from polymarket._internal.actions import rewards as _rewards_actions
+from polymarket._internal.actions import rfq as _rfq_actions
 from polymarket._internal.actions.data import (
     ActivitySortBy,
     ActivityTypeFilter,
@@ -200,6 +201,7 @@ from polymarket.models.data import (
     TradedMarketCount,
     TraderLeaderboardEntry,
 )
+from polymarket.models.rfq import ComboMarket
 from polymarket.models.rtds_events import (
     CommentsEvent,
     CryptoPricesEvent,
@@ -413,6 +415,7 @@ class AsyncSecureClient:
         gamma = AsyncTransport(base_url=environment.gamma_url, logger=logger)
         data = AsyncTransport(base_url=environment.data_url, logger=logger)
         clob = AsyncTransport(base_url=environment.clob_url, logger=logger)
+        rfq = AsyncTransport(base_url=environment.rfq_url, logger=logger)
         relayer_resolver = make_relayer_header_resolver(api_key) if api_key is not None else None
         relayer = AsyncTransport(
             base_url=environment.relayer_url,
@@ -432,6 +435,7 @@ class AsyncSecureClient:
             gamma=gamma,
             data=data,
             clob=clob,
+            rfq=rfq,
             signer=signer,
             credentials=credentials,
             secure_clob=secure_clob,
@@ -685,6 +689,7 @@ class AsyncSecureClient:
             ctx.gamma,
             ctx.data,
             ctx.clob,
+            ctx.rfq,
             ctx.secure_clob,
             ctx.relayer,
             ctx.rpc,
@@ -1322,6 +1327,21 @@ class AsyncSecureClient:
             volume_num_max=volume_num_max,
             volume_num_min=volume_num_min,
         )
+        return async_paginate_keyset(self._ctx, spec, page_size=page_size)
+
+    def list_combo_markets(
+        self,
+        *,
+        exclude: str | Sequence[str] | None = None,
+        page_size: int = 20,
+    ) -> AsyncPaginator[ComboMarket]:
+        """List markets available for Combos.
+
+        Returns:
+            An async paginator over matching Combo markets.
+        """
+        _rfq_actions.validate_combo_markets_page_size(page_size)
+        spec = _rfq_actions.list_combo_markets_spec(exclude=exclude)
         return async_paginate_keyset(self._ctx, spec, page_size=page_size)
 
     def list_series(
