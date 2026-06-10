@@ -8,10 +8,9 @@ from pydantic import field_validator, model_validator
 
 from polymarket.models.base import BaseModel
 from polymarket.models.types import (
-    CtfConditionId,
+    ComboConditionId,
     MarketId,
     PositionId,
-    validate_ctf_condition_id,
 )
 
 
@@ -39,7 +38,7 @@ class ComboMarket(BaseModel):
     """A market available for Combos."""
 
     id: MarketId
-    condition_id: CtfConditionId
+    condition_id: ComboConditionId
     slug: str
     title: str
     outcomes: ComboMarketOutcomes
@@ -106,8 +105,11 @@ class ComboMarket(BaseModel):
 
     @field_validator("condition_id", mode="before")
     @classmethod
-    def _validate_condition_id(cls, value: object) -> CtfConditionId:
-        return validate_ctf_condition_id(value)
+    def _validate_condition_id(cls, value: object) -> ComboConditionId:
+        if not isinstance(value, str):
+            msg = f"Expected a Combo condition ID string, received: {value}"
+            raise ValueError(msg)
+        return ComboConditionId(value)
 
 
 def _parse_sequence(value: object) -> tuple[Any, ...]:

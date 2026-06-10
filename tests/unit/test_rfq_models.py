@@ -5,7 +5,7 @@ import pytest
 from polymarket.errors import UnexpectedResponseError
 from polymarket.models.rfq import ComboMarket
 
-_CONDITION_ID = "0x5c19f205507ce03ff5f3be08a8090a5969ea6870cc07b902a4ca2e61dfe48fdd"
+_CONDITION_ID = "0x4cd77d456c83e7d8c569a8fb8f6396c3f40154f657e6d970733e2b1b6a7110ff"
 
 
 def _combo_market_payload(**overrides: object) -> dict[str, object]:
