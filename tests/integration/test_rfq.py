@@ -16,10 +16,12 @@ from polymarket.rfq import (
     RfqConfirmationRequestEvent,
     RfqErrorCode,
     RfqExecutionStatus,
+    RfqExecutionUpdateEvent,
     RfqQuoteRejectedError,
     RfqQuoteRequestEvent,
     RfqQuoteSource,
     RfqRequestedSizeUnit,
+    RfqTradeEvent,
 )
 
 pytestmark = pytest.mark.anyio
@@ -118,6 +120,7 @@ async def test_rfq_session_quotes_confirms_and_receives_execution_update(
                         }
                     )
                 )
+                await ws.send(json.dumps(_trade_message()))
 
     async with (
         _ws_server(handler) as ws_url,
@@ -135,7 +138,7 @@ async def test_rfq_session_quotes_confirms_and_receives_execution_update(
                 ack = await event.confirm()
                 assert ack.rfq_id == RFQ_ID
                 assert ack.quote_id == QUOTE_ID
-            else:
+            elif isinstance(event, RfqExecutionUpdateEvent):
                 assert event.status is RfqExecutionStatus.MINED
                 assert event.tx_hash == TX_HASH
                 break
@@ -164,6 +167,39 @@ async def test_rfq_session_quotes_confirms_and_receives_execution_update(
         "quote_id": QUOTE_ID,
         "decision": "CONFIRM",
     }
+
+
+@pytest.mark.integration
+async def test_rfq_session_receives_confirmed_trade_broadcast(
+    require_env: Callable[[str], str],
+) -> None:
+    async def handler(ws: ServerConnection) -> None:
+        async for raw in ws:
+            assert isinstance(raw, str)
+            frame = json.loads(raw)
+            if frame["type"] == "auth":
+                await ws.send(json.dumps({"type": "auth", "success": True}))
+                await ws.send(json.dumps(_trade_message()))
+
+    async with (
+        _ws_server(handler) as ws_url,
+        _rfq_client(require_env, ws_url) as client,
+        client.open_rfq_session() as session,
+    ):
+        async for event in session:
+            assert isinstance(event, RfqTradeEvent)
+            assert event.type == "trade"
+            assert event.rfq_id == RFQ_ID
+            assert event.requestor_public_id == "requestor-abc"
+            assert event.condition_id == CONDITION_ID
+            assert event.leg_position_ids == (YES_POSITION_ID, NO_POSITION_ID)
+            assert event.direction == "BUY"
+            assert event.side == "YES"
+            assert event.price == Decimal("0.125")
+            assert event.size == Decimal("0.8")
+            assert event.tx_hash == TX_HASH
+            assert event.executed_at == 1780854786039
+            break
 
 
 @pytest.mark.integration
@@ -814,6 +850,22 @@ def _manual_quote_frame() -> dict[str, Any]:
             "signer": "0x0000000000000000000000000000000000000001",
             "signatureType": 0,
         },
+    }
+
+
+def _trade_message() -> dict[str, object]:
+    return {
+        "type": "RFQ_TRADE",
+        "rfq_id": RFQ_ID,
+        "requestor_public_id": "requestor-abc",
+        "condition_id": CONDITION_ID,
+        "leg_position_ids": [YES_POSITION_ID, NO_POSITION_ID],
+        "direction": "BUY",
+        "side": "YES",
+        "price_e6": "125000",
+        "size_e6": "800000",
+        "tx_hash": TX_HASH,
+        "executed_at": 1780854786039,
     }
 
 

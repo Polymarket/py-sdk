@@ -59,6 +59,7 @@ from polymarket.rfq import (
     RfqRequestedSize,
     RfqRequestedSizeUnit,
     RfqSide,
+    RfqTradeEvent,
 )
 from polymarket.types import EvmAddress, HexString, TransactionHash
 
@@ -434,6 +435,8 @@ class RfqQuoterSession:
                         tx_hash=TransactionHash(tx_hash) if isinstance(tx_hash, str) else None,
                     )
                 )
+            elif message_type == "RFQ_TRADE":
+                self._push(_parse_trade(message))
             elif message_type == "RFQ_ERROR":
                 self._handle_rfq_error(message)
         except BaseException as error:
@@ -631,6 +634,24 @@ def _parse_confirmation_request(
         price=_e6_to_decimal(_expect_str(raw, "price_e6")),
         confirm_by=_expect_int(raw, "confirm_by"),
         _session=session,
+    )
+
+
+def _parse_trade(raw: dict[str, object]) -> RfqTradeEvent:
+    return RfqTradeEvent(
+        type="trade",
+        rfq_id=_expect_str(raw, "rfq_id"),
+        requestor_public_id=_expect_str(raw, "requestor_public_id"),
+        condition_id=_expect_combo_condition_id(raw, "condition_id"),
+        leg_position_ids=tuple(
+            PositionId(item) for item in _expect_str_list(raw, "leg_position_ids")
+        ),
+        direction=RfqDirection(_expect_str(raw, "direction")),
+        side=RfqSide(_expect_str(raw, "side")),
+        price=_e6_to_decimal(_expect_str(raw, "price_e6")),
+        size=_e6_to_decimal(_expect_str(raw, "size_e6")),
+        tx_hash=TransactionHash(_expect_str(raw, "tx_hash")),
+        executed_at=_expect_int(raw, "executed_at"),
     )
 
 
