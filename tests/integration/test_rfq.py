@@ -190,14 +190,14 @@ async def test_rfq_session_receives_confirmed_trade_broadcast(
             assert isinstance(event, RfqTradeEvent)
             assert event.type == "trade"
             assert event.rfq_id == RFQ_ID
-            assert event.requestor_public_id == "requestor-abc"
+            assert event.requester_id == "requester-abc"
             assert event.condition_id == CONDITION_ID
             assert event.leg_position_ids == (YES_POSITION_ID, NO_POSITION_ID)
             assert event.direction == "BUY"
             assert event.side == "YES"
             assert event.price == Decimal("0.125")
             assert event.size == Decimal("0.8")
-            assert event.tx_hash == TX_HASH
+            assert not hasattr(event, "tx_hash")
             assert event.executed_at == 1780854786039
             break
 
@@ -857,14 +857,13 @@ def _trade_message() -> dict[str, object]:
     return {
         "type": "RFQ_TRADE",
         "rfq_id": RFQ_ID,
-        "requestor_public_id": "requestor-abc",
+        "requester_id": "requester-abc",
         "condition_id": CONDITION_ID,
         "leg_position_ids": [YES_POSITION_ID, NO_POSITION_ID],
         "direction": "BUY",
         "side": "YES",
         "price_e6": "125000",
         "size_e6": "800000",
-        "tx_hash": TX_HASH,
         "executed_at": 1780854786039,
     }
 

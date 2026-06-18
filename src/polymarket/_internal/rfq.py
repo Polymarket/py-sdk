@@ -641,7 +641,7 @@ def _parse_trade(raw: dict[str, object]) -> RfqTradeEvent:
     return RfqTradeEvent(
         type="trade",
         rfq_id=_expect_str(raw, "rfq_id"),
-        requestor_public_id=_expect_str(raw, "requestor_public_id"),
+        requester_id=_expect_str(raw, "requester_id"),
         condition_id=_expect_combo_condition_id(raw, "condition_id"),
         leg_position_ids=tuple(
             PositionId(item) for item in _expect_str_list(raw, "leg_position_ids")
@@ -650,7 +650,6 @@ def _parse_trade(raw: dict[str, object]) -> RfqTradeEvent:
         side=RfqSide(_expect_str(raw, "side")),
         price=_e6_to_decimal(_expect_str(raw, "price_e6")),
         size=_e6_to_decimal(_expect_str(raw, "size_e6")),
-        tx_hash=TransactionHash(_expect_str(raw, "tx_hash")),
         executed_at=_expect_int(raw, "executed_at"),
     )
 
