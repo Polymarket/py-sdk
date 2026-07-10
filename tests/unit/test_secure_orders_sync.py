@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 import httpx
 import pytest
 
-from polymarket import ApiKeyCreds, SecureClient
+from polymarket import ApiKeyCreds, BuilderApiKey, SecureClient
 from polymarket.clients._transport import SyncTransport
 from polymarket.errors import UserInputError
 from polymarket.models.clob.order_response import AcceptedOrder
@@ -15,6 +15,7 @@ from polymarket.models.clob.order_response import AcceptedOrder
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 SIGNER_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 FAKE_CREDS = ApiKeyCreds(key="test-key", passphrase="test-passphrase", secret="dGVzdA==")
+BUILDER_KEY = BuilderApiKey(key="builder-key", passphrase="builder-passphrase", secret="dGVzdA==")
 
 
 def _public_routes() -> dict[str, Any]:
@@ -97,11 +98,12 @@ def _install_secure_clob(client: SecureClient, handler: httpx.MockTransport) -> 
     client._ctx = dataclasses.replace(client._ctx, secure_clob=transport)
 
 
-def _make_client() -> SecureClient:
+def _make_client(*, builder_auth: bool = False) -> SecureClient:
     return SecureClient._create(
         private_key=PRIVATE_KEY,
         wallet=SIGNER_ADDRESS,
         credentials=FAKE_CREDS,
+        api_key=BUILDER_KEY if builder_auth else None,
         validate_credentials=False,
     )
 
@@ -152,6 +154,23 @@ def test_place_limit_order_posts_after_signing() -> None:
         r for r in secure_captured if r.method == "POST" and urlparse(str(r.url)).path == "/order"
     )
     assert post_request.headers.get("POLY_SIGNATURE")
+
+
+def test_place_limit_order_sends_builder_headers() -> None:
+    secure_captured: list[httpx.Request] = []
+
+    with _make_client(builder_auth=True) as client:
+        _install_clob(client, _routed_handler([], _public_routes()))
+        _install_secure_clob(client, _routed_handler(secure_captured, _secure_routes()))
+        client.place_limit_order(token_id="8501497", price="0.5", size="10", side="BUY")
+
+    post_request = next(
+        r for r in secure_captured if r.method == "POST" and urlparse(str(r.url)).path == "/order"
+    )
+    assert post_request.headers.get("POLY_SIGNATURE")
+    assert post_request.headers.get("POLY_BUILDER_API_KEY") == BUILDER_KEY.key
+    assert post_request.headers.get("POLY_BUILDER_PASSPHRASE") == BUILDER_KEY.passphrase
+    assert post_request.headers.get("POLY_BUILDER_SIGNATURE")
 
 
 def test_place_market_order_buy_signs_and_posts() -> None:

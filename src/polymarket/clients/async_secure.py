@@ -81,7 +81,10 @@ from polymarket._internal.actions.perps import public as _perps_actions
 from polymarket._internal.actions.relayer.approvals import (
     resolve_missing_trading_approval_calls,
 )
-from polymarket._internal.actions.relayer.auth import make_relayer_header_resolver
+from polymarket._internal.actions.relayer.auth import (
+    build_builder_key_headers,
+    make_relayer_header_resolver,
+)
 from polymarket._internal.actions.relayer.calls import (
     MAX_UINT256,
     TransactionCall,
@@ -458,7 +461,11 @@ class AsyncSecureClient:
         secure_clob = AsyncTransport(
             base_url=environment.clob_url,
             logger=logger,
-            header_resolver=_make_l2_header_resolver(signer, credentials),
+            header_resolver=_make_l2_header_resolver(
+                signer,
+                credentials,
+                api_key if isinstance(api_key, BuilderApiKey) else None,
+            ),
         )
         rpc_transport = AsyncTransport(base_url=environment.rpc_url, logger=logger)
         rpc = JsonRpcClient(rpc_transport)
@@ -3198,7 +3205,11 @@ async def _credentials_are_active(
     return credentials.key in keys
 
 
-def _make_l2_header_resolver(signer: LocalAccount, credentials: ApiKeyCreds) -> _L2HeaderResolver:
+def _make_l2_header_resolver(
+    signer: LocalAccount,
+    credentials: ApiKeyCreds,
+    builder_key: BuilderApiKey | None = None,
+) -> _L2HeaderResolver:
     async def resolver(method: str, path: str, body: str | None) -> Mapping[str, str]:
         timestamp = int(time.time())
         signature = build_hmac_signature(
@@ -3208,12 +3219,17 @@ def _make_l2_header_resolver(signer: LocalAccount, credentials: ApiKeyCreds) -> 
             path=path,
             body=body,
         )
-        return {
+        headers = {
             "POLY_ADDRESS": signer.address,
             "POLY_API_KEY": credentials.key,
             "POLY_PASSPHRASE": credentials.passphrase,
             "POLY_SIGNATURE": signature,
             "POLY_TIMESTAMP": str(timestamp),
         }
+        if builder_key is not None:
+            headers.update(
+                build_builder_key_headers(creds=builder_key, method=method, path=path, body=body)
+            )
+        return headers
 
     return resolver

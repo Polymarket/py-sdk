@@ -68,7 +68,10 @@ from polymarket._internal.actions.orders.types import OrderDraft
 from polymarket._internal.actions.relayer.approvals import (
     resolve_missing_trading_approval_calls_sync,
 )
-from polymarket._internal.actions.relayer.auth import make_relayer_header_resolver_sync
+from polymarket._internal.actions.relayer.auth import (
+    build_builder_key_headers,
+    make_relayer_header_resolver_sync,
+)
 from polymarket._internal.actions.relayer.calls import (
     MAX_UINT256,
     TransactionCall,
@@ -380,7 +383,11 @@ class SecureClient:
             secure_clob = SyncTransport(
                 base_url=environment.clob_url,
                 logger=logger,
-                header_resolver=_make_l2_header_resolver_sync(signer, credentials),
+                header_resolver=_make_l2_header_resolver_sync(
+                    signer,
+                    credentials,
+                    api_key if isinstance(api_key, BuilderApiKey) else None,
+                ),
             )
             rpc_transport = SyncTransport(base_url=environment.rpc_url, logger=logger)
             rpc = SyncJsonRpcClient(rpc_transport)
@@ -2662,7 +2669,9 @@ def _credentials_are_active_sync(
 
 
 def _make_l2_header_resolver_sync(
-    signer: LocalAccount, credentials: ApiKeyCreds
+    signer: LocalAccount,
+    credentials: ApiKeyCreds,
+    builder_key: BuilderApiKey | None = None,
 ) -> SyncHeaderResolver:
     def resolver(method: str, path: str, body: str | None) -> Mapping[str, str]:
         timestamp = int(time.time())
@@ -2673,12 +2682,17 @@ def _make_l2_header_resolver_sync(
             path=path,
             body=body,
         )
-        return {
+        headers = {
             "POLY_ADDRESS": signer.address,
             "POLY_API_KEY": credentials.key,
             "POLY_PASSPHRASE": credentials.passphrase,
             "POLY_SIGNATURE": signature,
             "POLY_TIMESTAMP": str(timestamp),
         }
+        if builder_key is not None:
+            headers.update(
+                build_builder_key_headers(creds=builder_key, method=method, path=path, body=body)
+            )
+        return headers
 
     return resolver
