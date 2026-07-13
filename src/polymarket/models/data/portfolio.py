@@ -24,7 +24,9 @@ from polymarket.models.types import (
 )
 from polymarket.types import EvmAddress
 
-ComboPositionStatus = Literal["OPEN", "PARTIAL", "RESOLVED_WIN", "RESOLVED_LOSS"]
+ComboPositionStatus = Literal[
+    "OPEN", "PARTIAL", "RESOLVED_PARTIAL", "RESOLVED_WIN", "RESOLVED_LOSS"
+]
 ComboPositionOutcome = Literal["YES", "NO"]
 
 
