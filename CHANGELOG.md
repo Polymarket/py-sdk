@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.0-b19](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.1.0-b18...polymarket-client-v0.1.0-b19) (2026-07-13)
+
+
+### Bug Fixes
+
+* **models:** add RESOLVED_PARTIAL to ComboPositionStatus ([9ab11ad](https://github.com/Polymarket/py-sdk/commit/9ab11ad44309f0bb43619281b78f8e586a2dcfb9))
+* **models:** add RESOLVED_PARTIAL to ComboPositionStatus ([ae31b28](https://github.com/Polymarket/py-sdk/commit/ae31b28ebd67c6c7d5c23036004856b6113f261c))
+
 ## [0.1.0-b18](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.1.0-b17...polymarket-client-v0.1.0-b18) (2026-07-10)
 
 
