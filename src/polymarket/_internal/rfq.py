@@ -788,8 +788,10 @@ def _parse_error_code(value: object) -> RfqErrorCode | None:
         raise UnexpectedResponseError("Expected RFQ error code to be a string.")
     try:
         return RfqErrorCode(value)
-    except ValueError as error:
-        raise UnexpectedResponseError(f"Unknown RFQ error code: {value}") from error
+    except ValueError:
+        # Server error codes can be deployed before a matching SDK release.
+        # Keep the operation failure correlated without ending the RFQ session.
+        return None
 
 
 __all__ = ["RfqQuoterSession", "RfqSessionContext"]
