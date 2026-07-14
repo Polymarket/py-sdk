@@ -263,3 +263,36 @@ def test_new_market_game_start_time_parsed_to_datetime() -> None:
     event = parse_market_event(payload)
     assert isinstance(event, NewMarketEvent)
     assert event.payload.game_start_time == datetime.fromtimestamp(1710000000, tz=UTC)
+
+
+def test_last_trade_empty_string_fee_rate_bps_parsed_as_none() -> None:
+    payload = dict(_LAST_TRADE) | {"fee_rate_bps": ""}
+    event = parse_market_event(payload)
+    assert isinstance(event, MarketLastTradePriceEvent)
+    assert event.payload.fee_rate_bps is None
+
+
+def test_price_change_empty_string_best_bid_ask_parsed_as_none() -> None:
+    # The wire sends "" for best_bid/best_ask when they are absent.
+    price_change = dict(_PRICE_CHANGE["price_changes"][0]) | {"best_bid": "", "best_ask": ""}
+    payload = dict(_PRICE_CHANGE) | {"price_changes": [price_change]}
+    event = parse_market_event(payload)
+    assert isinstance(event, MarketPriceChangeEvent)
+    assert event.payload.price_changes[0].best_bid is None
+    assert event.payload.price_changes[0].best_ask is None
+
+
+def test_best_bid_ask_empty_strings_parsed_as_none() -> None:
+    payload = dict(_BBA) | {"best_bid": "", "best_ask": "", "spread": ""}
+    event = parse_market_event(payload)
+    assert isinstance(event, MarketBestBidAskEvent)
+    assert event.payload.best_bid is None
+    assert event.payload.best_ask is None
+    assert event.payload.spread is None
+
+
+def test_empty_string_required_decimal_rejected() -> None:
+    # "" only means absent for optional decimals; required ones stay strict.
+    payload = dict(_LAST_TRADE) | {"price": ""}
+    with pytest.raises(ValidationError):
+        parse_market_event(payload)
