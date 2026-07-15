@@ -22,6 +22,7 @@ from polymarket._internal.actions.orders.types import BYTES32_ZERO, UnsignedOrde
 from polymarket._internal.wallet import WalletType, signature_type_for
 from polymarket._internal.ws.connection import AsyncWebSocketConnection
 from polymarket.errors import (
+    ConnectionLostError,
     SigningError,
     TransportError,
     UnexpectedResponseError,
@@ -191,7 +192,7 @@ class RfqQuoterSession:
             url=self._url,
             headers=self._headers,
             on_message=self._on_message,
-            on_close=self._on_close,
+            on_connection_lost=self._on_connection_lost,
             on_error=self._on_error,
         )
         auth_future = self._wait_for("auth", "Timed out waiting for RFQ authentication.")
@@ -494,12 +495,12 @@ class RfqQuoterSession:
                 ),
             )
 
-    def _on_close(self) -> None:
+    def _on_connection_lost(self, code: int, reason: str) -> None:
         if self._on_session_close is not None:
             self._on_session_close()
         if not self._closed:
             self._closed = True
-            self._end(TransportError("RFQ quoter websocket closed."))
+            self._end(ConnectionLostError("RFQ quoter connection lost.", code=code, reason=reason))
 
     def _on_error(self, exc: BaseException) -> None:
         self._logger.warning("RFQ quoter websocket error: %r", exc)
@@ -783,15 +784,15 @@ def _expect_str_list(raw: dict[str, object], field: str) -> tuple[str, ...]:
     return tuple(cast(list[str], items))
 
 
-def _parse_error_code(value: object) -> RfqErrorCode | None:
+def _parse_error_code(value: object) -> RfqErrorCode | str:
     if not isinstance(value, str):
         raise UnexpectedResponseError("Expected RFQ error code to be a string.")
     try:
         return RfqErrorCode(value)
     except ValueError:
-        # Server error codes can be deployed before a matching SDK release.
-        # Keep the operation failure correlated without ending the RFQ session.
-        return None
+        # Error codes evolve independently of released clients. Codes not yet
+        # enumerated in RfqErrorCode must still parse and flow through as-is.
+        return value
 
 
 __all__ = ["RfqQuoterSession", "RfqSessionContext"]

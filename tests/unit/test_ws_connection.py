@@ -57,7 +57,7 @@ def test_open_send_receive_close_roundtrip() -> None:
             result = await conn.connect(
                 url=url,
                 on_message=seen.append,
-                on_close=closed.set,
+                on_connection_lost=lambda _code, _reason: closed.set(),
                 on_error=errors.append,
             )
             assert result.reused is False
@@ -87,7 +87,7 @@ def test_close_is_idempotent() -> None:
             await conn.connect(
                 url=url,
                 on_message=lambda _m: None,
-                on_close=lambda: None,
+                on_connection_lost=lambda _code, _reason: None,
                 on_error=lambda _e: None,
             )
             await asyncio.gather(conn.close(), conn.close(), conn.close())
@@ -115,13 +115,13 @@ def test_second_connect_reuses_open_socket() -> None:
             first = await conn.connect(
                 url=url,
                 on_message=lambda _m: None,
-                on_close=lambda: None,
+                on_connection_lost=lambda _code, _reason: None,
                 on_error=lambda _e: None,
             )
             second = await conn.connect(
                 url=url,
                 on_message=lambda _m: None,
-                on_close=lambda: None,
+                on_connection_lost=lambda _code, _reason: None,
                 on_error=lambda _e: None,
             )
             assert first.reused is False
@@ -147,19 +147,19 @@ def test_concurrent_connect_coalesces() -> None:
                 conn.connect(
                     url=url,
                     on_message=lambda _m: None,
-                    on_close=lambda: None,
+                    on_connection_lost=lambda _code, _reason: None,
                     on_error=lambda _e: None,
                 ),
                 conn.connect(
                     url=url,
                     on_message=lambda _m: None,
-                    on_close=lambda: None,
+                    on_connection_lost=lambda _code, _reason: None,
                     on_error=lambda _e: None,
                 ),
                 conn.connect(
                     url=url,
                     on_message=lambda _m: None,
-                    on_close=lambda: None,
+                    on_connection_lost=lambda _code, _reason: None,
                     on_error=lambda _e: None,
                 ),
             )
@@ -171,28 +171,35 @@ def test_concurrent_connect_coalesces() -> None:
     assert accept_count == 1
 
 
-def test_server_close_triggers_on_close() -> None:
+def test_server_close_triggers_on_connection_lost() -> None:
     async def handler(ws: ServerConnection) -> None:
-        await ws.close()
+        await ws.close(code=4001, reason="maker suspended")
 
     async def run() -> None:
         closed = asyncio.Event()
+        close_info: list[tuple[int, str]] = []
+
+        def on_connection_lost(code: int, reason: str) -> None:
+            close_info.append((code, reason))
+            closed.set()
+
         async with ws_server(handler) as url:
             conn = AsyncWebSocketConnection()
             await conn.connect(
                 url=url,
                 on_message=lambda _m: None,
-                on_close=closed.set,
+                on_connection_lost=on_connection_lost,
                 on_error=lambda _e: None,
             )
             await asyncio.wait_for(closed.wait(), timeout=2.0)
             assert conn.is_open is False
+            assert close_info == [(4001, "maker suspended")]
             await conn.close()
 
     asyncio.run(run())
 
 
-def test_user_close_does_not_fire_on_close() -> None:
+def test_user_close_does_not_fire_on_connection_lost() -> None:
     async def handler(ws: ServerConnection) -> None:
         async for _ in ws:
             pass
@@ -204,7 +211,7 @@ def test_user_close_does_not_fire_on_close() -> None:
             await conn.connect(
                 url=url,
                 on_message=lambda _m: None,
-                on_close=closed.set,
+                on_connection_lost=lambda _code, _reason: closed.set(),
                 on_error=lambda _e: None,
             )
             await conn.close()
@@ -229,7 +236,7 @@ def test_malformed_json_is_dropped_silently() -> None:
             await conn.connect(
                 url=url,
                 on_message=seen.append,
-                on_close=lambda: None,
+                on_connection_lost=lambda _code, _reason: None,
                 on_error=errors.append,
             )
             await _wait_until(lambda: len(seen) >= 1)
@@ -254,7 +261,7 @@ def test_binary_frame_is_decoded_as_utf8_json() -> None:
             await conn.connect(
                 url=url,
                 on_message=seen.append,
-                on_close=lambda: None,
+                on_connection_lost=lambda _code, _reason: None,
                 on_error=lambda _e: None,
             )
             await _wait_until(lambda: len(seen) == 1)
@@ -279,7 +286,7 @@ def test_send_str_is_passed_through_verbatim() -> None:
             await conn.connect(
                 url=url,
                 on_message=lambda _m: None,
-                on_close=lambda: None,
+                on_connection_lost=lambda _code, _reason: None,
                 on_error=lambda _e: None,
             )
             await conn.send("PING")
@@ -334,7 +341,7 @@ def test_heartbeat_consumes_pong_before_json_parsing() -> None:
             await conn.connect(
                 url=url,
                 on_message=seen.append,
-                on_close=lambda: None,
+                on_connection_lost=lambda _code, _reason: None,
                 on_error=lambda _e: None,
             )
             await _wait_until(lambda: len(seen) == 1)
@@ -348,7 +355,7 @@ def test_heartbeat_consumes_pong_before_json_parsing() -> None:
     assert heartbeat.stopped is True
 
 
-def test_stale_heartbeat_forces_close_and_fires_on_close() -> None:
+def test_stale_heartbeat_forces_close_and_fires_on_connection_lost() -> None:
     class AlwaysStaleHeartbeat:
         async def start(self, send: SendText) -> None:
             return None
@@ -375,7 +382,7 @@ def test_stale_heartbeat_forces_close_and_fires_on_close() -> None:
             await conn.connect(
                 url=url,
                 on_message=lambda _m: None,
-                on_close=closed.set,
+                on_connection_lost=lambda _code, _reason: closed.set(),
                 on_error=lambda _e: None,
             )
             await asyncio.wait_for(closed.wait(), timeout=2.0)
@@ -392,7 +399,7 @@ def test_connect_failure_wraps_as_transport_error() -> None:
             await conn.connect(
                 url="ws://127.0.0.1:1",
                 on_message=lambda _m: None,
-                on_close=lambda: None,
+                on_connection_lost=lambda _code, _reason: None,
                 on_error=lambda _e: None,
             )
         assert excinfo.value.__cause__ is not None
@@ -416,7 +423,7 @@ def test_send_returns_true_on_success() -> None:
             await conn.connect(
                 url=url,
                 on_message=lambda _m: None,
-                on_close=lambda: None,
+                on_connection_lost=lambda _code, _reason: None,
                 on_error=lambda _e: None,
             )
             ok = await conn.send({"hello": "world"})
@@ -438,7 +445,7 @@ def test_send_returns_false_after_server_close() -> None:
             await conn.connect(
                 url=url,
                 on_message=lambda _m: None,
-                on_close=closed.set,
+                on_connection_lost=lambda _code, _reason: closed.set(),
                 on_error=lambda _e: None,
             )
             await asyncio.wait_for(closed.wait(), timeout=2.0)
@@ -504,7 +511,7 @@ def test_reconnect_over_stale_socket_does_not_leak_heartbeat() -> None:
             await conn.connect(
                 url=url,
                 on_message=lambda _m: None,
-                on_close=lambda: None,
+                on_connection_lost=lambda _code, _reason: None,
                 on_error=lambda _e: None,
             )
             await asyncio.wait_for(server_closed_first.wait(), timeout=2.0)
@@ -513,7 +520,7 @@ def test_reconnect_over_stale_socket_does_not_leak_heartbeat() -> None:
             await conn.connect(
                 url=url,
                 on_message=lambda _m: None,
-                on_close=lambda: None,
+                on_connection_lost=lambda _code, _reason: None,
                 on_error=lambda _e: None,
             )
             await conn.close()
@@ -562,7 +569,7 @@ def test_concurrent_cleanup_paths_run_heartbeat_stop_exactly_once() -> None:
             await conn.connect(
                 url=url,
                 on_message=lambda _m: None,
-                on_close=lambda: None,
+                on_connection_lost=lambda _code, _reason: None,
                 on_error=lambda _e: None,
             )
             await asyncio.wait_for(server_closing.wait(), timeout=2.0)
@@ -601,7 +608,7 @@ def test_on_message_callback_exception_does_not_break_stream() -> None:
             await conn.connect(
                 url=url,
                 on_message=capture,
-                on_close=lambda: None,
+                on_connection_lost=lambda _code, _reason: None,
                 on_error=lambda _e: None,
             )
             await _wait_until(lambda: any(s.get("idx") == 2 for s in seen))

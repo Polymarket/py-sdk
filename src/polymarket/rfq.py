@@ -49,6 +49,12 @@ class RfqExecutionStatus(StrEnum):
 
 
 class RfqErrorCode(StrEnum):
+    """Known RFQ error codes.
+
+    Error codes evolve independently of released clients; codes not yet
+    enumerated here are carried on rejection errors as plain strings.
+    """
+
     ADDRESS_MISMATCH = "ADDRESS_MISMATCH"
     ALLOWANCE_VALIDATION_FAILED = "ALLOWANCE_VALIDATION_FAILED"
     BALANCE_VALIDATION_FAILED = "BALANCE_VALIDATION_FAILED"
@@ -195,7 +201,7 @@ class RfqQuoteRejectedError(PolymarketError):
         message: str,
         *,
         rfq_id: RfqId,
-        code: RfqErrorCode | None = None,
+        code: RfqErrorCode | str | None = None,
         error_id: str | None = None,
     ) -> None:
         super().__init__(message)
@@ -211,7 +217,7 @@ class RfqCancelQuoteRejectedError(PolymarketError):
         *,
         rfq_id: RfqId,
         quote_id: RfqQuoteId,
-        code: RfqErrorCode | None = None,
+        code: RfqErrorCode | str | None = None,
         error_id: str | None = None,
     ) -> None:
         super().__init__(message)
@@ -228,7 +234,7 @@ class RfqConfirmationRejectedError(PolymarketError):
         *,
         rfq_id: RfqId,
         quote_id: RfqQuoteId,
-        code: RfqErrorCode | None = None,
+        code: RfqErrorCode | str | None = None,
         error_id: str | None = None,
     ) -> None:
         super().__init__(message)

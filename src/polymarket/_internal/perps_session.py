@@ -678,7 +678,7 @@ class PerpsSession:
         await self._connection.connect(
             url=self._ws_url,
             on_message=self._on_message,
-            on_close=self._on_socket_close,
+            on_connection_lost=self._on_socket_connection_lost,
             on_error=self._on_socket_error,
         )
         await self._authenticate()
@@ -896,7 +896,7 @@ class PerpsSession:
         if not future.done():
             future.set_exception(error)
 
-    def _on_socket_close(self) -> None:
+    def _on_socket_connection_lost(self, code: int, reason: str) -> None:
         self._reject_pending(TransportError("Perps session connection closed."))
         self._reject_event_waiters(TransportError("Perps session connection closed."))
         if self._closed:

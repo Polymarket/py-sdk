@@ -11,7 +11,7 @@ import pytest
 from websockets.asyncio.server import ServerConnection, serve
 
 from polymarket import PRODUCTION, ApiKeyCreds, AsyncSecureClient
-from polymarket.errors import TransportError, UnexpectedResponseError
+from polymarket.errors import ConnectionLostError, TransportError, UnexpectedResponseError
 from polymarket.rfq import (
     RfqConfirmationRequestEvent,
     RfqErrorCode,
@@ -636,11 +636,41 @@ async def test_rfq_session_correlates_unknown_error_code_without_closing(
         assert isinstance(event, RfqQuoteRequestEvent)
         with pytest.raises(RfqQuoteRejectedError, match="future quote rejection") as exc_info:
             await event.quote(price=Decimal("0.45"))
-        assert exc_info.value.code is None
+        assert exc_info.value.code == "FUTURE_ERROR_CODE"
 
         next_event = await session.__anext__()
         assert isinstance(next_event, RfqQuoteRequestEvent)
         assert next_event.rfq_id == RFQ_ID
+
+
+@pytest.mark.integration
+async def test_rfq_session_connection_lost_rejects_pending_and_raises(
+    require_env: Callable[[str], str],
+) -> None:
+    async def handler(ws: ServerConnection) -> None:
+        async for raw in ws:
+            assert isinstance(raw, str)
+            frame = json.loads(raw)
+            if frame["type"] == "auth":
+                await ws.send(json.dumps({"type": "auth", "success": True}))
+                await ws.send(json.dumps(_quote_request_message()))
+            elif frame["type"] == "RFQ_QUOTE":
+                await ws.close(code=1001, reason="going away")
+
+    async with (
+        _ws_server(handler) as ws_url,
+        _rfq_client(require_env, ws_url) as client,
+        client.open_rfq_session() as session,
+    ):
+        event = await session.__anext__()
+        assert isinstance(event, RfqQuoteRequestEvent)
+        with pytest.raises(ConnectionLostError) as exc_info:
+            await event.quote(price=Decimal("0.45"))
+        assert exc_info.value.code == 1001
+        assert exc_info.value.reason == "going away"
+
+        with pytest.raises(ConnectionLostError):
+            await session.__anext__()
 
 
 @pytest.mark.integration

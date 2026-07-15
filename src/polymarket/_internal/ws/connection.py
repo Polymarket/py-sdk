@@ -16,7 +16,9 @@ from polymarket._internal.ws.heartbeat import Heartbeat, NoopHeartbeat
 from polymarket.errors import TransportError
 
 OnMessage = Callable[[Any], None]
-OnClose = Callable[[], None]
+# Invoked only for closes not initiated through close(), with the WebSocket
+# close code and reason.
+OnConnectionLost = Callable[[int, str], None]
 OnError = Callable[[BaseException], None]
 
 DEFAULT_WATCHDOG_INTERVAL_S = 5.0
@@ -57,7 +59,7 @@ class AsyncWebSocketConnection:
         self._watchdog_task: asyncio.Task[None] | None = None
         self._connecting: asyncio.Task[ConnectResult] | None = None
         self._closing: asyncio.Task[None] | None = None
-        self._on_close: OnClose | None = None
+        self._on_connection_lost: OnConnectionLost | None = None
         self._on_error: OnError | None = None
 
     @property
@@ -69,7 +71,7 @@ class AsyncWebSocketConnection:
         *,
         url: str,
         on_message: OnMessage,
-        on_close: OnClose,
+        on_connection_lost: OnConnectionLost,
         on_error: OnError,
         headers: Mapping[str, str] | None = None,
     ) -> ConnectResult:
@@ -86,7 +88,7 @@ class AsyncWebSocketConnection:
             self._open(
                 url=url,
                 on_message=on_message,
-                on_close=on_close,
+                on_connection_lost=on_connection_lost,
                 on_error=on_error,
                 headers=headers,
             )
@@ -103,7 +105,7 @@ class AsyncWebSocketConnection:
         *,
         url: str,
         on_message: OnMessage,
-        on_close: OnClose,
+        on_connection_lost: OnConnectionLost,
         on_error: OnError,
         headers: Mapping[str, str] | None,
     ) -> ConnectResult:
@@ -118,7 +120,7 @@ class AsyncWebSocketConnection:
         except (OSError, TimeoutError, WebSocketException) as error:
             raise TransportError(str(error) or f"WebSocket connection failed: {url}") from error
         self._socket = socket
-        self._on_close = on_close
+        self._on_connection_lost = on_connection_lost
         self._on_error = on_error
         self._reader_task = asyncio.create_task(self._read_loop(socket, on_message))
         try:
@@ -131,7 +133,7 @@ class AsyncWebSocketConnection:
 
     async def _abort_open(self, socket: ClientConnection) -> None:
         self._socket = None
-        self._on_close = None
+        self._on_connection_lost = None
         self._on_error = None
         try:
             await socket.close()
@@ -182,8 +184,8 @@ class AsyncWebSocketConnection:
                     self._logger.exception("on_error callback raised")
         finally:
             if self._claim_socket(socket):
-                on_close = self._on_close
-                self._on_close = None
+                on_connection_lost = self._on_connection_lost
+                self._on_connection_lost = None
                 self._on_error = None
                 watchdog = self._watchdog_task
                 self._watchdog_task = None
@@ -194,11 +196,13 @@ class AsyncWebSocketConnection:
                     await socket.close()
                 except Exception:
                     self._logger.debug("error closing socket after reader stopped", exc_info=True)
-                if on_close is not None:
+                if on_connection_lost is not None:
+                    code = socket.close_code if socket.close_code is not None else 1006
+                    reason = socket.close_reason or ""
                     try:
-                        on_close()
+                        on_connection_lost(code, reason)
                     except Exception:
-                        self._logger.exception("on_close callback raised")
+                        self._logger.exception("on_connection_lost callback raised")
 
     async def _watchdog_loop(self, socket: ClientConnection) -> None:
         try:
@@ -253,9 +257,9 @@ class AsyncWebSocketConnection:
         reader = self._reader_task
         self._reader_task = None
         if claimed:
-            # User-initiated close: suppress on_close to distinguish from
-            # an unexpected disconnect.
-            self._on_close = None
+            # User-initiated close: suppress on_connection_lost to distinguish
+            # from an unexpected disconnect.
+            self._on_connection_lost = None
             self._on_error = None
             await self._heartbeat.stop()
             if watchdog is not None:
