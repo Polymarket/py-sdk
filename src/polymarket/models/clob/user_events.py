@@ -8,6 +8,7 @@ from polymarket.models.clob._validators import (
     EpochSecondsTimestamp,
     ExpirationTimestamp,
     _DecimalFromNumberOrString,  # pyright: ignore[reportPrivateUsage]
+    _OptionalDecimalFromNumberOrString,  # pyright: ignore[reportPrivateUsage]
 )
 from polymarket.models.types import TokenId
 
@@ -77,7 +78,7 @@ class UserTradeMakerOrder(BaseModel):
     maker_address: str | None = None
     matched_amount: _DecimalFromNumberOrString
     price: _DecimalFromNumberOrString
-    fee_rate_bps: _DecimalFromNumberOrString | None = None
+    fee_rate_bps: _OptionalDecimalFromNumberOrString = None
     token_id: TokenId = Field(validation_alias="asset_id")
     side: _OrderSide
     outcome: str | None = None
@@ -95,7 +96,7 @@ class UserTradePayload(BaseModel):
     status: _TradeStatusValidator
     owner: str
     timestamp: EpochSecondsOrMsTimestamp = None
-    fee_rate_bps: _DecimalFromNumberOrString | None = None
+    fee_rate_bps: _OptionalDecimalFromNumberOrString = None
     matched_at: EpochSecondsTimestamp = Field(
         default=None, validation_alias=AliasChoices("match_time", "matchtime")
     )

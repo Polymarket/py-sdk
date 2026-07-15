@@ -222,3 +222,32 @@ def test_parse_user_events_drops_malformed() -> None:
     events, dropped = parse_user_events([_ORDER_PLACEMENT, {"bogus": True}, _TRADE])
     assert dropped == 1
     assert len(events) == 2
+
+
+def test_trade_empty_string_fee_rate_bps_parsed_as_none() -> None:
+    # The user channel sends "" when a trade carries no fee.
+    event = parse_user_event({**_TRADE, "fee_rate_bps": ""})
+    assert isinstance(event, UserTradeEvent)
+    assert event.payload.fee_rate_bps is None
+
+
+def test_trade_maker_order_empty_string_fee_rate_bps_parsed_as_none() -> None:
+    maker_order = {**_TRADE["maker_orders"][0], "fee_rate_bps": ""}
+    event = parse_user_event({**_TRADE, "maker_orders": [maker_order]})
+    assert isinstance(event, UserTradeEvent)
+    assert event.payload.maker_orders is not None
+    assert event.payload.maker_orders[0].fee_rate_bps is None
+
+
+def test_trade_fee_rate_bps_still_parsed_when_present() -> None:
+    from decimal import Decimal
+
+    event = parse_user_event(_TRADE)
+    assert isinstance(event, UserTradeEvent)
+    assert event.payload.fee_rate_bps == Decimal("25")
+
+
+def test_trade_empty_string_required_decimal_rejected() -> None:
+    # "" only means absent for optional decimals; required ones stay strict.
+    with pytest.raises(ValidationError):
+        parse_user_event({**_TRADE, "price": ""})

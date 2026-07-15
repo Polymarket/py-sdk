@@ -30,6 +30,18 @@ def _coerce_decimalish(value: object) -> object:
     raise ValueError(msg)
 
 
+def _coerce_optional_decimalish(value: object) -> object:
+    """Coerce a decimal-ish value, treating an empty string as absent.
+
+    Streaming messages use ``""`` for optional decimal fields that have no
+    value (for example ``fee_rate_bps`` on a trade with no fee), so an empty
+    string maps to ``None`` instead of failing decimal parsing.
+    """
+    if value == "":
+        return None
+    return _coerce_decimalish(value)
+
+
 def _parse_epoch_ms_timestamp(value: object) -> object:
     if value is None or value == "":
         return None
@@ -192,9 +204,16 @@ def _parse_expiration_timestamp(value: object) -> object:
 if TYPE_CHECKING:
     _DecimalFromString = Decimal
     _DecimalFromNumberOrString = Decimal
+    _OptionalDecimalFromNumberOrString = Decimal | None
 else:
     _DecimalFromString = Annotated[Decimal, BeforeValidator(_require_decimal_string)]
     _DecimalFromNumberOrString = Annotated[Decimal, BeforeValidator(_coerce_decimalish)]
+    # The validator must wrap the whole optional annotation: on a
+    # ``Decimal | None`` union, a BeforeValidator attached only to the Decimal
+    # member cannot map "" to None (the None branch still sees the original "").
+    _OptionalDecimalFromNumberOrString = Annotated[
+        Decimal | None, BeforeValidator(_coerce_optional_decimalish)
+    ]
 
 EpochMsTimestamp = Annotated[datetime | None, BeforeValidator(_parse_epoch_ms_timestamp)]
 EpochMsOrIsoTimestamp = Annotated[
