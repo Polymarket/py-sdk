@@ -115,7 +115,7 @@ class SportsStreamManager:
         return await self._connection.connect(
             url=self._url,
             on_message=self._on_message,
-            on_close=self._on_socket_close,
+            on_connection_lost=self._on_socket_connection_lost,
             on_error=self._on_socket_error,
         )
 
@@ -137,7 +137,7 @@ class SportsStreamManager:
             return
         self._registry.dispatch(event)
 
-    def _on_socket_close(self) -> None:
+    def _on_socket_connection_lost(self, code: int, reason: str) -> None:
         if self._closed:
             return
         self._scheduler.schedule(

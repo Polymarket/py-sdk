@@ -17,6 +17,20 @@ class TransportError(PolymarketError):
     """Error raised when a network or runtime transport failure occurs."""
 
 
+class ConnectionLostError(PolymarketError):
+    """Error raised when a live connection ends without the SDK requesting it.
+
+    ``code`` is the WebSocket close code (RFC 6455) and ``reason`` the close
+    reason provided by the peer, empty when none was sent. Operations in
+    flight when the connection was lost have an indeterminate outcome.
+    """
+
+    def __init__(self, message: str, *, code: int, reason: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.reason = reason
+
+
 class RequestRejectedError(PolymarketError):
     """Error raised when a request receives a non-success status."""
 

@@ -4,6 +4,7 @@ from polymarket.clients import AsyncPublicClient, AsyncSecureClient, PublicClien
 from polymarket.environments import PRODUCTION, Environment
 from polymarket.errors import (
     CancelledSigningError,
+    ConnectionLostError,
     InsufficientAllowanceError,
     InsufficientLiquidityError,
     PolymarketError,
@@ -223,6 +224,7 @@ __all__ = [
     "BuilderVolumeTimePeriod",
     "CancelOrdersResponse",
     "CancelledSigningError",
+    "ConnectionLostError",
     "ClobTrade",
     "ClosedPosition",
     "ComboActivity",
