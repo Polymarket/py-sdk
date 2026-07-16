@@ -17,6 +17,7 @@ from polymarket import (
     PriceRequest,
     PublicClient,
     SecureClient,
+    TokenId,
 )
 from polymarket._internal.context import SyncSecureClientContext
 from polymarket.clients._transport import SyncTransport
@@ -142,7 +143,7 @@ class TestGetPrices:
                 ]
             )
 
-        assert result["tok-1"]["BUY"] == Decimal("0.50")
+        assert result[TokenId("tok-1")]["BUY"] == Decimal("0.50")
         assert urlparse(str(captured[0].url)).path == "/prices"
         assert captured[0].method == "POST"
 

@@ -234,7 +234,7 @@ from polymarket.models.rtds_events import (
     RtdsEvent,
 )
 from polymarket.models.sports_events import SportsEvent
-from polymarket.models.types import CtfConditionId
+from polymarket.models.types import CtfConditionId, TokenId
 from polymarket.pagination import AsyncPaginator, Page
 from polymarket.streams._specs import (
     CommentsSpec,
@@ -1787,7 +1787,7 @@ class AsyncSecureClient:
         path, params = _clob_actions.build_midpoint_request(token_id=token_id)
         return _clob_actions.parse_midpoint(await self._ctx.clob.get_json(path, params=params))
 
-    async def get_midpoints(self, *, token_ids: Sequence[str]) -> dict[str, Decimal]:
+    async def get_midpoints(self, *, token_ids: Sequence[str]) -> dict[TokenId, Decimal]:
         """Get midpoint prices for multiple tokens."""
         path, body = _clob_actions.build_midpoints_request(token_ids=token_ids)
         return _clob_actions.parse_midpoints(await self._ctx.clob.post_json(path, json=body))
@@ -1799,7 +1799,7 @@ class AsyncSecureClient:
 
     async def get_prices(
         self, *, requests: Sequence[PriceRequest]
-    ) -> dict[str, dict[OrderSide, Decimal]]:
+    ) -> dict[TokenId, dict[OrderSide, Decimal]]:
         """Get executable prices for multiple token-side requests."""
         path, body = _clob_actions.build_prices_request(requests=requests)
         return _clob_actions.parse_prices(await self._ctx.clob.post_json(path, json=body))
@@ -1819,7 +1819,7 @@ class AsyncSecureClient:
         path, params = _clob_actions.build_spread_request(token_id=token_id)
         return _clob_actions.parse_spread(await self._ctx.clob.get_json(path, params=params))
 
-    async def get_spreads(self, *, token_ids: Sequence[str]) -> dict[str, Decimal]:
+    async def get_spreads(self, *, token_ids: Sequence[str]) -> dict[TokenId, Decimal]:
         """Get bid-ask spreads for multiple tokens."""
         path, body = _clob_actions.build_spreads_request(token_ids=token_ids)
         return _clob_actions.parse_spreads(await self._ctx.clob.post_json(path, json=body))
