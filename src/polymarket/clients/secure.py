@@ -192,7 +192,7 @@ from polymarket.models.data import (
     TradedMarketCount,
     TraderLeaderboardEntry,
 )
-from polymarket.models.types import CtfConditionId
+from polymarket.models.types import CtfConditionId, TokenId
 from polymarket.pagination import Page, Paginator
 from polymarket.transactions import (
     MergePositionRequest,
@@ -1339,7 +1339,7 @@ class SecureClient:
         path, params = _clob_actions.build_midpoint_request(token_id=token_id)
         return _clob_actions.parse_midpoint(self._ctx.clob.get_json(path, params=params))
 
-    def get_midpoints(self, *, token_ids: Sequence[str]) -> dict[str, Decimal]:
+    def get_midpoints(self, *, token_ids: Sequence[str]) -> dict[TokenId, Decimal]:
         """Get midpoint prices for multiple tokens."""
         path, body = _clob_actions.build_midpoints_request(token_ids=token_ids)
         return _clob_actions.parse_midpoints(self._ctx.clob.post_json(path, json=body))
@@ -1351,7 +1351,7 @@ class SecureClient:
 
     def get_prices(
         self, *, requests: Sequence[PriceRequest]
-    ) -> dict[str, dict[OrderSide, Decimal]]:
+    ) -> dict[TokenId, dict[OrderSide, Decimal]]:
         """Get executable prices for multiple token-side requests."""
         path, body = _clob_actions.build_prices_request(requests=requests)
         return _clob_actions.parse_prices(self._ctx.clob.post_json(path, json=body))
@@ -1371,7 +1371,7 @@ class SecureClient:
         path, params = _clob_actions.build_spread_request(token_id=token_id)
         return _clob_actions.parse_spread(self._ctx.clob.get_json(path, params=params))
 
-    def get_spreads(self, *, token_ids: Sequence[str]) -> dict[str, Decimal]:
+    def get_spreads(self, *, token_ids: Sequence[str]) -> dict[TokenId, Decimal]:
         """Get bid-ask spreads for multiple tokens."""
         path, body = _clob_actions.build_spreads_request(token_ids=token_ids)
         return _clob_actions.parse_spreads(self._ctx.clob.post_json(path, json=body))
