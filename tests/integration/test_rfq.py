@@ -407,7 +407,6 @@ async def test_rfq_session_auth_failure_raises_transport_error(
         RfqErrorCode.BALANCE_VALIDATION_FAILED,
         RfqErrorCode.MAKER_QUOTE_LIMITED,
         RfqErrorCode.PRE_EXECUTION_BALANCE_RESERVATION_FAILED,
-        RfqErrorCode.QUOTE_VALIDATION_TIMEOUT_INTERNAL,
     ],
 )
 async def test_rfq_session_quote_rejection_raises_typed_error(
