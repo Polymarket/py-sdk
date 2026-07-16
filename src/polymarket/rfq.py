@@ -117,7 +117,11 @@ class RfqConfirmationAck:
 class RfqExecutionUpdateEvent:
     type: Literal["execution_update"]
     rfq_id: RfqId
-    status: RfqExecutionStatus
+    status: RfqExecutionStatus | str
+    """Execution status. Known values are enumerated in
+    :class:`RfqExecutionStatus`; newly introduced statuses flow through as
+    plain strings so they can be handled before a client release that
+    enumerates them."""
     tx_hash: TransactionHash | None = None
 
 

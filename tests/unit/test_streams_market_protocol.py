@@ -190,9 +190,9 @@ def test_parse_events_handles_single_object() -> None:
         "bids": [],
         "asks": [],
     }
-    events, dropped = parse_events(raw)
+    events, unknown = parse_events(raw)
     assert len(events) == 1
-    assert dropped == 0
+    assert unknown == []
 
 
 def test_parse_events_handles_array() -> None:
@@ -200,16 +200,16 @@ def test_parse_events_handles_array() -> None:
         {"event_type": "book", "market": "m", "asset_id": "a", "bids": [], "asks": []},
         {"event_type": "book", "market": "m", "asset_id": "b", "bids": [], "asks": []},
     ]
-    events, dropped = parse_events(raw)
+    events, unknown = parse_events(raw)
     assert len(events) == 2
-    assert dropped == 0
+    assert unknown == []
 
 
-def test_parse_events_drops_malformed_entries_and_counts() -> None:
+def test_parse_events_returns_unrecognized_entries_raw() -> None:
     raw: list[dict[str, Any]] = [
         {"event_type": "book", "market": "m", "asset_id": "a", "bids": [], "asks": []},
         {"event_type": "unknown", "garbage": True},
     ]
-    events, dropped = parse_events(raw)
+    events, unknown = parse_events(raw)
     assert len(events) == 1
-    assert dropped == 1
+    assert unknown == [{"event_type": "unknown", "garbage": True}]

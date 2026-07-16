@@ -11,6 +11,7 @@ from polymarket._internal.streams.handle import AsyncSubscriptionHandle
 from polymarket._internal.streams.reconnect import ReconnectScheduler
 from polymarket._internal.streams.registry import SubscriptionRegistry
 from polymarket._internal.streams.sports.heartbeat import SportsWebSocketHeartbeat
+from polymarket._internal.streams.unknown import OnUnknownFrame, report_unknown_frame
 from polymarket._internal.ws.connection import AsyncWebSocketConnection, ConnectResult
 from polymarket._internal.ws.heartbeat import Heartbeat
 from polymarket.errors import TransportError
@@ -44,10 +45,12 @@ class SportsStreamManager:
         logger: logging.Logger | None = None,
         heartbeat: Heartbeat | None = None,
         queue_size: int = DEFAULT_QUEUE_SIZE,
+        on_unknown_frame: OnUnknownFrame | None = None,
     ) -> None:
         if queue_size <= 0:
             raise ValueError("queue_size must be positive")
         self._url = url
+        self._on_unknown_frame = on_unknown_frame
         self._logger = logger or logging.getLogger("polymarket.streams.sports")
         self._heartbeat: Heartbeat = heartbeat or SportsWebSocketHeartbeat()
         self._queue_size = queue_size
@@ -133,7 +136,7 @@ class SportsStreamManager:
             event = parse_sports_event(raw)
         except ValidationError:
             self._dropped_events += 1
-            self._logger.debug("dropped malformed sports event")
+            report_unknown_frame(self._on_unknown_frame, self._logger, frame=raw, stream="sports")
             return
         self._registry.dispatch(event)
 

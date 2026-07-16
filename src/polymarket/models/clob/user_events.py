@@ -20,10 +20,16 @@ def _uppercase_string(value: object) -> object:
 _OrderSide = Annotated[Literal["BUY", "SELL"], BeforeValidator(_uppercase_string)]
 
 
-_OrderEventType = Literal["PLACEMENT", "UPDATE", "CANCELLATION"]
+# Statuses and order event types evolve independently of released clients:
+# values not yet enumerated in the Known* aliases still parse and flow
+# through as plain strings.
+
+KnownOrderEventType = Literal["PLACEMENT", "UPDATE", "CANCELLATION"]
+"""Order event types known to this release; new values arrive as plain strings."""
 
 
-_OrderStatus = Literal["LIVE", "MATCHED", "DELAYED", "UNMATCHED", "CANCELED"]
+KnownOrderStatus = Literal["LIVE", "MATCHED", "DELAYED", "UNMATCHED", "CANCELED"]
+"""Order statuses known to this release; new values arrive as plain strings."""
 
 
 _OrderType = Literal["GTC", "FOK", "IOC", "GTD", "FAK"]
@@ -32,7 +38,7 @@ _OrderType = Literal["GTC", "FOK", "IOC", "GTD", "FAK"]
 _TraderSide = Annotated[Literal["TAKER", "MAKER"], BeforeValidator(_uppercase_string)]
 
 
-_TradeStatus = Literal[
+KnownTradeStatus = Literal[
     "MATCHED",
     "MATCHED_NOT_BROADCASTED",
     "MINED",
@@ -40,6 +46,7 @@ _TradeStatus = Literal[
     "RETRYING",
     "FAILED",
 ]
+"""Trade statuses known to this release; new values arrive as plain strings."""
 
 
 def _normalize_trade_status(value: object) -> object:
@@ -48,7 +55,7 @@ def _normalize_trade_status(value: object) -> object:
     return value
 
 
-_TradeStatusValidator = Annotated[_TradeStatus, BeforeValidator(_normalize_trade_status)]
+_TradeStatusValidator = Annotated[str, BeforeValidator(_normalize_trade_status)]
 
 
 class UserOrderPayload(BaseModel):
@@ -60,12 +67,12 @@ class UserOrderPayload(BaseModel):
     original_size: _DecimalFromNumberOrString
     size_matched: _DecimalFromNumberOrString
     price: _DecimalFromNumberOrString
-    order_event_type: _OrderEventType = Field(validation_alias="type")
+    order_event_type: str = Field(validation_alias="type")
     timestamp: EpochSecondsOrMsTimestamp = None
     created_at: EpochSecondsTimestamp = None
     expires_at: ExpirationTimestamp = Field(default=None, validation_alias="expiration")
     order_type: _OrderType | None = None
-    status: _OrderStatus | None = None
+    status: str | None = None
     maker_address: str | None = None
     order_owner: str | None = None
     associate_trades: tuple[str, ...] | None = None
@@ -148,19 +155,27 @@ def parse_user_event(raw: object) -> UserEvent:
     return _USER_EVENT_ADAPTER.validate_python(_normalize_to_envelope(raw))
 
 
-def parse_user_events(raw: object) -> tuple[list[UserEvent], int]:
+def parse_user_events(raw: object) -> tuple[list[UserEvent], list[object]]:
+    """Parse a decoded JSON value (object or array) into UserEvents.
+
+    Returns ``(events, unknown_frames)``; entries the SDK does not recognize
+    are returned raw so callers can surface them.
+    """
     items: list[object] = list(cast(list[object], raw)) if isinstance(raw, list) else [raw]
     parsed: list[UserEvent] = []
-    dropped = 0
+    unknown: list[object] = []
     for item in items:
         try:
             parsed.append(parse_user_event(item))
         except (ValueError, ValidationError):
-            dropped += 1
-    return parsed, dropped
+            unknown.append(item)
+    return parsed, unknown
 
 
 __all__ = [
+    "KnownOrderEventType",
+    "KnownOrderStatus",
+    "KnownTradeStatus",
     "UserEvent",
     "UserOrderEvent",
     "UserOrderPayload",

@@ -31,6 +31,7 @@ from polymarket._internal.actions.perps.trading import (
 )
 from polymarket._internal.streams.perps.heartbeat import PerpsWebSocketHeartbeat
 from polymarket._internal.streams.reconnect import ReconnectScheduler
+from polymarket._internal.streams.unknown import OnUnknownFrame, report_unknown_frame
 from polymarket._internal.ws.connection import AsyncWebSocketConnection
 from polymarket.clients._transport import AsyncTransport
 from polymarket.errors import (
@@ -142,12 +143,14 @@ class PerpsSession:
         ws_url: str,
         logger: logging.Logger | None = None,
         on_close: Callable[[PerpsSession], None] | None = None,
+        on_unknown_frame: OnUnknownFrame | None = None,
     ) -> None:
         self._chain_id = chain_id
         self._credentials = credentials
         self._ws_url = ws_url
         self._logger = logger or logging.getLogger("polymarket.perps.session")
         self._on_session_close = on_close
+        self._on_unknown_frame = on_unknown_frame
         self._api = AsyncTransport(
             base_url=rest_url,
             logger=logger,
@@ -856,9 +859,14 @@ class PerpsSession:
         try:
             event = parse_perps_session_event(raw)
         except Exception:
-            self._logger.debug("dropped malformed perps session event", exc_info=True)
-            return
+            event = None
         if event is None:
+            # Servers may introduce frame types ahead of a client release
+            # that understands them. Surface the frame and keep the session
+            # open.
+            report_unknown_frame(
+                self._on_unknown_frame, self._logger, frame=raw, stream="perps_session"
+            )
             return
         self._push_sequence_gap_if_needed(event)
         self._emit_event(event)

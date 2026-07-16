@@ -91,17 +91,16 @@ def test_ticker_event_parses_compact_payload() -> None:
 
 
 def test_non_event_frames_are_ignored_not_dropped() -> None:
-    events, dropped = parse_perps_market_events({"id": 0, "data": {"status": "ok"}})
+    events, unknown = parse_perps_market_events({"id": 0, "data": {"status": "ok"}})
     assert events == []
-    assert dropped == 0
+    assert unknown == []
 
 
-def test_malformed_channel_frames_count_as_dropped() -> None:
-    events, dropped = parse_perps_market_events(
-        {"ch": "book::7", "ts": 1751500000000, "sq": 1, "data": {"bogus": True}}
-    )
+def test_malformed_channel_frames_are_returned_raw() -> None:
+    frame = {"ch": "book::7", "ts": 1751500000000, "sq": 1, "data": {"bogus": True}}
+    events, unknown = parse_perps_market_events(frame)
     assert events == []
-    assert dropped == 1
+    assert unknown == [frame]
 
 
 def test_session_order_event_normalizes_compact_order() -> None:
@@ -175,3 +174,16 @@ def test_session_deposit_event_normalizes_placeholder_hash() -> None:
 )
 def test_session_parser_returns_none_for_non_events(frame: object) -> None:
     assert parse_perps_session_event(frame) is None
+
+
+def test_session_tpsl_statuses_introduced_after_this_release_pass_through() -> None:
+    event = parse_perps_session_event(
+        {
+            "ch": "tpsl::12",
+            "ts": 1751500000000,
+            "sq": 1,
+            "data": {"oid": 44, "st": "future_status"},
+        }
+    )
+    assert isinstance(event, PerpsTpSlEvent)
+    assert event.payload.status == "future_status"

@@ -211,16 +211,16 @@ def test_pre_enveloped_input_passes_through() -> None:
 
 
 def test_parse_user_events_batches_arrays() -> None:
-    events, dropped = parse_user_events([_ORDER_PLACEMENT, _TRADE])
-    assert dropped == 0
+    events, unknown = parse_user_events([_ORDER_PLACEMENT, _TRADE])
+    assert unknown == []
     assert len(events) == 2
     assert isinstance(events[0], UserOrderEvent)
     assert isinstance(events[1], UserTradeEvent)
 
 
 def test_parse_user_events_drops_malformed() -> None:
-    events, dropped = parse_user_events([_ORDER_PLACEMENT, {"bogus": True}, _TRADE])
-    assert dropped == 1
+    events, unknown = parse_user_events([_ORDER_PLACEMENT, {"bogus": True}, _TRADE])
+    assert unknown == [{"bogus": True}]
     assert len(events) == 2
 
 
@@ -251,3 +251,18 @@ def test_trade_empty_string_required_decimal_rejected() -> None:
     # "" only means absent for optional decimals; required ones stay strict.
     with pytest.raises(ValidationError):
         parse_user_event({**_TRADE, "price": ""})
+
+
+def test_trade_statuses_introduced_after_this_release_pass_through() -> None:
+    event = parse_user_event({**_TRADE, "status": "TRADE_STATUS_FUTURE_STATUS"})
+    assert isinstance(event, UserTradeEvent)
+    assert event.payload.status == "FUTURE_STATUS"
+
+
+def test_order_statuses_and_event_types_introduced_after_this_release_pass_through() -> None:
+    event = parse_user_event(
+        {**_ORDER_PLACEMENT, "status": "FUTURE_STATUS", "type": "FUTURE_EVENT_TYPE"}
+    )
+    assert isinstance(event, UserOrderEvent)
+    assert event.payload.status == "FUTURE_STATUS"
+    assert event.payload.order_event_type == "FUTURE_EVENT_TYPE"

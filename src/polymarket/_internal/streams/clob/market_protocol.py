@@ -108,17 +108,18 @@ def match_for(sub: MarketSubscription) -> Callable[[MarketEvent], bool]:
     return matches
 
 
-def parse_events(raw: object) -> tuple[list[MarketEvent], int]:
+def parse_events(raw: object) -> tuple[list[MarketEvent], list[object]]:
     """Parse a decoded JSON value (object or array) into MarketEvents.
 
-    Returns ``(events, dropped_count)``; malformed entries are dropped.
+    Returns ``(events, unknown_frames)``; entries the SDK does not recognize
+    are returned raw so callers can surface them.
     """
     items: list[object] = list(cast(list[object], raw)) if isinstance(raw, list) else [raw]
     parsed: list[MarketEvent] = []
-    dropped = 0
+    unknown: list[object] = []
     for item in items:
         try:
             parsed.append(parse_market_event(item))
         except ValidationError:
-            dropped += 1
-    return parsed, dropped
+            unknown.append(item)
+    return parsed, unknown

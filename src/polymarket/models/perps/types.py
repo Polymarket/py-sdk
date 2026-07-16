@@ -14,15 +14,28 @@ PerpsSide: TypeAlias = Literal["long", "short"]
 PerpsTimeInForce: TypeAlias = Literal["gtc", "ioc", "fok"]
 PerpsTpSlKind: TypeAlias = Literal["tp", "sl"]
 PerpsTpSlScope: TypeAlias = Literal["order", "position"]
-PerpsDepositStatus: TypeAlias = Literal["pending", "confirmed", "removed"]
-PerpsWithdrawalStatus: TypeAlias = Literal["pending", "confirmed", "removed"]
 PerpsKlineInterval: TypeAlias = Literal["1s", "1m", "5m", "15m", "1h", "4h", "1d", "1w"]
 PerpsStreamCandleInterval: TypeAlias = Literal["1m", "5m", "15m", "1h", "4h", "1d", "1w"]
 PerpsPnlInterval: TypeAlias = Literal["1h", "4h", "1d", "1w"]
 PerpsBookDepth: TypeAlias = Literal[10, 100, 500, 1000]
-PerpsTpSlLifecycleStatus: TypeAlias = Literal["untriggered", "armed", "cancelled", "expired"]
 
-PerpsOrderStatus: TypeAlias = Literal[
+# Status vocabularies evolve independently of released clients: values not
+# yet enumerated in the Known* aliases still parse and flow through as plain
+# strings, so the status type aliases stay ``str``.
+
+KnownPerpsDepositStatus = Literal["pending", "confirmed", "removed"]
+"""Deposit statuses known to this release; new values arrive as plain strings."""
+PerpsDepositStatus: TypeAlias = str
+
+KnownPerpsWithdrawalStatus = Literal["pending", "confirmed", "removed"]
+"""Withdrawal statuses known to this release; new values arrive as plain strings."""
+PerpsWithdrawalStatus: TypeAlias = str
+
+KnownPerpsTpSlLifecycleStatus = Literal["untriggered", "armed", "cancelled", "expired"]
+"""TP/SL statuses known to this release; new values arrive as plain strings."""
+PerpsTpSlLifecycleStatus: TypeAlias = str
+
+KnownPerpsOrderStatus = Literal[
     "accepted",
     "open",
     "partial",
@@ -49,8 +62,14 @@ PerpsOrderStatus: TypeAlias = Literal[
     "reduce_only_invalid_at_trigger",
     "expired",
 ]
+"""Order statuses known to this release; new values arrive as plain strings."""
+PerpsOrderStatus: TypeAlias = str
 
 __all__ = [
+    "KnownPerpsDepositStatus",
+    "KnownPerpsOrderStatus",
+    "KnownPerpsTpSlLifecycleStatus",
+    "KnownPerpsWithdrawalStatus",
     "PerpsBookDepth",
     "PerpsClientOrderId",
     "PerpsDepositStatus",

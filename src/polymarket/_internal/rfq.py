@@ -19,6 +19,7 @@ from polymarket._internal.actions.orders.typed_data import (
     build_order_typed_data,
 )
 from polymarket._internal.actions.orders.types import BYTES32_ZERO, UnsignedOrder
+from polymarket._internal.streams.unknown import OnUnknownFrame, report_unknown_frame
 from polymarket._internal.wallet import WalletType, signature_type_for
 from polymarket._internal.ws.connection import AsyncWebSocketConnection
 from polymarket.errors import (
@@ -159,6 +160,7 @@ class RfqQuoterSession:
         wallet: EvmAddress,
         wallet_type: WalletType,
         on_close: Callable[[], None] | None = None,
+        on_unknown_frame: OnUnknownFrame | None = None,
     ) -> None:
         self._chain_id = chain_id
         self._credentials = credentials
@@ -166,6 +168,7 @@ class RfqQuoterSession:
         self._headers = headers
         self._logger = logger or logging.getLogger("polymarket.rfq")
         self._on_session_close = on_close
+        self._on_unknown_frame = on_unknown_frame
         self._signer = signer
         self._url = url
         self._wallet = wallet
@@ -397,11 +400,14 @@ class RfqQuoterSession:
         }
 
     def _on_message(self, raw: object) -> None:
+        # Alias kept un-narrowed so unknown-frame reports keep the full frame.
+        frame: object = raw
+        message = cast(dict[str, object], raw) if isinstance(raw, dict) else None
+        message_type = message.get("type") if message is not None else None
+        if message is None or not isinstance(message_type, str):
+            self._report_unknown_frame(frame)
+            return
         try:
-            if not isinstance(raw, dict):
-                raise UnexpectedResponseError("Invalid RFQ quoter message.")
-            message = cast(dict[str, object], raw)
-            message_type = _expect_str(message, "type")
             if message_type == "auth":
                 self._handle_auth(message)
             elif message_type == "RFQ_REQUEST":
@@ -432,7 +438,7 @@ class RfqQuoterSession:
                     RfqExecutionUpdateEvent(
                         type="execution_update",
                         rfq_id=_expect_str(message, "rfq_id"),
-                        status=RfqExecutionStatus(_expect_str(message, "status")),
+                        status=_parse_execution_status(_expect_str(message, "status")),
                         tx_hash=TransactionHash(tx_hash) if isinstance(tx_hash, str) else None,
                     )
                 )
@@ -440,9 +446,23 @@ class RfqQuoterSession:
                 self._push(_parse_trade(message))
             elif message_type == "RFQ_ERROR":
                 self._handle_rfq_error(message)
+            else:
+                # Servers may introduce message types ahead of a client
+                # release that understands them. Surface the frame and keep
+                # the session open.
+                self._report_unknown_frame(frame)
+        except UnexpectedResponseError:
+            # A recognized message type with an unreadable payload is treated
+            # like an unknown frame; callers waiting on an unreadable
+            # acknowledgement fail through their acknowledgement timeout
+            # instead of the session ending.
+            self._report_unknown_frame(frame)
         except BaseException as error:
-            self._logger.warning("invalid RFQ quoter message: %r", error)
+            self._logger.warning("RFQ quoter protocol failure: %r", error)
             self._fail(error)
+
+    def _report_unknown_frame(self, frame: object) -> None:
+        report_unknown_frame(self._on_unknown_frame, self._logger, frame=frame, stream="rfq_quoter")
 
     def _handle_auth(self, raw: dict[str, object]) -> None:
         if raw.get("success") is True:
@@ -782,6 +802,15 @@ def _expect_str_list(raw: dict[str, object], field: str) -> tuple[str, ...]:
     if not all(isinstance(item, str) for item in items):
         raise UnexpectedResponseError(f"Expected RFQ {field} to be a string list.")
     return tuple(cast(list[str], items))
+
+
+def _parse_execution_status(value: str) -> RfqExecutionStatus | str:
+    # Execution statuses evolve independently of released clients; statuses
+    # not yet enumerated in RfqExecutionStatus pass through as plain strings.
+    try:
+        return RfqExecutionStatus(value)
+    except ValueError:
+        return value
 
 
 def _parse_error_code(value: object) -> RfqErrorCode | str:

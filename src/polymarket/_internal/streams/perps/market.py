@@ -16,6 +16,7 @@ from polymarket._internal.streams.perps.market_protocol import (
 )
 from polymarket._internal.streams.reconnect import ReconnectScheduler
 from polymarket._internal.streams.registry import SubscriptionRegistry
+from polymarket._internal.streams.unknown import OnUnknownFrame, report_unknown_frame
 from polymarket._internal.ws.connection import AsyncWebSocketConnection, ConnectResult
 from polymarket._internal.ws.heartbeat import Heartbeat
 from polymarket.errors import TransportError
@@ -36,10 +37,12 @@ class PerpsMarketStreamManager:
         logger: logging.Logger | None = None,
         heartbeat: Heartbeat | None = None,
         queue_size: int = DEFAULT_QUEUE_SIZE,
+        on_unknown_frame: OnUnknownFrame | None = None,
     ) -> None:
         if queue_size <= 0:
             raise ValueError("queue_size must be positive")
         self._url = url
+        self._on_unknown_frame = on_unknown_frame
         self._logger = logger or logging.getLogger("polymarket.streams.perps.market")
         self._heartbeat: Heartbeat = heartbeat or PerpsWebSocketHeartbeat()
         self._queue_size = queue_size
@@ -164,10 +167,12 @@ class PerpsMarketStreamManager:
             await self._send_channel_frames(added_channels, removed_channels)
 
     def _on_message(self, raw: object) -> None:
-        events, dropped = parse_events(raw)
-        if dropped:
-            self._dropped_events += dropped
-            self._logger.debug("dropped %d malformed perps market event(s)", dropped)
+        events, unknown_frames = parse_events(raw)
+        for frame in unknown_frames:
+            self._dropped_events += 1
+            report_unknown_frame(
+                self._on_unknown_frame, self._logger, frame=frame, stream="perps_market"
+            )
         for event in events:
             self._registry.dispatch(event)
 
