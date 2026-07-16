@@ -40,14 +40,14 @@ _SESSION_CHANNEL_TYPES: dict[str, str] = {
 
 
 class PerpsTradeEvent(BaseModel):
-    """A public trade printed on a subscribed instrument."""
+    """Public trades printed in one update for a subscribed instrument."""
 
     topic: Literal["perps.trades"] = "perps.trades"
     type: Literal["trade"]
     channel: str
     timestamp: PerpsTimestamp
     sequence: int
-    payload: PerpsTrade
+    payload: list[PerpsTrade]
 
 
 class PerpsBboEvent(BaseModel):

@@ -3,6 +3,7 @@ from typing import Any
 
 from polymarket.models.perps.events import (
     PerpsMarketEvent,
+    PerpsTradeEvent,
     parse_perps_market_events,
 )
 from polymarket.streams._specs import (
@@ -76,6 +77,13 @@ def diff_channels(before: PerpsServerState, after: PerpsServerState) -> tuple[li
 
 
 def match_for(spec: PerpsSpec) -> Callable[[PerpsMarketEvent], bool]:
+    if isinstance(spec, PerpsTradesSpec):
+        channel = channel_for(spec)
+
+        def matches_trades(event: PerpsMarketEvent) -> bool:
+            return event.topic == "perps.trades" and event.channel == channel
+
+        return matches_trades
     if isinstance(spec, PerpsCandlesSpec):
         instrument_id = spec.instrument_id
         interval = spec.interval
@@ -93,8 +101,10 @@ def match_for(spec: PerpsSpec) -> Callable[[PerpsMarketEvent], bool]:
         optional_id = spec.instrument_id
 
         def matches_optional(event: PerpsMarketEvent) -> bool:
-            return event.topic == topic and (
-                optional_id is None or event.payload.instrument_id == optional_id
+            return (
+                not isinstance(event, PerpsTradeEvent)
+                and event.topic == topic
+                and (optional_id is None or event.payload.instrument_id == optional_id)
             )
 
         return matches_optional
@@ -102,7 +112,11 @@ def match_for(spec: PerpsSpec) -> Callable[[PerpsMarketEvent], bool]:
     instrument_id = spec.instrument_id
 
     def matches(event: PerpsMarketEvent) -> bool:
-        return event.topic == topic and event.payload.instrument_id == instrument_id
+        return (
+            not isinstance(event, PerpsTradeEvent)
+            and event.topic == topic
+            and event.payload.instrument_id == instrument_id
+        )
 
     return matches
 
