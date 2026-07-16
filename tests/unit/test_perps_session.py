@@ -17,7 +17,7 @@ from polymarket._internal.perps_session import PerpsSession
 from polymarket.clients._transport import AsyncTransport
 from polymarket.errors import RequestRejectedError, TransportError
 from polymarket.models.perps.credentials import PerpsCredentials
-from polymarket.models.perps.events import PerpsOrderEvent, PerpsResyncEvent
+from polymarket.models.perps.events import PerpsFillEvent, PerpsOrderEvent, PerpsResyncEvent
 
 Handler = Callable[[ServerConnection], Awaitable[None]]
 
@@ -83,6 +83,48 @@ def _order_update(
         },
     }
     return update
+
+
+def _fills_update(*, sequence: int = 6) -> dict[str, Any]:
+    return {
+        "ch": "fills",
+        "ts": 1751500000002,
+        "sq": sequence,
+        "data": [
+            {
+                "tid": 9,
+                "oid": 77,
+                "iid": 1,
+                "side": "long",
+                "p": "0.5",
+                "qty": "1",
+                "taker": True,
+                "fee": "0.01",
+                "fea": "USDC",
+                "psz": "0",
+                "pep": "0",
+                "pnl": "0",
+                "liq": False,
+                "ts": 1751500000000,
+            },
+            {
+                "tid": 10,
+                "oid": 78,
+                "iid": 1,
+                "side": "short",
+                "p": "0.6",
+                "qty": "2",
+                "taker": False,
+                "fee": "0.02",
+                "fea": "USDC",
+                "psz": "1",
+                "pep": "0.5",
+                "pnl": "0.2",
+                "liq": False,
+                "ts": 1751500000001,
+            },
+        ],
+    }
 
 
 @asynccontextmanager
@@ -230,6 +272,27 @@ def test_batched_session_updates_feed_queue_and_order_waiters() -> None:
             assert first.payload.id == 76
             assert isinstance(second, PerpsOrderEvent)
             assert second.payload.id == 77
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+
+
+def test_batched_fill_frame_yields_one_event_with_frame_sequence() -> None:
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        await ws.send(json.dumps(_fills_update()))
+        with contextlib.suppress(Exception):
+            async for _ in ws:
+                pass
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            event = await asyncio.wait_for(session.__anext__(), timeout=5.0)
+            assert isinstance(event, PerpsFillEvent)
+            assert event.channel == "fills"
+            assert event.sequence == 6
+            assert [fill.trade_id for fill in event.payload] == [9, 10]
+            with pytest.raises(TimeoutError):
+                await asyncio.wait_for(session.__anext__(), timeout=0.1)
 
     asyncio.run(asyncio.wait_for(run(), timeout=10.0))
 
