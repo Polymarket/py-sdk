@@ -228,6 +228,8 @@ def _resolve_protected_market_price(price: Decimal, tick_size: Decimal, *, field
             f"{field} must conform to tick size {tick_size} with at most "
             f"{config.price} decimal places."
         )
+    if price % tick_size != 0:
+        raise UserInputError(f"{field} {price} must be a multiple of tick size {tick_size}.")
     return price
 
 

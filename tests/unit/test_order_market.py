@@ -9,6 +9,7 @@ import pytest
 
 from polymarket import ApiKeyCreds, AsyncSecureClient
 from polymarket._internal.actions.orders.market import (
+    _resolve_protected_market_price,
     adjust_buy_amount_for_fees,
     prepare_market_order_draft,
     validate_market_order_params,
@@ -128,6 +129,38 @@ def test_validate_market_order_params_accepts_fok() -> None:
         token_id="8501497", side="BUY", amount=Decimal(10), order_type="FOK"
     )
     assert params.order_type == "FOK"
+
+
+@pytest.mark.parametrize(
+    ("price", "tick"),
+    [
+        (Decimal("0.007"), Decimal("0.005")),
+        (Decimal("0.0033"), Decimal("0.0025")),
+    ],
+)
+def test_resolve_protected_market_price_rejects_off_grid_price(
+    price: Decimal, tick: Decimal
+) -> None:
+    # Protected prices within the tick's decimal allowance but off the tick
+    # grid would be signed and then rejected by the exchange; they must fail
+    # client-side.
+    with pytest.raises(UserInputError, match="multiple of tick size"):
+        _resolve_protected_market_price(price, tick, field="max_price")
+
+
+@pytest.mark.parametrize(
+    ("price", "tick"),
+    [
+        (Decimal("0.005"), Decimal("0.005")),
+        (Decimal("0.995"), Decimal("0.005")),
+        (Decimal("0.0075"), Decimal("0.0025")),
+        (Decimal("0.55"), Decimal("0.01")),
+    ],
+)
+def test_resolve_protected_market_price_accepts_on_grid_price(
+    price: Decimal, tick: Decimal
+) -> None:
+    assert _resolve_protected_market_price(price, tick, field="min_price") == price
 
 
 def test_adjust_buy_amount_for_fees_returns_amount_when_cap_covers() -> None:

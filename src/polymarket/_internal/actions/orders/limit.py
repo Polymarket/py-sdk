@@ -162,6 +162,8 @@ def _resolve_price(price: Decimal, tick_size: Decimal) -> Decimal:
             f"price must conform to tick size {tick_size} with at most "
             f"{config.price} decimal places."
         )
+    if price % tick_size != 0:
+        raise UserInputError(f"price {price} must be a multiple of tick size {tick_size}.")
     return round_normal(price, config.price)
 
 
