@@ -1846,7 +1846,7 @@ class SecureClient:
         *,
         timeout_s: float = DEFAULT_SETTLEMENT_TIMEOUT_S,
     ) -> tuple[TransactionHash, ...]:
-        """Wait until every fill of a placed order settles on-chain.
+        """Wait until every fill of a placed order is confirmed on-chain.
 
         Settlement covers the fills that occurred at placement, identified by
         the order's ``trade_ids``. It does not wait for future fills of an

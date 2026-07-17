@@ -16,17 +16,29 @@ from polymarket.types import TransactionHash
 
 DEFAULT_SETTLEMENT_TIMEOUT_S = 30.0
 _SETTLEMENT_POLL_DELAY_S = 0.25
+_CONFIRMED_TRADE_STATUS = "CONFIRMED"
 _FAILED_TRADE_STATUS = "FAILED"
 
 
+def _normalized_trade_status(trade: ClobTrade) -> str:
+    # Tolerate both the public plain form ("CONFIRMED") and the internal
+    # prefixed form ("TRADE_STATUS_CONFIRMED") of trade statuses.
+    return trade.status.upper().removeprefix("TRADE_STATUS_")
+
+
 def _is_trade_settled(trade: ClobTrade) -> bool:
-    # A trade is settled once execution reached a terminal outcome: it either
-    # carries a settlement transaction hash or it failed and never will.
-    return trade.status.upper() == _FAILED_TRADE_STATUS or trade.transaction_hash != ""
+    # A trade is settled once execution reached a terminal outcome: its
+    # transaction is confirmed on-chain, or it failed and never will be.
+    # Earlier statuses are not terminal: a transaction hash observed before
+    # confirmation can still be replaced if the transaction is retried.
+    return _normalized_trade_status(trade) in (
+        _CONFIRMED_TRADE_STATUS,
+        _FAILED_TRADE_STATUS,
+    )
 
 
 def _is_failed_trade(trade: ClobTrade) -> bool:
-    return trade.status.upper() == _FAILED_TRADE_STATUS
+    return _normalized_trade_status(trade) == _FAILED_TRADE_STATUS
 
 
 def _pending_trade_ids(

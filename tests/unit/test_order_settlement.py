@@ -120,14 +120,16 @@ def test_returns_hashes_from_order_without_waiting() -> None:
     assert captured == []
 
 
-def test_polls_until_every_fill_settles() -> None:
+def test_polls_until_every_fill_confirms() -> None:
     client = _make_client()
     captured = _install_trades_handler(
         client,
         {
             "trade-1": [
-                [_trade_payload()],
-                [_trade_payload(status="MINED", transaction_hash=TX_HASH)],
+                # A hash before confirmation is not terminal: it can still be
+                # replaced if the transaction is retried.
+                [_trade_payload(status="MINED", transaction_hash=OTHER_TX_HASH)],
+                [_trade_payload(status="CONFIRMED", transaction_hash=TX_HASH)],
             ]
         },
     )
