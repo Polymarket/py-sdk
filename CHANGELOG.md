@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.0-b21](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.1.0-b20...polymarket-client-v0.1.0-b21) (2026-07-17)
+
+
+### Bug Fixes
+
+* **relayer:** stop approving retired neg-risk adapter in trading setup ([#179](https://github.com/Polymarket/py-sdk/issues/179)) ([b664047](https://github.com/Polymarket/py-sdk/commit/b66404776a4514a485f6b6fb2bb913c35d8fc4e8))
+
 ## [0.1.0-b20](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.1.0-b19...polymarket-client-v0.1.0-b20) (2026-07-17)
 
 
