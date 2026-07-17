@@ -152,11 +152,6 @@ def _required_trading_approvals(
             ),
             _Erc20TradingApproval(
                 token_address=collateral,
-                spender=cast(EvmAddress, environment.neg_risk_adapter),
-                amount=MAX_UINT256,
-            ),
-            _Erc20TradingApproval(
-                token_address=collateral,
                 spender=cast(EvmAddress, environment.collateral_adapter),
                 amount=MAX_UINT256,
             ),
@@ -189,10 +184,6 @@ def _required_trading_approvals(
             _Erc1155TradingApproval(
                 token_address=conditional,
                 operator=cast(EvmAddress, environment.neg_risk_exchange),
-            ),
-            _Erc1155TradingApproval(
-                token_address=conditional,
-                operator=cast(EvmAddress, environment.neg_risk_adapter),
             ),
             _Erc1155TradingApproval(
                 token_address=conditional,
