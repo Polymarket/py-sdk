@@ -324,39 +324,22 @@ def parse_perps_session_event(raw: object) -> PerpsSessionEvent | None:
     )
 
 
-def is_perps_request_response(raw: object) -> bool:
-    """Whether a frame is a response to a client request.
-
-    Responses (subscribe acknowledgements, heartbeat pongs) echo the request
-    ``id``; they are expected control frames, not unknown events.
-    """
-    if not isinstance(raw, dict):
-        return False
-    request_id = cast("dict[str, Any]", raw).get("id")
-    return not isinstance(request_id, bool) and isinstance(request_id, int)
-
-
-def parse_perps_market_events(raw: object) -> tuple[list[PerpsMarketEvent], list[object]]:
+def parse_perps_market_events(raw: object) -> list[PerpsMarketEvent]:
     """Parse a decoded frame into market events.
 
-    Returns ``(events, unknown_frames)``. Responses to client requests (for
-    example command acknowledgements) are ignored; frames the SDK does not
-    recognize are returned raw so callers can surface them.
+    Frames that are not channel updates (for example command
+    acknowledgements) and entries the SDK does not recognize are dropped.
     """
     items: list[object] = list(cast(list[object], raw)) if isinstance(raw, list) else [raw]
     parsed: list[PerpsMarketEvent] = []
-    unknown: list[object] = []
     for item in items:
         try:
             event = parse_perps_market_event(item)
         except ValidationError:
-            unknown.append(item)
             continue
         if event is not None:
             parsed.append(event)
-        elif not is_perps_request_response(item):
-            unknown.append(item)
-    return parsed, unknown
+    return parsed
 
 
 __all__ = [

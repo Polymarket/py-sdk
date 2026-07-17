@@ -232,7 +232,7 @@ def test_event_filtered_by_market_per_subscriber() -> None:
     assert asyncio.run(run()) == "m1"
 
 
-def test_malformed_event_dropped_and_counter_increments() -> None:
+def test_malformed_event_dropped() -> None:
     async def handler(ws: ServerConnection) -> None:
         await ws.recv()
         await ws.send(json.dumps({"bogus": True}))
@@ -240,21 +240,18 @@ def test_malformed_event_dropped_and_counter_increments() -> None:
         async for _ in ws:
             pass
 
-    async def run() -> int:
+    async def run() -> None:
         async with ws_server(handler) as url:
             mgr = ClobUserStreamManager(url=url, resolve_credentials=_resolve)
             try:
                 handle = await mgr.subscribe(markets=["m1"])
                 event = await asyncio.wait_for(handle.__aiter__().__anext__(), timeout=2.0)
                 assert isinstance(event, UserOrderEvent)
-                await asyncio.sleep(0.05)
-                dropped = mgr.dropped_events
                 await handle.close()
-                return dropped
             finally:
                 await mgr.close()
 
-    assert asyncio.run(run()) == 1
+    asyncio.run(run())
 
 
 def test_reconnect_resolves_credentials_and_resends_initial_frame() -> None:

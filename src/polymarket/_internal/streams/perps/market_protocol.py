@@ -107,5 +107,5 @@ def match_for(spec: PerpsSpec) -> Callable[[PerpsMarketEvent], bool]:
     return matches
 
 
-def parse_events(raw: object) -> tuple[list[PerpsMarketEvent], list[object]]:
+def parse_events(raw: object) -> list[PerpsMarketEvent]:
     return parse_perps_market_events(raw)

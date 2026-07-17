@@ -61,7 +61,7 @@ def test_clob_market_drops_invalid_frame_and_keeps_socket_open() -> None:
         async for _ in ws:
             pass
 
-    async def run() -> tuple[int, Any]:
+    async def run() -> Any:
         async with ws_server(handler) as url:
             mgr = ClobMarketStreamManager(url=url)
             try:
@@ -71,12 +71,11 @@ def test_clob_market_drops_invalid_frame_and_keeps_socket_open() -> None:
                 # invalid frame emitted no event.
                 event = await _next_event(handle)
                 await handle.close()
-                return mgr.dropped_events, event
+                return event
             finally:
                 await mgr.close()
 
-    dropped, event = asyncio.run(run())
-    assert dropped == 1
+    event = asyncio.run(run())
     assert event.type == "book"
 
 
@@ -109,19 +108,18 @@ def test_clob_user_drops_invalid_frame_and_keeps_socket_open() -> None:
         async for _ in ws:
             pass
 
-    async def run() -> tuple[int, Any]:
+    async def run() -> Any:
         async with ws_server(handler) as url:
             mgr = ClobUserStreamManager(url=url, resolve_credentials=resolve)
             try:
                 handle = await mgr.subscribe(markets=["m1"])
                 event = await _next_event(handle)
                 await handle.close()
-                return mgr.dropped_events, event
+                return event
             finally:
                 await mgr.close()
 
-    dropped, event = asyncio.run(run())
-    assert dropped == 1
+    event = asyncio.run(run())
     assert event.type == "order"
 
 
@@ -196,13 +194,13 @@ def test_sports_drops_invalid_frame_and_keeps_socket_open() -> None:
     assert event.type == "sport_result"
 
 
-def test_perps_market_drops_invalid_frames_but_not_request_responses() -> None:
+def test_perps_market_drops_invalid_frames_and_ignores_request_responses() -> None:
     invalid: dict[str, Any] = {"ch": "future_channel::1", "ts": 1751500000000, "sq": 1, "data": {}}
 
     async def handler(ws: ServerConnection) -> None:
         message = json.loads(await ws.recv())
         # Acknowledge the subscribe request: responses echoing the request id
-        # are expected control frames and must not count as dropped.
+        # are expected control frames and must not emit events.
         await ws.send(json.dumps({"id": message["id"], "data": {"status": "ok"}}))
         await ws.send(json.dumps(invalid))
         await ws.send(
@@ -218,19 +216,18 @@ def test_perps_market_drops_invalid_frames_but_not_request_responses() -> None:
         async for _ in ws:
             pass
 
-    async def run() -> tuple[int, Any]:
+    async def run() -> Any:
         async with ws_server(handler) as url:
             mgr = PerpsMarketStreamManager(url=url)
             try:
                 handle = await mgr.subscribe(PerpsBookSpec(instrument_id=1))
                 event = await _next_event(handle)
                 await handle.close()
-                return mgr.dropped_events, event
+                return event
             finally:
                 await mgr.close()
 
-    dropped, event = asyncio.run(run())
-    assert dropped == 1
+    event = asyncio.run(run())
     assert event.type == "book"
 
 

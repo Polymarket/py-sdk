@@ -90,17 +90,13 @@ def test_ticker_event_parses_compact_payload() -> None:
     assert event.payload.mark_price == Decimal("101")
 
 
-def test_non_event_frames_are_ignored_not_dropped() -> None:
-    events, unknown = parse_perps_market_events({"id": 0, "data": {"status": "ok"}})
-    assert events == []
-    assert unknown == []
+def test_non_event_frames_are_ignored() -> None:
+    assert parse_perps_market_events({"id": 0, "data": {"status": "ok"}}) == []
 
 
-def test_malformed_channel_frames_are_returned_raw() -> None:
+def test_malformed_channel_frames_are_dropped() -> None:
     frame = {"ch": "book::7", "ts": 1751500000000, "sq": 1, "data": {"bogus": True}}
-    events, unknown = parse_perps_market_events(frame)
-    assert events == []
-    assert unknown == [frame]
+    assert parse_perps_market_events(frame) == []
 
 
 def test_session_order_event_normalizes_compact_order() -> None:

@@ -52,15 +52,10 @@ class ClobUserStreamManager:
         self._scheduler = ReconnectScheduler(logger=self._logger)
         self._send_lock = asyncio.Lock()
         self._closed = False
-        self._dropped_events = 0
 
     @property
     def is_open(self) -> bool:
         return self._connection.is_open
-
-    @property
-    def dropped_events(self) -> int:
-        return self._dropped_events
 
     async def subscribe(
         self,
@@ -159,9 +154,7 @@ class ClobUserStreamManager:
                     return
 
     def _on_message(self, raw: object) -> None:
-        events, unknown_frames = parse_user_events(raw)
-        self._dropped_events += len(unknown_frames)
-        for event in events:
+        for event in parse_user_events(raw):
             self._registry.dispatch(event)
 
     def _on_socket_connection_lost(self, code: int, reason: str) -> None:
