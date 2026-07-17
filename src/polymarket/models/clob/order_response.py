@@ -59,6 +59,16 @@ class RawOrderResponse(BaseModel):
 
 
 class AcceptedOrder(BaseModel):
+    """A successfully placed order.
+
+    ``trade_ids`` identifies the trades created by fills at placement; it is
+    empty when the order did not match, and later fills of a resting order
+    create new trades that are not listed here. ``transactions_hashes`` holds
+    the settlement transaction hashes of those fills on a best-effort basis:
+    settlement happens asynchronously, so it can be empty even when the order
+    matched. Use ``wait_for_order_settlement`` to obtain hashes reliably.
+    """
+
     ok: Literal[True] = True
     order_id: str
     status: OrderPostStatus
@@ -86,6 +96,8 @@ class AcceptedOrder(BaseModel):
 
 
 class RejectedOrder(BaseModel):
+    """An order that was refused at placement, with a machine-readable code."""
+
     ok: Literal[False] = False
     code: OrderResponseErrorCode
     message: str
