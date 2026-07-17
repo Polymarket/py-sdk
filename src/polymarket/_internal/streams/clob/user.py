@@ -17,7 +17,6 @@ from polymarket._internal.streams.clob.user_protocol import (
 from polymarket._internal.streams.handle import AsyncSubscriptionHandle
 from polymarket._internal.streams.reconnect import ReconnectScheduler
 from polymarket._internal.streams.registry import SubscriptionRegistry
-from polymarket._internal.streams.unknown import OnUnknownFrame, report_unknown_frame
 from polymarket._internal.ws.connection import AsyncWebSocketConnection, ConnectResult
 from polymarket._internal.ws.heartbeat import Heartbeat
 from polymarket.errors import TransportError, UserInputError
@@ -38,13 +37,11 @@ class ClobUserStreamManager:
         logger: logging.Logger | None = None,
         heartbeat: Heartbeat | None = None,
         queue_size: int = DEFAULT_QUEUE_SIZE,
-        on_unknown_frame: OnUnknownFrame | None = None,
     ) -> None:
         if queue_size <= 0:
             raise ValueError("queue_size must be positive")
         self._url = url
         self._resolve_credentials = resolve_credentials
-        self._on_unknown_frame = on_unknown_frame
         self._logger = logger or logging.getLogger("polymarket.streams.clob.user")
         self._heartbeat: Heartbeat = heartbeat or ClobWebSocketHeartbeat()
         self._queue_size = queue_size
@@ -162,12 +159,11 @@ class ClobUserStreamManager:
                     return
 
     def _on_message(self, raw: object) -> None:
+        # Frames the SDK does not recognize are dropped without closing the
+        # connection; servers may introduce new frame types ahead of a client
+        # release that understands them.
         events, unknown_frames = parse_user_events(raw)
-        for frame in unknown_frames:
-            self._dropped_events += 1
-            report_unknown_frame(
-                self._on_unknown_frame, self._logger, frame=frame, stream="clob_user"
-            )
+        self._dropped_events += len(unknown_frames)
         for event in events:
             self._registry.dispatch(event)
 

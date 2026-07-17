@@ -18,7 +18,6 @@ from polymarket._internal.streams.rtds.protocol import (
     diff_state_frames,
     matcher_for,
 )
-from polymarket._internal.streams.unknown import OnUnknownFrame, report_unknown_frame
 from polymarket._internal.ws.connection import AsyncWebSocketConnection, ConnectResult
 from polymarket._internal.ws.heartbeat import Heartbeat
 from polymarket.errors import TransportError
@@ -36,12 +35,10 @@ class RtdsStreamManager:
         logger: logging.Logger | None = None,
         heartbeat: Heartbeat | None = None,
         queue_size: int = DEFAULT_QUEUE_SIZE,
-        on_unknown_frame: OnUnknownFrame | None = None,
     ) -> None:
         if queue_size <= 0:
             raise ValueError("queue_size must be positive")
         self._url = url
-        self._on_unknown_frame = on_unknown_frame
         self._logger = logger or logging.getLogger("polymarket.streams.rtds")
         self._heartbeat: Heartbeat = heartbeat or RtdsWebSocketHeartbeat()
         self._queue_size = queue_size
@@ -139,11 +136,13 @@ class RtdsStreamManager:
                     return
 
     def _on_message(self, raw: object) -> None:
+        # Frames the SDK does not recognize are dropped without closing
+        # the connection; servers may introduce new frame types ahead of
+        # a client release that understands them.
         try:
             event = parse_rtds_event(raw)
         except (ValueError, ValidationError):
             self._dropped_events += 1
-            report_unknown_frame(self._on_unknown_frame, self._logger, frame=raw, stream="rtds")
             return
         self._registry.dispatch(event)
 

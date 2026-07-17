@@ -20,16 +20,10 @@ def _uppercase_string(value: object) -> object:
 _OrderSide = Annotated[Literal["BUY", "SELL"], BeforeValidator(_uppercase_string)]
 
 
-# Statuses and order event types evolve independently of released clients:
-# values not yet enumerated in the Known* aliases still parse and flow
-# through as plain strings.
-
-KnownOrderEventType = Literal["PLACEMENT", "UPDATE", "CANCELLATION"]
-"""Order event types known to this release; new values arrive as plain strings."""
+_OrderEventType = Literal["PLACEMENT", "UPDATE", "CANCELLATION"]
 
 
-KnownOrderStatus = Literal["LIVE", "MATCHED", "DELAYED", "UNMATCHED", "CANCELED"]
-"""Order statuses known to this release; new values arrive as plain strings."""
+_OrderStatus = Literal["LIVE", "MATCHED", "DELAYED", "UNMATCHED", "CANCELED"]
 
 
 _OrderType = Literal["GTC", "FOK", "IOC", "GTD", "FAK"]
@@ -38,7 +32,7 @@ _OrderType = Literal["GTC", "FOK", "IOC", "GTD", "FAK"]
 _TraderSide = Annotated[Literal["TAKER", "MAKER"], BeforeValidator(_uppercase_string)]
 
 
-KnownTradeStatus = Literal[
+_TradeStatus = Literal[
     "MATCHED",
     "MATCHED_NOT_BROADCASTED",
     "MINED",
@@ -46,7 +40,6 @@ KnownTradeStatus = Literal[
     "RETRYING",
     "FAILED",
 ]
-"""Trade statuses known to this release; new values arrive as plain strings."""
 
 
 def _normalize_trade_status(value: object) -> object:
@@ -55,7 +48,7 @@ def _normalize_trade_status(value: object) -> object:
     return value
 
 
-_TradeStatusValidator = Annotated[str, BeforeValidator(_normalize_trade_status)]
+_TradeStatusValidator = Annotated[_TradeStatus, BeforeValidator(_normalize_trade_status)]
 
 
 class UserOrderPayload(BaseModel):
@@ -67,12 +60,12 @@ class UserOrderPayload(BaseModel):
     original_size: _DecimalFromNumberOrString
     size_matched: _DecimalFromNumberOrString
     price: _DecimalFromNumberOrString
-    order_event_type: str = Field(validation_alias="type")
+    order_event_type: _OrderEventType = Field(validation_alias="type")
     timestamp: EpochSecondsOrMsTimestamp = None
     created_at: EpochSecondsTimestamp = None
     expires_at: ExpirationTimestamp = Field(default=None, validation_alias="expiration")
     order_type: _OrderType | None = None
-    status: str | None = None
+    status: _OrderStatus | None = None
     maker_address: str | None = None
     order_owner: str | None = None
     associate_trades: tuple[str, ...] | None = None
@@ -173,9 +166,6 @@ def parse_user_events(raw: object) -> tuple[list[UserEvent], list[object]]:
 
 
 __all__ = [
-    "KnownOrderEventType",
-    "KnownOrderStatus",
-    "KnownTradeStatus",
     "UserEvent",
     "UserOrderEvent",
     "UserOrderPayload",

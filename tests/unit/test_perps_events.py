@@ -174,16 +174,3 @@ def test_session_deposit_event_normalizes_placeholder_hash() -> None:
 )
 def test_session_parser_returns_none_for_non_events(frame: object) -> None:
     assert parse_perps_session_event(frame) is None
-
-
-def test_session_tpsl_statuses_introduced_after_this_release_pass_through() -> None:
-    event = parse_perps_session_event(
-        {
-            "ch": "tpsl::12",
-            "ts": 1751500000000,
-            "sq": 1,
-            "data": {"oid": 44, "st": "future_status"},
-        }
-    )
-    assert isinstance(event, PerpsTpSlEvent)
-    assert event.payload.status == "future_status"

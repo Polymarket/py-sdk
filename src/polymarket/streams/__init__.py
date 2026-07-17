@@ -1,7 +1,6 @@
 """Public types for Polymarket realtime stream consumers."""
 
 from polymarket._internal.streams.handle import SubscriptionHandle
-from polymarket._internal.streams.unknown import OnUnknownFrame, StreamName, UnknownFrame
 from polymarket.models.clob.market_events import (
     MarketBestBidAskEvent,
     MarketBestBidAskPayload,
@@ -22,9 +21,6 @@ from polymarket.models.clob.market_events import (
     PriceChange,
 )
 from polymarket.models.clob.user_events import (
-    KnownOrderEventType,
-    KnownOrderStatus,
-    KnownTradeStatus,
     UserEvent,
     UserOrderEvent,
     UserOrderPayload,
@@ -129,9 +125,6 @@ __all__ = [
     "EquityPriceSubscribePayload",
     "EquityPricesUpdateEvent",
     "EquityPriceUpdatePayload",
-    "KnownOrderEventType",
-    "KnownOrderStatus",
-    "KnownTradeStatus",
     "MarketBestBidAskEvent",
     "MarketBestBidAskPayload",
     "MarketBookEvent",
@@ -149,7 +142,6 @@ __all__ = [
     "MarketTickSizeChangePayload",
     "NewMarketEvent",
     "NewMarketPayload",
-    "OnUnknownFrame",
     "ParentEntityType",
     "PerpsBalanceEvent",
     "PerpsBboEvent",
@@ -190,10 +182,8 @@ __all__ = [
     "SportsResultEvent",
     "SportsSpec",
     "StreamEvent",
-    "StreamName",
     "Subscription",
     "SubscriptionHandle",
-    "UnknownFrame",
     "UserEvent",
     "UserOrderEvent",
     "UserOrderPayload",

@@ -253,16 +253,17 @@ def test_trade_empty_string_required_decimal_rejected() -> None:
         parse_user_event({**_TRADE, "price": ""})
 
 
-def test_trade_statuses_introduced_after_this_release_pass_through() -> None:
-    event = parse_user_event({**_TRADE, "status": "TRADE_STATUS_FUTURE_STATUS"})
-    assert isinstance(event, UserTradeEvent)
-    assert event.payload.status == "FUTURE_STATUS"
+def test_trade_with_status_the_sdk_does_not_model_is_dropped() -> None:
+    # A trade whose status the SDK does not model fails validation and is
+    # returned as unrecognized, so streams drop the frame instead of failing.
+    frame = {**_TRADE, "status": "TRADE_STATUS_FUTURE_STATUS"}
+    events, unknown = parse_user_events([frame, _TRADE])
+    assert len(events) == 1
+    assert unknown == [frame]
 
 
-def test_order_statuses_and_event_types_introduced_after_this_release_pass_through() -> None:
-    event = parse_user_event(
-        {**_ORDER_PLACEMENT, "status": "FUTURE_STATUS", "type": "FUTURE_EVENT_TYPE"}
-    )
-    assert isinstance(event, UserOrderEvent)
-    assert event.payload.status == "FUTURE_STATUS"
-    assert event.payload.order_event_type == "FUTURE_EVENT_TYPE"
+def test_order_with_status_or_event_type_the_sdk_does_not_model_is_dropped() -> None:
+    frame = {**_ORDER_PLACEMENT, "status": "FUTURE_STATUS", "type": "FUTURE_EVENT_TYPE"}
+    events, unknown = parse_user_events([frame, _ORDER_PLACEMENT])
+    assert len(events) == 1
+    assert unknown == [frame]

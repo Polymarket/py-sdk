@@ -1,7 +1,7 @@
 # pyright: reportPrivateUsage=false
-"""Unknown frames are surfaced through ``on_unknown_frame`` and never close
-the connection: after an unrecognized frame, a valid frame must still be
-delivered on the same socket."""
+"""Frames a stream does not recognize are dropped without closing the
+connection: after an invalid frame, a valid frame must still be delivered
+on the same socket."""
 
 import asyncio
 import json
@@ -24,8 +24,8 @@ from polymarket._internal.streams.sports.manager import SportsStreamManager
 from polymarket.errors import TransportError
 from polymarket.models import ApiKeyCreds
 from polymarket.models.perps.credentials import PerpsCredentials
-from polymarket.rfq import RfqExecutionUpdateEvent
-from polymarket.streams import PerpsBookSpec, UnknownFrame
+from polymarket.rfq import RfqExecutionStatus, RfqExecutionUpdateEvent
+from polymarket.streams import PerpsBookSpec
 from polymarket.types import EvmAddress
 
 Handler = Callable[[ServerConnection], Awaitable[None]]
@@ -42,17 +42,17 @@ async def ws_server(handler: Handler) -> AsyncGenerator[str, None]:
         await server.wait_closed()
 
 
-_UNKNOWN_FRAME: dict[str, Any] = {"event_type": "future_event", "payload": "new"}
+_INVALID_FRAME: dict[str, Any] = {"event_type": "future_event", "payload": "new"}
 
 
 async def _next_event(handle: Any, *, timeout_s: float = 2.0) -> Any:
     return await asyncio.wait_for(handle.__aiter__().__anext__(), timeout=timeout_s)
 
 
-def test_clob_market_surfaces_unknown_frame_and_keeps_socket_open() -> None:
+def test_clob_market_drops_invalid_frame_and_keeps_socket_open() -> None:
     async def handler(ws: ServerConnection) -> None:
         await ws.recv()
-        await ws.send(json.dumps(_UNKNOWN_FRAME))
+        await ws.send(json.dumps(_INVALID_FRAME))
         await ws.send(
             json.dumps(
                 {"event_type": "book", "market": "m", "asset_id": "a", "bids": [], "asks": []}
@@ -61,27 +61,26 @@ def test_clob_market_surfaces_unknown_frame_and_keeps_socket_open() -> None:
         async for _ in ws:
             pass
 
-    async def run() -> tuple[list[UnknownFrame], int, Any]:
-        seen: list[UnknownFrame] = []
+    async def run() -> tuple[int, Any]:
         async with ws_server(handler) as url:
-            mgr = ClobMarketStreamManager(url=url, on_unknown_frame=seen.append)
+            mgr = ClobMarketStreamManager(url=url)
             try:
                 handle = await mgr.subscribe(token_ids=["a"])
-                # Receiving the valid frame sent after the unknown one proves
-                # the connection and the subscription survived.
+                # Receiving the valid frame sent after the invalid one proves
+                # the connection and the subscription survived, and that the
+                # invalid frame emitted no event.
                 event = await _next_event(handle)
                 await handle.close()
-                return seen, mgr.dropped_events, event
+                return mgr.dropped_events, event
             finally:
                 await mgr.close()
 
-    seen, dropped, event = asyncio.run(run())
-    assert seen == [UnknownFrame(frame=_UNKNOWN_FRAME, stream="clob_market")]
+    dropped, event = asyncio.run(run())
     assert dropped == 1
     assert event.type == "book"
 
 
-def test_clob_user_surfaces_unknown_frame_and_keeps_socket_open() -> None:
+def test_clob_user_drops_invalid_frame_and_keeps_socket_open() -> None:
     creds = ApiKeyCreds(key="k", secret="s", passphrase="p")
 
     async def resolve() -> ApiKeyCreds:
@@ -89,7 +88,7 @@ def test_clob_user_surfaces_unknown_frame_and_keeps_socket_open() -> None:
 
     async def handler(ws: ServerConnection) -> None:
         await ws.recv()
-        await ws.send(json.dumps(_UNKNOWN_FRAME))
+        await ws.send(json.dumps(_INVALID_FRAME))
         await ws.send(
             json.dumps(
                 {
@@ -110,31 +109,28 @@ def test_clob_user_surfaces_unknown_frame_and_keeps_socket_open() -> None:
         async for _ in ws:
             pass
 
-    async def run() -> tuple[list[UnknownFrame], Any]:
-        seen: list[UnknownFrame] = []
+    async def run() -> tuple[int, Any]:
         async with ws_server(handler) as url:
-            mgr = ClobUserStreamManager(
-                url=url, resolve_credentials=resolve, on_unknown_frame=seen.append
-            )
+            mgr = ClobUserStreamManager(url=url, resolve_credentials=resolve)
             try:
                 handle = await mgr.subscribe(markets=["m1"])
                 event = await _next_event(handle)
                 await handle.close()
-                return seen, event
+                return mgr.dropped_events, event
             finally:
                 await mgr.close()
 
-    seen, event = asyncio.run(run())
-    assert seen == [UnknownFrame(frame=_UNKNOWN_FRAME, stream="clob_user")]
+    dropped, event = asyncio.run(run())
+    assert dropped == 1
     assert event.type == "order"
 
 
-def test_rtds_surfaces_unknown_frame_and_keeps_socket_open() -> None:
-    unknown = {"topic": "future_topic", "type": "update", "payload": {"hello": "world"}}
+def test_rtds_drops_invalid_frame_and_keeps_socket_open() -> None:
+    invalid = {"topic": "future_topic", "type": "update", "payload": {"hello": "world"}}
 
     async def handler(ws: ServerConnection) -> None:
         await ws.recv()
-        await ws.send(json.dumps(unknown))
+        await ws.send(json.dumps(invalid))
         await ws.send(
             json.dumps(
                 {
@@ -148,28 +144,27 @@ def test_rtds_surfaces_unknown_frame_and_keeps_socket_open() -> None:
         async for _ in ws:
             pass
 
-    async def run() -> tuple[list[UnknownFrame], Any]:
+    async def run() -> tuple[int, Any]:
         from polymarket.streams import CryptoPricesSpec
 
-        seen: list[UnknownFrame] = []
         async with ws_server(handler) as url:
-            mgr = RtdsStreamManager(url=url, on_unknown_frame=seen.append)
+            mgr = RtdsStreamManager(url=url)
             try:
                 handle = await mgr.subscribe(CryptoPricesSpec(topic="prices.crypto.binance"))
                 event = await _next_event(handle)
                 await handle.close()
-                return seen, event
+                return mgr.dropped_events, event
             finally:
                 await mgr.close()
 
-    seen, event = asyncio.run(run())
-    assert seen == [UnknownFrame(frame=unknown, stream="rtds")]
+    dropped, event = asyncio.run(run())
+    assert dropped == 1
     assert event.type == "update"
 
 
-def test_sports_surfaces_unknown_frame_and_keeps_socket_open() -> None:
+def test_sports_drops_invalid_frame_and_keeps_socket_open() -> None:
     async def handler(ws: ServerConnection) -> None:
-        await ws.send(json.dumps(_UNKNOWN_FRAME))
+        await ws.send(json.dumps(_INVALID_FRAME))
         await ws.send(
             json.dumps(
                 {
@@ -185,32 +180,31 @@ def test_sports_surfaces_unknown_frame_and_keeps_socket_open() -> None:
         async for _ in ws:
             pass
 
-    async def run() -> tuple[list[UnknownFrame], Any]:
-        seen: list[UnknownFrame] = []
+    async def run() -> tuple[int, Any]:
         async with ws_server(handler) as url:
-            mgr = SportsStreamManager(url=url, on_unknown_frame=seen.append)
+            mgr = SportsStreamManager(url=url)
             try:
                 handle = await mgr.subscribe()
                 event = await _next_event(handle)
                 await handle.close()
-                return seen, event
+                return mgr.dropped_events, event
             finally:
                 await mgr.close()
 
-    seen, event = asyncio.run(run())
-    assert seen == [UnknownFrame(frame=_UNKNOWN_FRAME, stream="sports")]
+    dropped, event = asyncio.run(run())
+    assert dropped == 1
     assert event.type == "sport_result"
 
 
-def test_perps_market_surfaces_unknown_frame_but_not_request_responses() -> None:
-    unknown: dict[str, Any] = {"ch": "future_channel::1", "ts": 1751500000000, "sq": 1, "data": {}}
+def test_perps_market_drops_invalid_frames_but_not_request_responses() -> None:
+    invalid: dict[str, Any] = {"ch": "future_channel::1", "ts": 1751500000000, "sq": 1, "data": {}}
 
     async def handler(ws: ServerConnection) -> None:
         message = json.loads(await ws.recv())
         # Acknowledge the subscribe request: responses echoing the request id
-        # are expected control frames and must not be reported as unknown.
+        # are expected control frames and must not count as dropped.
         await ws.send(json.dumps({"id": message["id"], "data": {"status": "ok"}}))
-        await ws.send(json.dumps(unknown))
+        await ws.send(json.dumps(invalid))
         await ws.send(
             json.dumps(
                 {
@@ -224,25 +218,24 @@ def test_perps_market_surfaces_unknown_frame_but_not_request_responses() -> None
         async for _ in ws:
             pass
 
-    async def run() -> tuple[list[UnknownFrame], Any]:
-        seen: list[UnknownFrame] = []
+    async def run() -> tuple[int, Any]:
         async with ws_server(handler) as url:
-            mgr = PerpsMarketStreamManager(url=url, on_unknown_frame=seen.append)
+            mgr = PerpsMarketStreamManager(url=url)
             try:
                 handle = await mgr.subscribe(PerpsBookSpec(instrument_id=1))
                 event = await _next_event(handle)
                 await handle.close()
-                return seen, event
+                return mgr.dropped_events, event
             finally:
                 await mgr.close()
 
-    seen, event = asyncio.run(run())
-    assert seen == [UnknownFrame(frame=unknown, stream="perps_market")]
+    dropped, event = asyncio.run(run())
+    assert dropped == 1
     assert event.type == "book"
 
 
-def test_perps_session_surfaces_unknown_frame_and_keeps_session_open() -> None:
-    unknown: dict[str, Any] = {"ch": "future_channel", "ts": 1751500000000, "sq": 1, "data": {}}
+def test_perps_session_drops_invalid_frame_and_keeps_session_open() -> None:
+    invalid: dict[str, Any] = {"ch": "future_channel", "ts": 1751500000000, "sq": 1, "data": {}}
     balance = {
         "ch": "balances",
         "ts": 1751500000000,
@@ -259,11 +252,10 @@ def test_perps_session_surfaces_unknown_frame_and_keeps_session_open() -> None:
             await ws.send(json.dumps({"id": message["id"], "data": {"status": "ok"}}))
             handshakes += 1
             if handshakes == 2:
-                await ws.send(json.dumps(unknown))
+                await ws.send(json.dumps(invalid))
                 await ws.send(json.dumps(balance))
 
-    async def run() -> tuple[list[UnknownFrame], Any]:
-        seen: list[UnknownFrame] = []
+    async def run() -> Any:
         async with ws_server(handler) as url:
             session = PerpsSession(
                 chain_id=137,
@@ -277,21 +269,20 @@ def test_perps_session_surfaces_unknown_frame_and_keeps_session_open() -> None:
                 ),
                 rest_url="http://127.0.0.1:9",  # unused by this test
                 ws_url=url,
-                on_unknown_frame=seen.append,
             )
             try:
                 await session.open()
-                event = await asyncio.wait_for(session.__anext__(), timeout=2.0)
-                return seen, event
+                # The balance event arriving after the invalid frame proves
+                # the session survived and the invalid frame was dropped.
+                return await asyncio.wait_for(session.__anext__(), timeout=2.0)
             finally:
                 await session.close()
 
-    seen, event = asyncio.run(asyncio.wait_for(run(), timeout=10.0))
-    assert seen == [UnknownFrame(frame=unknown, stream="perps_session")]
+    event = asyncio.run(asyncio.wait_for(run(), timeout=10.0))
     assert event.type == "balance"
 
 
-def _quoter_session(seen: list[UnknownFrame]) -> RfqQuoterSession:
+def _quoter_session() -> RfqQuoterSession:
     signer = cast(LocalAccount, Account.create())
     return RfqQuoterSession(
         chain_id=137,
@@ -303,66 +294,90 @@ def _quoter_session(seen: list[UnknownFrame]) -> RfqQuoterSession:
         url="ws://127.0.0.1:9",  # never connected by these tests
         wallet=EvmAddress(signer.address),
         wallet_type="EOA",
-        on_unknown_frame=seen.append,
     )
 
 
-def test_rfq_quoter_surfaces_unknown_message_types_and_stays_open() -> None:
-    async def run() -> tuple[list[UnknownFrame], bool]:
-        seen: list[UnknownFrame] = []
-        session = _quoter_session(seen)
+def test_rfq_quoter_drops_unknown_message_types_and_stays_open() -> None:
+    async def run() -> tuple[int, bool]:
+        session = _quoter_session()
         session._on_message({"type": "RFQ_FUTURE_MESSAGE", "payload": "ignored"})
         session._on_message(["not", "a", "dict"])
         session._on_message({"payload": "missing type"})
-        return seen, session.closed
+        return session._queue.qsize(), session.closed
 
-    seen, closed = asyncio.run(run())
-    assert [unknown.frame for unknown in seen] == [
-        {"type": "RFQ_FUTURE_MESSAGE", "payload": "ignored"},
-        ["not", "a", "dict"],
-        {"payload": "missing type"},
-    ]
-    assert all(unknown.stream == "rfq_quoter" for unknown in seen)
+    queued, closed = asyncio.run(run())
+    assert queued == 0
     assert closed is False
 
 
-def test_rfq_quoter_surfaces_malformed_known_frames_and_stays_open() -> None:
+def test_rfq_quoter_drops_malformed_known_frames_and_stays_open() -> None:
     # A known message type with an unreadable payload must not end the
     # session; the pending acknowledgement fails through its timeout instead.
     malformed = {"type": "ACK_RFQ_QUOTE", "rfq_id": "rfq-1"}
 
-    async def run() -> tuple[list[UnknownFrame], bool]:
-        seen: list[UnknownFrame] = []
-        session = _quoter_session(seen)
+    async def run() -> tuple[int, bool]:
+        session = _quoter_session()
         session._on_message(malformed)
-        return seen, session.closed
+        return session._queue.qsize(), session.closed
 
-    seen, closed = asyncio.run(run())
-    assert seen == [UnknownFrame(frame=malformed, stream="rfq_quoter")]
+    queued, closed = asyncio.run(run())
+    assert queued == 0
     assert closed is False
 
 
-def test_rfq_quoter_delivers_execution_updates_with_future_statuses() -> None:
-    async def run() -> tuple[list[UnknownFrame], object]:
-        seen: list[UnknownFrame] = []
-        session = _quoter_session(seen)
+def test_rfq_quoter_drops_frames_with_unmodeled_field_values_and_stays_open() -> None:
+    # A known message type whose field carries a value the SDK does not model
+    # (here a direction enum the client predates) must be dropped, not end
+    # the session.
+    trade = {
+        "type": "RFQ_TRADE",
+        "rfq_id": "rfq-1",
+        "requester_id": "req-1",
+        "condition_id": "0x" + "11" * 32,
+        "leg_position_ids": ["1"],
+        "direction": "FUTURE_DIRECTION",
+        "side": "BUY",
+        "price_e6": "500000",
+        "size_e6": "1000000",
+        "executed_at": 1751500000,
+    }
+
+    async def run() -> tuple[int, bool]:
+        session = _quoter_session()
+        session._on_message(trade)
+        return session._queue.qsize(), session.closed
+
+    queued, closed = asyncio.run(run())
+    assert queued == 0
+    assert closed is False
+
+
+def test_rfq_quoter_drops_execution_updates_with_unmodeled_statuses() -> None:
+    # An execution update whose status the SDK does not model is dropped
+    # without ending the session; later readable updates are still delivered.
+    async def run() -> tuple[int, bool, object]:
+        session = _quoter_session()
         session._on_message(
             {"type": "RFQ_EXECUTION_UPDATE", "rfq_id": "rfq-1", "status": "FUTURE_STATUS"}
         )
-        return seen, session._queue.get_nowait()
+        queued_after_drop = session._queue.qsize()
+        session._on_message(
+            {"type": "RFQ_EXECUTION_UPDATE", "rfq_id": "rfq-1", "status": "CONFIRMED"}
+        )
+        return queued_after_drop, session.closed, session._queue.get_nowait()
 
-    seen, event = asyncio.run(run())
-    assert seen == []
+    queued_after_drop, closed, event = asyncio.run(run())
+    assert queued_after_drop == 0
+    assert closed is False
     assert isinstance(event, RfqExecutionUpdateEvent)
-    assert event.status == "FUTURE_STATUS"
+    assert event.status is RfqExecutionStatus.CONFIRMED
 
 
 def test_rfq_quoter_still_fails_on_uncorrelated_error_frames() -> None:
-    # Deliberate exception to the unknown-frame policy: a well-formed
+    # Deliberate exception to the invalid-frame policy: a well-formed
     # RFQ_ERROR that cannot be correlated to a request still ends the session.
-    async def run() -> tuple[list[UnknownFrame], bool, BaseException | None]:
-        seen: list[UnknownFrame] = []
-        session = _quoter_session(seen)
+    async def run() -> tuple[bool, BaseException | None]:
+        session = _quoter_session()
         session._on_message(
             {
                 "type": "RFQ_ERROR",
@@ -372,39 +387,8 @@ def test_rfq_quoter_still_fails_on_uncorrelated_error_frames() -> None:
             }
         )
         await asyncio.sleep(0)  # let _fail's connection-close task run
-        return seen, session.closed, session._end_error
+        return session.closed, session._end_error
 
-    seen, closed, error = asyncio.run(run())
-    assert seen == []
+    closed, error = asyncio.run(run())
     assert closed is True
     assert isinstance(error, TransportError)
-
-
-def test_unknown_frame_callback_errors_are_isolated() -> None:
-    async def handler(ws: ServerConnection) -> None:
-        await ws.recv()
-        await ws.send(json.dumps(_UNKNOWN_FRAME))
-        await ws.send(
-            json.dumps(
-                {"event_type": "book", "market": "m", "asset_id": "a", "bids": [], "asks": []}
-            )
-        )
-        async for _ in ws:
-            pass
-
-    async def run() -> Any:
-        def explode(unknown: UnknownFrame) -> None:
-            raise RuntimeError("consumer callback bug")
-
-        async with ws_server(handler) as url:
-            mgr = ClobMarketStreamManager(url=url, on_unknown_frame=explode)
-            try:
-                handle = await mgr.subscribe(token_ids=["a"])
-                event = await _next_event(handle)
-                await handle.close()
-                return event
-            finally:
-                await mgr.close()
-
-    event = asyncio.run(run())
-    assert event.type == "book"

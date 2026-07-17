@@ -47,7 +47,6 @@ from polymarket._internal.dispatch import (
     async_paginate_page_based,
 )
 from polymarket._internal.streams.handle import AsyncSubscriptionHandle, SubscriptionHandle
-from polymarket._internal.streams.unknown import OnUnknownFrame
 from polymarket.clients._transport import AsyncTransport
 from polymarket.environments import PRODUCTION, Environment
 from polymarket.errors import RequestRejectedError
@@ -150,7 +149,6 @@ class AsyncPublicClient:
         environment: Environment = PRODUCTION,
         *,
         logger: logging.Logger | None = None,
-        on_unknown_frame: OnUnknownFrame | None = None,
     ) -> None:
         self._ctx = AsyncClientContext(
             environment=environment,
@@ -165,7 +163,6 @@ class AsyncPublicClient:
         self._rtds_manager: RtdsStreamManager | None = None
         self._perps_manager: PerpsMarketStreamManager | None = None
         self._streams_logger = logger
-        self._on_unknown_frame = on_unknown_frame
 
     @property
     def environment(self) -> Environment:
@@ -275,7 +272,6 @@ class AsyncPublicClient:
             self._market_manager = ClobMarketStreamManager(
                 url=self._ctx.environment.clob_market_ws_url,
                 logger=self._streams_logger,
-                on_unknown_frame=self._on_unknown_frame,
             )
         return self._market_manager
 
@@ -286,7 +282,6 @@ class AsyncPublicClient:
             self._rtds_manager = RtdsStreamManager(
                 url=self._ctx.environment.rtds_ws_url,
                 logger=self._streams_logger,
-                on_unknown_frame=self._on_unknown_frame,
             )
         return self._rtds_manager
 
@@ -297,7 +292,6 @@ class AsyncPublicClient:
             self._sports_manager = SportsStreamManager(
                 url=self._ctx.environment.sports_ws_url,
                 logger=self._streams_logger,
-                on_unknown_frame=self._on_unknown_frame,
             )
         return self._sports_manager
 
@@ -308,7 +302,6 @@ class AsyncPublicClient:
             self._perps_manager = PerpsMarketStreamManager(
                 url=self._ctx.environment.perps_ws_url,
                 logger=self._streams_logger,
-                on_unknown_frame=self._on_unknown_frame,
             )
         return self._perps_manager
 

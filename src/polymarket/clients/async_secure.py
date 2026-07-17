@@ -129,7 +129,6 @@ from polymarket._internal.hmac import build_hmac_signature
 from polymarket._internal.l1_auth import sign_api_key_auth
 from polymarket._internal.rfq import RfqSessionContext
 from polymarket._internal.streams.handle import AsyncSubscriptionHandle, SubscriptionHandle
-from polymarket._internal.streams.unknown import OnUnknownFrame
 from polymarket._internal.wallet import (
     WalletType,
     classify_wallet_type,
@@ -299,7 +298,6 @@ class AsyncSecureClient:
         ctx: AsyncSecureClientContext,
         _create_token: object | None = None,
         logger: logging.Logger | None = None,
-        on_unknown_frame: OnUnknownFrame | None = None,
     ) -> None:
         if _create_token is not _CREATE_TOKEN:
             raise RuntimeError("Use AsyncSecureClient.create(...) to create a secure client")
@@ -315,7 +313,6 @@ class AsyncSecureClient:
         self._rfq_session_connecting: RfqQuoterSession | None = None
         self._rfq_session_opening: asyncio.Task[RfqQuoterSession] | None = None
         self._streams_logger = logger
-        self._on_unknown_frame = on_unknown_frame
 
     @property
     def _ctx(self) -> AsyncSecureClientContext:
@@ -341,7 +338,6 @@ class AsyncSecureClient:
         api_key: ApiKey | None = None,
         nonce: int = 0,
         logger: logging.Logger | None = None,
-        on_unknown_frame: OnUnknownFrame | None = None,
     ) -> Self:
         """Create an authenticated async client.
 
@@ -366,7 +362,6 @@ class AsyncSecureClient:
             nonce=nonce,
             validate_credentials=True,
             logger=logger,
-            on_unknown_frame=on_unknown_frame,
         )
         try:
             return await client._ensure_wallet_ready()
@@ -386,7 +381,6 @@ class AsyncSecureClient:
         nonce: int = 0,
         validate_credentials: bool = True,
         logger: logging.Logger | None = None,
-        on_unknown_frame: OnUnknownFrame | None = None,
     ) -> Self:
         if not private_key:
             raise UserInputError("private_key is required")
@@ -430,7 +424,6 @@ class AsyncSecureClient:
             credentials=resolved_credentials,
             api_key=api_key,
             logger=logger,
-            on_unknown_frame=on_unknown_frame,
         )
 
     @classmethod
@@ -443,7 +436,6 @@ class AsyncSecureClient:
         credentials: ApiKeyCreds,
         api_key: ApiKey | None,
         logger: logging.Logger | None,
-        on_unknown_frame: OnUnknownFrame | None = None,
     ) -> Self:
         wallet_checksum = to_checksum_address(wallet)
         wallet_type = classify_wallet_type(
@@ -491,7 +483,6 @@ class AsyncSecureClient:
             ctx=ctx,
             _create_token=_CREATE_TOKEN,
             logger=logger,
-            on_unknown_frame=on_unknown_frame,
         )
 
     @property
@@ -632,7 +623,6 @@ class AsyncSecureClient:
             self._market_manager = ClobMarketStreamManager(
                 url=self._ctx.environment.clob_market_ws_url,
                 logger=self._streams_logger,
-                on_unknown_frame=self._on_unknown_frame,
             )
         return self._market_manager
 
@@ -643,7 +633,6 @@ class AsyncSecureClient:
             self._sports_manager = SportsStreamManager(
                 url=self._ctx.environment.sports_ws_url,
                 logger=self._streams_logger,
-                on_unknown_frame=self._on_unknown_frame,
             )
         return self._sports_manager
 
@@ -654,7 +643,6 @@ class AsyncSecureClient:
             self._rtds_manager = RtdsStreamManager(
                 url=self._ctx.environment.rtds_ws_url,
                 logger=self._streams_logger,
-                on_unknown_frame=self._on_unknown_frame,
             )
         return self._rtds_manager
 
@@ -666,7 +654,6 @@ class AsyncSecureClient:
                 url=self._ctx.environment.clob_user_ws_url,
                 resolve_credentials=self._resolve_api_key_credentials,
                 logger=self._streams_logger,
-                on_unknown_frame=self._on_unknown_frame,
             )
         return self._user_manager
 
@@ -677,7 +664,6 @@ class AsyncSecureClient:
             self._perps_manager = PerpsMarketStreamManager(
                 url=self._ctx.environment.perps_ws_url,
                 logger=self._streams_logger,
-                on_unknown_frame=self._on_unknown_frame,
             )
         return self._perps_manager
 
@@ -738,7 +724,6 @@ class AsyncSecureClient:
             ws_url=self._ctx.environment.perps_ws_url,
             logger=self._streams_logger,
             on_close=self._perps_sessions.discard,
-            on_unknown_frame=self._on_unknown_frame,
         )
         self._perps_sessions.add(session)
         try:
@@ -858,7 +843,6 @@ class AsyncSecureClient:
             headers=self._ctx.environment.rfq_quoter_ws_headers,
             logger=self._streams_logger,
             on_close=clear_session,
-            on_unknown_frame=self._on_unknown_frame,
             signer=self._ctx.signer,
             url=self._ctx.environment.rfq_quoter_ws_url,
             wallet=self._ctx.wallet,
