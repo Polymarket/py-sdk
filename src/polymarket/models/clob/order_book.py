@@ -22,9 +22,13 @@ class OrderBookLevel(BaseModel):
 
 
 class OrderBook(BaseModel):
-    market: str
-    """Deprecated: use ``condition_id``. Retained for back-compat; holds the CTF condition id."""
-    condition_id: CtfConditionId = Field(validation_alias="market")
+    market: CtfConditionId = Field(
+        description="Deprecated: use condition_id. Retained for backward compatibility."
+    )
+    condition_id: CtfConditionId = Field(
+        validation_alias="market",
+        description="CTF condition id for the market represented by this order book.",
+    )
     token_id: TokenId = Field(validation_alias="asset_id")
     timestamp: EpochMsTimestamp = None
     bids: tuple[OrderBookLevel, ...]

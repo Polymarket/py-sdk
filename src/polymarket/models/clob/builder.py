@@ -44,9 +44,13 @@ class BuilderTrade(BaseModel):
     trade_type: str = Field(validation_alias="tradeType")
     taker_order_hash: str = Field(validation_alias="takerOrderHash")
     builder: str
-    market: str
-    """Deprecated: use ``condition_id``. Retained for back-compat; holds the CTF condition id."""
-    condition_id: CtfConditionId = Field(validation_alias="market")
+    market: CtfConditionId = Field(
+        description="Deprecated: use condition_id. Retained for backward compatibility."
+    )
+    condition_id: CtfConditionId = Field(
+        validation_alias="market",
+        description="CTF condition id for the market associated with this trade.",
+    )
     token_id: TokenId = Field(validation_alias="assetId")
     side: OrderSide
     size: _DecimalFromString

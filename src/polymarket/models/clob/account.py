@@ -19,9 +19,13 @@ class OpenOrder(BaseModel):
     """Open order owned by an account."""
 
     id: str
-    market: str
-    """Deprecated: use ``condition_id``. Retained for back-compat; holds the CTF condition id."""
-    condition_id: CtfConditionId = Field(validation_alias="market")
+    market: CtfConditionId = Field(
+        description="Deprecated: use condition_id. Retained for backward compatibility."
+    )
+    condition_id: CtfConditionId = Field(
+        validation_alias="market",
+        description="CTF condition id for the market associated with this order.",
+    )
     token_id: TokenId = Field(validation_alias="asset_id")
     owner: str
     maker_address: str = Field(validation_alias="maker_address")
@@ -77,9 +81,13 @@ class ClobTrade(BaseModel):
     """Executed trade for an account or market."""
 
     id: str
-    market: str
-    """Deprecated: use ``condition_id``. Retained for back-compat; holds the CTF condition id."""
-    condition_id: CtfConditionId = Field(validation_alias="market")
+    market: CtfConditionId = Field(
+        description="Deprecated: use condition_id. Retained for backward compatibility."
+    )
+    condition_id: CtfConditionId = Field(
+        validation_alias="market",
+        description="CTF condition id for the market associated with this trade.",
+    )
     token_id: TokenId = Field(validation_alias="asset_id")
     owner: str
     maker_address: str = Field(validation_alias="maker_address")
