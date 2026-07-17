@@ -397,9 +397,6 @@ class RfqQuoterSession:
         }
 
     def _on_message(self, raw: object) -> None:
-        # Frames the session does not recognize are dropped without ending
-        # the session; servers may introduce new message types ahead of a
-        # client release that understands them.
         message = cast(dict[str, object], raw) if isinstance(raw, dict) else None
         message_type = message.get("type") if message is not None else None
         if message is None or not isinstance(message_type, str):
@@ -444,15 +441,8 @@ class RfqQuoterSession:
             elif message_type == "RFQ_ERROR":
                 self._handle_rfq_error(message)
             else:
-                # A message type the session does not recognize: drop it and
-                # keep the session open.
                 return
         except (UnexpectedResponseError, ValueError):
-            # A recognized message type with an unreadable payload (missing
-            # or mistyped fields, or field values the SDK does not model,
-            # which raise ValueError) is dropped like an unknown frame;
-            # callers waiting on an unreadable acknowledgement fail through
-            # their acknowledgement timeout instead of the session ending.
             return
         except BaseException as error:
             self._logger.warning("RFQ quoter protocol failure: %r", error)

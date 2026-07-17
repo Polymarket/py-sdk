@@ -136,9 +136,6 @@ class RtdsStreamManager:
                     return
 
     def _on_message(self, raw: object) -> None:
-        # Frames the SDK does not recognize are dropped without closing
-        # the connection; servers may introduce new frame types ahead of
-        # a client release that understands them.
         try:
             event = parse_rtds_event(raw)
         except (ValueError, ValidationError):

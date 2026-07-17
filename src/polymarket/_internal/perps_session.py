@@ -858,9 +858,6 @@ class PerpsSession:
         except Exception:
             event = None
         if event is None:
-            # Servers may introduce frame types ahead of a client release
-            # that understands them. Drop the frame and keep the session
-            # open.
             return
         self._push_sequence_gap_if_needed(event)
         self._emit_event(event)

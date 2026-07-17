@@ -129,9 +129,6 @@ class SportsStreamManager:
                 await self._connection.close()
 
     def _on_message(self, raw: object) -> None:
-        # Frames the SDK does not recognize are dropped without closing
-        # the connection; servers may introduce new frame types ahead of
-        # a client release that understands them.
         try:
             event = parse_sports_event(raw)
         except ValidationError:
