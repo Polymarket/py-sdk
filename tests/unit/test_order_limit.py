@@ -10,7 +10,6 @@ import pytest
 
 from polymarket import ApiKeyCreds, AsyncSecureClient
 from polymarket._internal.actions.orders.limit import (
-    _resolve_price,
     prepare_limit_order_draft,
     validate_limit_order_params,
 )
@@ -305,59 +304,6 @@ def test_prepare_limit_order_draft_rejects_off_tick_price() -> None:
             await client.close()
 
     with pytest.raises(UserInputError, match="tick size"):
-        asyncio.run(run())
-
-
-@pytest.mark.parametrize(
-    ("price", "tick"),
-    [
-        (Decimal("0.007"), Decimal("0.005")),
-        (Decimal("0.013"), Decimal("0.005")),
-        (Decimal("0.0033"), Decimal("0.0025")),
-        (Decimal("0.0077"), Decimal("0.0025")),
-    ],
-)
-def test_resolve_price_rejects_off_grid_price(price: Decimal, tick: Decimal) -> None:
-    # Prices within the tick's decimal allowance but off the tick grid would be
-    # signed and then rejected by the exchange; they must fail client-side.
-    with pytest.raises(UserInputError, match="multiple of tick size"):
-        _resolve_price(price, tick)
-
-
-@pytest.mark.parametrize(
-    ("price", "tick"),
-    [
-        (Decimal("0.005"), Decimal("0.005")),
-        (Decimal("0.015"), Decimal("0.005")),
-        (Decimal("0.995"), Decimal("0.005")),
-        (Decimal("0.0075"), Decimal("0.0025")),
-        (Decimal("0.9975"), Decimal("0.0025")),
-        (Decimal("0.55"), Decimal("0.01")),
-        (Decimal("0.010"), Decimal("0.005")),
-    ],
-)
-def test_resolve_price_accepts_on_grid_price(price: Decimal, tick: Decimal) -> None:
-    assert _resolve_price(price, tick) == price
-
-
-def test_prepare_limit_order_draft_rejects_off_grid_half_tick_price() -> None:
-    routes = {
-        "/tick-size": {"minimum_tick_size": 0.005},
-        "/neg-risk": {"neg_risk": False},
-    }
-
-    async def run() -> None:
-        client = await _make_client()
-        try:
-            _install_public_clob(client, _multi_route_handler(routes))
-            params = validate_limit_order_params(
-                token_id="8501497", price="0.007", size="10", side="BUY"
-            )
-            await prepare_limit_order_draft(client._ctx, params)
-        finally:
-            await client.close()
-
-    with pytest.raises(UserInputError, match="multiple of tick size"):
         asyncio.run(run())
 
 

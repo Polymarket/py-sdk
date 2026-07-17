@@ -6,6 +6,7 @@ from polymarket._internal.actions.orders._numeric import coerce_positive_decimal
 from polymarket._internal.actions.orders.context import (
     resolve_exchange_address,
     resolve_rounding_config,
+    validate_price_on_tick_grid,
 )
 from polymarket._internal.actions.orders.market_data import (
     fetch_neg_risk,
@@ -17,7 +18,6 @@ from polymarket._internal.actions.orders.math import (
     decimal_places,
     parse_amount,
     round_down,
-    round_normal,
     round_up,
 )
 from polymarket._internal.actions.orders.types import OrderDraft
@@ -85,7 +85,7 @@ async def prepare_limit_order_draft(
 ) -> OrderDraft:
     tick_size = await fetch_tick_size(ctx, token_id=params.token_id)
     neg_risk = await fetch_neg_risk(ctx, token_id=params.token_id)
-    price = _resolve_price(params.price, tick_size)
+    price = validate_price_on_tick_grid(params.price, tick_size, "price")
     offered, requested = _compute_limit_order_amounts(
         price=price, size=params.size, side=params.side, tick_size=tick_size
     )
@@ -109,7 +109,7 @@ def prepare_limit_order_draft_sync(
 ) -> OrderDraft:
     tick_size = fetch_tick_size_sync(ctx, token_id=params.token_id)
     neg_risk = fetch_neg_risk_sync(ctx, token_id=params.token_id)
-    price = _resolve_price(params.price, tick_size)
+    price = validate_price_on_tick_grid(params.price, tick_size, "price")
     offered, requested = _compute_limit_order_amounts(
         price=price, size=params.size, side=params.side, tick_size=tick_size
     )
@@ -148,23 +148,6 @@ def _round_amount(value: Decimal, amount_decimals: int) -> Decimal:
     if decimal_places(value) > amount_decimals:
         value = round_down(value, amount_decimals)
     return value
-
-
-def _resolve_price(price: Decimal, tick_size: Decimal) -> Decimal:
-    config = resolve_rounding_config(tick_size)
-    if price < tick_size or price > Decimal(1) - tick_size:
-        raise UserInputError(
-            f"price must be between {tick_size} and {Decimal(1) - tick_size} "
-            f"for tick size {tick_size}."
-        )
-    if decimal_places(price) > config.price:
-        raise UserInputError(
-            f"price must conform to tick size {tick_size} with at most "
-            f"{config.price} decimal places."
-        )
-    if price % tick_size != 0:
-        raise UserInputError(f"price {price} must be a multiple of tick size {tick_size}.")
-    return round_normal(price, config.price)
 
 
 __all__ = [
