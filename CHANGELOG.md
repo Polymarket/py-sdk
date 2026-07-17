@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.1.0-b20](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.1.0-b19...polymarket-client-v0.1.0-b20) (2026-07-17)
+
+
+### Bug Fixes
+
+* **clob:** return TokenId-keyed maps from batch price reads ([a61c71f](https://github.com/Polymarket/py-sdk/commit/a61c71f57300acd4e71eb1ceed3a2b984efaa730))
+* **clob:** return TokenId-keyed maps from batch price reads ([a3e3baf](https://github.com/Polymarket/py-sdk/commit/a3e3bafab96029cbc5a7d0de9935a6b1412f84a7))
+* **models:** treat empty strings as absent for optional stream decimals ([d4a561f](https://github.com/Polymarket/py-sdk/commit/d4a561f6d751ed5bd5e26f4327bcfd45a2b27056))
+* **models:** treat empty strings as absent for optional stream decimals ([377d13e](https://github.com/Polymarket/py-sdk/commit/377d13ed6609a870be5801db7b375c9921a9b967))
+* **rfq:** drop unreleased QUOTE_VALIDATION_TIMEOUT_INTERNAL error code ([c8f5d48](https://github.com/Polymarket/py-sdk/commit/c8f5d4872062c18a99da7a4074f9b6bc95ec8d89))
+* **rfq:** drop unreleased QUOTE_VALIDATION_TIMEOUT_INTERNAL error code ([ce72cf9](https://github.com/Polymarket/py-sdk/commit/ce72cf97503143a3b5ea46e3d7007b35d5787eea))
+* **rfq:** keep sessions open for new error codes ([51a2696](https://github.com/Polymarket/py-sdk/commit/51a26962457890527970b97dd64f989f2f4f155b))
+* **rfq:** keep sessions open for new error codes ([9c39dcc](https://github.com/Polymarket/py-sdk/commit/9c39dcc7d1259c236648cae00b73458f4fe92e32))
+* **rfq:** pass unknown error codes through and model connection loss explicitly ([4c2e93a](https://github.com/Polymarket/py-sdk/commit/4c2e93a53de25bfeb6ef4df8f3c1ed74589754a8))
+* **streams:** support batched Perps fill frames ([9be4c4f](https://github.com/Polymarket/py-sdk/commit/9be4c4f3d9df0c050afc805666c7966349c504c7))
+* **streams:** support batched Perps fill frames ([5446ea3](https://github.com/Polymarket/py-sdk/commit/5446ea311077d63d82802c65d23c74d63be301b5))
+* **streams:** support batched Perps trade frames ([feb18e3](https://github.com/Polymarket/py-sdk/commit/feb18e378efb2f0834347e620def9969094094fb))
+* **streams:** support batched Perps trade frames ([f088ffb](https://github.com/Polymarket/py-sdk/commit/f088ffb1812a974fb641f50bc7ed08b3eb0c30ae))
+
 ## [0.1.0-b19](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.1.0-b18...polymarket-client-v0.1.0-b19) (2026-07-13)
 
 
