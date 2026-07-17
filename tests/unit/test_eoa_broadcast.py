@@ -138,7 +138,7 @@ def test_eoa_transfer_erc20_dispatches_to_rpc() -> None:
 def test_eoa_setup_trading_approvals_submits_and_waits_for_required_calls_sequentially() -> None:
     send_hashes = ["0x" + f"{i:02x}" * 32 for i in range(1, 18)]
     send_iter = iter(send_hashes)
-    receipts: list[dict[str, object] | None] = [{"status": "0x1"} for _ in range(17)]
+    receipts: list[dict[str, object] | None] = [{"status": "0x1"} for _ in range(15)]
     receipt_iter = iter(receipts)
     calls: list[object] = []
 
@@ -205,8 +205,8 @@ def test_eoa_setup_trading_approvals_submits_and_waits_for_required_calls_sequen
     handle = asyncio.run(run())
     assert isinstance(handle, DeprecatedTransactionHandle)
     assert handle.transaction_hash is None
-    assert _rpc_method_count(calls, "eth_sendRawTransaction") == 17
-    assert _rpc_method_count(calls, "eth_getTransactionReceipt") >= 17
+    assert _rpc_method_count(calls, "eth_sendRawTransaction") == 15
+    assert _rpc_method_count(calls, "eth_getTransactionReceipt") >= 15
 
 
 def _rpc_method_count(calls: list[object], method: str) -> int:
