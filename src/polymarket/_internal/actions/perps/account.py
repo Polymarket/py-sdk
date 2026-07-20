@@ -261,7 +261,7 @@ def list_notifications(
 def _encode_notifications_read_cursor(entry: PerpsNotificationEntry) -> str:
     # The upstream read cursor is base64url-encoded JSON keyed as {ts, id}.
     payload = json.dumps(
-        {"ts": int(entry.timestamp.timestamp() * 1000), "id": entry.notification.id},
+        {"ts": round(entry.timestamp.timestamp() * 1000), "id": entry.notification.id},
         separators=(",", ":"),
     )
     return base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii").rstrip("=")

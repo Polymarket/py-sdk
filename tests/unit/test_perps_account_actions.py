@@ -226,9 +226,11 @@ def test_mark_notifications_read_up_to_encodes_before_cursor() -> None:
     async def run() -> None:
         from polymarket.models.perps.notifications import PerpsNotificationEntry
 
-        entry = PerpsNotificationEntry.parse_response(
-            _notification_entry("5f4a3c2b-1d0e-49f8-a7b6-c5d4e3f2a1b0")
-        )
+        raw = _notification_entry("5f4a3c2b-1d0e-49f8-a7b6-c5d4e3f2a1b0")
+        # A ts whose float-seconds round trip lands just below the integer,
+        # so truncating instead of rounding would encode it off by 1ms.
+        raw["ts"] = 2171146883240
+        entry = PerpsNotificationEntry.parse_response(raw)
         transport = _transport(handler)
         try:
             await perps_account.mark_notifications_read(transport, up_to=entry)
@@ -239,7 +241,7 @@ def test_mark_notifications_read_up_to_encodes_before_cursor() -> None:
         before = body["before"]
         padding = "=" * (-len(before) % 4)
         decoded = json.loads(base64.urlsafe_b64decode(before + padding))
-        assert decoded == {"ts": 1751500000000, "id": "5f4a3c2b-1d0e-49f8-a7b6-c5d4e3f2a1b0"}
+        assert decoded == {"ts": 2171146883240, "id": "5f4a3c2b-1d0e-49f8-a7b6-c5d4e3f2a1b0"}
 
     asyncio.run(run())
 
