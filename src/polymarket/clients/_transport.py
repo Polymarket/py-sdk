@@ -318,7 +318,29 @@ def _raise_for_response_status(response: httpx.Response) -> None:
     raise RequestRejectedError(
         _extract_response_error_message(response),
         status=response.status_code,
+        retry_after=_extract_retry_after(response),
     )
+
+
+def _extract_retry_after(response: httpx.Response) -> float | None:
+    header = response.headers.get("retry-after")
+    if header is not None:
+        try:
+            seconds = float(header.strip())
+        except ValueError:
+            seconds = None
+        if seconds is not None and seconds >= 0:
+            return seconds
+
+    if "application/json" in response.headers.get("content-type", "").lower():
+        try:
+            value = response.json().get("retry_after_seconds")
+        except (AttributeError, ValueError):
+            value = None
+        if isinstance(value, int | float) and not isinstance(value, bool) and value >= 0:
+            return float(value)
+
+    return None
 
 
 def _clean_params(

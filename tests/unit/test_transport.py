@@ -60,6 +60,73 @@ def test_sync_transport_maps_rejected_json_error_response() -> None:
         transport.get_json("/markets/1")
 
     assert exc_info.value.status == 400
+    assert exc_info.value.retry_after is None
+
+
+def test_sync_transport_exposes_retry_after_header_on_rejection() -> None:
+    transport = SyncTransport(
+        base_url="https://example.test",
+        client=httpx.Client(
+            base_url="https://example.test",
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(
+                    503,
+                    json={"error": "matching engine restarting"},
+                    headers={"Retry-After": "30"},
+                    request=request,
+                )
+            ),
+        ),
+    )
+
+    with pytest.raises(RequestRejectedError, match="matching engine restarting") as exc_info:
+        transport.post_json("/order", json={})
+
+    assert exc_info.value.status == 503
+    assert exc_info.value.retry_after == 30.0
+
+
+def test_sync_transport_exposes_retry_after_seconds_from_body() -> None:
+    transport = SyncTransport(
+        base_url="https://example.test",
+        client=httpx.Client(
+            base_url="https://example.test",
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(
+                    503,
+                    json={"error": "unavailable", "retry_after_seconds": 2.5},
+                    request=request,
+                )
+            ),
+        ),
+    )
+
+    with pytest.raises(RequestRejectedError) as exc_info:
+        transport.get_json("/markets/1")
+
+    assert exc_info.value.retry_after == 2.5
+
+
+def test_sync_transport_ignores_unparseable_retry_after_header() -> None:
+    transport = SyncTransport(
+        base_url="https://example.test",
+        client=httpx.Client(
+            base_url="https://example.test",
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(
+                    503,
+                    json={"error": "unavailable"},
+                    headers={"Retry-After": "Sun, 20 Jul 2026 12:00:00 GMT"},
+                    request=request,
+                )
+            ),
+        ),
+    )
+
+    with pytest.raises(RequestRejectedError) as exc_info:
+        transport.get_json("/markets/1")
+
+    assert exc_info.value.retry_after is None
 
 
 def test_sync_transport_maps_non_json_success_response() -> None:
