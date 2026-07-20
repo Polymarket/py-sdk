@@ -17,7 +17,11 @@ from polymarket._internal.perps_session import PerpsSession
 from polymarket.clients._transport import AsyncTransport
 from polymarket.errors import RequestRejectedError, TransportError
 from polymarket.models.perps.credentials import PerpsCredentials
-from polymarket.models.perps.events import PerpsOrderEvent, PerpsResyncEvent
+from polymarket.models.perps.events import (
+    PerpsNotificationEvent,
+    PerpsOrderEvent,
+    PerpsResyncEvent,
+)
 
 Handler = Callable[[ServerConnection], Awaitable[None]]
 
@@ -128,6 +132,7 @@ def test_session_authenticates_and_subscribes_all_channels() -> None:
         "funding",
         "deposits",
         "withdrawals",
+        "notifications",
         "tpsl",
     ]
 
@@ -413,6 +418,72 @@ def test_sequence_gap_emits_resync_event_before_update() -> None:
             assert second.previous_sequence == 1
             assert second.sequence == 5
             assert isinstance(third, PerpsOrderEvent)
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+
+
+def _notification_update(sequence: int, notification_id: str) -> dict[str, Any]:
+    return {
+        "ch": "notifications",
+        "ts": 1751500000000,
+        "sq": sequence,
+        "data": {
+            "id": notification_id,
+            "type": "position_opened",
+            "instrument_id": 1,
+            "side": "long",
+            "size": "0.5",
+            "avg_price": "100",
+            "leverage": 2,
+            "order_type": "market",
+        },
+    }
+
+
+def test_notification_sequence_gaps_do_not_emit_local_resync() -> None:
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        await ws.send(json.dumps(_notification_update(10, "5f4a3c2b-1d0e-49f8-a7b6-c5d4e3f2a1b0")))
+        await ws.send(json.dumps(_notification_update(50, "6a5b4c3d-2e1f-40a9-b8c7-d6e5f4a3b2c1")))
+        await ws.send(json.dumps(_order_update(1, sequence=1)))
+        with contextlib.suppress(Exception):
+            async for _ in ws:
+                pass
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            first = await asyncio.wait_for(session.__anext__(), timeout=5.0)
+            second = await asyncio.wait_for(session.__anext__(), timeout=5.0)
+            third = await asyncio.wait_for(session.__anext__(), timeout=5.0)
+            assert isinstance(first, PerpsNotificationEvent)
+            assert first.payload.type == "position_opened"
+            assert first.payload.order_type == "market"
+            assert first.sequence == 10
+            assert isinstance(second, PerpsNotificationEvent)
+            assert second.sequence == 50
+            assert isinstance(third, PerpsOrderEvent)
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+
+
+def test_server_notifications_resync_frame_emits_server_resync_event() -> None:
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        await ws.send(
+            json.dumps({"ch": "notifications", "ts": 1751500000000, "sq": 77, "type": "resync"})
+        )
+        with contextlib.suppress(Exception):
+            async for _ in ws:
+                pass
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            event = await asyncio.wait_for(session.__anext__(), timeout=5.0)
+            assert isinstance(event, PerpsResyncEvent)
+            assert event.reason == "server"
+            assert event.channel == "notifications"
+            assert event.sequence == 77
+            assert event.previous_sequence is None
 
     asyncio.run(asyncio.wait_for(run(), timeout=10.0))
 
