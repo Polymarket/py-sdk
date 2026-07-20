@@ -13,7 +13,11 @@ import pytest
 from polymarket._internal.actions.perps import account as perps_account
 from polymarket.clients._transport import AsyncTransport
 from polymarket.errors import RequestRejectedError, UserInputError
-from polymarket.models.perps.notifications import PerpsPositionChangeNotification
+from polymarket.models.perps.notifications import (
+    PerpsNotificationsPage,
+    PerpsNotificationsPaginator,
+    PerpsPositionChangeNotification,
+)
 
 _BASE_URL = "https://perps.test"
 
@@ -338,6 +342,26 @@ def test_list_notifications_rejects_invalid_inputs_and_cursors() -> None:
                     await pages.from_cursor(_cursor(state)).first_page()
         finally:
             await transport.close()
+
+    asyncio.run(run())
+
+
+def test_notifications_paginator_from_cursor_none_yields_no_pages() -> None:
+    fetch_count = [0]
+
+    async def fetch(_cursor: str | None) -> PerpsNotificationsPage:
+        fetch_count[0] += 1
+        return PerpsNotificationsPage(items=(), has_more=False, unread=3, durable_source_seq=7)
+
+    async def run() -> None:
+        empty = PerpsNotificationsPaginator(fetch=fetch).from_cursor(None)
+        assert [page async for page in empty] == []
+        first = await empty.first_page()
+        assert first.items == ()
+        assert first.has_more is False
+        assert first.unread == 0
+        assert first.durable_source_seq == 0
+        assert fetch_count[0] == 0
 
     asyncio.run(run())
 

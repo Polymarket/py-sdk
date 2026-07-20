@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Annotated, Literal
 
@@ -154,8 +154,22 @@ class PerpsNotificationsPaginator(AsyncPaginator[PerpsNotificationEntry]):
 
     def from_cursor(self, cursor: str | None) -> PerpsNotificationsPaginator:
         if cursor is None:
-            return PerpsNotificationsPaginator(fetch=_empty_notifications_page)
+            return _EmptyNotificationsPaginator()
         return PerpsNotificationsPaginator(self._fetch_page, initial_cursor=cursor)
+
+
+class _EmptyNotificationsPaginator(PerpsNotificationsPaginator):
+    def __init__(self) -> None:
+        super().__init__(fetch=_empty_notifications_page, initial_cursor=None)
+
+    def from_cursor(self, cursor: str | None) -> PerpsNotificationsPaginator:
+        if cursor is None:
+            return self
+        return PerpsNotificationsPaginator(self._fetch_page, initial_cursor=cursor)
+
+    async def _iter_pages(self) -> AsyncIterator[PerpsNotificationsPage]:
+        return
+        yield  # pragma: no cover - forces this method to be an async generator
 
 
 async def _empty_notifications_page(_cursor: str | None) -> PerpsNotificationsPage:
