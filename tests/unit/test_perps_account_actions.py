@@ -14,6 +14,7 @@ from polymarket._internal.actions.perps import account as perps_account
 from polymarket.clients._transport import AsyncTransport
 from polymarket.errors import RequestRejectedError, UserInputError
 from polymarket.models.perps.notifications import (
+    PerpsNotificationEntry,
     PerpsNotificationsPage,
     PerpsNotificationsPaginator,
     PerpsPositionChangeNotification,
@@ -366,6 +367,12 @@ def test_notifications_paginator_from_cursor_none_yields_no_pages() -> None:
     asyncio.run(run())
 
 
+def test_notification_entry_parses_with_read_at_omitted() -> None:
+    raw = _notification_entry("5f4a3c2b-1d0e-49f8-a7b6-c5d4e3f2a1b0")
+    del raw["read_at"]
+    assert PerpsNotificationEntry.parse_response(raw).read_at is None
+
+
 def test_mark_notifications_read_by_ids_posts_id_list() -> None:
     bodies: list[Any] = []
 
@@ -394,8 +401,6 @@ def test_mark_notifications_read_up_to_encodes_before_cursor() -> None:
         return httpx.Response(200, json={"status": "ok"})
 
     async def run() -> None:
-        from polymarket.models.perps.notifications import PerpsNotificationEntry
-
         raw = _notification_entry("5f4a3c2b-1d0e-49f8-a7b6-c5d4e3f2a1b0")
         # A ts whose float-seconds round trip lands just below the integer,
         # so truncating instead of rounding would encode it off by 1ms.

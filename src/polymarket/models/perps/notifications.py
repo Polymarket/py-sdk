@@ -121,7 +121,7 @@ class PerpsNotificationEntry(BaseModel):
     """One notification with its account-scoped read state."""
 
     notification: PerpsNotification
-    read_at: OptionalPerpsTimestamp
+    read_at: OptionalPerpsTimestamp = None
     timestamp: PerpsTimestamp = Field(validation_alias="ts")
 
 
