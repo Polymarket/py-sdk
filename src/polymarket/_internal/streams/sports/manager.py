@@ -133,6 +133,7 @@ class SportsStreamManager:
             event = parse_sports_event(raw)
         except ValidationError:
             self._dropped_events += 1
+            self._logger.debug("dropped malformed sports event")
             return
         self._registry.dispatch(event)
 

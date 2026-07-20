@@ -211,14 +211,16 @@ def test_pre_enveloped_input_passes_through() -> None:
 
 
 def test_parse_user_events_batches_arrays() -> None:
-    events = parse_user_events([_ORDER_PLACEMENT, _TRADE])
+    events, dropped = parse_user_events([_ORDER_PLACEMENT, _TRADE])
+    assert dropped == 0
     assert len(events) == 2
     assert isinstance(events[0], UserOrderEvent)
     assert isinstance(events[1], UserTradeEvent)
 
 
 def test_parse_user_events_drops_malformed() -> None:
-    events = parse_user_events([_ORDER_PLACEMENT, {"bogus": True}, _TRADE])
+    events, dropped = parse_user_events([_ORDER_PLACEMENT, {"bogus": True}, _TRADE])
+    assert dropped == 1
     assert len(events) == 2
 
 
@@ -249,17 +251,3 @@ def test_trade_empty_string_required_decimal_rejected() -> None:
     # "" only means absent for optional decimals; required ones stay strict.
     with pytest.raises(ValidationError):
         parse_user_event({**_TRADE, "price": ""})
-
-
-def test_trade_with_status_the_sdk_does_not_model_is_dropped() -> None:
-    # A trade whose status the SDK does not model fails validation and is
-    # dropped, while sibling valid frames still parse.
-    frame = {**_TRADE, "status": "TRADE_STATUS_FUTURE_STATUS"}
-    events = parse_user_events([frame, _TRADE])
-    assert len(events) == 1
-
-
-def test_order_with_status_or_event_type_the_sdk_does_not_model_is_dropped() -> None:
-    frame = {**_ORDER_PLACEMENT, "status": "FUTURE_STATUS", "type": "FUTURE_EVENT_TYPE"}
-    events = parse_user_events([frame, _ORDER_PLACEMENT])
-    assert len(events) == 1

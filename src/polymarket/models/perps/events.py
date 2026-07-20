@@ -324,22 +324,25 @@ def parse_perps_session_event(raw: object) -> PerpsSessionEvent | None:
     )
 
 
-def parse_perps_market_events(raw: object) -> list[PerpsMarketEvent]:
+def parse_perps_market_events(raw: object) -> tuple[list[PerpsMarketEvent], int]:
     """Parse a decoded frame into market events.
 
-    Frames that are not channel updates (for example command
-    acknowledgements) and entries the SDK does not recognize are dropped.
+    Returns ``(events, dropped_count)``. Frames that are not channel updates
+    (for example command acknowledgements) are ignored without counting as
+    dropped; malformed channel updates are dropped.
     """
     items: list[object] = list(cast(list[object], raw)) if isinstance(raw, list) else [raw]
     parsed: list[PerpsMarketEvent] = []
+    dropped = 0
     for item in items:
         try:
             event = parse_perps_market_event(item)
         except ValidationError:
+            dropped += 1
             continue
         if event is not None:
             parsed.append(event)
-    return parsed
+    return parsed, dropped
 
 
 __all__ = [

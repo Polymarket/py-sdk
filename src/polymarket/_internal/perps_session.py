@@ -856,7 +856,8 @@ class PerpsSession:
         try:
             event = parse_perps_session_event(raw)
         except Exception:
-            event = None
+            self._logger.debug("dropped malformed perps session event", exc_info=True)
+            return
         if event is None:
             return
         self._push_sequence_gap_if_needed(event)

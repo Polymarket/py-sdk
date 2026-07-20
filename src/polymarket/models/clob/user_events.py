@@ -148,19 +148,16 @@ def parse_user_event(raw: object) -> UserEvent:
     return _USER_EVENT_ADAPTER.validate_python(_normalize_to_envelope(raw))
 
 
-def parse_user_events(raw: object) -> list[UserEvent]:
-    """Parse a decoded JSON value (object or array) into UserEvents.
-
-    Entries the SDK does not recognize are dropped.
-    """
+def parse_user_events(raw: object) -> tuple[list[UserEvent], int]:
     items: list[object] = list(cast(list[object], raw)) if isinstance(raw, list) else [raw]
     parsed: list[UserEvent] = []
+    dropped = 0
     for item in items:
         try:
             parsed.append(parse_user_event(item))
         except (ValueError, ValidationError):
-            continue
-    return parsed
+            dropped += 1
+    return parsed, dropped
 
 
 __all__ = [

@@ -479,11 +479,7 @@ class AsyncSecureClient:
             api_key=api_key,
             rpc=rpc,
         )
-        return cls(
-            ctx=ctx,
-            _create_token=_CREATE_TOKEN,
-            logger=logger,
-        )
+        return cls(ctx=ctx, _create_token=_CREATE_TOKEN, logger=logger)
 
     @property
     def environment(self) -> Environment:

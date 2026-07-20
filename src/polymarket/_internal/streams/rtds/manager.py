@@ -140,6 +140,7 @@ class RtdsStreamManager:
             event = parse_rtds_event(raw)
         except (ValueError, ValidationError):
             self._dropped_events += 1
+            self._logger.debug("dropped malformed RTDS event")
             return
         self._registry.dispatch(event)
 

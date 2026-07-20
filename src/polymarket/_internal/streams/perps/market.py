@@ -51,10 +51,15 @@ class PerpsMarketStreamManager:
         self._send_lock = asyncio.Lock()
         self._next_request_id = 1
         self._closed = False
+        self._dropped_events = 0
 
     @property
     def is_open(self) -> bool:
         return self._connection.is_open
+
+    @property
+    def dropped_events(self) -> int:
+        return self._dropped_events
 
     async def subscribe(self, spec: PerpsSpec) -> AsyncSubscriptionHandle[PerpsMarketEvent]:
         if self._closed:
@@ -159,7 +164,11 @@ class PerpsMarketStreamManager:
             await self._send_channel_frames(added_channels, removed_channels)
 
     def _on_message(self, raw: object) -> None:
-        for event in parse_events(raw):
+        events, dropped = parse_events(raw)
+        if dropped:
+            self._dropped_events += dropped
+            self._logger.debug("dropped %d malformed perps market event(s)", dropped)
+        for event in events:
             self._registry.dispatch(event)
 
     def _on_socket_connection_lost(self, code: int, reason: str) -> None:

@@ -244,7 +244,7 @@ def test_custom_event_filtered_for_non_custom_subscriber() -> None:
     assert plain_type is MarketBookEvent
 
 
-def test_malformed_event_dropped() -> None:
+def test_malformed_event_dropped_and_counter_increments() -> None:
     async def handler(ws: ServerConnection) -> None:
         await ws.recv()
         await ws.send(json.dumps({"event_type": "bogus"}))
@@ -252,18 +252,21 @@ def test_malformed_event_dropped() -> None:
         async for _ in ws:
             pass
 
-    async def run() -> type[Any]:
+    async def run() -> tuple[int, type[Any]]:
         async with ws_server(handler) as url:
             mgr = ClobMarketStreamManager(url=url)
             try:
                 handle = await mgr.subscribe(token_ids=["a"])
                 first = await _next_event(handle)
+                await asyncio.sleep(0.05)
                 await handle.close()
-                return type(first)
+                return mgr.dropped_events, type(first)
             finally:
                 await mgr.close()
 
-    assert asyncio.run(run()) is MarketBookEvent
+    dropped, event_type = asyncio.run(run())
+    assert dropped == 1
+    assert event_type is MarketBookEvent
 
 
 def test_ping_sent_periodically_and_pong_consumed() -> None:
