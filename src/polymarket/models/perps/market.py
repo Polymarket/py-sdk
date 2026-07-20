@@ -45,6 +45,7 @@ class PerpsInstrument(BaseModel):
     max_market_notional: _Decimal
     max_limit_notional: _Decimal
     max_leverage: int
+    isolated_only: bool
     risk_tiers: tuple[PerpsRiskTier, ...]
 
 
