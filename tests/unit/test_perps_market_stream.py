@@ -8,6 +8,7 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
+import pytest
 from websockets.asyncio.server import ServerConnection, serve
 
 from polymarket._internal.streams.perps.market import PerpsMarketStreamManager
@@ -50,20 +51,59 @@ def _book_frame(instrument_id: int) -> dict[str, Any]:
     }
 
 
-def _trade_frame(instrument_id: int) -> dict[str, Any]:
+def _trade_frame(instrument_id: int, *, sequence: int = 2) -> dict[str, Any]:
     return {
         "ch": f"trades::{instrument_id}",
         "ts": 1751500000000,
-        "sq": 2,
-        "data": {
-            "tid": 9,
-            "iid": instrument_id,
-            "side": "long",
-            "p": "0.5",
-            "qty": "1",
-            "ts": 1751500000000,
-        },
+        "sq": sequence,
+        "data": [
+            {
+                "tid": 9,
+                "iid": instrument_id,
+                "side": "long",
+                "p": "0.5",
+                "qty": "1",
+                "ts": 1751500000000,
+            },
+            {
+                "tid": 10,
+                "iid": instrument_id,
+                "side": "short",
+                "p": "0.6",
+                "qty": "2",
+                "ts": 1751500000001,
+            },
+        ],
     }
+
+
+def test_batched_trade_frame_yields_one_event_and_routes_by_channel() -> None:
+    async def handler(ws: ServerConnection) -> None:
+        async for raw in ws:
+            if _is_ping(raw):
+                continue
+            frame = json.loads(raw)
+            if frame["req"] == "sub":
+                await ws.send(json.dumps(_trade_frame(8)))
+                await ws.send(json.dumps(_trade_frame(7)))
+
+    async def run() -> None:
+        async with ws_server(handler) as url:
+            manager = PerpsMarketStreamManager(url=url)
+            try:
+                handle = await manager.subscribe(PerpsTradesSpec(instrument_id=7))
+                async with handle:
+                    event = await asyncio.wait_for(handle.__anext__(), timeout=5.0)
+                    assert isinstance(event, PerpsTradeEvent)
+                    assert event.channel == "trades::7"
+                    assert event.sequence == 2
+                    assert [trade.trade_id for trade in event.payload] == [9, 10]
+                    with pytest.raises(TimeoutError):
+                        await asyncio.wait_for(handle.__anext__(), timeout=0.1)
+            finally:
+                await manager.close()
+
+    asyncio.run(asyncio.wait_for(run(), timeout=15.0))
 
 
 def test_derive_state_collapses_all_subscriptions() -> None:

@@ -19,7 +19,7 @@ from polymarket.models.clob import (
 from polymarket.models.clob._validators import (
     _DecimalFromString,  # pyright: ignore[reportPrivateUsage]
 )
-from polymarket.models.types import OrderSide
+from polymarket.models.types import OrderSide, TokenId
 
 
 class _MidpointResponse(BaseModel):
@@ -37,9 +37,9 @@ class _SpreadResponse(BaseModel):
 _PRICE_HISTORY_INTERVALS: frozenset[str] = frozenset({"max", "1w", "1d", "6h", "1h"})
 _VALID_ORDER_SIDES: frozenset[str] = frozenset({"BUY", "SELL"})
 
-_MidpointsAdapter = TypeAdapter(dict[str, _DecimalFromString])
-_SpreadsAdapter = TypeAdapter(dict[str, _DecimalFromString])
-_PricesAdapter = TypeAdapter(dict[str, dict[OrderSide, _DecimalFromString]])
+_MidpointsAdapter = TypeAdapter(dict[TokenId, _DecimalFromString])
+_SpreadsAdapter = TypeAdapter(dict[TokenId, _DecimalFromString])
+_PricesAdapter = TypeAdapter(dict[TokenId, dict[OrderSide, _DecimalFromString]])
 _OrderBookListAdapter = TypeAdapter(tuple[OrderBook, ...])
 _LastTradePriceListAdapter = TypeAdapter(tuple[LastTradePriceForToken, ...])
 _PriceHistoryListAdapter = TypeAdapter(tuple[PriceHistoryPoint, ...])
@@ -110,7 +110,7 @@ def build_midpoints_request(*, token_ids: Sequence[str]) -> tuple[str, list[dict
     return "/midpoints", [{"token_id": tid} for tid in validated]
 
 
-def parse_midpoints(data: object) -> dict[str, Decimal]:
+def parse_midpoints(data: object) -> dict[TokenId, Decimal]:
     try:
         return _MidpointsAdapter.validate_python(data)
     except ValidationError as error:
@@ -132,7 +132,7 @@ def build_prices_request(*, requests: Sequence[PriceRequest]) -> tuple[str, list
     return "/prices", [{"token_id": r.token_id, "side": r.side} for r in validated]
 
 
-def parse_prices(data: object) -> dict[str, dict[OrderSide, Decimal]]:
+def parse_prices(data: object) -> dict[TokenId, dict[OrderSide, Decimal]]:
     try:
         return _PricesAdapter.validate_python(data)
     except ValidationError as error:
@@ -174,7 +174,7 @@ def build_spreads_request(*, token_ids: Sequence[str]) -> tuple[str, list[dict[s
     return "/spreads", [{"token_id": tid} for tid in validated]
 
 
-def parse_spreads(data: object) -> dict[str, Decimal]:
+def parse_spreads(data: object) -> dict[TokenId, Decimal]:
     try:
         return _SpreadsAdapter.validate_python(data)
     except ValidationError as error:

@@ -60,7 +60,7 @@ def test_async_secure_get_midpoint_returns_decimal_in_unit_range(
 
 @pytest.mark.integration
 def test_async_get_midpoints_returns_decimal_per_token(active_clob_token: TokenId) -> None:
-    async def run() -> dict[str, Decimal]:
+    async def run() -> dict[TokenId, Decimal]:
         async with AsyncPublicClient() as client:
             return await client.get_midpoints(token_ids=[active_clob_token])
 
@@ -84,7 +84,7 @@ def test_async_get_price_returns_decimal_for_buy_side(active_clob_token: TokenId
 
 @pytest.mark.integration
 def test_async_get_prices_returns_decimal_per_token_and_side(active_clob_token: TokenId) -> None:
-    async def run() -> dict[str, dict[OrderSide, Decimal]]:
+    async def run() -> dict[TokenId, dict[OrderSide, Decimal]]:
         async with AsyncPublicClient() as client:
             return await client.get_prices(
                 requests=[
@@ -140,7 +140,7 @@ def test_async_get_spread_returns_non_negative_decimal(active_clob_token: TokenI
 
 @pytest.mark.integration
 def test_async_get_spreads_returns_decimal_per_token(active_clob_token: TokenId) -> None:
-    async def run() -> dict[str, Decimal]:
+    async def run() -> dict[TokenId, Decimal]:
         async with AsyncPublicClient() as client:
             return await client.get_spreads(token_ids=[active_clob_token])
 

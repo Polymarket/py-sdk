@@ -44,14 +44,14 @@ _NOTIFICATIONS_CHANNEL = "notifications"
 
 
 class PerpsTradeEvent(BaseModel):
-    """A public trade printed on a subscribed instrument."""
+    """Public trades printed in one update for a subscribed instrument."""
 
     topic: Literal["perps.trades"] = "perps.trades"
     type: Literal["trade"]
     channel: str
     timestamp: PerpsTimestamp
     sequence: int
-    payload: PerpsTrade
+    payload: list[PerpsTrade]
 
 
 class PerpsBboEvent(BaseModel):
@@ -153,13 +153,13 @@ class PerpsOrderEvent(BaseModel):
 
 
 class PerpsFillEvent(BaseModel):
-    """A fill update for the session account."""
+    """Fill updates in one frame for the session account."""
 
     type: Literal["fill"]
     channel: str
     timestamp: PerpsTimestamp
     sequence: int
-    payload: PerpsFill
+    payload: list[PerpsFill]
 
 
 class PerpsFundingEvent(BaseModel):

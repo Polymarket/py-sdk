@@ -57,18 +57,16 @@ def test_setup_trading_approvals_bundles_required_calls_for_deposit_wallet() -> 
     body = request_json(submit_calls[0])
     assert body["type"] == "WALLET"
     inner = body["depositWalletParams"]["calls"]
-    assert len(inner) == 17
+    assert len(inner) == 15
 
     erc20_sel = _selector("approve(address,uint256)")
     erc1155_sel = _selector("setApprovalForAll(address,bool)")
-    # ERC20 approvals: standard_exchange, neg_risk_exchange, neg_risk_adapter,
-    # collateral_adapter, neg_risk_collateral_adapter, protocol_v2_router, exchange_v3,
-    # perps_deposit_contract
+    # ERC20 approvals: standard_exchange, neg_risk_exchange, collateral_adapter,
+    # neg_risk_collateral_adapter, protocol_v2_router, exchange_v3, perps_deposit_contract
     for index, spender in enumerate(
         [
             PRODUCTION.standard_exchange,
             PRODUCTION.neg_risk_exchange,
-            PRODUCTION.neg_risk_adapter,
             PRODUCTION.collateral_adapter,
             PRODUCTION.neg_risk_collateral_adapter,
             PRODUCTION.protocol_v2_router,
@@ -80,18 +78,17 @@ def test_setup_trading_approvals_bundles_required_calls_for_deposit_wallet() -> 
         assert inner[index]["data"].startswith(erc20_sel)
         assert spender[2:].lower() in inner[index]["data"].lower()
     # ERC1155 conditional-token approvals: standard_exchange, neg_risk_exchange,
-    # neg_risk_adapter, collateral_adapter, neg_risk_collateral_adapter, auto_redeem_operator
+    # collateral_adapter, neg_risk_collateral_adapter, auto_redeem_operator
     for offset, operator in enumerate(
         [
             PRODUCTION.standard_exchange,
             PRODUCTION.neg_risk_exchange,
-            PRODUCTION.neg_risk_adapter,
             PRODUCTION.collateral_adapter,
             PRODUCTION.neg_risk_collateral_adapter,
             PRODUCTION.auto_redeem_operator,
         ]
     ):
-        index = 8 + offset
+        index = 7 + offset
         assert inner[index]["target"].lower() == PRODUCTION.conditional_tokens.lower()
         assert inner[index]["data"].startswith(erc1155_sel)
         assert operator[2:].lower() in inner[index]["data"].lower()
@@ -104,7 +101,7 @@ def test_setup_trading_approvals_bundles_required_calls_for_deposit_wallet() -> 
             PRODUCTION.auto_redeem_operator,
         ]
     ):
-        index = 14 + offset
+        index = 12 + offset
         assert inner[index]["target"].lower() == PRODUCTION.position_manager.lower()
         assert inner[index]["data"].startswith(erc1155_sel)
         assert operator[2:].lower() in inner[index]["data"].lower()
