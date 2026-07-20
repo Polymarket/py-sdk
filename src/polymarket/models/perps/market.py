@@ -191,12 +191,21 @@ class PerpsFundingRate(BaseModel):
     timestamp: PerpsTimestamp
 
 
+class PerpsFeeTier(BaseModel):
+    """One volume-based fee tier for a Perps instrument category."""
+
+    min_volume_30d: _Decimal
+    taker_fee_rate: _Decimal
+    maker_fee_rate: _Decimal
+
+
 class PerpsFeeScheduleEntry(BaseModel):
     """Maker and taker fee rates for a Perps instrument category."""
 
     category: PerpsInstrumentCategory
     taker_fee_rate: _Decimal
     maker_fee_rate: _Decimal
+    tiers: tuple[PerpsFeeTier, ...]
 
 
 class PerpsCandleBatch(BaseModel):
@@ -215,6 +224,7 @@ __all__ = [
     "PerpsCandle",
     "PerpsCandleBatch",
     "PerpsFeeScheduleEntry",
+    "PerpsFeeTier",
     "PerpsFundingRate",
     "PerpsInstrument",
     "PerpsRiskTier",
