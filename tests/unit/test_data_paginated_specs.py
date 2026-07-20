@@ -70,6 +70,52 @@ def test_list_combo_positions_spec_validates_status() -> None:
         data_actions.list_combo_positions_spec(user="0xWALLET", status="CLOSED")  # type: ignore[arg-type]
 
 
+@pytest.mark.parametrize(
+    "statuses",
+    [
+        ["RESOLVED_WIN", "RESOLVED_PARTIAL", "RESOLVED_LOSS"],
+        ("RESOLVED_WIN", "RESOLVED_PARTIAL", "RESOLVED_LOSS"),
+    ],
+)
+def test_list_combo_positions_spec_builds_request_with_multiple_statuses(
+    statuses: list[str] | tuple[str, ...],
+) -> None:
+    spec = data_actions.list_combo_positions_spec(
+        user="0xWALLET",
+        status=statuses,  # type: ignore[arg-type]
+    )
+    assert spec.base_params == {
+        "user": "0xWALLET",
+        "status": "RESOLVED_WIN,RESOLVED_PARTIAL,RESOLVED_LOSS",
+    }
+
+
+def test_list_combo_positions_spec_validates_each_status_in_sequence() -> None:
+    with pytest.raises(UserInputError, match="status"):
+        data_actions.list_combo_positions_spec(user="0xWALLET", status=["OPEN", "CLOSED"])  # type: ignore[list-item]
+
+
+def test_list_combo_positions_spec_rejects_empty_status_sequence() -> None:
+    with pytest.raises(UserInputError, match="status"):
+        data_actions.list_combo_positions_spec(user="0xWALLET", status=[])
+
+
+def test_list_combo_positions_spec_rejects_non_string_status_member() -> None:
+    with pytest.raises(UserInputError, match="status"):
+        data_actions.list_combo_positions_spec(
+            user="0xWALLET",
+            status=["OPEN", 1],  # type: ignore[list-item]
+        )
+
+
+def test_list_combo_positions_spec_rejects_comma_separated_status_string() -> None:
+    with pytest.raises(UserInputError, match="status"):
+        data_actions.list_combo_positions_spec(
+            user="0xWALLET",
+            status="RESOLVED_WIN,RESOLVED_LOSS",  # type: ignore[arg-type]
+        )
+
+
 def test_list_combo_positions_spec_rejects_non_combo_condition_id() -> None:
     with pytest.raises(UserInputError, match="combo condition ID"):
         data_actions.list_combo_positions_spec(user="0xWALLET", condition_id=_CTF_CONDITION_ID)

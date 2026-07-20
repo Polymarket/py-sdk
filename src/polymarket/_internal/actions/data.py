@@ -275,7 +275,7 @@ def list_closed_positions_spec(
 def list_combo_positions_spec(
     *,
     user: str,
-    status: ComboPositionStatus | None = None,
+    status: ComboPositionStatus | Sequence[ComboPositionStatus] | None = None,
     sort: ComboPositionSort | None = None,
     condition_id: str | Sequence[str] | None = None,
     updated_after: int | None = None,
@@ -283,7 +283,8 @@ def list_combo_positions_spec(
 ) -> KeysetPaginatedSpec[ComboPosition]:
     if not user:
         raise UserInputError("user is required.")
-    _check_enum("status", status, _COMBO_POSITION_STATUS)
+    if status is not None:
+        status = _normalize_combo_status_filter(status)
     _check_enum("sort", sort, _COMBO_POSITION_SORT)
     if condition_id is not None:
         condition_id = _normalize_combo_condition_filter(condition_id)
@@ -516,6 +517,17 @@ def _check_enum(name: str, value: object, allowed: tuple[str, ...]) -> None:
 def _check_nonnegative_int(name: str, value: int | None) -> None:
     if value is not None and value < 0:
         raise UserInputError(f"{name} must be non-negative.")
+
+
+def _normalize_combo_status_filter(
+    value: ComboPositionStatus | Sequence[ComboPositionStatus],
+) -> ComboPositionStatus | tuple[ComboPositionStatus, ...]:
+    values = (value,) if isinstance(value, str) else tuple(value)
+    if not values:
+        raise UserInputError("status must be a non-empty sequence.")
+    for item in values:
+        _check_enum("status", item, _COMBO_POSITION_STATUS)
+    return value if isinstance(value, str) else values
 
 
 def _normalize_combo_condition_filter(value: str | Sequence[str]) -> str | tuple[str, ...]:

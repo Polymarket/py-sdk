@@ -8,6 +8,7 @@ from polymarket import (
     ClosedPosition,
     ComboActivity,
     ComboPosition,
+    ComboPositionStatus,
     LeaderboardEntry,
     MetaMarketPosition,
     Position,
@@ -82,6 +83,30 @@ def test_list_combo_positions_filters_by_condition_id() -> None:
         ).first_page()
     assert filtered.items
     assert filtered.items[0].condition_id == condition_id
+
+
+@pytest.mark.integration
+def test_list_combo_positions_filters_by_multiple_statuses() -> None:
+    statuses: list[ComboPositionStatus] = ["RESOLVED_WIN", "RESOLVED_PARTIAL", "RESOLVED_LOSS"]
+    with PublicClient() as client:
+        paginator = client.list_combo_positions(user=COMBO_WALLET, status=statuses, page_size=1)
+        first = paginator.first_page()
+        pages = [first]
+        if first.next_cursor is not None:
+            pages.append(paginator.from_cursor(first.next_cursor).first_page())
+    assert first.items
+    assert all(position.status in statuses for page in pages for position in page.items)
+
+
+@pytest.mark.integration
+def test_list_combo_positions_filters_by_single_status() -> None:
+    status: ComboPositionStatus = "RESOLVED_WIN"
+    with PublicClient() as client:
+        page = client.list_combo_positions(
+            user=COMBO_WALLET, status=status, page_size=10
+        ).first_page()
+    assert page.items
+    assert all(p.status == status for p in page.items)
 
 
 @pytest.mark.integration
