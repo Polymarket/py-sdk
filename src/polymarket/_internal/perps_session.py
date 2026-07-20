@@ -82,6 +82,7 @@ from polymarket.models.perps.types import (
     PerpsDepositStatus,
     PerpsOrderId,
     PerpsPnlInterval,
+    PerpsSortDirection,
     PerpsTimeInForce,
     PerpsWithdrawalStatus,
 )
@@ -588,12 +589,16 @@ class PerpsSession:
         *,
         start: datetime | int | None = None,
         end: datetime | int | None = None,
+        sort: PerpsSortDirection | None = None,
+        cursor: str | None = None,
     ) -> AsyncPaginator[PerpsFill]:
         """List Perps fills for the session account.
 
-        Defaults to the past 24 hours when ``start`` is omitted.
+        Fills are returned newest first by default; pass ``sort="asc"`` for
+        oldest first. ``cursor`` resumes from an opaque page cursor returned
+        by a previous page.
         """
-        return _account.list_fills(self._api, start=start, end=end)
+        return _account.list_fills(self._api, start=start, end=end, sort=sort, cursor=cursor)
 
     def list_funding_payments(
         self,
