@@ -111,11 +111,6 @@ _SESSION_CHANNELS = (
     "tpsl",
 )
 
-# Notification frames carry the source event's engine sequence, which is not
-# dense per channel: unrelated engine events skip values and one event can
-# emit several notifications sharing one sequence. Local sequence-gap
-# detection would misfire, so dropped frames are signalled by server-sent
-# resync control frames instead.
 _SERVER_RESYNC_CHANNELS = frozenset({"notifications"})
 
 
