@@ -294,6 +294,8 @@ async def mark_notifications_read(
     if (ids is None) == (up_to is None):
         raise UserInputError("Provide exactly one of ids or up_to")
     if ids is not None:
+        if isinstance(ids, str | bytes):
+            raise UserInputError("ids must be a sequence of notification ids, not a single string.")
         id_list = list(ids)
         if not id_list or any(not item for item in id_list):
             raise UserInputError("ids must be a non-empty sequence of notification ids")

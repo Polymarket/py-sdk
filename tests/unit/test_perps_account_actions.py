@@ -431,6 +431,10 @@ def test_mark_notifications_read_rejects_err_status_and_bad_arguments() -> None:
                 await perps_account.mark_notifications_read(transport)
             with pytest.raises(UserInputError, match="ids"):
                 await perps_account.mark_notifications_read(transport, ids=[])
+            with pytest.raises(UserInputError, match="single string"):
+                await perps_account.mark_notifications_read(
+                    transport, ids="5f4a3c2b-1d0e-49f8-a7b6-c5d4e3f2a1b0"
+                )
         finally:
             await transport.close()
 
