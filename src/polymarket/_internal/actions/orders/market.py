@@ -5,6 +5,7 @@ from polymarket._internal.actions.orders._numeric import coerce_positive_decimal
 from polymarket._internal.actions.orders.context import (
     resolve_exchange_address,
     resolve_rounding_config,
+    validate_price_on_tick_grid,
 )
 from polymarket._internal.actions.orders.estimate import (
     resolve_estimated_market_price,
@@ -182,9 +183,9 @@ async def _resolve_market_order_price(
     tick_size: Decimal,
 ) -> Decimal:
     if params.side == "BUY" and params.max_price is not None:
-        return _resolve_protected_market_price(params.max_price, tick_size, field="max_price")
+        return validate_price_on_tick_grid(params.max_price, tick_size, "max_price")
     if params.side == "SELL" and params.min_price is not None:
-        return _resolve_protected_market_price(params.min_price, tick_size, field="min_price")
+        return validate_price_on_tick_grid(params.min_price, tick_size, "min_price")
     return await resolve_estimated_market_price(
         ctx,
         token_id=params.token_id,
@@ -203,9 +204,9 @@ def _resolve_market_order_price_sync(
     tick_size: Decimal,
 ) -> Decimal:
     if params.side == "BUY" and params.max_price is not None:
-        return _resolve_protected_market_price(params.max_price, tick_size, field="max_price")
+        return validate_price_on_tick_grid(params.max_price, tick_size, "max_price")
     if params.side == "SELL" and params.min_price is not None:
-        return _resolve_protected_market_price(params.min_price, tick_size, field="min_price")
+        return validate_price_on_tick_grid(params.min_price, tick_size, "min_price")
     return resolve_estimated_market_price_sync(
         ctx,
         token_id=params.token_id,
@@ -214,21 +215,6 @@ def _resolve_market_order_price_sync(
         order_type=params.order_type,
         tick_size=tick_size,
     )
-
-
-def _resolve_protected_market_price(price: Decimal, tick_size: Decimal, *, field: str) -> Decimal:
-    config = resolve_rounding_config(tick_size)
-    if price < tick_size or price > Decimal(1) - tick_size:
-        raise UserInputError(
-            f"{field} must be between {tick_size} and {Decimal(1) - tick_size} "
-            f"for tick size {tick_size}."
-        )
-    if decimal_places(price) > config.price:
-        raise UserInputError(
-            f"{field} must conform to tick size {tick_size} with at most "
-            f"{config.price} decimal places."
-        )
-    return price
 
 
 def _has_protected_price(params: PrepareMarketOrderParams) -> bool:
