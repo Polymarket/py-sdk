@@ -11,7 +11,7 @@ from polymarket.models.clob._validators import (
     EpochMsTimestamp,
     _DecimalFromString,  # pyright: ignore[reportPrivateUsage]
 )
-from polymarket.models.types import TokenId
+from polymarket.models.types import CtfConditionId, TokenId
 
 _DecimalMode = Literal["decimal", "float"]
 
@@ -22,7 +22,13 @@ class OrderBookLevel(BaseModel):
 
 
 class OrderBook(BaseModel):
-    market: str
+    market: CtfConditionId = Field(
+        description="Deprecated: use condition_id. Retained for backward compatibility."
+    )
+    condition_id: CtfConditionId = Field(
+        validation_alias="market",
+        description="CTF condition id for the market represented by this order book.",
+    )
     token_id: TokenId = Field(validation_alias="asset_id")
     timestamp: EpochMsTimestamp = None
     bids: tuple[OrderBookLevel, ...]

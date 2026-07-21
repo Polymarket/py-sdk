@@ -10,7 +10,7 @@ from polymarket.models.clob._validators import (
     RequiredEpochOrIsoTimestamp,
     _DecimalFromString,  # pyright: ignore[reportPrivateUsage]
 )
-from polymarket.models.types import OrderSide, TokenId
+from polymarket.models.types import CtfConditionId, OrderSide, TokenId
 
 AssetType: TypeAlias = Literal["COLLATERAL", "CONDITIONAL"]
 
@@ -19,7 +19,13 @@ class OpenOrder(BaseModel):
     """Open order owned by an account."""
 
     id: str
-    market: str
+    market: CtfConditionId = Field(
+        description="Deprecated: use condition_id. Retained for backward compatibility."
+    )
+    condition_id: CtfConditionId = Field(
+        validation_alias="market",
+        description="CTF condition id for the market associated with this order.",
+    )
     token_id: TokenId = Field(validation_alias="asset_id")
     owner: str
     maker_address: str = Field(validation_alias="maker_address")
@@ -75,7 +81,13 @@ class ClobTrade(BaseModel):
     """Executed trade for an account or market."""
 
     id: str
-    market: str
+    market: CtfConditionId = Field(
+        description="Deprecated: use condition_id. Retained for backward compatibility."
+    )
+    condition_id: CtfConditionId = Field(
+        validation_alias="market",
+        description="CTF condition id for the market associated with this trade.",
+    )
     token_id: TokenId = Field(validation_alias="asset_id")
     owner: str
     maker_address: str = Field(validation_alias="maker_address")
