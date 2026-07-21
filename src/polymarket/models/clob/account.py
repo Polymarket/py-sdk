@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Literal, TypeAlias, cast
+from typing import Annotated, Any, Literal, TypeAlias, cast
 
-from pydantic import Field, field_validator
+from pydantic import BeforeValidator, Field, field_validator
 
 from polymarket.models.base import BaseModel
 from polymarket.models.clob._validators import (
@@ -13,6 +13,31 @@ from polymarket.models.clob._validators import (
 from polymarket.models.types import OrderSide, TokenId
 
 AssetType: TypeAlias = Literal["COLLATERAL", "CONDITIONAL"]
+
+TradeStatus: TypeAlias = Literal[
+    "MATCHED",
+    "MATCHED_NOT_BROADCASTED",
+    "MINED",
+    "CONFIRMED",
+    "RETRYING",
+    "FAILED",
+]
+"""Lifecycle status of a trade, from creation through on-chain settlement.
+
+``CONFIRMED`` and ``FAILED`` are the terminal states.
+"""
+
+
+def _normalize_trade_status(value: object) -> object:
+    # Trade statuses arrive in two wire forms: REST endpoints serialize the
+    # raw prefixed constants ("TRADE_STATUS_CONFIRMED") while stream events
+    # use plain values ("CONFIRMED"). Normalize both to the plain form.
+    if isinstance(value, str) and value.startswith("TRADE_STATUS_"):
+        return value[len("TRADE_STATUS_") :]
+    return value
+
+
+TradeStatusField = Annotated[TradeStatus, BeforeValidator(_normalize_trade_status)]
 
 
 class OpenOrder(BaseModel):
@@ -85,7 +110,7 @@ class ClobTrade(BaseModel):
     price: _DecimalFromString
     size: _DecimalFromString
     outcome: str
-    status: str
+    status: TradeStatusField
     fee_rate_bps: _DecimalFromString = Field(validation_alias="fee_rate_bps")
     bucket_index: int = Field(validation_alias="bucket_index")
     transaction_hash: str = Field(validation_alias="transaction_hash")

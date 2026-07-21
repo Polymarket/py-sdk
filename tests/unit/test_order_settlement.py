@@ -33,7 +33,7 @@ def _make_client() -> SecureClient:
 def _trade_payload(
     *,
     trade_id: str = "trade-1",
-    status: str = "MATCHED",
+    status: str = "TRADE_STATUS_MATCHED",
     transaction_hash: str = "",
 ) -> dict[str, Any]:
     return {
@@ -128,8 +128,8 @@ def test_polls_until_every_fill_confirms() -> None:
             "trade-1": [
                 # A hash before confirmation is not terminal: it can still be
                 # replaced if the transaction is retried.
-                [_trade_payload(status="MINED", transaction_hash=OTHER_TX_HASH)],
-                [_trade_payload(status="CONFIRMED", transaction_hash=TX_HASH)],
+                [_trade_payload(status="TRADE_STATUS_MINED", transaction_hash=OTHER_TX_HASH)],
+                [_trade_payload(status="TRADE_STATUS_CONFIRMED", transaction_hash=TX_HASH)],
             ]
         },
     )
@@ -145,12 +145,12 @@ def test_returns_settled_hashes_when_only_some_fills_fail() -> None:
     _install_trades_handler(
         client,
         {
-            "trade-1": [[_trade_payload(trade_id="trade-1", status="FAILED")]],
+            "trade-1": [[_trade_payload(trade_id="trade-1", status="TRADE_STATUS_FAILED")]],
             "trade-2": [
                 [
                     _trade_payload(
                         trade_id="trade-2",
-                        status="CONFIRMED",
+                        status="TRADE_STATUS_CONFIRMED",
                         transaction_hash=OTHER_TX_HASH,
                     )
                 ]
@@ -165,7 +165,7 @@ def test_returns_settled_hashes_when_only_some_fills_fail() -> None:
 
 def test_raises_transaction_failed_when_every_fill_fails() -> None:
     client = _make_client()
-    _install_trades_handler(client, {"trade-1": [[_trade_payload(status="FAILED")]]})
+    _install_trades_handler(client, {"trade-1": [[_trade_payload(status="TRADE_STATUS_FAILED")]]})
 
     with pytest.raises(TransactionFailedError):
         client.wait_for_order_settlement(_accepted_order(trade_ids=("trade-1",)))
