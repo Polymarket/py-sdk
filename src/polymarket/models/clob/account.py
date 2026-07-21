@@ -25,6 +25,8 @@ TradeStatus: TypeAlias = Literal[
 """Lifecycle status of a trade, from creation through on-chain settlement.
 
 ``CONFIRMED`` and ``FAILED`` are the terminal states.
+``MATCHED_NOT_BROADCASTED`` currently appears only on trades read via
+account trade listings, not on user stream trade events.
 """
 
 
