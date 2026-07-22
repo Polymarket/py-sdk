@@ -108,16 +108,29 @@ def test_returns_empty_immediately_when_order_had_no_fills() -> None:
     assert captured == []
 
 
-def test_returns_hashes_from_order_without_waiting() -> None:
+def test_returns_hashes_from_order_when_there_are_no_trade_ids_to_poll() -> None:
     client = _make_client()
     captured = _install_trades_handler(client, {})
 
-    hashes = client.wait_for_order_settlement(
-        _accepted_order(trade_ids=("trade-1",), transactions_hashes=(TX_HASH,))
-    )
+    hashes = client.wait_for_order_settlement(_accepted_order(transactions_hashes=(TX_HASH,)))
 
     assert hashes == (TX_HASH,)
     assert captured == []
+
+
+def test_polls_trade_ids_even_when_order_includes_hashes() -> None:
+    client = _make_client()
+    captured = _install_trades_handler(
+        client,
+        {"trade-1": [[_trade_payload(status="TRADE_STATUS_CONFIRMED", transaction_hash=TX_HASH)]]},
+    )
+
+    hashes = client.wait_for_order_settlement(
+        _accepted_order(trade_ids=("trade-1",), transactions_hashes=(OTHER_TX_HASH,))
+    )
+
+    assert hashes == (TX_HASH,)
+    assert len(captured) == 1
 
 
 def test_polls_until_every_fill_confirms() -> None:

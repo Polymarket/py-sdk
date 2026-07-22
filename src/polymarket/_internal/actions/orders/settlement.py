@@ -73,12 +73,9 @@ def wait_for_order_settlement_sync(
     *,
     timeout_s: float = DEFAULT_SETTLEMENT_TIMEOUT_S,
 ) -> tuple[TransactionHash, ...]:
-    if order.transactions_hashes:
-        return tuple(order.transactions_hashes)
-
     trade_ids = tuple(dict.fromkeys(order.trade_ids))
     if not trade_ids:
-        return ()
+        return tuple(order.transactions_hashes)
 
     settled: dict[str, ClobTrade] = {}
     deadline = time.monotonic() + timeout_s
@@ -104,12 +101,9 @@ async def wait_for_order_settlement(
     *,
     timeout_s: float = DEFAULT_SETTLEMENT_TIMEOUT_S,
 ) -> tuple[TransactionHash, ...]:
-    if order.transactions_hashes:
-        return tuple(order.transactions_hashes)
-
     trade_ids = tuple(dict.fromkeys(order.trade_ids))
     if not trade_ids:
-        return ()
+        return tuple(order.transactions_hashes)
 
     settled: dict[str, ClobTrade] = {}
     deadline = time.monotonic() + timeout_s
