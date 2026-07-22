@@ -2823,19 +2823,19 @@ class AsyncSecureClient:
             await self._ctx.secure_clob.post_json(path, json=payload)
         )
 
-    async def wait_for_order_settlement(
+    async def wait_for_order_fill_settlement(
         self,
         order: AcceptedOrder,
         *,
         timeout_s: float = DEFAULT_SETTLEMENT_TIMEOUT_S,
     ) -> tuple[TransactionHash, ...]:
-        """Wait until every fill of a placed order is confirmed on-chain.
+        """Wait until every fill listed in an order response settles.
 
-        Settlement covers the fills that occurred at placement, identified by
-        the order's ``trade_ids``. It does not wait for future fills of an
-        order resting on the book. Orders without fills return an empty tuple
-        immediately, and hashes already present on the order are returned
-        without waiting. Fills that fail execution contribute no hash.
+        Settlement covers the fills listed in this order response, identified
+        by the order's ``trade_ids``. These are the fills that happened
+        immediately when the order was accepted. This method does not wait for
+        later fills of any remaining quantity resting on the book. Fills that
+        fail execution contribute no hash.
 
         Returns:
             The settlement transaction hashes of the order's fills.
@@ -2845,7 +2845,7 @@ class AsyncSecureClient:
                 The order placement itself is unaffected.
             TransactionFailedError: If every fill failed execution.
         """
-        return await _settlement_actions.wait_for_order_settlement(
+        return await _settlement_actions.wait_for_order_fill_settlement(
             self._ctx.secure_clob, order, timeout_s=timeout_s
         )
 

@@ -66,7 +66,7 @@ class AcceptedOrder(BaseModel):
     create new trades that are not listed here. ``transactions_hashes`` holds
     the settlement transaction hashes of those fills on a best-effort basis:
     settlement happens asynchronously, so it can be empty even when the order
-    matched. Use ``wait_for_order_settlement`` to obtain hashes reliably.
+    matched. Use ``wait_for_order_fill_settlement`` to obtain hashes reliably.
     """
 
     ok: Literal[True] = True

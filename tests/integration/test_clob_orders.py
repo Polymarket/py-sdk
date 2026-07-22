@@ -286,7 +286,7 @@ async def test_place_market_order_closes_inventory_or_buys_minimum_size(
     # of whether trades settle synchronously (hashes on the order response)
     # or asynchronously (trade ids on the response, hashes on the trades).
     if response.status == "matched":
-        hashes = await deposit_wallet_client.wait_for_order_settlement(response)
+        hashes = await deposit_wallet_client.wait_for_order_fill_settlement(response)
         assert len(hashes) > 0
 
 
@@ -325,7 +325,7 @@ def test_sync_secure_client_create_places_market_order(
 
         # Follow the matched order to settlement (see the async variant note).
         if response.status == "matched":
-            hashes = client.wait_for_order_settlement(response)
+            hashes = client.wait_for_order_fill_settlement(response)
             assert len(hashes) > 0
 
 

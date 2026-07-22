@@ -102,7 +102,7 @@ def test_returns_empty_immediately_when_order_had_no_fills() -> None:
     client = _make_client()
     captured = _install_trades_handler(client, {})
 
-    hashes = client.wait_for_order_settlement(_accepted_order(status="live"))
+    hashes = client.wait_for_order_fill_settlement(_accepted_order(status="live"))
 
     assert hashes == ()
     assert captured == []
@@ -112,7 +112,7 @@ def test_returns_hashes_from_order_when_there_are_no_trade_ids_to_poll() -> None
     client = _make_client()
     captured = _install_trades_handler(client, {})
 
-    hashes = client.wait_for_order_settlement(_accepted_order(transactions_hashes=(TX_HASH,)))
+    hashes = client.wait_for_order_fill_settlement(_accepted_order(transactions_hashes=(TX_HASH,)))
 
     assert hashes == (TX_HASH,)
     assert captured == []
@@ -125,7 +125,7 @@ def test_polls_trade_ids_even_when_order_includes_hashes() -> None:
         {"trade-1": [[_trade_payload(status="TRADE_STATUS_CONFIRMED", transaction_hash=TX_HASH)]]},
     )
 
-    hashes = client.wait_for_order_settlement(
+    hashes = client.wait_for_order_fill_settlement(
         _accepted_order(trade_ids=("trade-1",), transactions_hashes=(OTHER_TX_HASH,))
     )
 
@@ -147,7 +147,7 @@ def test_polls_until_every_fill_confirms() -> None:
         },
     )
 
-    hashes = client.wait_for_order_settlement(_accepted_order(trade_ids=("trade-1",)))
+    hashes = client.wait_for_order_fill_settlement(_accepted_order(trade_ids=("trade-1",)))
 
     assert hashes == (TX_HASH,)
     assert len(captured) == 2
@@ -171,7 +171,9 @@ def test_returns_settled_hashes_when_only_some_fills_fail() -> None:
         },
     )
 
-    hashes = client.wait_for_order_settlement(_accepted_order(trade_ids=("trade-1", "trade-2")))
+    hashes = client.wait_for_order_fill_settlement(
+        _accepted_order(trade_ids=("trade-1", "trade-2"))
+    )
 
     assert hashes == (OTHER_TX_HASH,)
 
@@ -181,7 +183,7 @@ def test_raises_transaction_failed_when_every_fill_fails() -> None:
     _install_trades_handler(client, {"trade-1": [[_trade_payload(status="TRADE_STATUS_FAILED")]]})
 
     with pytest.raises(TransactionFailedError):
-        client.wait_for_order_settlement(_accepted_order(trade_ids=("trade-1",)))
+        client.wait_for_order_fill_settlement(_accepted_order(trade_ids=("trade-1",)))
 
 
 def test_raises_timeout_when_fills_are_still_settling() -> None:
@@ -189,4 +191,6 @@ def test_raises_timeout_when_fills_are_still_settling() -> None:
     _install_trades_handler(client, {"trade-1": [[_trade_payload()]]})
 
     with pytest.raises(TimeoutError):
-        client.wait_for_order_settlement(_accepted_order(trade_ids=("trade-1",)), timeout_s=0.01)
+        client.wait_for_order_fill_settlement(
+            _accepted_order(trade_ids=("trade-1",)), timeout_s=0.01
+        )

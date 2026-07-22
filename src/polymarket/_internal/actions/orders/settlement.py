@@ -67,7 +67,7 @@ def _collect_settlement_hashes(
     return tuple(cast(TransactionHash, tx_hash) for tx_hash in hashes)
 
 
-def wait_for_order_settlement_sync(
+def wait_for_order_fill_settlement_sync(
     secure_clob: SyncTransport,
     order: AcceptedOrder,
     *,
@@ -95,7 +95,7 @@ def wait_for_order_settlement_sync(
     return _collect_settlement_hashes(order, trade_ids, settled)
 
 
-async def wait_for_order_settlement(
+async def wait_for_order_fill_settlement(
     secure_clob: AsyncTransport,
     order: AcceptedOrder,
     *,
@@ -125,6 +125,6 @@ async def wait_for_order_settlement(
 
 __all__ = [
     "DEFAULT_SETTLEMENT_TIMEOUT_S",
-    "wait_for_order_settlement",
-    "wait_for_order_settlement_sync",
+    "wait_for_order_fill_settlement",
+    "wait_for_order_fill_settlement_sync",
 ]
