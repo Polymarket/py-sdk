@@ -15,7 +15,7 @@ We will review reports and coordinate fixes before public disclosure.
 
 ## Supported Versions
 
-The Python SDK is currently in beta. Security fixes are focused on the latest published beta version and the current development branch.
+Security fixes are focused on the latest published version and the current development branch.
 
 ## Public Issues
 

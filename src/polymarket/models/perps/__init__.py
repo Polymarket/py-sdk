@@ -1,4 +1,8 @@
-"""Perps SDK models."""
+"""Experimental Perps SDK models.
+
+Experimental: This API may change in a breaking way in any release, including
+patch releases.
+"""
 
 from polymarket.models.perps.account import (
     PerpsAccountConfig,
