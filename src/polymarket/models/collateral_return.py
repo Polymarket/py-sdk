@@ -9,7 +9,11 @@ from polymarket.models.clob._validators import (
     _DecimalFromE6String,  # pyright: ignore[reportPrivateUsage]
     _DecimalFromString,  # pyright: ignore[reportPrivateUsage]
 )
-from polymarket.models.types import ComboConditionId, PositionId
+from polymarket.models.types import (
+    ComboConditionId,
+    PositionId,
+    validate_optional_combo_condition_id,
+)
 from polymarket.types import EvmAddress, HexString
 
 
@@ -17,7 +21,7 @@ class CollateralReturnOperationKind(StrEnum):
     """Known operation kinds in a collateral return plan.
 
     Plans may include kinds not listed here; ``CollateralReturnOperation.kind``
-    stays a plain string so newer plans keep parsing.
+    falls back to a plain string for unknown kinds so newer plans keep parsing.
     """
 
     SPLIT = "split"
@@ -38,12 +42,27 @@ class CollateralReturnOperationKind(StrEnum):
 class CollateralReturnOperation(BaseModel):
     """One position operation a collateral return plan performs."""
 
-    kind: str
+    kind: CollateralReturnOperationKind | str
     condition_id: ComboConditionId | None = None
     event_id: HexString | None = None
     position_id: PositionId | None = None
     condition_index: int = 0
     amount: _DecimalFromE6String
+
+    @field_validator("kind", mode="before")
+    @classmethod
+    def _coerce_known_kind(cls, value: object) -> object:
+        if isinstance(value, str):
+            try:
+                return CollateralReturnOperationKind(value)
+            except ValueError:
+                return value
+        return value
+
+    @field_validator("condition_id", mode="before")
+    @classmethod
+    def _validate_condition_id(cls, value: object) -> ComboConditionId | None:
+        return validate_optional_combo_condition_id(value)
 
 
 class CollateralReturnPositionAmount(BaseModel):
@@ -95,16 +114,6 @@ class CollateralReturnPlan(BaseModel):
     operations: tuple[CollateralReturnOperation, ...] = ()
     truncated: bool = False
     router_call: CollateralReturnRouterCall
-
-    @field_validator("block_number", mode="before")
-    @classmethod
-    def _parse_block_number(cls, value: object) -> object:
-        if isinstance(value, str):
-            if not value.isdecimal():
-                msg = f"invalid block number: {value!r}"
-                raise ValueError(msg)
-            return int(value)
-        return value
 
 
 __all__ = [

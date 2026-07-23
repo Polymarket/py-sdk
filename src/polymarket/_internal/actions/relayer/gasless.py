@@ -97,24 +97,35 @@ async def _submit_for_wallet_type(
     calls: list[TransactionCall],
     metadata: str,
 ) -> RelayerExecuteResponse:
+    payload = await build_signed_payload_for_wallet_type(ctx, calls=calls, metadata=metadata)
+    return await submit_gasless(ctx.relayer, payload=payload)
+
+
+async def build_signed_payload_for_wallet_type(
+    ctx: AsyncSecureClientContext,
+    *,
+    calls: list[TransactionCall],
+    metadata: str,
+) -> dict[str, object]:
+    """Fetch a fresh nonce, sign, and build the relayer payload for the wallet type."""
     wallet_type = ctx.wallet_type
     if wallet_type == "DEPOSIT_WALLET":
-        return await _submit_deposit_wallet(ctx, calls=calls, metadata=metadata)
+        return await build_signed_deposit_wallet_payload(ctx, calls=calls, metadata=metadata)
     if wallet_type == "POLY_PROXY":
-        return await _submit_proxy(ctx, calls=calls, metadata=metadata)
+        return await build_signed_proxy_payload(ctx, calls=calls, metadata=metadata)
     if wallet_type == "GNOSIS_SAFE":
-        return await _submit_safe(ctx, calls=calls, metadata=metadata)
+        return await build_signed_safe_payload(ctx, calls=calls, metadata=metadata)
     if wallet_type == "EOA":
         raise UserInputError("EOA wallets are not supported by the relayer in this SDK version")
     assert_never(wallet_type)
 
 
-async def _submit_deposit_wallet(
+async def build_signed_deposit_wallet_payload(
     ctx: AsyncSecureClientContext,
     *,
     calls: list[TransactionCall],
     metadata: str,
-) -> RelayerExecuteResponse:
+) -> dict[str, object]:
     params = await fetch_execute_params(
         ctx.relayer, address=ctx.signer.address, type=RelayerTransactionType.WALLET
     )
@@ -127,7 +138,7 @@ async def _submit_deposit_wallet(
         deadline=deadline,
         chain_id=ctx.environment.chain_id,
     )
-    payload = build_deposit_wallet_payload(
+    return build_deposit_wallet_payload(
         signer_address=ctx.signer.address,
         deposit_wallet_factory=ctx.environment.wallet_derivation.deposit_wallet_factory,
         wallet=ctx.wallet,
@@ -137,7 +148,6 @@ async def _submit_deposit_wallet(
         signature=signature,
         metadata=metadata,
     )
-    return await submit_gasless(ctx.relayer, payload=payload)
 
 
 def build_deposit_wallet_payload(
@@ -166,12 +176,12 @@ def build_deposit_wallet_payload(
     }
 
 
-async def _submit_proxy(
+async def build_signed_proxy_payload(
     ctx: AsyncSecureClientContext,
     *,
     calls: list[TransactionCall],
     metadata: str,
-) -> RelayerExecuteResponse:
+) -> dict[str, object]:
     params = await fetch_relay_payload(
         ctx.relayer, address=ctx.signer.address, type=RelayerTransactionType.PROXY
     )
@@ -193,7 +203,7 @@ async def _submit_proxy(
         relay=relay,
     )
     signature = sign_proxy_message(ctx.signer, hash_)
-    payload = build_proxy_payload(
+    return build_proxy_payload(
         signer_address=ctx.signer.address,
         proxy_factory=to,
         wallet=ctx.wallet,
@@ -205,7 +215,6 @@ async def _submit_proxy(
         relay_hub=ctx.environment.relay_hub,
         metadata=metadata,
     )
-    return await submit_gasless(ctx.relayer, payload=payload)
 
 
 def build_proxy_payload(
@@ -254,12 +263,12 @@ async def _estimate_proxy_gas_limit(
     return str(estimated)
 
 
-async def _submit_safe(
+async def build_signed_safe_payload(
     ctx: AsyncSecureClientContext,
     *,
     calls: list[TransactionCall],
     metadata: str,
-) -> RelayerExecuteResponse:
+) -> dict[str, object]:
     params = await fetch_execute_params(
         ctx.relayer, address=ctx.signer.address, type=RelayerTransactionType.SAFE
     )
@@ -274,7 +283,7 @@ async def _submit_safe(
         nonce=params.nonce,
         chain_id=ctx.environment.chain_id,
     )
-    payload = build_safe_payload(
+    return build_safe_payload(
         signer_address=ctx.signer.address,
         wallet=ctx.wallet,
         target=target,
@@ -285,7 +294,6 @@ async def _submit_safe(
         signature=signature,
         metadata=metadata,
     )
-    return await submit_gasless(ctx.relayer, payload=payload)
 
 
 def _resolve_safe_call(
@@ -414,24 +422,35 @@ def _submit_for_wallet_type_sync(
     calls: list[TransactionCall],
     metadata: str,
 ) -> RelayerExecuteResponse:
+    payload = build_signed_payload_for_wallet_type_sync(ctx, calls=calls, metadata=metadata)
+    return submit_gasless_sync(ctx.relayer, payload=payload)
+
+
+def build_signed_payload_for_wallet_type_sync(
+    ctx: SyncSecureClientContext,
+    *,
+    calls: list[TransactionCall],
+    metadata: str,
+) -> dict[str, object]:
+    """Fetch a fresh nonce, sign, and build the relayer payload for the wallet type."""
     wallet_type = ctx.wallet_type
     if wallet_type == "DEPOSIT_WALLET":
-        return _submit_deposit_wallet_sync(ctx, calls=calls, metadata=metadata)
+        return build_signed_deposit_wallet_payload_sync(ctx, calls=calls, metadata=metadata)
     if wallet_type == "POLY_PROXY":
-        return _submit_proxy_sync(ctx, calls=calls, metadata=metadata)
+        return build_signed_proxy_payload_sync(ctx, calls=calls, metadata=metadata)
     if wallet_type == "GNOSIS_SAFE":
-        return _submit_safe_sync(ctx, calls=calls, metadata=metadata)
+        return build_signed_safe_payload_sync(ctx, calls=calls, metadata=metadata)
     if wallet_type == "EOA":
         raise UserInputError("EOA wallets are not supported by the relayer in this SDK version")
     assert_never(wallet_type)
 
 
-def _submit_deposit_wallet_sync(
+def build_signed_deposit_wallet_payload_sync(
     ctx: SyncSecureClientContext,
     *,
     calls: list[TransactionCall],
     metadata: str,
-) -> RelayerExecuteResponse:
+) -> dict[str, object]:
     params = fetch_execute_params_sync(
         ctx.relayer, address=ctx.signer.address, type=RelayerTransactionType.WALLET
     )
@@ -444,7 +463,7 @@ def _submit_deposit_wallet_sync(
         deadline=deadline,
         chain_id=ctx.environment.chain_id,
     )
-    payload = build_deposit_wallet_payload(
+    return build_deposit_wallet_payload(
         signer_address=ctx.signer.address,
         deposit_wallet_factory=ctx.environment.wallet_derivation.deposit_wallet_factory,
         wallet=ctx.wallet,
@@ -454,15 +473,14 @@ def _submit_deposit_wallet_sync(
         signature=signature,
         metadata=metadata,
     )
-    return submit_gasless_sync(ctx.relayer, payload=payload)
 
 
-def _submit_proxy_sync(
+def build_signed_proxy_payload_sync(
     ctx: SyncSecureClientContext,
     *,
     calls: list[TransactionCall],
     metadata: str,
-) -> RelayerExecuteResponse:
+) -> dict[str, object]:
     params = fetch_relay_payload_sync(
         ctx.relayer, address=ctx.signer.address, type=RelayerTransactionType.PROXY
     )
@@ -484,7 +502,7 @@ def _submit_proxy_sync(
         relay=relay,
     )
     signature = sign_proxy_message(ctx.signer, hash_)
-    payload = build_proxy_payload(
+    return build_proxy_payload(
         signer_address=ctx.signer.address,
         proxy_factory=to,
         wallet=ctx.wallet,
@@ -496,7 +514,6 @@ def _submit_proxy_sync(
         relay_hub=ctx.environment.relay_hub,
         metadata=metadata,
     )
-    return submit_gasless_sync(ctx.relayer, payload=payload)
 
 
 def _estimate_proxy_gas_limit_sync(
@@ -513,12 +530,12 @@ def _estimate_proxy_gas_limit_sync(
     return str(estimated)
 
 
-def _submit_safe_sync(
+def build_signed_safe_payload_sync(
     ctx: SyncSecureClientContext,
     *,
     calls: list[TransactionCall],
     metadata: str,
-) -> RelayerExecuteResponse:
+) -> dict[str, object]:
     params = fetch_execute_params_sync(
         ctx.relayer, address=ctx.signer.address, type=RelayerTransactionType.SAFE
     )
@@ -533,7 +550,7 @@ def _submit_safe_sync(
         nonce=params.nonce,
         chain_id=ctx.environment.chain_id,
     )
-    payload = build_safe_payload(
+    return build_safe_payload(
         signer_address=ctx.signer.address,
         wallet=ctx.wallet,
         target=target,
@@ -544,7 +561,6 @@ def _submit_safe_sync(
         signature=signature,
         metadata=metadata,
     )
-    return submit_gasless_sync(ctx.relayer, payload=payload)
 
 
 def submit_deposit_wallet_create_sync(
@@ -580,6 +596,14 @@ __all__ = [
     "build_deposit_wallet_payload",
     "build_proxy_payload",
     "build_safe_payload",
+    "build_signed_deposit_wallet_payload",
+    "build_signed_deposit_wallet_payload_sync",
+    "build_signed_payload_for_wallet_type",
+    "build_signed_payload_for_wallet_type_sync",
+    "build_signed_proxy_payload",
+    "build_signed_proxy_payload_sync",
+    "build_signed_safe_payload",
+    "build_signed_safe_payload_sync",
     "prepare_gasless_transaction",
     "prepare_gasless_transaction_sync",
     "submit_deposit_wallet_create",

@@ -29,7 +29,7 @@ _PLAN_RETRY_DELAY_S = 5.0
 _SEED_AMOUNT = 1_000_000
 _SEED_PLAN_TIMEOUT_S = 120.0
 _SEED_PLAN_POLL_S = 5.0
-_ROUND_TRIP_TIMEOUT_S = 300.0
+_ROUND_TRIP_TIMEOUT_S = 600.0
 _REPLAN_ATTEMPTS = 3
 
 
@@ -52,17 +52,14 @@ async def collateral_client(
 
 async def _fetch_plan(client: AsyncSecureClient) -> CollateralReturnPlan:
     """Fetch a plan, retrying the occasional transient edge 5xx."""
-    last_error: RequestRejectedError | None = None
-    for _ in range(_PLAN_RETRY_ATTEMPTS):
+    for attempt in range(_PLAN_RETRY_ATTEMPTS):
         try:
             return await client.plan_collateral_return()
         except RequestRejectedError as error:
-            if error.status < 500:
+            if error.status < 500 or attempt == _PLAN_RETRY_ATTEMPTS - 1:
                 raise
-            last_error = error
             await asyncio.sleep(_PLAN_RETRY_DELAY_S)
-    assert last_error is not None
-    raise last_error
+    raise AssertionError("unreachable")
 
 
 @pytest.mark.integration
@@ -150,7 +147,12 @@ async def _seed_returnable_positions(
 
 async def _pick_combo_legs(client: AsyncSecureClient) -> list[str]:
     page = await client.list_combo_markets(page_size=10).first_page()
-    legs = [str(market.outcomes.yes.position_id) for market in page.items[:2]]
-    if len(legs) < 2:
-        pytest.skip("not enough combo markets available to seed a combo position")
-    return legs
+    legs: list[str] = []
+    for market in page.items:
+        # Skip effectively-resolved markets so the seeding split cannot fail.
+        if not Decimal(0) < market.outcomes.yes.price < Decimal(1):
+            continue
+        legs.append(str(market.outcomes.yes.position_id))
+        if len(legs) == 2:
+            return legs
+    pytest.skip("not enough tradable combo markets available to seed a combo position")

@@ -25,11 +25,12 @@ from _relayer_helpers import (
     trading_approval_rpc_handler,
 )
 
-from polymarket import CollateralReturnPlan
+from polymarket import CollateralReturnOperationKind, CollateralReturnPlan
 from polymarket.environments import PRODUCTION
 from polymarket.errors import (
     CollateralReturnPlanRejectedError,
     MissingTradingApprovalsError,
+    UnexpectedResponseError,
     UserInputError,
 )
 
@@ -94,7 +95,7 @@ def test_plan_parses_wire_shape() -> None:
     assert plan.router_call.data == _ROUTER_DATA
 
     merge, redeem = plan.operations
-    assert merge.kind == "merge"
+    assert merge.kind is CollateralReturnOperationKind.MERGE
     assert merge.condition_id == _CONDITION_ID
     assert merge.condition_index == 0
     assert merge.amount == Decimal("1")
@@ -126,9 +127,34 @@ def test_plan_parses_unknown_kind_and_event_operations() -> None:
 
     unknown, on_event = plan.operations
     assert unknown.kind == "quantum_fold"
+    assert not isinstance(unknown.kind, CollateralReturnOperationKind)
     assert unknown.amount == Decimal("0.000001")
+    assert on_event.kind is CollateralReturnOperationKind.MERGE_ON_EVENT
     assert on_event.event_id == _EVENT_ID
     assert on_event.condition_id is None
+
+
+def test_plan_normalizes_suffixed_condition_ids() -> None:
+    plan = CollateralReturnPlan.parse_response(
+        _plan_payload(
+            wallet=_OTHER_WALLET,
+            operations=[
+                {"kind": "merge", "condition_id": _CONDITION_ID + "00", "amount": "1000000"}
+            ],
+        )
+    )
+
+    assert plan.operations[0].condition_id == _CONDITION_ID
+
+
+def test_plan_rejects_non_integer_base_unit_amounts() -> None:
+    with pytest.raises(UnexpectedResponseError):
+        CollateralReturnPlan.parse_response(
+            _plan_payload(
+                wallet=_OTHER_WALLET,
+                operations=[{"kind": "merge", "amount": "1.5"}],
+            )
+        )
 
 
 def test_plan_parses_empty_plan_with_omitted_zero_fields() -> None:
@@ -288,6 +314,36 @@ def test_execute_rejects_plan_for_other_wallet() -> None:
         plan = CollateralReturnPlan.parse_response(_plan_payload(wallet=_OTHER_WALLET))
         try:
             with pytest.raises(UserInputError, match="does not match"):
+                await client.execute_collateral_return_plan(plan=plan)
+        finally:
+            await client.close()
+
+    asyncio.run(run())
+
+
+def test_execute_rejects_plan_for_other_chain() -> None:
+    async def run() -> None:
+        client = await make_deposit_client()
+        plan = CollateralReturnPlan.parse_response(
+            _plan_payload(wallet=str(client.wallet), chain_id=80002)
+        )
+        try:
+            with pytest.raises(UserInputError, match="chain id"):
+                await client.execute_collateral_return_plan(plan=plan)
+        finally:
+            await client.close()
+
+    asyncio.run(run())
+
+
+def test_execute_rejects_plan_without_operations() -> None:
+    async def run() -> None:
+        client = await make_deposit_client()
+        plan = CollateralReturnPlan.parse_response(
+            _plan_payload(wallet=str(client.wallet), operations=[])
+        )
+        try:
+            with pytest.raises(UserInputError, match="no operations"):
                 await client.execute_collateral_return_plan(plan=plan)
         finally:
             await client.close()

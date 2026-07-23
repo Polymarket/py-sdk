@@ -1,25 +1,28 @@
 from datetime import UTC, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import TYPE_CHECKING, Annotated
 
 from pydantic import BeforeValidator
 
 
 def _parse_e6_decimal_string(value: object) -> object:
-    """Parse a base-unit integer string carrying six implied decimals."""
+    """Parse a base-unit integer string carrying six implied decimals.
+
+    Only plain integer strings are accepted; anything already carrying a
+    decimal point or exponent would be silently mis-scaled, so it fails loudly.
+    """
     if value is None:
         return None
     if isinstance(value, Decimal):
         return value
     if not isinstance(value, str):
-        msg = f"expected base-unit decimal string, got {type(value).__name__}"
+        msg = f"expected base-unit integer string, got {type(value).__name__}"
         raise ValueError(msg)
-    try:
-        parsed = Decimal(value)
-    except InvalidOperation as error:
-        msg = f"invalid base-unit decimal: {value!r}"
-        raise ValueError(msg) from error
-    return parsed.scaleb(-6)
+    digits = value.removeprefix("-")
+    if not digits.isdigit():
+        msg = f"invalid base-unit integer string: {value!r}"
+        raise ValueError(msg)
+    return Decimal(value).scaleb(-6)
 
 
 def _require_decimal_string(value: object) -> object:

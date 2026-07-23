@@ -138,7 +138,7 @@ from polymarket._internal.wallet import (
     signature_type_for,
 )
 from polymarket.auth import ApiKey, BuilderApiKey
-from polymarket.clients._transport import AsyncTransport, TransportOptions
+from polymarket.clients._transport import AsyncTransport
 from polymarket.clients.async_public import AsyncPublicClient
 from polymarket.environments import PRODUCTION, Environment
 from polymarket.errors import (
@@ -459,7 +459,6 @@ class AsyncSecureClient:
         )
         collateral_return = AsyncTransport(
             base_url=environment.collateral_return_url,
-            options=TransportOptions(timeout=_collateral_return_actions.COLLATERAL_RETURN_TIMEOUT),
             logger=logger,
             header_resolver=relayer_resolver,
         )
@@ -2806,14 +2805,17 @@ class AsyncSecureClient:
         Missing trading approvals fail fast before anything is signed — no
         approval transactions are submitted implicitly.
 
+        Plans with no operations are rejected before anything is signed.
+
         Example::
 
-            while True:
-                plan = await client.plan_collateral_return()
+            plan = await client.plan_collateral_return()
+            while plan.collateral_returned > 0:
                 handle = await client.execute_collateral_return_plan(plan=plan)
                 await handle.wait()
                 if not plan.truncated:
                     break
+                plan = await client.plan_collateral_return()
 
         Returns:
             A transaction handle. Await ``wait()`` to wait for a terminal outcome.
