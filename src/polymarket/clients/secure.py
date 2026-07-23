@@ -15,6 +15,7 @@ from polymarket._internal.actions import account as _account_actions
 from polymarket._internal.actions import auth as _auth_actions
 from polymarket._internal.actions import builders as _builders_actions
 from polymarket._internal.actions import clob as _clob_actions
+from polymarket._internal.actions import collateral_return as _collateral_return_actions
 from polymarket._internal.actions import data as _data_actions
 from polymarket._internal.actions import gamma as _gamma_actions
 from polymarket._internal.actions import rewards as _rewards_actions
@@ -122,7 +123,7 @@ from polymarket._internal.wallet import (
     signature_type_for,
 )
 from polymarket.auth import ApiKey, BuilderApiKey
-from polymarket.clients._transport import SyncHeaderResolver, SyncTransport
+from polymarket.clients._transport import SyncHeaderResolver, SyncTransport, TransportOptions
 from polymarket.environments import PRODUCTION, Environment
 from polymarket.errors import (
     RequestRejectedError,
@@ -171,6 +172,7 @@ from polymarket.models.clob.rewards import (
     UserEarning,
     UserRewardsEarning,
 )
+from polymarket.models.collateral_return import CollateralReturnPlan
 from polymarket.models.data import (
     Activity,
     BuilderVolumeEntry,
@@ -376,6 +378,12 @@ class SecureClient:
             logger=logger,
             header_resolver=relayer_resolver,
         )
+        collateral_return = SyncTransport(
+            base_url=environment.collateral_return_url,
+            options=TransportOptions(timeout=_collateral_return_actions.COLLATERAL_RETURN_TIMEOUT),
+            logger=logger,
+            header_resolver=relayer_resolver,
+        )
         try:
             secure_clob = SyncTransport(
                 base_url=environment.clob_url,
@@ -390,6 +398,7 @@ class SecureClient:
             rfq.close()
             clob.close()
             relayer.close()
+            collateral_return.close()
             raise
 
         ctx = SyncSecureClientContext(
@@ -404,6 +413,7 @@ class SecureClient:
             wallet=branded_wallet,
             wallet_type=wallet_type,
             relayer=relayer,
+            collateral_return=collateral_return,
             api_key=api_key,
             rpc=rpc,
         )
@@ -466,7 +476,10 @@ class SecureClient:
                             try:
                                 ctx.relayer.close()
                             finally:
-                                ctx.rpc.close()
+                                try:
+                                    ctx.collateral_return.close()
+                                finally:
+                                    ctx.rpc.close()
 
     def _user_or_wallet(self, user: str | None) -> str:
         return self._ctx.wallet if user is None else user
@@ -2470,6 +2483,53 @@ class SecureClient:
             else f"Redeem positions for condition {context.condition_id}"
         )
         return self._dispatch_single_call(call, metadata=resolved_metadata)
+
+    def plan_collateral_return(self) -> CollateralReturnPlan:
+        """Plan a collateral return for the authenticated wallet.
+
+        Builds an executable plan that unwinds redundant position value and
+        returns it to the wallet as collateral. Planning can take several
+        minutes for wallets with many positions. Inspect the plan — notably
+        ``collateral_returned`` and ``position_summary`` — before executing it
+        with :meth:`execute_collateral_return_plan`.
+
+        Returns:
+            The collateral return plan. When ``truncated`` is True the plan
+            covers only the first executable chunk; execute it, then request
+            a fresh plan for the remainder.
+        """
+        return _collateral_return_actions.plan_collateral_return_sync(self._ctx)
+
+    def execute_collateral_return_plan(
+        self, *, plan: CollateralReturnPlan
+    ) -> SyncTransactionHandle:
+        """Execute a collateral return plan.
+
+        The plan executes exactly as returned by
+        :meth:`plan_collateral_return`; nothing is recomputed client-side.
+        Missing trading approvals fail fast before anything is signed — no
+        approval transactions are submitted implicitly.
+
+        Example::
+
+            while True:
+                plan = client.plan_collateral_return()
+                handle = client.execute_collateral_return_plan(plan=plan)
+                handle.wait()
+                if not plan.truncated:
+                    break
+
+        Returns:
+            A transaction handle. Call ``wait()`` to wait for a terminal outcome.
+
+        Raises:
+            MissingTradingApprovalsError: If the wallet is missing required
+                approvals; run :meth:`setup_trading_approvals` first.
+            CollateralReturnPlanRejectedError: If the plan can no longer be
+                executed against current wallet state; request a fresh plan
+                and execute that instead.
+        """
+        return _collateral_return_actions.execute_collateral_return_plan_sync(self._ctx, plan=plan)
 
     def _broadcast_eoa_call(self, call: TransactionCall) -> SyncEoaTransactionHandle:
         env = self._ctx.environment

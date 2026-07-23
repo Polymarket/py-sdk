@@ -44,6 +44,7 @@ class Environment:
     combinatorial_module: str = "0x30000034706c7d8e12009dab006be20000c031a8"
     position_manager: str = "0x006F54F7f9A22e0000CC2AB60031000000ae9fEF"
     rfq_quoter_ws_url: str = "wss://combos-rfq-gateway-quoter.polymarket.com/ws/rfq"
+    collateral_return_url: str = "https://combos-rfq-collateral-return.polymarket.com"
     rfq_quoter_ws_headers: dict[str, str] | None = None
     perps_url: str = "https://api.perpetuals.polymarket.com"
     perps_ws_url: str = "wss://ws.perpetuals.polymarket.com/v1/ws"
@@ -84,6 +85,7 @@ PRODUCTION = Environment(
     rtds_ws_url="wss://ws-live-data.polymarket.com",
     sports_ws_url="wss://sports-api.polymarket.com/ws",
     rpc_url="https://polygon.drpc.org",
+    collateral_return_url="https://combos-rfq-collateral-return.polymarket.com",
 )
 
 __all__ = ["Environment", "PRODUCTION", "WalletDerivation"]

@@ -41,6 +41,14 @@ from polymarket.models.clob import (
     UserRewardsConfig,
     UserRewardsEarning,
 )
+from polymarket.models.collateral_return import (
+    CollateralReturnOperation,
+    CollateralReturnOperationKind,
+    CollateralReturnPlan,
+    CollateralReturnPositionAmount,
+    CollateralReturnPositionSummary,
+    CollateralReturnRouterCall,
+)
 from polymarket.models.data import (
     Activity,
     ActivityType,
@@ -240,6 +248,12 @@ __all__ = [
     "BuilderVolumeEntry",
     "BuilderVolumeTimePeriod",
     "ClosedPosition",
+    "CollateralReturnOperation",
+    "CollateralReturnOperationKind",
+    "CollateralReturnPlan",
+    "CollateralReturnPositionAmount",
+    "CollateralReturnPositionSummary",
+    "CollateralReturnRouterCall",
     "ComboActivity",
     "ComboActivityId",
     "ComboActivityType",

@@ -65,3 +65,19 @@ class SigningError(PolymarketError):
 
 class InsufficientAllowanceError(PolymarketError):
     """Error raised when the on-chain allowance is insufficient for the order amount."""
+
+
+class MissingTradingApprovalsError(PolymarketError):
+    """Error raised when the wallet is missing approvals a workflow requires.
+
+    Run ``setup_trading_approvals()`` on the client, wait for it to complete,
+    and retry the operation.
+    """
+
+
+class CollateralReturnPlanRejectedError(PolymarketError):
+    """Error raised when a collateral return plan can no longer be executed.
+
+    The plan was built against wallet state that has since changed. Request a
+    fresh plan with ``plan_collateral_return()`` and execute that instead.
+    """

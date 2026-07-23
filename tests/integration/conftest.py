@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from dotenv import load_dotenv
 
-from polymarket import AsyncPublicClient, AsyncSecureClient, BuilderApiKey, Market
+from polymarket import AsyncPublicClient, AsyncSecureClient, BuilderApiKey, Market, RelayerApiKey
 from polymarket.models.types import TokenId
 
 _DOTENV_PATH = Path(__file__).resolve().parents[2] / ".env"
@@ -60,6 +60,14 @@ def builder_api_key(require_env: Callable[[str], str]) -> BuilderApiKey:
         key=require_env("POLYMARKET_BUILDER_API_KEY"),
         secret=require_env("POLYMARKET_BUILDER_SECRET"),
         passphrase=require_env("POLYMARKET_BUILDER_PASSPHRASE"),
+    )
+
+
+@pytest.fixture
+def relayer_api_key(require_env: Callable[[str], str]) -> RelayerApiKey:
+    return RelayerApiKey(
+        key=require_env("POLYMARKET_RELAYER_API_KEY"),
+        address=require_env("POLYMARKET_RELAYER_API_KEY_ADDRESS"),
     )
 
 

@@ -1,8 +1,25 @@
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Annotated
 
 from pydantic import BeforeValidator
+
+
+def _parse_e6_decimal_string(value: object) -> object:
+    """Parse a base-unit integer string carrying six implied decimals."""
+    if value is None:
+        return None
+    if isinstance(value, Decimal):
+        return value
+    if not isinstance(value, str):
+        msg = f"expected base-unit decimal string, got {type(value).__name__}"
+        raise ValueError(msg)
+    try:
+        parsed = Decimal(value)
+    except InvalidOperation as error:
+        msg = f"invalid base-unit decimal: {value!r}"
+        raise ValueError(msg) from error
+    return parsed.scaleb(-6)
 
 
 def _require_decimal_string(value: object) -> object:
@@ -203,10 +220,12 @@ def _parse_expiration_timestamp(value: object) -> object:
 
 if TYPE_CHECKING:
     _DecimalFromString = Decimal
+    _DecimalFromE6String = Decimal
     _DecimalFromNumberOrString = Decimal
     _OptionalDecimalFromNumberOrString = Decimal | None
 else:
     _DecimalFromString = Annotated[Decimal, BeforeValidator(_require_decimal_string)]
+    _DecimalFromE6String = Annotated[Decimal, BeforeValidator(_parse_e6_decimal_string)]
     _DecimalFromNumberOrString = Annotated[Decimal, BeforeValidator(_coerce_decimalish)]
     # The validator must wrap the whole optional annotation: on a
     # ``Decimal | None`` union, a BeforeValidator attached only to the Decimal
