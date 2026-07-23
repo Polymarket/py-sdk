@@ -205,6 +205,16 @@ def test_list_activity_spec_serializes_filters() -> None:
     }
 
 
+def test_offset_specs_set_documented_max_page_size() -> None:
+    assert data_actions.list_positions_spec(user="0xWALLET").max_page_size == 500
+    assert data_actions.list_closed_positions_spec(user="0xWALLET").max_page_size == 50
+    assert data_actions.list_market_positions_spec(market="0xMARKET").max_page_size == 500
+    assert data_actions.list_trades_spec().max_page_size == 10000
+    assert data_actions.list_activity_spec(user="0xWALLET").max_page_size == 500
+    assert data_actions.list_builder_leaderboard_spec().max_page_size == 50
+    assert data_actions.list_trader_leaderboard_spec().max_page_size == 50
+
+
 def test_list_builder_leaderboard_spec() -> None:
     spec = data_actions.list_builder_leaderboard_spec(time_period="WEEK")
     assert spec.path == "/v1/builders/leaderboard"

@@ -213,6 +213,7 @@ def list_positions_spec(
     return OffsetPaginatedSpec(
         service="data",
         path="/positions",
+        max_page_size=500,
         base_params=build_data_params(
             {
                 "user": user,
@@ -251,6 +252,7 @@ def list_closed_positions_spec(
     return OffsetPaginatedSpec(
         service="data",
         path="/closed-positions",
+        max_page_size=50,
         base_params=build_data_params(
             {
                 "user": user,
@@ -337,6 +339,7 @@ def list_market_positions_spec(
     return OffsetPaginatedSpec(
         service="data",
         path="/v1/market-positions",
+        max_page_size=500,
         base_params=build_data_params(
             {
                 "market": market,
@@ -374,6 +377,7 @@ def list_trades_spec(
     return OffsetPaginatedSpec(
         service="data",
         path="/trades",
+        max_page_size=10000,
         base_params=build_data_params(
             {
                 "takerOnly": taker_only,
@@ -422,6 +426,7 @@ def list_activity_spec(
     return OffsetPaginatedSpec(
         service="data",
         path="/activity",
+        max_page_size=500,
         base_params=build_data_params(
             {
                 "user": user,
@@ -447,6 +452,7 @@ def list_builder_leaderboard_spec(
     return OffsetPaginatedSpec(
         service="data",
         path="/v1/builders/leaderboard",
+        max_page_size=50,
         base_params=build_data_params({"timePeriod": time_period}),
         parse_items=_parser_for(LeaderboardEntry),
     )
@@ -466,6 +472,7 @@ def list_trader_leaderboard_spec(
     return OffsetPaginatedSpec(
         service="data",
         path="/v1/leaderboard",
+        max_page_size=50,
         base_params=build_data_params(
             {
                 "category": category,

@@ -243,6 +243,21 @@ def test_compute_offset_page_no_more_when_full() -> None:
     assert page.next_cursor is None
 
 
+def test_compute_offset_page_full_page_at_max_page_size_has_more() -> None:
+    page = compute_offset_page(
+        service="data",
+        path="/positions",
+        base_params=None,
+        offset=0,
+        page_size=10,
+        items=tuple(range(10)),
+        max_page_size=10,
+    )
+    assert page.items == tuple(range(10))
+    assert page.has_more is True
+    assert page.next_cursor is not None
+
+
 def test_compute_offset_page_no_more_when_partial() -> None:
     page = compute_offset_page(
         service="data",

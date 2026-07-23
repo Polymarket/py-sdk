@@ -26,6 +26,7 @@ class OffsetPaginatedSpec(Generic[T]):
     path: str
     parse_items: Callable[[object], tuple[T, ...]]
     base_params: Mapping[str, QueryParamValue] | None = None
+    max_page_size: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -101,6 +101,15 @@ def decode_offset_cursor(
     return raw_offset, raw_page_size
 
 
+def offset_request_limit(*, page_size: int, max_page_size: int | None) -> int:
+    """Limit to request for one page: page_size plus a lookahead row, unless the
+    endpoint would clamp the lookahead away because page_size is already at its
+    maximum."""
+    if max_page_size is not None and page_size >= max_page_size:
+        return page_size
+    return page_size + 1
+
+
 def compute_offset_page(
     *,
     service: Service,
@@ -109,8 +118,9 @@ def compute_offset_page(
     offset: int,
     page_size: int,
     items: tuple[T, ...],
+    max_page_size: int | None = None,
 ) -> Page[T]:
-    has_more = len(items) > page_size
+    has_more = len(items) >= offset_request_limit(page_size=page_size, max_page_size=max_page_size)
     trimmed = items[:page_size]
     next_cursor = (
         encode_offset_cursor(
@@ -327,4 +337,5 @@ __all__ = [
     "encode_offset_cursor",
     "encode_page_cursor",
     "fingerprint_query",
+    "offset_request_limit",
 ]

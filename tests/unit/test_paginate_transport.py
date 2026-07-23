@@ -32,12 +32,17 @@ def _items_handler(captured: list[httpx.Request], rows: list[list[int]]) -> http
     return httpx.MockTransport(handler)
 
 
-def _spec(path: str = "/positions", base_params: dict[str, str] | None = None):
+def _spec(
+    path: str = "/positions",
+    base_params: dict[str, str] | None = None,
+    max_page_size: int | None = None,
+):
     return OffsetPaginatedSpec[int](
         service="data",
         path=path,
         parse_items=lambda payload: tuple(payload),  # type: ignore[arg-type]
         base_params=base_params,
+        max_page_size=max_page_size,
     )
 
 
@@ -173,6 +178,25 @@ def test_sync_paginate_offset_round_trip_next_cursor() -> None:
     assert qs1["limit"] == ["11"]
 
 
+def test_sync_paginate_offset_at_max_page_size_fetches_next_page() -> None:
+    captured: list[httpx.Request] = []
+    handler = _items_handler(captured, [list(range(5)), list(range(5, 8))])
+    with PublicClient() as client:
+        _install_sync_data_transport(client, handler)
+        paginator = sync_paginate_offset(client._ctx, _spec(max_page_size=5), page_size=5)
+        all_items = list(paginator.iter_items())
+
+    assert all_items == list(range(8))
+    assert len(captured) == 2
+    limits = [parse_qs(urlparse(str(request.url)).query)["limit"] for request in captured]
+    assert limits == [["5"], ["5"]]
+
+
+def test_sync_paginate_offset_rejects_page_size_above_max() -> None:
+    with PublicClient() as client, pytest.raises(UserInputError, match="at most 5"):
+        sync_paginate_offset(client._ctx, _spec(max_page_size=5), page_size=6)
+
+
 def test_sync_paginate_offset_cursor_rejects_different_endpoint() -> None:
     captured: list[httpx.Request] = []
     handler = _items_handler(captured, [list(range(11))])
@@ -262,6 +286,34 @@ def test_async_paginate_offset_round_trip_next_cursor() -> None:
         qs1 = parse_qs(urlparse(str(captured[1].url)).query)
         assert qs1["offset"] == ["10"]
         assert qs1["limit"] == ["11"]
+
+    asyncio.run(run())
+
+
+def test_async_paginate_offset_at_max_page_size_fetches_next_page() -> None:
+    async def run() -> None:
+        captured: list[httpx.Request] = []
+        handler = _items_handler(captured, [list(range(5)), list(range(5, 8))])
+        async with AsyncPublicClient() as client:
+            _install_async_data_transport(client, handler)
+            paginator = async_paginate_offset(client._ctx, _spec(max_page_size=5), page_size=5)
+            collected: list[int] = []
+            async for page in paginator:
+                collected.extend(page.items)
+
+        assert collected == list(range(8))
+        assert len(captured) == 2
+        limits = [parse_qs(urlparse(str(request.url)).query)["limit"] for request in captured]
+        assert limits == [["5"], ["5"]]
+
+    asyncio.run(run())
+
+
+def test_async_paginate_offset_rejects_page_size_above_max() -> None:
+    async def run() -> None:
+        async with AsyncPublicClient() as client:
+            with pytest.raises(UserInputError, match="at most 5"):
+                async_paginate_offset(client._ctx, _spec(max_page_size=5), page_size=6)
 
     asyncio.run(run())
 
