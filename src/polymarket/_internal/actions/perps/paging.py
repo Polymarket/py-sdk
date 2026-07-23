@@ -97,15 +97,19 @@ def decode_perps_trades_cursor(cursor: str) -> dict[str, Any]:
 
 
 def decode_perps_descending_account_cursor(
-    cursor: str, *, kind: str, fund_statuses: Collection[str]
+    cursor: str,
+    *,
+    kind: str,
+    deposit_statuses: Collection[str],
+    withdrawal_statuses: Collection[str],
 ) -> dict[str, Any]:
     state = decode_perps_cursor(cursor, kind=kind)
     _require_non_negative_int(state, "start_timestamp")
     _require_non_negative_int(state, "end_timestamp")
     _require_str_list(state, "seen_keys")
     _allow_optional_non_negative_int(state, "instrument_id")
-    _allow_optional_allowed_str(state, "deposit_status", fund_statuses)
-    _allow_optional_allowed_str(state, "withdrawal_status", fund_statuses)
+    _allow_optional_allowed_str(state, "deposit_status", deposit_statuses)
+    _allow_optional_allowed_str(state, "withdrawal_status", withdrawal_statuses)
     _allow_optional_str(state, "hash")
     return state
 
