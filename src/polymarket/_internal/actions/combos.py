@@ -54,7 +54,7 @@ _MISSING_API_KEY_MESSAGE = (
 
 async def plan_collateral_return(ctx: AsyncSecureClientContext) -> CollateralReturnPlan:
     _require_supported_wallet_type(ctx.wallet_type)
-    data = await ctx.collateral_return.post_json(
+    data = await ctx.combos.post_json(
         _PLAN_PATH, json={"wallet": str(ctx.wallet)}, timeout=_PLAN_TIMEOUT
     )
     return CollateralReturnPlan.parse_response(data)
@@ -62,9 +62,7 @@ async def plan_collateral_return(ctx: AsyncSecureClientContext) -> CollateralRet
 
 def plan_collateral_return_sync(ctx: SyncSecureClientContext) -> CollateralReturnPlan:
     _require_supported_wallet_type(ctx.wallet_type)
-    data = ctx.collateral_return.post_json(
-        _PLAN_PATH, json={"wallet": str(ctx.wallet)}, timeout=_PLAN_TIMEOUT
-    )
+    data = ctx.combos.post_json(_PLAN_PATH, json={"wallet": str(ctx.wallet)}, timeout=_PLAN_TIMEOUT)
     return CollateralReturnPlan.parse_response(data)
 
 
@@ -232,7 +230,7 @@ async def _submit_plan(
 ) -> RelayerExecuteResponse:
     envelope = await build_signed_payload_for_wallet_type(ctx, calls=[call], metadata=_METADATA)
     try:
-        data = await ctx.collateral_return.post_json(
+        data = await ctx.combos.post_json(
             _SUBMIT_PATH, json={"plan_hash": plan_hash, "envelope": envelope}
         )
     except RequestRejectedError as error:
@@ -247,7 +245,7 @@ def _submit_plan_sync(
 ) -> RelayerExecuteResponse:
     envelope = build_signed_payload_for_wallet_type_sync(ctx, calls=[call], metadata=_METADATA)
     try:
-        data = ctx.collateral_return.post_json(
+        data = ctx.combos.post_json(
             _SUBMIT_PATH, json={"plan_hash": plan_hash, "envelope": envelope}
         )
     except RequestRejectedError as error:

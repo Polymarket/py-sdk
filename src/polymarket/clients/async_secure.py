@@ -25,7 +25,7 @@ from polymarket._internal.actions import account as _account_actions
 from polymarket._internal.actions import auth as _auth_actions
 from polymarket._internal.actions import builders as _builders_actions
 from polymarket._internal.actions import clob as _clob_actions
-from polymarket._internal.actions import collateral_return as _collateral_return_actions
+from polymarket._internal.actions import combos as _combos_actions
 from polymarket._internal.actions import data as _data_actions
 from polymarket._internal.actions import gamma as _gamma_actions
 from polymarket._internal.actions import rewards as _rewards_actions
@@ -457,7 +457,7 @@ class AsyncSecureClient:
             logger=logger,
             header_resolver=relayer_resolver,
         )
-        collateral_return = AsyncTransport(
+        combos = AsyncTransport(
             base_url=environment.collateral_return_url,
             logger=logger,
             header_resolver=relayer_resolver,
@@ -483,7 +483,7 @@ class AsyncSecureClient:
             wallet=branded_wallet,
             wallet_type=wallet_type,
             relayer=relayer,
-            collateral_return=collateral_return,
+            combos=combos,
             api_key=api_key,
             rpc=rpc,
         )
@@ -900,7 +900,7 @@ class AsyncSecureClient:
             ctx.perps,
             ctx.secure_clob,
             ctx.relayer,
-            ctx.collateral_return,
+            ctx.combos,
             ctx.rpc,
         )
 
@@ -2793,7 +2793,7 @@ class AsyncSecureClient:
             covers only the first executable chunk; execute it, then request
             a fresh plan for the remainder.
         """
-        return await _collateral_return_actions.plan_collateral_return(self._ctx)
+        return await _combos_actions.plan_collateral_return(self._ctx)
 
     async def execute_collateral_return_plan(
         self, *, plan: CollateralReturnPlan
@@ -2827,7 +2827,7 @@ class AsyncSecureClient:
                 executed against current wallet state; request a fresh plan
                 and execute that instead.
         """
-        return await _collateral_return_actions.execute_collateral_return_plan(self._ctx, plan=plan)
+        return await _combos_actions.execute_collateral_return_plan(self._ctx, plan=plan)
 
     async def _resolve_market_position_context(
         self,

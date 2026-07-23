@@ -9,11 +9,11 @@ from urllib.parse import urlparse
 import httpx
 import pytest
 from _relayer_helpers import (
-    install_collateral_return_handler,
-    install_collateral_return_routes,
+    install_combos_handler,
+    install_combos_routes,
     install_relayer_routes,
     install_rpc_handler,
-    install_sync_collateral_return_handler,
+    install_sync_combos_handler,
     install_sync_relayer_handler,
     install_sync_rpc_handler,
     make_deposit_client,
@@ -187,7 +187,7 @@ def test_plan_collateral_return_posts_wallet() -> None:
         nonlocal wallet
         client = await make_deposit_client()
         wallet = str(client.wallet)
-        install_collateral_return_routes(
+        install_combos_routes(
             client,
             captured,
             {_PLAN_PATH: _plan_payload(wallet=wallet)},
@@ -216,7 +216,7 @@ def test_execute_submits_router_call_for_deposit_wallet() -> None:
             relayer_captured,
             {_NONCE_PATH: {"address": client._ctx.signer.address, "nonce": "3"}},
         )
-        install_collateral_return_routes(client, submit_captured, {_SUBMIT_PATH: _SUBMIT_OK})
+        install_combos_routes(client, submit_captured, {_SUBMIT_PATH: _SUBMIT_OK})
         install_rpc_handler(client, trading_approval_rpc_handler(allowance=10**12, approved=True))
         plan = CollateralReturnPlan.parse_response(_plan_payload(wallet=str(client.wallet)))
         try:
@@ -249,7 +249,7 @@ def test_execute_submits_direct_safe_call() -> None:
             relayer_captured,
             {_NONCE_PATH: {"address": client._ctx.signer.address, "nonce": "0"}},
         )
-        install_collateral_return_routes(client, submit_captured, {_SUBMIT_PATH: _SUBMIT_OK})
+        install_combos_routes(client, submit_captured, {_SUBMIT_PATH: _SUBMIT_OK})
         install_rpc_handler(client, trading_approval_rpc_handler(allowance=10**12, approved=True))
         plan = CollateralReturnPlan.parse_response(_plan_payload(wallet=str(client.wallet)))
         try:
@@ -277,7 +277,7 @@ def test_execute_submits_proxy_factory_call() -> None:
             relayer_captured,
             {_NONCE_PATH: {"address": client._ctx.signer.address, "nonce": "0"}},
         )
-        install_collateral_return_routes(client, submit_captured, {_SUBMIT_PATH: _SUBMIT_OK})
+        install_combos_routes(client, submit_captured, {_SUBMIT_PATH: _SUBMIT_OK})
         install_rpc_handler(client, trading_approval_rpc_handler(allowance=10**12, approved=True))
         plan = CollateralReturnPlan.parse_response(_plan_payload(wallet=str(client.wallet)))
         try:
@@ -362,7 +362,7 @@ def test_execute_fails_fast_on_missing_approvals() -> None:
             relayer_captured,
             {_NONCE_PATH: {"address": client._ctx.signer.address, "nonce": "0"}},
         )
-        install_collateral_return_routes(client, submit_captured, {_SUBMIT_PATH: _SUBMIT_OK})
+        install_combos_routes(client, submit_captured, {_SUBMIT_PATH: _SUBMIT_OK})
         install_rpc_handler(client, trading_approval_rpc_handler(allowance=0, approved=False))
         plan = CollateralReturnPlan.parse_response(_plan_payload(wallet=str(client.wallet)))
         try:
@@ -392,7 +392,7 @@ def test_execute_skips_approval_check_when_plan_needs_no_inputs() -> None:
             relayer_captured,
             {_NONCE_PATH: {"address": client._ctx.signer.address, "nonce": "0"}},
         )
-        install_collateral_return_routes(client, submit_captured, {_SUBMIT_PATH: _SUBMIT_OK})
+        install_combos_routes(client, submit_captured, {_SUBMIT_PATH: _SUBMIT_OK})
         install_rpc_handler(client, rpc_handler)
         plan = CollateralReturnPlan.parse_response(
             _plan_payload(
@@ -430,7 +430,7 @@ def test_execute_maps_409_to_plan_rejected_without_retry() -> None:
             relayer_captured,
             {_NONCE_PATH: {"address": client._ctx.signer.address, "nonce": "0"}},
         )
-        install_collateral_return_handler(client, handler)
+        install_combos_handler(client, handler)
         install_rpc_handler(client, trading_approval_rpc_handler(allowance=10**12, approved=True))
         plan = CollateralReturnPlan.parse_response(_plan_payload(wallet=str(client.wallet)))
         try:
@@ -466,7 +466,7 @@ def test_execute_resubmits_with_fresh_nonce_on_transient_wallet_busy() -> None:
             relayer_captured,
             {_NONCE_PATH: {"address": client._ctx.signer.address, "nonce": "5"}},
         )
-        install_collateral_return_handler(client, handler)
+        install_combos_handler(client, handler)
         install_rpc_handler(client, trading_approval_rpc_handler(allowance=10**12, approved=True))
         plan = CollateralReturnPlan.parse_response(_plan_payload(wallet=str(client.wallet)))
         try:
@@ -497,7 +497,7 @@ def test_sync_execute_submits_router_call_for_deposit_wallet() -> None:
 
     client = make_sync_deposit_client()
     install_sync_relayer_handler(client, relayer_handler)
-    install_sync_collateral_return_handler(client, submit_handler)
+    install_sync_combos_handler(client, submit_handler)
     install_sync_rpc_handler(client, trading_approval_rpc_handler(allowance=10**12, approved=True))
     plan = CollateralReturnPlan.parse_response(_plan_payload(wallet=str(client.wallet)))
     try:

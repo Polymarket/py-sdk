@@ -321,7 +321,7 @@ def install_relayer_handler(
     client._ctx = dataclasses.replace(client._ctx, relayer=transport)
 
 
-def install_collateral_return_routes(
+def install_combos_routes(
     client: AsyncSecureClient,
     captured: list[httpx.Request],
     routes: dict[str, Any],
@@ -334,10 +334,10 @@ def install_collateral_return_routes(
                 return httpx.Response(200, json=payload, request=request)
         return httpx.Response(404, json={"error": "not mocked"}, request=request)
 
-    install_collateral_return_handler(client, handler)
+    install_combos_handler(client, handler)
 
 
-def install_collateral_return_handler(
+def install_combos_handler(
     client: AsyncSecureClient,
     handler: Callable[[httpx.Request], httpx.Response],
 ) -> None:
@@ -346,9 +346,9 @@ def install_collateral_return_handler(
         client=httpx.AsyncClient(
             base_url="https://collateral-return.test", transport=httpx.MockTransport(handler)
         ),
-        header_resolver=client._ctx.collateral_return._header_resolver,
+        header_resolver=client._ctx.combos._header_resolver,
     )
-    client._ctx = dataclasses.replace(client._ctx, collateral_return=transport)
+    client._ctx = dataclasses.replace(client._ctx, combos=transport)
 
 
 def install_rpc_handler(
@@ -446,7 +446,7 @@ def install_sync_relayer_handler(
     client._ctx = dataclasses.replace(client._ctx, relayer=transport)
 
 
-def install_sync_collateral_return_handler(
+def install_sync_combos_handler(
     client: SecureClient,
     handler: Callable[[httpx.Request], httpx.Response],
 ) -> None:
@@ -457,9 +457,9 @@ def install_sync_collateral_return_handler(
         client=httpx.Client(
             base_url="https://collateral-return.test", transport=httpx.MockTransport(handler)
         ),
-        header_resolver=client._ctx.collateral_return._header_resolver,
+        header_resolver=client._ctx.combos._header_resolver,
     )
-    client._ctx = dataclasses.replace(client._ctx, collateral_return=transport)
+    client._ctx = dataclasses.replace(client._ctx, combos=transport)
 
 
 def install_sync_rpc_handler(
@@ -522,12 +522,12 @@ __all__ = [
     "SPENDER",
     "TOKEN",
     "beacon_factory_rpc_handler",
-    "install_collateral_return_handler",
-    "install_collateral_return_routes",
+    "install_combos_handler",
+    "install_combos_routes",
     "install_relayer_handler",
     "install_relayer_routes",
     "install_rpc_handler",
-    "install_sync_collateral_return_handler",
+    "install_sync_combos_handler",
     "install_sync_relayer_handler",
     "install_sync_rpc_handler",
     "legacy_factory_rpc_handler",
