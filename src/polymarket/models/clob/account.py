@@ -6,7 +6,7 @@ from pydantic import Field, field_validator
 
 from polymarket.models.base import BaseModel
 from polymarket.models.clob._validators import (
-    EpochOrIsoTimestamp,
+    ExpirationTimestamp,
     RequiredEpochOrIsoTimestamp,
     _DecimalFromString,  # pyright: ignore[reportPrivateUsage]
 )
@@ -38,7 +38,7 @@ class OpenOrder(BaseModel):
     status: str
     associate_trades: tuple[str, ...] = Field(default=(), validation_alias="associate_trades")
     created_at: RequiredEpochOrIsoTimestamp = Field(validation_alias="created_at")
-    expires_at: EpochOrIsoTimestamp = Field(default=None, validation_alias="expiration")
+    expires_at: ExpirationTimestamp = Field(default=None, validation_alias="expiration")
 
     def _repr_html_(self) -> str:
         from polymarket._jupyter import card, safe_html_repr, truncate_mid
