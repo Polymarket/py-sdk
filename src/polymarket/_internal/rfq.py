@@ -397,11 +397,11 @@ class RfqQuoterSession:
         }
 
     def _on_message(self, raw: object) -> None:
+        message = cast(dict[str, object], raw) if isinstance(raw, dict) else None
+        message_type = message.get("type") if message is not None else None
+        if message is None or not isinstance(message_type, str):
+            return
         try:
-            if not isinstance(raw, dict):
-                raise UnexpectedResponseError("Invalid RFQ quoter message.")
-            message = cast(dict[str, object], raw)
-            message_type = _expect_str(message, "type")
             if message_type == "auth":
                 self._handle_auth(message)
             elif message_type == "RFQ_REQUEST":
@@ -440,8 +440,12 @@ class RfqQuoterSession:
                 self._push(_parse_trade(message))
             elif message_type == "RFQ_ERROR":
                 self._handle_rfq_error(message)
+            else:
+                return
+        except (UnexpectedResponseError, ValueError):
+            return
         except BaseException as error:
-            self._logger.warning("invalid RFQ quoter message: %r", error)
+            self._logger.warning("RFQ quoter protocol failure: %r", error)
             self._fail(error)
 
     def _handle_auth(self, raw: dict[str, object]) -> None:

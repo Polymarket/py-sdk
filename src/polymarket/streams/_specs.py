@@ -196,7 +196,11 @@ class UserSpec:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class PerpsTradesSpec:
-    """Subscribe to public trades for one Perps instrument."""
+    """Experimental: This API may change in a breaking way in any release,
+    including patch releases.
+
+    Subscribe to public trades for one Perps instrument.
+    """
 
     instrument_id: int
     topic: Literal["perps.trades"] = field(default="perps.trades", init=False)
@@ -207,7 +211,11 @@ class PerpsTradesSpec:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class PerpsBboSpec:
-    """Subscribe to best bid/ask updates for one Perps instrument."""
+    """Experimental: This API may change in a breaking way in any release,
+    including patch releases.
+
+    Subscribe to best bid/ask updates for one Perps instrument.
+    """
 
     instrument_id: int
     topic: Literal["perps.bbo"] = field(default="perps.bbo", init=False)
@@ -218,7 +226,11 @@ class PerpsBboSpec:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class PerpsBookSpec:
-    """Subscribe to order book deltas for one Perps instrument."""
+    """Experimental: This API may change in a breaking way in any release,
+    including patch releases.
+
+    Subscribe to order book deltas for one Perps instrument.
+    """
 
     instrument_id: int
     topic: Literal["perps.book"] = field(default="perps.book", init=False)
@@ -229,7 +241,11 @@ class PerpsBookSpec:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class PerpsCandlesSpec:
-    """Subscribe to streaming candles for one Perps instrument and interval."""
+    """Experimental: This API may change in a breaking way in any release,
+    including patch releases.
+
+    Subscribe to streaming candles for one Perps instrument and interval.
+    """
 
     instrument_id: int
     interval: Literal["1m", "5m", "15m", "1h", "4h", "1d", "1w"]
@@ -245,7 +261,10 @@ class PerpsCandlesSpec:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class PerpsTickersSpec:
-    """Subscribe to ticker updates for one Perps instrument or all instruments.
+    """Experimental: This API may change in a breaking way in any release,
+    including patch releases.
+
+    Subscribe to ticker updates for one Perps instrument or all instruments.
 
     When ``instrument_id`` is omitted, the subscription receives ticker
     updates for every instrument.
@@ -260,7 +279,10 @@ class PerpsTickersSpec:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class PerpsStatisticsSpec:
-    """Subscribe to statistics updates for one Perps instrument or all instruments.
+    """Experimental: This API may change in a breaking way in any release,
+    including patch releases.
+
+    Subscribe to statistics updates for one Perps instrument or all instruments.
 
     When ``instrument_id`` is omitted, the subscription receives statistics
     updates for every instrument.

@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.1.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.1.0-b21...polymarket-client-v0.1.0) (2026-07-22)
+
+
+### Features
+
+* **clob:** add condition_id alias to CLOB models, deprecate market ([3940237](https://github.com/Polymarket/py-sdk/commit/3940237aa34464b422ed5dcbbb82f59ade7cb857))
+* **models:** type cancellation result order IDs with OrderId ([a754f2f](https://github.com/Polymarket/py-sdk/commit/a754f2f53859ff40c99d10d9337239c9f7a1a37a))
+* **models:** type cancellation result order IDs with OrderId ([f8cd831](https://github.com/Polymarket/py-sdk/commit/f8cd8317b76a3419a4d1f4dcdb32e8c16c62fc17))
+* prepare Python SDK for stable 0.x ([27906ec](https://github.com/Polymarket/py-sdk/commit/27906ec4ba23101bbc63aacee829b337f839552d))
+* prepare Python SDK for stable 0.x ([5b3f256](https://github.com/Polymarket/py-sdk/commit/5b3f25687a181f5d9ba9110b13c6c8167b6adfff))
+* **streams:** drop unknown frames without closing connections ([f95aba1](https://github.com/Polymarket/py-sdk/commit/f95aba1e622fa88aa2bba0583cb103629c6458c0))
+
+
+### Bug Fixes
+
+* **orders:** reject prices that are not a multiple of the tick size ([2578124](https://github.com/Polymarket/py-sdk/commit/2578124167c4768a546dc4a5d1a511c1762ee626))
+* **orders:** reject prices that are not a multiple of the tick size ([87bc4c9](https://github.com/Polymarket/py-sdk/commit/87bc4c9962833cf5fc9c95bca7a538bc4906b578))
+
+## [0.1.0-b21](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.1.0-b20...polymarket-client-v0.1.0-b21) (2026-07-17)
+
+
+### Bug Fixes
+
+* **relayer:** stop approving retired neg-risk adapter in trading setup ([#179](https://github.com/Polymarket/py-sdk/issues/179)) ([b664047](https://github.com/Polymarket/py-sdk/commit/b66404776a4514a485f6b6fb2bb913c35d8fc4e8))
+
 ## [0.1.0-b20](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.1.0-b19...polymarket-client-v0.1.0-b20) (2026-07-17)
 
 

@@ -126,7 +126,10 @@ class _EventWaiter:
 
 
 class PerpsSession:
-    """An authenticated Perps account session.
+    """Experimental: This API may change in a breaking way in any release,
+    including patch releases.
+
+    An authenticated Perps account session.
 
     The session multiplexes trading commands, private account updates, and
     account reads over one connection. Iterate over the session to receive

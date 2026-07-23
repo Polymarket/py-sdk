@@ -675,7 +675,10 @@ class AsyncSecureClient:
         expires_in: "timedelta | None" = None,
         label: str | None = None,
     ) -> "PerpsSession":
-        """Open an authenticated Perps account session.
+        """Experimental: This API may change in a breaking way in any release,
+        including patch releases.
+
+        Open an authenticated Perps account session.
 
         With no arguments, new delegated session credentials are created with
         a wallet signature and expire after one week. Pass ``expires_in`` for
@@ -732,7 +735,10 @@ class AsyncSecureClient:
         return session
 
     async def revoke_perps_credentials(self, *, proxy: str) -> None:
-        """Revoke delegated Perps session credentials by proxy address.
+        """Experimental: This API may change in a breaking way in any release,
+        including patch releases.
+
+        Revoke delegated Perps session credentials by proxy address.
 
         The revocation is signed by the owner account and also works for
         credentials that are not currently in use.
@@ -747,7 +753,10 @@ class AsyncSecureClient:
     async def deposit_to_perps(
         self, *, amount: int, metadata: str | None = None
     ) -> TransactionHandle:
-        """Deposit collateral into the Perps account.
+        """Experimental: This API may change in a breaking way in any release,
+        including patch releases.
+
+        Deposit collateral into the Perps account.
 
         The deposit sends approved collateral into the Perps deposit contract
         and credits the authenticated signer account. It does not approve
@@ -772,7 +781,10 @@ class AsyncSecureClient:
         return await self._dispatch_single_call(call, metadata=resolved_metadata)
 
     async def withdraw_from_perps(self, *, amount: int) -> PerpsWithdrawalId:
-        """Request a Perps withdrawal to the authenticated wallet.
+        """Experimental: This API may change in a breaking way in any release,
+        including patch releases.
+
+        Request a Perps withdrawal to the authenticated wallet.
 
         The withdrawal is signed by the owner account and sends funds to the
         wallet address associated with this client.
@@ -3023,25 +3035,40 @@ class AsyncSecureClient:
         instrument_id: int | None = None,
         category: PerpsInstrumentCategory | None = None,
     ) -> tuple[PerpsInstrument, ...]:
-        """Fetch Perps instruments, optionally filtered by instrument or category."""
+        """Experimental: This API may change in a breaking way in any release,
+        including patch releases.
+
+        Fetch Perps instruments, optionally filtered by instrument or category.
+        """
         return await _perps_actions.fetch_instruments(
             self._ctx.perps, instrument_id=instrument_id, category=category
         )
 
     async def fetch_perps_ticker(self, *, instrument_id: int) -> PerpsTicker:
-        """Fetch the current Perps ticker for an instrument."""
+        """Experimental: This API may change in a breaking way in any release,
+        including patch releases.
+
+        Fetch the current Perps ticker for an instrument.
+        """
         return await _perps_actions.fetch_ticker(self._ctx.perps, instrument_id=instrument_id)
 
     async def fetch_perps_tickers(
         self, *, instrument_id: int | None = None
     ) -> tuple[PerpsTicker, ...]:
-        """Fetch current Perps tickers."""
+        """Experimental: This API may change in a breaking way in any release,
+        including patch releases.
+
+        Fetch current Perps tickers.
+        """
         return await _perps_actions.fetch_tickers(self._ctx.perps, instrument_id=instrument_id)
 
     async def fetch_perps_book(
         self, *, instrument_id: int, depth: PerpsBookDepth = 100
     ) -> PerpsBook:
-        """Fetch a Perps order book snapshot.
+        """Experimental: This API may change in a breaking way in any release,
+        including patch releases.
+
+        Fetch a Perps order book snapshot.
 
         ``depth`` controls the number of price levels returned on each side.
         """
@@ -3050,7 +3077,11 @@ class AsyncSecureClient:
         )
 
     async def fetch_perps_fees(self) -> tuple[PerpsFeeScheduleEntry, ...]:
-        """Fetch the Perps fee schedule."""
+        """Experimental: This API may change in a breaking way in any release,
+        including patch releases.
+
+        Fetch the Perps fee schedule.
+        """
         return await _perps_actions.fetch_fees(self._ctx.perps)
 
     def list_perps_candles(
@@ -3061,7 +3092,10 @@ class AsyncSecureClient:
         start: "datetime | int | None" = None,
         end: "datetime | int | None" = None,
     ) -> AsyncPaginator[PerpsCandle]:
-        """List Perps candles for an instrument with SDK-owned pagination.
+        """Experimental: This API may change in a breaking way in any release,
+        including patch releases.
+
+        List Perps candles for an instrument with SDK-owned pagination.
 
         Defaults to the past 24 hours when ``start`` is omitted. ``start`` and
         ``end`` accept a ``datetime`` or an epoch-milliseconds int.
@@ -3084,7 +3118,10 @@ class AsyncSecureClient:
         start: "datetime | int | None" = None,
         end: "datetime | int | None" = None,
     ) -> AsyncPaginator[PerpsFundingRate]:
-        """List Perps funding-rate history with SDK-owned pagination.
+        """Experimental: This API may change in a breaking way in any release,
+        including patch releases.
+
+        List Perps funding-rate history with SDK-owned pagination.
 
         Defaults to the past 24 hours when ``start`` is omitted. ``start`` and
         ``end`` accept a ``datetime`` or an epoch-milliseconds int.
@@ -3103,7 +3140,10 @@ class AsyncSecureClient:
         start: "datetime | int | None" = None,
         end: "datetime | int | None" = None,
     ) -> AsyncPaginator[PerpsTrade]:
-        """List recent public Perps trades with SDK-owned pagination.
+        """Experimental: This API may change in a breaking way in any release,
+        including patch releases.
+
+        List recent public Perps trades with SDK-owned pagination.
 
         Defaults to the past 24 hours when ``start`` is omitted. ``start`` and
         ``end`` accept a ``datetime`` or an epoch-milliseconds int.
