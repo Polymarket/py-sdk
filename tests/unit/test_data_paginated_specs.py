@@ -242,13 +242,13 @@ def test_list_trader_leaderboard_spec_validates_category() -> None:
 @pytest.mark.parametrize(
     ("spec", "expected_max"),
     [
-        (data_actions.list_positions_spec(user="0xWALLET"), 499),
-        (data_actions.list_closed_positions_spec(user="0xWALLET"), 49),
-        (data_actions.list_market_positions_spec(market="0xabc"), 499),
-        (data_actions.list_trades_spec(), 9_999),
-        (data_actions.list_activity_spec(user="0xWALLET"), 499),
-        (data_actions.list_builder_leaderboard_spec(), 49),
-        (data_actions.list_trader_leaderboard_spec(), 49),
+        (data_actions.list_positions_spec(user="0xWALLET"), 500),
+        (data_actions.list_closed_positions_spec(user="0xWALLET"), 50),
+        (data_actions.list_market_positions_spec(market="0xabc"), 500),
+        (data_actions.list_trades_spec(), 10_000),
+        (data_actions.list_activity_spec(user="0xWALLET"), 500),
+        (data_actions.list_builder_leaderboard_spec(), 50),
+        (data_actions.list_trader_leaderboard_spec(), 50),
     ],
     ids=[
         "positions",
@@ -260,9 +260,9 @@ def test_list_trader_leaderboard_spec_validates_category() -> None:
         "trader-leaderboard",
     ],
 )
-def test_offset_specs_cap_page_size_below_server_limit(spec: object, expected_max: int) -> None:
-    # The dispatcher probes with page_size + 1, so each cap sits one below the
-    # server-side limit cap. Page sizes past the cap fail fast instead of the
-    # server clamping or rejecting the probe and pagination stopping early.
+def test_offset_specs_cap_page_size_at_server_limit(spec: object, expected_max: int) -> None:
+    # Each cap matches the server-side limit cap. Page sizes past the cap fail
+    # fast instead of the server clamping or rejecting the request and
+    # pagination silently misbehaving.
     assert isinstance(spec, data_actions.OffsetPaginatedSpec)
     assert spec.max_page_size == expected_max

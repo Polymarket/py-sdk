@@ -110,12 +110,11 @@ def compute_offset_page(
     page_size: int,
     items: tuple[T, ...],
 ) -> Page[T]:
-    # >= tolerates servers that clamp the page_size + 1 probe back to page_size:
-    # a full page continues pagination instead of silently dropping the tail. It
-    # costs one extra empty-page request when the total count is an exact
-    # multiple of page_size.
+    # Requests ask for exactly page_size rows, so a full page means another
+    # page may exist. This costs one extra empty-page request when the total
+    # count is an exact multiple of page_size, but cannot silently drop the
+    # tail when a server caps or clamps the limit.
     has_more = len(items) >= page_size
-    trimmed = items[:page_size]
     next_cursor = (
         encode_offset_cursor(
             service=service,
@@ -127,7 +126,7 @@ def compute_offset_page(
         if has_more
         else None
     )
-    return Page(items=trimmed, has_more=has_more, next_cursor=next_cursor)
+    return Page(items=items, has_more=has_more, next_cursor=next_cursor)
 
 
 def encode_keyset_cursor(

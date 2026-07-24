@@ -598,8 +598,8 @@ def list_series_spec(
     return OffsetPaginatedSpec(
         service="gamma",
         path="/series",
-        # Upstream caps limit at 50 and the probe requests page_size + 1.
-        max_page_size=49,
+        # Matches the upstream per-request limit cap.
+        max_page_size=50,
         parse_items=Series.parse_response_list,
         base_params=params or None,
     )
@@ -623,8 +623,8 @@ def list_tags_spec(
     return OffsetPaginatedSpec(
         service="gamma",
         path="/tags",
-        # Upstream caps limit at 100 and the probe requests page_size + 1.
-        max_page_size=99,
+        # Matches the upstream per-request limit cap.
+        max_page_size=100,
         parse_items=Tag.parse_response_list,
         base_params=params or None,
     )
@@ -650,8 +650,8 @@ def list_teams_spec(
     return OffsetPaginatedSpec(
         service="gamma",
         path="/teams",
-        # Upstream caps limit at 100 and the probe requests page_size + 1.
-        max_page_size=99,
+        # Matches the upstream per-request limit cap.
+        max_page_size=100,
         parse_items=Team.parse_response_list,
         base_params=params or None,
     )
@@ -681,8 +681,8 @@ def list_comments_spec(
     return OffsetPaginatedSpec(
         service="gamma",
         path="/comments",
-        # Upstream caps limit at 100 and the probe requests page_size + 1.
-        max_page_size=99,
+        # Matches the upstream per-request limit cap.
+        max_page_size=100,
         parse_items=Comment.parse_response_list,
         base_params=params,
     )
@@ -703,8 +703,8 @@ def list_comments_by_user_address_spec(
     return OffsetPaginatedSpec(
         service="gamma",
         path=path,
-        # Upstream caps limit at 100 and the probe requests page_size + 1.
-        max_page_size=99,
+        # Matches the upstream per-request limit cap.
+        max_page_size=100,
         parse_items=Comment.parse_response_list,
         base_params=params or None,
     )

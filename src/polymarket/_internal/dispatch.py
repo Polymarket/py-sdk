@@ -96,7 +96,7 @@ def sync_paginate_offset(
         )
         params: dict[str, QueryParamValue] = {
             **(spec.base_params or {}),
-            "limit": effective_size + 1,
+            "limit": effective_size,
             "offset": offset,
         }
         payload = transport.get_json(spec.path, params=params)
@@ -139,7 +139,7 @@ def async_paginate_offset(
         )
         params: dict[str, QueryParamValue] = {
             **(spec.base_params or {}),
-            "limit": effective_size + 1,
+            "limit": effective_size,
             "offset": offset,
         }
         payload = await transport.get_json(spec.path, params=params)

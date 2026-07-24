@@ -213,8 +213,8 @@ def list_positions_spec(
     return OffsetPaginatedSpec(
         service="data",
         path="/positions",
-        # Upstream caps limit at 500 and the probe requests page_size + 1.
-        max_page_size=499,
+        # Matches the upstream per-request limit cap.
+        max_page_size=500,
         base_params=build_data_params(
             {
                 "user": user,
@@ -253,8 +253,8 @@ def list_closed_positions_spec(
     return OffsetPaginatedSpec(
         service="data",
         path="/closed-positions",
-        # Upstream caps limit at 50 and the probe requests page_size + 1.
-        max_page_size=49,
+        # Matches the upstream per-request limit cap.
+        max_page_size=50,
         base_params=build_data_params(
             {
                 "user": user,
@@ -341,8 +341,8 @@ def list_market_positions_spec(
     return OffsetPaginatedSpec(
         service="data",
         path="/v1/market-positions",
-        # Upstream caps limit at 500 and the probe requests page_size + 1.
-        max_page_size=499,
+        # Matches the upstream per-request limit cap.
+        max_page_size=500,
         base_params=build_data_params(
             {
                 "market": market,
@@ -380,8 +380,8 @@ def list_trades_spec(
     return OffsetPaginatedSpec(
         service="data",
         path="/trades",
-        # Upstream caps limit at 10,000 and the probe requests page_size + 1.
-        max_page_size=9_999,
+        # Matches the upstream per-request limit cap.
+        max_page_size=10_000,
         base_params=build_data_params(
             {
                 "takerOnly": taker_only,
@@ -430,8 +430,8 @@ def list_activity_spec(
     return OffsetPaginatedSpec(
         service="data",
         path="/activity",
-        # Upstream caps limit at 500 and the probe requests page_size + 1.
-        max_page_size=499,
+        # Matches the upstream per-request limit cap.
+        max_page_size=500,
         base_params=build_data_params(
             {
                 "user": user,
@@ -457,8 +457,8 @@ def list_builder_leaderboard_spec(
     return OffsetPaginatedSpec(
         service="data",
         path="/v1/builders/leaderboard",
-        # Upstream caps limit at 50 and the probe requests page_size + 1.
-        max_page_size=49,
+        # Matches the upstream per-request limit cap.
+        max_page_size=50,
         base_params=build_data_params({"timePeriod": time_period}),
         parse_items=_parser_for(LeaderboardEntry),
     )
@@ -478,8 +478,8 @@ def list_trader_leaderboard_spec(
     return OffsetPaginatedSpec(
         service="data",
         path="/v1/leaderboard",
-        # Upstream caps limit at 50 and the probe requests page_size + 1.
-        max_page_size=49,
+        # Matches the upstream per-request limit cap.
+        max_page_size=50,
         base_params=build_data_params(
             {
                 "category": category,
