@@ -4,11 +4,8 @@ from enum import StrEnum
 
 from pydantic import Field, field_validator
 
+from polymarket.models._validators import DecimalFromE6String, DecimalFromString
 from polymarket.models.base import BaseModel
-from polymarket.models.clob._validators import (
-    _DecimalFromE6String,  # pyright: ignore[reportPrivateUsage]
-    _DecimalFromString,  # pyright: ignore[reportPrivateUsage]
-)
 from polymarket.models.types import (
     ComboConditionId,
     PositionId,
@@ -47,7 +44,7 @@ class CollateralReturnOperation(BaseModel):
     event_id: HexString | None = None
     position_id: PositionId | None = None
     condition_index: int = 0
-    amount: _DecimalFromE6String
+    amount: DecimalFromE6String
 
     @field_validator("kind", mode="before")
     @classmethod
@@ -69,7 +66,7 @@ class CollateralReturnPositionAmount(BaseModel):
     """A position and the amount of it a plan touches."""
 
     position_id: PositionId
-    amount: _DecimalFromE6String
+    amount: DecimalFromE6String
 
 
 class CollateralReturnPositionSummary(BaseModel):
@@ -86,10 +83,10 @@ class CollateralReturnRouterCall(BaseModel):
     data: HexString
 
 
-class CollateralReturnPlan(BaseModel):
+class CollateralReturnPlanResponse(BaseModel):
     """An executable plan that returns redundant position value as collateral.
 
-    The plan is an inspectable artifact: review ``collateral_returned`` and
+    The plan is an inspectable artifact: review ``net_pusd_out`` and
     ``position_summary`` before executing it with
     ``execute_collateral_return_plan``. Execution submits ``router_call``
     exactly as planned; nothing is recomputed client-side.
@@ -100,26 +97,30 @@ class CollateralReturnPlan(BaseModel):
     """
 
     plan_hash: HexString
-    wallet: EvmAddress
     chain_id: int
+    wallet: EvmAddress
     block_number: int
-    starting_collateral: _DecimalFromString = Field(validation_alias="starting_pusd")
-    collateral_returned: _DecimalFromString = Field(validation_alias="net_pusd_out")
-    final_collateral: _DecimalFromString = Field(validation_alias="final_pusd")
-    required_collateral: _DecimalFromString = Field(validation_alias="required_pusd_input")
-    required_positions: tuple[CollateralReturnPositionAmount, ...] = ()
+    starting_pusd: DecimalFromString
+    net_pusd_out: DecimalFromString
+    final_pusd: DecimalFromString
+    operations: tuple[CollateralReturnOperation, ...]
+    operation_count: int
+    truncated: bool
+    estimated_cost: float
+    required_pusd_input: DecimalFromString
+    required_positions: tuple[CollateralReturnPositionAmount, ...]
+    # Tolerate older service builds that predate the summary field.
     position_summary: CollateralReturnPositionSummary = Field(
         default_factory=CollateralReturnPositionSummary
     )
-    operations: tuple[CollateralReturnOperation, ...] = ()
-    truncated: bool = False
+    candidate_position_ids: tuple[PositionId, ...]
     router_call: CollateralReturnRouterCall
 
 
 __all__ = [
     "CollateralReturnOperation",
     "CollateralReturnOperationKind",
-    "CollateralReturnPlan",
+    "CollateralReturnPlanResponse",
     "CollateralReturnPositionAmount",
     "CollateralReturnPositionSummary",
     "CollateralReturnRouterCall",

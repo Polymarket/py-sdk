@@ -4,7 +4,6 @@ from polymarket.clients import AsyncPublicClient, AsyncSecureClient, PublicClien
 from polymarket.environments import PRODUCTION, Environment
 from polymarket.errors import (
     CancelledSigningError,
-    CollateralReturnPlanRejectedError,
     ConnectionLostError,
     InsufficientAllowanceError,
     InsufficientLiquidityError,
@@ -35,7 +34,7 @@ from polymarket.models import (
     ClosedPosition,
     CollateralReturnOperation,
     CollateralReturnOperationKind,
-    CollateralReturnPlan,
+    CollateralReturnPlanResponse,
     CollateralReturnPositionAmount,
     CollateralReturnPositionSummary,
     CollateralReturnRouterCall,
@@ -233,8 +232,7 @@ __all__ = [
     "CancelledSigningError",
     "CollateralReturnOperation",
     "CollateralReturnOperationKind",
-    "CollateralReturnPlan",
-    "CollateralReturnPlanRejectedError",
+    "CollateralReturnPlanResponse",
     "CollateralReturnPositionAmount",
     "CollateralReturnPositionSummary",
     "CollateralReturnRouterCall",

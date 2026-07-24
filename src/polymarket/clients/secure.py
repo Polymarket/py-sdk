@@ -172,7 +172,7 @@ from polymarket.models.clob.rewards import (
     UserEarning,
     UserRewardsEarning,
 )
-from polymarket.models.collateral_return import CollateralReturnPlan
+from polymarket.models.collateral_return import CollateralReturnPlanResponse
 from polymarket.models.data import (
     Activity,
     BuilderVolumeEntry,
@@ -200,6 +200,7 @@ from polymarket.transactions import (
     MergePositionRequest,
     SyncDeprecatedTransactionHandle,
     SyncEoaTransactionHandle,
+    SyncGaslessTransactionHandle,
     SyncTransactionHandle,
 )
 from polymarket.types import EvmAddress, HexString
@@ -2483,13 +2484,13 @@ class SecureClient:
         )
         return self._dispatch_single_call(call, metadata=resolved_metadata)
 
-    def plan_collateral_return(self) -> CollateralReturnPlan:
+    def plan_collateral_return(self) -> CollateralReturnPlanResponse:
         """Plan a collateral return for the authenticated wallet.
 
         Builds an executable plan that unwinds redundant position value and
         returns it to the wallet as collateral. Planning can take several
         minutes for wallets with many positions. Inspect the plan — notably
-        ``collateral_returned`` and ``position_summary`` — before executing it
+        ``net_pusd_out`` and ``position_summary`` — before executing it
         with :meth:`execute_collateral_return_plan`.
 
         Returns:
@@ -2500,20 +2501,18 @@ class SecureClient:
         return _combos_actions.plan_collateral_return_sync(self._ctx)
 
     def execute_collateral_return_plan(
-        self, *, plan: CollateralReturnPlan
-    ) -> SyncTransactionHandle:
+        self, *, plan: CollateralReturnPlanResponse
+    ) -> SyncGaslessTransactionHandle:
         """Execute a collateral return plan.
 
         The plan executes exactly as returned by
         :meth:`plan_collateral_return`; nothing is recomputed client-side.
         No approval transactions are submitted implicitly.
 
-        Plans with no operations are rejected before anything is signed.
-
         Example::
 
             plan = client.plan_collateral_return()
-            while plan.collateral_returned > 0:
+            while plan.net_pusd_out > 0:
                 handle = client.execute_collateral_return_plan(plan=plan)
                 handle.wait()
                 if not plan.truncated:
@@ -2524,9 +2523,9 @@ class SecureClient:
             A transaction handle. Call ``wait()`` to wait for a terminal outcome.
 
         Raises:
-            CollateralReturnPlanRejectedError: If the plan can no longer be
-                executed against current wallet state; request a fresh plan
-                and execute that instead.
+            RequestRejectedError: With ``status`` 409 if the plan no longer
+                matches current wallet state; request a fresh plan and
+                execute that instead.
         """
         return _combos_actions.execute_collateral_return_plan_sync(self._ctx, plan=plan)
 

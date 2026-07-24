@@ -44,7 +44,7 @@ from polymarket.models.clob import (
 from polymarket.models.collateral_return import (
     CollateralReturnOperation,
     CollateralReturnOperationKind,
-    CollateralReturnPlan,
+    CollateralReturnPlanResponse,
     CollateralReturnPositionAmount,
     CollateralReturnPositionSummary,
     CollateralReturnRouterCall,
@@ -250,7 +250,7 @@ __all__ = [
     "ClosedPosition",
     "CollateralReturnOperation",
     "CollateralReturnOperationKind",
-    "CollateralReturnPlan",
+    "CollateralReturnPlanResponse",
     "CollateralReturnPositionAmount",
     "CollateralReturnPositionSummary",
     "CollateralReturnRouterCall",

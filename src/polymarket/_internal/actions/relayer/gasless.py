@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Awaitable, Callable
 from typing import assert_never
 
 from polymarket._internal.actions.relayer.calls import (
@@ -69,26 +70,35 @@ async def prepare_gasless_transaction(
     if len(metadata) > _METADATA_MAX_LENGTH:
         raise UserInputError(f"metadata must be at most {_METADATA_MAX_LENGTH} characters")
 
+    return await submit_gasless_with_retry(
+        ctx, submit=lambda: _submit_for_wallet_type(ctx, calls=calls, metadata=metadata)
+    )
+
+
+async def submit_gasless_with_retry(
+    ctx: AsyncSecureClientContext,
+    *,
+    submit: Callable[[], Awaitable[RelayerExecuteResponse]],
+) -> GaslessTransactionHandle:
+    """Run a gasless submit, retrying transient relayer rejections."""
     env = ctx.environment
-    retry_delay_s = env.relayer_poll_frequency_ms / 1000
-    last_error: BaseException | None = None
+    poll_delay_s = env.relayer_poll_frequency_ms / 1000
     for attempt in range(GASLESS_SUBMIT_RETRY_ATTEMPTS + 1):
         try:
-            response = await _submit_for_wallet_type(ctx, calls=calls, metadata=metadata)
+            response = await submit()
+        except Exception as error:
+            if attempt == GASLESS_SUBMIT_RETRY_ATTEMPTS or not is_retryable_submit_error(error):
+                raise
+            await asyncio.sleep(poll_delay_s)
+        else:
             return GaslessTransactionHandle(
                 transaction_id=response.transaction_id,
                 transaction_hash=response.transaction_hash,
                 _relayer=ctx.relayer,
                 _max_polls=env.relayer_max_polls,
-                _poll_delay_s=env.relayer_poll_frequency_ms / 1000,
+                _poll_delay_s=poll_delay_s,
             )
-        except Exception as error:
-            last_error = error
-            if attempt == GASLESS_SUBMIT_RETRY_ATTEMPTS or not is_retryable_submit_error(error):
-                raise
-            await asyncio.sleep(retry_delay_s)
-    assert last_error is not None
-    raise last_error
+    raise AssertionError("unreachable")
 
 
 async def _submit_for_wallet_type(
@@ -394,26 +404,35 @@ def prepare_gasless_transaction_sync(
     if len(metadata) > _METADATA_MAX_LENGTH:
         raise UserInputError(f"metadata must be at most {_METADATA_MAX_LENGTH} characters")
 
+    return submit_gasless_with_retry_sync(
+        ctx, submit=lambda: _submit_for_wallet_type_sync(ctx, calls=calls, metadata=metadata)
+    )
+
+
+def submit_gasless_with_retry_sync(
+    ctx: SyncSecureClientContext,
+    *,
+    submit: Callable[[], RelayerExecuteResponse],
+) -> SyncGaslessTransactionHandle:
+    """Run a gasless submit, retrying transient relayer rejections."""
     env = ctx.environment
-    retry_delay_s = env.relayer_poll_frequency_ms / 1000
-    last_error: BaseException | None = None
+    poll_delay_s = env.relayer_poll_frequency_ms / 1000
     for attempt in range(GASLESS_SUBMIT_RETRY_ATTEMPTS + 1):
         try:
-            response = _submit_for_wallet_type_sync(ctx, calls=calls, metadata=metadata)
+            response = submit()
+        except Exception as error:
+            if attempt == GASLESS_SUBMIT_RETRY_ATTEMPTS or not is_retryable_submit_error(error):
+                raise
+            time.sleep(poll_delay_s)
+        else:
             return SyncGaslessTransactionHandle(
                 transaction_id=response.transaction_id,
                 transaction_hash=response.transaction_hash,
                 _relayer=ctx.relayer,
                 _max_polls=env.relayer_max_polls,
-                _poll_delay_s=env.relayer_poll_frequency_ms / 1000,
+                _poll_delay_s=poll_delay_s,
             )
-        except Exception as error:
-            last_error = error
-            if attempt == GASLESS_SUBMIT_RETRY_ATTEMPTS or not is_retryable_submit_error(error):
-                raise
-            time.sleep(retry_delay_s)
-    assert last_error is not None
-    raise last_error
+    raise AssertionError("unreachable")
 
 
 def _submit_for_wallet_type_sync(
@@ -608,4 +627,6 @@ __all__ = [
     "prepare_gasless_transaction_sync",
     "submit_deposit_wallet_create",
     "submit_deposit_wallet_create_sync",
+    "submit_gasless_with_retry",
+    "submit_gasless_with_retry_sync",
 ]

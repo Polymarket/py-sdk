@@ -65,11 +65,3 @@ class SigningError(PolymarketError):
 
 class InsufficientAllowanceError(PolymarketError):
     """Error raised when the on-chain allowance is insufficient for the order amount."""
-
-
-class CollateralReturnPlanRejectedError(PolymarketError):
-    """Error raised when a collateral return plan can no longer be executed.
-
-    The plan was built against wallet state that has since changed. Request a
-    fresh plan with ``plan_collateral_return()`` and execute that instead.
-    """

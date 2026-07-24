@@ -20,10 +20,10 @@ from _relayer_helpers import (
     request_json,
 )
 
-from polymarket import CollateralReturnOperationKind, CollateralReturnPlan
+from polymarket import CollateralReturnOperationKind, CollateralReturnPlanResponse
 from polymarket.environments import PRODUCTION
 from polymarket.errors import (
-    CollateralReturnPlanRejectedError,
+    RequestRejectedError,
     UnexpectedResponseError,
     UserInputError,
 )
@@ -59,7 +59,7 @@ def _plan_payload(*, wallet: str, **overrides: object) -> dict[str, object]:
         ],
         "operation_count": 2,
         "truncated": False,
-        "estimated_cost": "7",
+        "estimated_cost": 7,
         "required_positions": [{"position_id": "42", "amount": "1000000"}],
         "position_summary": {
             "consumed": [{"position_id": "42", "amount": "1000000"}],
@@ -77,19 +77,21 @@ def _nonce_route(client: Any, nonce: str = "0") -> dict[str, Any]:
 
 
 def test_plan_parses_wire_shape() -> None:
-    plan = CollateralReturnPlan.parse_response(_plan_payload(wallet=_OTHER_WALLET))
+    plan = CollateralReturnPlanResponse.parse_response(_plan_payload(wallet=_OTHER_WALLET))
 
     assert plan.block_number == 78123456
-    assert plan.collateral_returned == Decimal("1")  # renamed from net_pusd_out
+    assert plan.net_pusd_out == Decimal("1")
+    assert plan.operation_count == 2
+    assert plan.estimated_cost == 7
+    assert plan.candidate_position_ids == ("42",)
     merge = plan.operations[0]
     assert merge.kind is CollateralReturnOperationKind.MERGE
     assert merge.condition_id == _CONDITION_ID  # outcome-suffixed wire id is normalized
     assert merge.amount == Decimal("1")  # e6 base units scaled to collateral units
-    assert not hasattr(plan, "estimated_cost")  # lean shape drops planner internals
 
 
 def test_plan_parses_unknown_kinds_as_plain_strings() -> None:
-    plan = CollateralReturnPlan.parse_response(
+    plan = CollateralReturnPlanResponse.parse_response(
         _plan_payload(
             wallet=_OTHER_WALLET,
             operations=[
@@ -105,32 +107,48 @@ def test_plan_parses_unknown_kinds_as_plain_strings() -> None:
     assert on_event.kind is CollateralReturnOperationKind.MERGE_ON_EVENT
 
 
-def test_plan_rejects_non_integer_base_unit_amounts() -> None:
+def test_plan_rejects_malformed_base_unit_amounts() -> None:
+    for amount in ("1.5", "-1000000"):
+        with pytest.raises(UnexpectedResponseError):
+            CollateralReturnPlanResponse.parse_response(
+                _plan_payload(
+                    wallet=_OTHER_WALLET, operations=[{"kind": "merge", "amount": amount}]
+                )
+            )
+
+
+def test_plan_requires_service_fields() -> None:
+    payload = _plan_payload(wallet=_OTHER_WALLET)
+    del payload["operations"]
+
     with pytest.raises(UnexpectedResponseError):
-        CollateralReturnPlan.parse_response(
-            _plan_payload(wallet=_OTHER_WALLET, operations=[{"kind": "merge", "amount": "1.5"}])
-        )
+        CollateralReturnPlanResponse.parse_response(payload)
 
 
-def test_plan_parses_empty_plan_with_omitted_zero_fields() -> None:
-    plan = CollateralReturnPlan.parse_response(
-        {
-            "plan_hash": _PLAN_HASH,
-            "chain_id": 137,
-            "wallet": _OTHER_WALLET,
-            "block_number": "1",
-            "starting_pusd": "0",
-            "net_pusd_out": "0",
-            "final_pusd": "0",
-            "required_pusd_input": "0",
-            "router_call": {"to": PRODUCTION.protocol_v2_router, "data": "0x"},
-        }
+def test_plan_tolerates_missing_position_summary() -> None:
+    payload = _plan_payload(
+        wallet=_OTHER_WALLET,
+        operations=[],
+        operation_count=0,
+        required_positions=[],
+        candidate_position_ids=[],
     )
+    del payload["position_summary"]
+
+    plan = CollateralReturnPlanResponse.parse_response(payload)
 
     assert plan.operations == ()
-    assert plan.truncated is False
     assert plan.position_summary.consumed == ()
     assert plan.position_summary.created == ()
+
+
+def test_plan_json_round_trips_scaled_amounts() -> None:
+    plan = CollateralReturnPlanResponse.parse_response(_plan_payload(wallet=_OTHER_WALLET))
+
+    restored = CollateralReturnPlanResponse.model_validate_json(plan.model_dump_json())
+
+    assert restored == plan
+    assert restored.operations[0].amount == Decimal("1")
 
 
 def test_execute_submits_router_call_for_deposit_wallet() -> None:
@@ -140,7 +158,7 @@ def test_execute_submits_router_call_for_deposit_wallet() -> None:
         client = await make_deposit_client()
         install_relayer_routes(client, [], _nonce_route(client))
         install_combos_routes(client, submit_captured, {_SUBMIT_PATH: _SUBMIT_OK})
-        plan = CollateralReturnPlan.parse_response(_plan_payload(wallet=str(client.wallet)))
+        plan = CollateralReturnPlanResponse.parse_response(_plan_payload(wallet=str(client.wallet)))
         try:
             handle = await client.execute_collateral_return_plan(plan=plan)
             assert handle.transaction_id == "tx-collateral-return"
@@ -169,7 +187,7 @@ def test_sync_execute_submits_router_call_for_deposit_wallet() -> None:
     client = make_sync_deposit_client()
     install_sync_relayer_handler(client, relayer_handler)
     install_sync_combos_handler(client, submit_handler)
-    plan = CollateralReturnPlan.parse_response(_plan_payload(wallet=str(client.wallet)))
+    plan = CollateralReturnPlanResponse.parse_response(_plan_payload(wallet=str(client.wallet)))
     try:
         handle = client.execute_collateral_return_plan(plan=plan)
         assert handle.transaction_id == "tx-collateral-return"
@@ -182,7 +200,7 @@ def test_sync_execute_submits_router_call_for_deposit_wallet() -> None:
 def test_plan_and_execute_reject_eoa_wallets() -> None:
     async def run() -> None:
         client = await make_eoa_client()
-        plan = CollateralReturnPlan.parse_response(_plan_payload(wallet=str(client.wallet)))
+        plan = CollateralReturnPlanResponse.parse_response(_plan_payload(wallet=str(client.wallet)))
         try:
             with pytest.raises(UserInputError, match="EOA"):
                 await client.plan_collateral_return()
@@ -194,25 +212,21 @@ def test_plan_and_execute_reject_eoa_wallets() -> None:
     asyncio.run(run())
 
 
-def test_execute_rejects_mismatched_or_empty_plans() -> None:
+def test_execute_rejects_mismatched_plans() -> None:
     async def run() -> None:
         client = await make_deposit_client()
         wallet = str(client.wallet)
         try:
             with pytest.raises(UserInputError, match="does not match"):
                 await client.execute_collateral_return_plan(
-                    plan=CollateralReturnPlan.parse_response(_plan_payload(wallet=_OTHER_WALLET))
+                    plan=CollateralReturnPlanResponse.parse_response(
+                        _plan_payload(wallet=_OTHER_WALLET)
+                    )
                 )
             with pytest.raises(UserInputError, match="chain id"):
                 await client.execute_collateral_return_plan(
-                    plan=CollateralReturnPlan.parse_response(
+                    plan=CollateralReturnPlanResponse.parse_response(
                         _plan_payload(wallet=wallet, chain_id=80002)
-                    )
-                )
-            with pytest.raises(UserInputError, match="no operations"):
-                await client.execute_collateral_return_plan(
-                    plan=CollateralReturnPlan.parse_response(
-                        _plan_payload(wallet=wallet, operations=[])
                     )
                 )
         finally:
@@ -221,7 +235,7 @@ def test_execute_rejects_mismatched_or_empty_plans() -> None:
     asyncio.run(run())
 
 
-def test_execute_maps_409_to_plan_rejected_without_retry() -> None:
+def test_execute_does_not_retry_plan_rejections() -> None:
     submit_count = 0
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -235,10 +249,11 @@ def test_execute_maps_409_to_plan_rejected_without_retry() -> None:
         client = await make_deposit_client()
         install_relayer_routes(client, [], _nonce_route(client))
         install_combos_handler(client, handler)
-        plan = CollateralReturnPlan.parse_response(_plan_payload(wallet=str(client.wallet)))
+        plan = CollateralReturnPlanResponse.parse_response(_plan_payload(wallet=str(client.wallet)))
         try:
-            with pytest.raises(CollateralReturnPlanRejectedError, match="fresh plan required"):
+            with pytest.raises(RequestRejectedError, match="fresh plan required") as excinfo:
                 await client.execute_collateral_return_plan(plan=plan)
+            assert excinfo.value.status == 409
         finally:
             await client.close()
 
@@ -266,7 +281,7 @@ def test_execute_resubmits_with_fresh_nonce_on_transient_wallet_busy() -> None:
         )
         install_relayer_routes(client, relayer_captured, _nonce_route(client, nonce="5"))
         install_combos_handler(client, handler)
-        plan = CollateralReturnPlan.parse_response(_plan_payload(wallet=str(client.wallet)))
+        plan = CollateralReturnPlanResponse.parse_response(_plan_payload(wallet=str(client.wallet)))
         try:
             handle = await client.execute_collateral_return_plan(plan=plan)
             assert handle.transaction_id == "tx-collateral-return"

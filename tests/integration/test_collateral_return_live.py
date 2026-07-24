@@ -9,6 +9,9 @@ Metered side effects:
   then executes collateral return plans until the seeded value is merged back
   (net-zero on the wallet by construction), and finally re-submits the
   executed plan expecting the service to reject it (no additional state).
+- ``test_empty_plan_matches_contract_and_rejects_execution`` signs and
+  submits an empty plan that the service rejects at re-validation (no state
+  changes).
 """
 
 import asyncio
@@ -20,8 +23,7 @@ from eth_account import Account
 
 from polymarket import (
     AsyncSecureClient,
-    CollateralReturnPlan,
-    CollateralReturnPlanRejectedError,
+    CollateralReturnPlanResponse,
     RequestRejectedError,
     TransactionHandle,
     UserInputError,
@@ -39,7 +41,7 @@ _REPLAN_ATTEMPTS = 3
 _PLAN_HASH_LENGTH = 66  # 0x-prefixed 32-byte hex
 
 
-async def _fetch_plan(client: AsyncSecureClient) -> CollateralReturnPlan:
+async def _fetch_plan(client: AsyncSecureClient) -> CollateralReturnPlanResponse:
     """Fetch a plan, retrying the occasional transient edge 5xx."""
     for attempt in range(_PLAN_RETRY_ATTEMPTS):
         try:
@@ -51,7 +53,9 @@ async def _fetch_plan(client: AsyncSecureClient) -> CollateralReturnPlan:
     raise AssertionError("unreachable")
 
 
-async def _execute_plan(client: AsyncSecureClient, plan: CollateralReturnPlan) -> TransactionHandle:
+async def _execute_plan(
+    client: AsyncSecureClient, plan: CollateralReturnPlanResponse
+) -> TransactionHandle:
     """Execute a plan, retrying the occasional transient edge 5xx.
 
     A retry after a masked successful submission is safe: the service
@@ -67,7 +71,7 @@ async def _execute_plan(client: AsyncSecureClient, plan: CollateralReturnPlan) -
     raise AssertionError("unreachable")
 
 
-def _assert_plan_hash(plan: CollateralReturnPlan) -> None:
+def _assert_plan_hash(plan: CollateralReturnPlanResponse) -> None:
     assert plan.plan_hash.startswith("0x")
     assert len(plan.plan_hash) == _PLAN_HASH_LENGTH
     int(plan.plan_hash, 16)
@@ -88,10 +92,10 @@ async def test_plan_collateral_return_live(deposit_wallet_client: AsyncSecureCli
     assert plan.router_call.data.startswith("0x")
 
     for amount in (
-        plan.starting_collateral,
-        plan.collateral_returned,
-        plan.final_collateral,
-        plan.required_collateral,
+        plan.starting_pusd,
+        plan.net_pusd_out,
+        plan.final_pusd,
+        plan.required_pusd_input,
     ):
         assert isinstance(amount, Decimal)
     assert isinstance(plan.position_summary.consumed, tuple)
@@ -154,33 +158,36 @@ async def test_plan_collateral_return_rejects_eoa_account() -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.metered
 async def test_empty_plan_matches_contract_and_rejects_execution(
     deposit_wallet_client: AsyncSecureClient,
 ) -> None:
+    # Live side effects: signs and submits the empty plan, which the service
+    # rejects at re-validation without changing wallet state.
     # Mirrors the ts-sdk empty-plan scenario. The account holds no returnable
     # inventory between metered runs; skip while inventory is pending.
     plan = await _fetch_plan(deposit_wallet_client)
 
-    if plan.collateral_returned > 0:
+    if plan.net_pusd_out > 0:
         pytest.skip("account holds returnable inventory; empty plan unavailable")
 
-    assert plan.collateral_returned == Decimal("0")
-    assert plan.required_collateral == Decimal("0")
+    assert plan.net_pusd_out == Decimal("0")
+    assert plan.required_pusd_input == Decimal("0")
     # The wire carries decimal-6 strings ("0.000000"), matching the unit
     # fixtures; the parsed Decimal keeps that exponent.
-    assert plan.collateral_returned.as_tuple().exponent == -6
+    assert plan.net_pusd_out.as_tuple().exponent == -6
     assert plan.operations == ()
     assert plan.required_positions == ()
     assert plan.position_summary.consumed == ()
     assert plan.position_summary.created == ()
     assert plan.truncated is False
-    assert plan.starting_collateral == plan.final_collateral
+    assert plan.starting_pusd == plan.final_pusd
     _assert_plan_hash(plan)
     assert plan.router_call.data.startswith("0x")
 
-    # ts-sdk submits an empty plan and relies on the service rejecting it at
-    # re-validation; this SDK fails fast client-side before anything is signed.
-    with pytest.raises(UserInputError, match="no operations"):
+    # A plan that returns no collateral is re-validated and rejected by the
+    # service at submission.
+    with pytest.raises(RequestRejectedError):
         await deposit_wallet_client.execute_collateral_return_plan(plan=plan)
 
 
@@ -195,16 +202,19 @@ async def test_collateral_return_round_trip_live(deposit_wallet_client: AsyncSec
 
     async def run() -> None:
         plan = await _fetch_plan(client)
-        if plan.collateral_returned <= 0:
+        if plan.net_pusd_out <= 0:
             plan = await _seed_returnable_positions(client, plan)
 
-        executed_plan: CollateralReturnPlan | None = None
+        executed_plan: CollateralReturnPlanResponse | None = None
         rejections = 0
-        while plan.collateral_returned > 0:
+        while plan.net_pusd_out > 0:
             try:
                 handle = await _execute_plan(client, plan)
-            except CollateralReturnPlanRejectedError:
-                # Documented recovery: state moved between plan and submit.
+            except RequestRejectedError as error:
+                # Documented recovery: state moved between plan and submit,
+                # so the service rejects the stale plan with a 409.
+                if error.status != 409:
+                    raise
                 rejections += 1
                 assert rejections <= _REPLAN_ATTEMPTS
                 plan = await _fetch_plan(client)
@@ -220,16 +230,16 @@ async def test_collateral_return_round_trip_live(deposit_wallet_client: AsyncSec
         # The executed plan no longer matches wallet state; re-submitting it
         # must be rejected in favor of a fresh plan (the same 409 contract the
         # unit tests assert against a mocked service).
-        with pytest.raises(CollateralReturnPlanRejectedError):
+        with pytest.raises(RequestRejectedError):
             await _execute_plan(client, executed_plan)
 
     await asyncio.wait_for(run(), timeout=_ROUND_TRIP_TIMEOUT_S)
 
 
 async def _seed_returnable_positions(
-    client: AsyncSecureClient, plan: CollateralReturnPlan
-) -> CollateralReturnPlan:
-    if plan.starting_collateral < 1:
+    client: AsyncSecureClient, plan: CollateralReturnPlanResponse
+) -> CollateralReturnPlanResponse:
+    if plan.starting_pusd < 1:
         pytest.skip("wallet needs at least 1.000000 collateral to seed a returnable position")
     legs = await _pick_combo_legs(client)
     handle = await client.split_position(amount=_SEED_AMOUNT, legs=legs)
@@ -238,7 +248,7 @@ async def _seed_returnable_positions(
     deadline = time.monotonic() + _SEED_PLAN_TIMEOUT_S
     while True:
         refreshed = await _fetch_plan(client)
-        if refreshed.collateral_returned > 0:
+        if refreshed.net_pusd_out > 0:
             return refreshed
         if time.monotonic() >= deadline:
             pytest.fail("seeded split did not become returnable in time")
