@@ -170,6 +170,55 @@ def test_list_fills_pages_with_native_cursor() -> None:
     asyncio.run(run())
 
 
+def _compact_fill(trade_id: int, timestamp: int) -> dict[str, Any]:
+    return {
+        "tid": trade_id,
+        "oid": 100 + trade_id,
+        "iid": 1,
+        "side": "long",
+        "p": "100",
+        "qty": "1",
+        "taker": True,
+        "fee": "0.01",
+        "fea": "USDC",
+        "psz": "0",
+        "pep": "0",
+        "pnl": "0",
+        "liq": False,
+        "ts": timestamp,
+    }
+
+
+def test_list_fills_pages_with_native_cursor_from_compact_fills() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if "cursor" not in request.url.params:
+            return httpx.Response(
+                200, json={"data": [_compact_fill(3, 3000), _compact_fill(2, 2000)], "more": True}
+            )
+        return httpx.Response(200, json={"data": [_compact_fill(1, 1000)], "more": False})
+
+    async def run() -> None:
+        transport = _transport(handler)
+        try:
+            pages = perps_account.list_fills(transport)
+            first = await pages.first_page()
+            second = await pages.from_cursor(first.next_cursor).first_page()
+        finally:
+            await transport.close()
+
+        assert [fill.trade_id for fill in first.items] == [3, 2]
+        assert first.has_more is True
+        assert first.next_cursor == "2"
+        assert [fill.trade_id for fill in second.items] == [1]
+        assert second.has_more is False
+        assert dict(requests[1].url.params) == {"cursor": "2"}
+
+    asyncio.run(run())
+
+
 def test_list_fills_iterates_ascending_pages_forwarding_sort_with_cursor() -> None:
     requests: list[httpx.Request] = []
 
