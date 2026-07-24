@@ -4,7 +4,6 @@ from pydantic import TypeAdapter, ValidationError
 
 from polymarket._internal.actions._cursor import (
     next_cursor_or_none,
-    optional_int,
     validate_cursor,
 )
 from polymarket._internal.request import QueryParamValue
@@ -61,7 +60,6 @@ def parse_builder_trades_page(data: object) -> Page[BuilderTrade]:
         items=items,
         has_more=next_cursor is not None,
         next_cursor=next_cursor,
-        total_count=optional_int(payload, "count"),
     )
 
 

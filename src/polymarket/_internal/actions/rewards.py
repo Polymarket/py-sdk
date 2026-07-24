@@ -75,7 +75,6 @@ def parse_current_rewards_page(data: object) -> Page[CurrentReward]:
         items=items,
         has_more=next_cursor is not None,
         next_cursor=next_cursor,
-        total_count=optional_int(payload, "count"),
     )
 
 
@@ -114,7 +113,6 @@ def parse_market_rewards_page(data: object) -> Page[MarketReward]:
         items=items,
         has_more=next_cursor is not None,
         next_cursor=next_cursor,
-        total_count=optional_int(payload, "count"),
     )
 
 
@@ -188,7 +186,6 @@ def parse_user_earnings_page(data: object) -> Page[UserEarning]:
         items=items,
         has_more=next_cursor is not None,
         next_cursor=next_cursor,
-        total_count=optional_int(payload, "count"),
     )
 
 
@@ -261,7 +258,7 @@ def parse_user_rewards_earnings_page(data: object) -> Page[UserRewardsEarning]:
         items=items,
         has_more=next_cursor is not None,
         next_cursor=next_cursor,
-        total_count=optional_int(payload, "count"),
+        total_count=optional_int(payload, "total_count"),
     )
 
 
