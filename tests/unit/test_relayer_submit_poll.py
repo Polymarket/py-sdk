@@ -6,6 +6,7 @@ import pytest
 
 from polymarket._internal.actions.relayer.poll import poll_until_terminal
 from polymarket._internal.actions.relayer.submit import (
+    RelayerEnvelope,
     is_retryable_submit_error,
     submit_gasless,
 )
@@ -47,7 +48,7 @@ def test_submit_returns_parsed_response_on_success() -> None:
 
         t = _transport(httpx.MockTransport(handler))
         try:
-            return await submit_gasless(t, payload={"type": "WALLET"})
+            return await submit_gasless(t, payload=RelayerEnvelope({"type": "WALLET"}))
         finally:
             await t.close()
 
@@ -74,7 +75,7 @@ def test_submit_does_not_retry_internally() -> None:
 
         t = _transport(httpx.MockTransport(handler))
         try:
-            await submit_gasless(t, payload={"type": "WALLET"})
+            await submit_gasless(t, payload=RelayerEnvelope({"type": "WALLET"}))
         finally:
             await t.close()
 

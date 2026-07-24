@@ -26,6 +26,7 @@ from polymarket._internal.actions.relayer.signing.proxy import (
 from polymarket._internal.actions.relayer.signing.safe import sign_safe_transaction
 from polymarket._internal.actions.relayer.submit import (
     GASLESS_SUBMIT_RETRY_ATTEMPTS,
+    RelayerEnvelope,
     is_retryable_submit_error,
     submit_gasless,
     submit_gasless_sync,
@@ -116,7 +117,7 @@ async def build_signed_payload_for_wallet_type(
     *,
     calls: list[TransactionCall],
     metadata: str,
-) -> dict[str, object]:
+) -> RelayerEnvelope:
     """Fetch a fresh nonce, sign, and build the relayer payload for the wallet type."""
     wallet_type = ctx.wallet_type
     if wallet_type == "DEPOSIT_WALLET":
@@ -135,7 +136,7 @@ async def build_signed_deposit_wallet_payload(
     *,
     calls: list[TransactionCall],
     metadata: str,
-) -> dict[str, object]:
+) -> RelayerEnvelope:
     params = await fetch_execute_params(
         ctx.relayer, address=ctx.signer.address, type=RelayerTransactionType.WALLET
     )
@@ -170,20 +171,24 @@ def build_deposit_wallet_payload(
     deadline: str,
     signature: str,
     metadata: str,
-) -> dict[str, object]:
-    return {
-        "type": RelayerTransactionType.WALLET.value,
-        "from": signer_address,
-        "to": deposit_wallet_factory,
-        "nonce": nonce,
-        "signature": signature,
-        "metadata": metadata,
-        "depositWalletParams": {
-            "depositWallet": str(wallet),
-            "deadline": deadline,
-            "calls": [{"target": str(c.to), "value": str(c.value), "data": c.data} for c in calls],
-        },
-    }
+) -> RelayerEnvelope:
+    return RelayerEnvelope(
+        {
+            "type": RelayerTransactionType.WALLET.value,
+            "from": signer_address,
+            "to": deposit_wallet_factory,
+            "nonce": nonce,
+            "signature": signature,
+            "metadata": metadata,
+            "depositWalletParams": {
+                "depositWallet": str(wallet),
+                "deadline": deadline,
+                "calls": [
+                    {"target": str(c.to), "value": str(c.value), "data": c.data} for c in calls
+                ],
+            },
+        }
+    )
 
 
 async def build_signed_proxy_payload(
@@ -191,7 +196,7 @@ async def build_signed_proxy_payload(
     *,
     calls: list[TransactionCall],
     metadata: str,
-) -> dict[str, object]:
+) -> RelayerEnvelope:
     params = await fetch_relay_payload(
         ctx.relayer, address=ctx.signer.address, type=RelayerTransactionType.PROXY
     )
@@ -239,24 +244,26 @@ def build_proxy_payload(
     relay: EvmAddress,
     relay_hub: str,
     metadata: str,
-) -> dict[str, object]:
-    return {
-        "type": RelayerTransactionType.PROXY.value,
-        "from": signer_address,
-        "to": proxy_factory,
-        "proxyWallet": str(wallet),
-        "data": data,
-        "nonce": nonce,
-        "signature": signature,
-        "metadata": metadata,
-        "signatureParams": {
-            "gasLimit": gas_limit,
-            "gasPrice": _PROXY_GAS_PRICE,
-            "relay": str(relay),
-            "relayHub": relay_hub,
-            "relayerFee": _PROXY_RELAYER_FEE,
-        },
-    }
+) -> RelayerEnvelope:
+    return RelayerEnvelope(
+        {
+            "type": RelayerTransactionType.PROXY.value,
+            "from": signer_address,
+            "to": proxy_factory,
+            "proxyWallet": str(wallet),
+            "data": data,
+            "nonce": nonce,
+            "signature": signature,
+            "metadata": metadata,
+            "signatureParams": {
+                "gasLimit": gas_limit,
+                "gasPrice": _PROXY_GAS_PRICE,
+                "relay": str(relay),
+                "relayHub": relay_hub,
+                "relayerFee": _PROXY_RELAYER_FEE,
+            },
+        }
+    )
 
 
 async def _estimate_proxy_gas_limit(
@@ -278,7 +285,7 @@ async def build_signed_safe_payload(
     *,
     calls: list[TransactionCall],
     metadata: str,
-) -> dict[str, object]:
+) -> RelayerEnvelope:
     params = await fetch_execute_params(
         ctx.relayer, address=ctx.signer.address, type=RelayerTransactionType.SAFE
     )
@@ -330,7 +337,7 @@ def build_safe_payload(
     nonce: str,
     signature: str,
     metadata: str,
-) -> dict[str, object]:
+) -> RelayerEnvelope:
     payload: dict[str, object] = {
         "type": RelayerTransactionType.SAFE.value,
         "from": signer_address,
@@ -351,7 +358,7 @@ def build_safe_payload(
     }
     if value > 0:
         payload["value"] = str(value)
-    return payload
+    return RelayerEnvelope(payload)
 
 
 async def submit_deposit_wallet_create(
@@ -366,12 +373,14 @@ async def submit_deposit_wallet_create(
         )
     if len(metadata) > _METADATA_MAX_LENGTH:
         raise UserInputError(f"metadata must be at most {_METADATA_MAX_LENGTH} characters")
-    payload = {
-        "type": RelayerTransactionType.WALLET_CREATE.value,
-        "from": ctx.signer.address,
-        "to": ctx.environment.wallet_derivation.deposit_wallet_factory,
-        "metadata": metadata,
-    }
+    payload = RelayerEnvelope(
+        {
+            "type": RelayerTransactionType.WALLET_CREATE.value,
+            "from": ctx.signer.address,
+            "to": ctx.environment.wallet_derivation.deposit_wallet_factory,
+            "metadata": metadata,
+        }
+    )
     response = await submit_gasless(ctx.relayer, payload=payload)
     env = ctx.environment
     return GaslessTransactionHandle(
@@ -450,7 +459,7 @@ def build_signed_payload_for_wallet_type_sync(
     *,
     calls: list[TransactionCall],
     metadata: str,
-) -> dict[str, object]:
+) -> RelayerEnvelope:
     """Fetch a fresh nonce, sign, and build the relayer payload for the wallet type."""
     wallet_type = ctx.wallet_type
     if wallet_type == "DEPOSIT_WALLET":
@@ -469,7 +478,7 @@ def build_signed_deposit_wallet_payload_sync(
     *,
     calls: list[TransactionCall],
     metadata: str,
-) -> dict[str, object]:
+) -> RelayerEnvelope:
     params = fetch_execute_params_sync(
         ctx.relayer, address=ctx.signer.address, type=RelayerTransactionType.WALLET
     )
@@ -499,7 +508,7 @@ def build_signed_proxy_payload_sync(
     *,
     calls: list[TransactionCall],
     metadata: str,
-) -> dict[str, object]:
+) -> RelayerEnvelope:
     params = fetch_relay_payload_sync(
         ctx.relayer, address=ctx.signer.address, type=RelayerTransactionType.PROXY
     )
@@ -554,7 +563,7 @@ def build_signed_safe_payload_sync(
     *,
     calls: list[TransactionCall],
     metadata: str,
-) -> dict[str, object]:
+) -> RelayerEnvelope:
     params = fetch_execute_params_sync(
         ctx.relayer, address=ctx.signer.address, type=RelayerTransactionType.SAFE
     )
@@ -594,12 +603,14 @@ def submit_deposit_wallet_create_sync(
         )
     if len(metadata) > _METADATA_MAX_LENGTH:
         raise UserInputError(f"metadata must be at most {_METADATA_MAX_LENGTH} characters")
-    payload = {
-        "type": RelayerTransactionType.WALLET_CREATE.value,
-        "from": ctx.signer.address,
-        "to": ctx.environment.wallet_derivation.deposit_wallet_factory,
-        "metadata": metadata,
-    }
+    payload = RelayerEnvelope(
+        {
+            "type": RelayerTransactionType.WALLET_CREATE.value,
+            "from": ctx.signer.address,
+            "to": ctx.environment.wallet_derivation.deposit_wallet_factory,
+            "metadata": metadata,
+        }
+    )
     response = submit_gasless_sync(ctx.relayer, payload=payload)
     env = ctx.environment
     return SyncGaslessTransactionHandle(
