@@ -30,6 +30,7 @@ class SyncSecureClientContext(SyncClientContext):
     wallet: EvmAddress
     wallet_type: WalletType
     relayer: SyncTransport
+    combos: SyncTransport
     api_key: ApiKey | None
     rpc: SyncJsonRpcClient
 
@@ -52,6 +53,7 @@ class AsyncSecureClientContext(AsyncClientContext):
     wallet: EvmAddress
     wallet_type: WalletType
     relayer: AsyncTransport
+    combos: AsyncTransport
     api_key: ApiKey | None
     rpc: JsonRpcClient
 

@@ -15,6 +15,7 @@ from polymarket._internal.actions import account as _account_actions
 from polymarket._internal.actions import auth as _auth_actions
 from polymarket._internal.actions import builders as _builders_actions
 from polymarket._internal.actions import clob as _clob_actions
+from polymarket._internal.actions import combos as _combos_actions
 from polymarket._internal.actions import data as _data_actions
 from polymarket._internal.actions import gamma as _gamma_actions
 from polymarket._internal.actions import rewards as _rewards_actions
@@ -173,6 +174,7 @@ from polymarket.models.clob.rewards import (
     UserEarning,
     UserRewardsEarning,
 )
+from polymarket.models.collateral_return import CollateralReturnPlanResponse
 from polymarket.models.data import (
     Activity,
     BuilderVolumeEntry,
@@ -200,6 +202,7 @@ from polymarket.transactions import (
     MergePositionRequest,
     SyncDeprecatedTransactionHandle,
     SyncEoaTransactionHandle,
+    SyncGaslessTransactionHandle,
     SyncTransactionHandle,
 )
 from polymarket.types import EvmAddress, HexString, TransactionHash
@@ -378,6 +381,11 @@ class SecureClient:
             logger=logger,
             header_resolver=relayer_resolver,
         )
+        combos = SyncTransport(
+            base_url=environment.collateral_return_url,
+            logger=logger,
+            header_resolver=relayer_resolver,
+        )
         try:
             secure_clob = SyncTransport(
                 base_url=environment.clob_url,
@@ -392,6 +400,7 @@ class SecureClient:
             rfq.close()
             clob.close()
             relayer.close()
+            combos.close()
             raise
 
         ctx = SyncSecureClientContext(
@@ -406,6 +415,7 @@ class SecureClient:
             wallet=branded_wallet,
             wallet_type=wallet_type,
             relayer=relayer,
+            combos=combos,
             api_key=api_key,
             rpc=rpc,
         )
@@ -468,7 +478,10 @@ class SecureClient:
                             try:
                                 ctx.relayer.close()
                             finally:
-                                ctx.rpc.close()
+                                try:
+                                    ctx.combos.close()
+                                finally:
+                                    ctx.rpc.close()
 
     def _user_or_wallet(self, user: str | None) -> str:
         return self._ctx.wallet if user is None else user
@@ -2498,6 +2511,51 @@ class SecureClient:
             else f"Redeem positions for condition {context.condition_id}"
         )
         return self._dispatch_single_call(call, metadata=resolved_metadata)
+
+    def plan_collateral_return(self) -> CollateralReturnPlanResponse:
+        """Plan a collateral return for the authenticated wallet.
+
+        Builds an executable plan that unwinds redundant position value and
+        returns it to the wallet as collateral. Planning can take several
+        minutes for wallets with many positions. Inspect the plan — notably
+        ``net_pusd_out`` and ``position_summary`` — before executing it
+        with :meth:`execute_collateral_return_plan`.
+
+        Returns:
+            The collateral return plan. When ``truncated`` is True the plan
+            covers only the first executable chunk; execute it, then request
+            a fresh plan for the remainder.
+        """
+        return _combos_actions.plan_collateral_return_sync(self._ctx)
+
+    def execute_collateral_return_plan(
+        self, *, plan: CollateralReturnPlanResponse
+    ) -> SyncGaslessTransactionHandle:
+        """Execute a collateral return plan.
+
+        The plan executes exactly as returned by
+        :meth:`plan_collateral_return`; nothing is recomputed client-side.
+        No approval transactions are submitted implicitly.
+
+        Example::
+
+            plan = client.plan_collateral_return()
+            while plan.net_pusd_out > 0:
+                handle = client.execute_collateral_return_plan(plan=plan)
+                handle.wait()
+                if not plan.truncated:
+                    break
+                plan = client.plan_collateral_return()
+
+        Returns:
+            A transaction handle. Call ``wait()`` to wait for a terminal outcome.
+
+        Raises:
+            RequestRejectedError: With ``status`` 409 if the plan no longer
+                matches current wallet state; request a fresh plan and
+                execute that instead.
+        """
+        return _combos_actions.execute_collateral_return_plan_sync(self._ctx, plan=plan)
 
     def _broadcast_eoa_call(self, call: TransactionCall) -> SyncEoaTransactionHandle:
         env = self._ctx.environment

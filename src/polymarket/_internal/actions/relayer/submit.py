@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import NewType
 
 from polymarket.clients._transport import AsyncTransport, SyncTransport
 from polymarket.errors import RateLimitError, RequestRejectedError
 from polymarket.models.clob.relayer import RelayerExecuteResponse
 
 GASLESS_SUBMIT_RETRY_ATTEMPTS = 10
+
+# A relayer transaction envelope produced by one of the payload builders in
+# ``gasless.py``. The NewType keeps arbitrary dicts from reaching a submit
+# endpoint without going through a builder.
+RelayerEnvelope = NewType("RelayerEnvelope", dict[str, object])
 
 _NONCE_MISMATCH_RE = re.compile(
     r"batch nonce\s+(\d+)\s+does not match on-chain nonce\s+(\d+)", re.IGNORECASE
@@ -17,14 +22,14 @@ _WALLET_INFLIGHT_RE = re.compile(r"wallet has in-flight action", re.IGNORECASE)
 
 
 async def submit_gasless(
-    relayer: AsyncTransport, *, payload: dict[str, Any]
+    relayer: AsyncTransport, *, payload: RelayerEnvelope
 ) -> RelayerExecuteResponse:
     data = await relayer.post_json("/submit", json=payload)
     return RelayerExecuteResponse.parse_response(data)
 
 
 def submit_gasless_sync(
-    relayer: SyncTransport, *, payload: dict[str, Any]
+    relayer: SyncTransport, *, payload: RelayerEnvelope
 ) -> RelayerExecuteResponse:
     data = relayer.post_json("/submit", json=payload)
     return RelayerExecuteResponse.parse_response(data)
@@ -48,6 +53,7 @@ def is_retryable_submit_error(error: BaseException) -> bool:
 
 __all__ = [
     "GASLESS_SUBMIT_RETRY_ATTEMPTS",
+    "RelayerEnvelope",
     "is_retryable_submit_error",
     "submit_gasless",
     "submit_gasless_sync",

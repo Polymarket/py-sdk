@@ -321,6 +321,36 @@ def install_relayer_handler(
     client._ctx = dataclasses.replace(client._ctx, relayer=transport)
 
 
+def install_combos_routes(
+    client: AsyncSecureClient,
+    captured: list[httpx.Request],
+    routes: dict[str, Any],
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        path = urlparse(str(request.url)).path
+        for prefix, payload in routes.items():
+            if path == prefix or path.startswith(f"{prefix}/"):
+                return httpx.Response(200, json=payload, request=request)
+        return httpx.Response(404, json={"error": "not mocked"}, request=request)
+
+    install_combos_handler(client, handler)
+
+
+def install_combos_handler(
+    client: AsyncSecureClient,
+    handler: Callable[[httpx.Request], httpx.Response],
+) -> None:
+    transport = AsyncTransport(
+        base_url="https://collateral-return.test",
+        client=httpx.AsyncClient(
+            base_url="https://collateral-return.test", transport=httpx.MockTransport(handler)
+        ),
+        header_resolver=client._ctx.combos._header_resolver,
+    )
+    client._ctx = dataclasses.replace(client._ctx, combos=transport)
+
+
 def install_rpc_handler(
     client: AsyncSecureClient,
     handler: Callable[[httpx.Request], httpx.Response],
@@ -416,6 +446,22 @@ def install_sync_relayer_handler(
     client._ctx = dataclasses.replace(client._ctx, relayer=transport)
 
 
+def install_sync_combos_handler(
+    client: SecureClient,
+    handler: Callable[[httpx.Request], httpx.Response],
+) -> None:
+    from polymarket.clients._transport import SyncTransport
+
+    transport = SyncTransport(
+        base_url="https://collateral-return.test",
+        client=httpx.Client(
+            base_url="https://collateral-return.test", transport=httpx.MockTransport(handler)
+        ),
+        header_resolver=client._ctx.combos._header_resolver,
+    )
+    client._ctx = dataclasses.replace(client._ctx, combos=transport)
+
+
 def install_sync_rpc_handler(
     client: SecureClient,
     handler: Callable[[httpx.Request], httpx.Response],
@@ -476,9 +522,12 @@ __all__ = [
     "SPENDER",
     "TOKEN",
     "beacon_factory_rpc_handler",
+    "install_combos_handler",
+    "install_combos_routes",
     "install_relayer_handler",
     "install_relayer_routes",
     "install_rpc_handler",
+    "install_sync_combos_handler",
     "install_sync_relayer_handler",
     "install_sync_rpc_handler",
     "legacy_factory_rpc_handler",
