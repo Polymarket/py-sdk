@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.2.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.1.0...polymarket-client-v0.2.0) (2026-07-24)
+
+
+### Features
+
+* **client:** add collateral return plan/execute to secure clients ([b4a1b9f](https://github.com/Polymarket/py-sdk/commit/b4a1b9fb41f9a276c684a00e382d62378092c051))
+* **clob:** add wait_for_order_settlement for async order settlement ([fe24c40](https://github.com/Polymarket/py-sdk/commit/fe24c401b35370499d8e46e604e77d1293511ad6))
+* **collateral-return:** add collateral return plan/execute to secure clients ([735d40f](https://github.com/Polymarket/py-sdk/commit/735d40fa3bef58d77f6642b612fe90081eb80ae3))
+* **models:** add fee tiers to perps fee schedule ([02d7bcc](https://github.com/Polymarket/py-sdk/commit/02d7bcca86f2c0d44f88b058398ae47d0b1aa59a))
+* **models:** add isolated_only to perps instrument ([f087c2a](https://github.com/Polymarket/py-sdk/commit/f087c2a7d7d72888dda255227dbb6f6b29c4037a))
+
+
+### Bug Fixes
+
+* cap page_size on gamma offset-paginated endpoints ([e4610d3](https://github.com/Polymarket/py-sdk/commit/e4610d386df984b06e85cbee174d691da62c1ecf))
+* cap page_size on offset-paginated data endpoints and tolerate clamped pagination probes ([d062bed](https://github.com/Polymarket/py-sdk/commit/d062bedf9966811f188bf6e96b1dafdce569c1d5))
+* confirm frame truncation at limit page boundaries with a follow-up fetch ([02604b0](https://github.com/Polymarket/py-sdk/commit/02604b0e45d5bf67376e68a687c708c3fa55343d))
+* drop pagination look-ahead probe and cap page_size at upstream limits ([54ac687](https://github.com/Polymarket/py-sdk/commit/54ac68728f1e18d970a9528b895680d96f063251))
+* drop the pagination look-ahead probe and align max_page_size with upstream limits ([c9c392c](https://github.com/Polymarket/py-sdk/commit/c9c392ca76a122034e6074a1a56ff21535e7c572))
+* parse zero GTC expiration as None in OpenOrder ([3f40280](https://github.com/Polymarket/py-sdk/commit/3f402806aae26a40092ba9550b313fee0a335b05))
+* parse zero GTC expiration as None in OpenOrder ([f713e76](https://github.com/Polymarket/py-sdk/commit/f713e76d7493af1a20aba5860d5388b91b83070a)), closes [#191](https://github.com/Polymarket/py-sdk/issues/191)
+* **perps:** add failed withdrawal status and pass unknown statuses through as strings ([fddf670](https://github.com/Polymarket/py-sdk/commit/fddf670ad09ce2093b8d611573c1df72ad62c630))
+* **perps:** add failed withdrawal status and pass unknown statuses through as strings ([e344356](https://github.com/Polymarket/py-sdk/commit/e344356582692cef6ef1a4f3460ca1cfc9ec66ef))
+* **perps:** validate deposit cursors against deposit statuses only ([d39737b](https://github.com/Polymarket/py-sdk/commit/d39737b32ab20d8fa73e70383fdf1a7f51b856bc))
+* stop exposing per-page count as Page.total_count ([e254ab7](https://github.com/Polymarket/py-sdk/commit/e254ab79235fd3747ace1b630e6903695614b2c1))
+* stop exposing per-page count as Page.total_count ([2d578a3](https://github.com/Polymarket/py-sdk/commit/2d578a36a67e37d6a464f298859a2cfae2362b8b))
+
 ## [0.1.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.1.0-b21...polymarket-client-v0.1.0) (2026-07-22)
 
 
