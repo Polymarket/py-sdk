@@ -32,12 +32,17 @@ def _items_handler(captured: list[httpx.Request], rows: list[list[int]]) -> http
     return httpx.MockTransport(handler)
 
 
-def _spec(path: str = "/positions", base_params: dict[str, str] | None = None):
+def _spec(
+    path: str = "/positions",
+    base_params: dict[str, str] | None = None,
+    max_page_size: int | None = None,
+):
     return OffsetPaginatedSpec[int](
         service="data",
         path=path,
         parse_items=lambda payload: tuple(payload),  # type: ignore[arg-type]
         base_params=base_params,
+        max_page_size=max_page_size,
     )
 
 
@@ -140,6 +145,38 @@ def test_sync_paginate_offset_trims_to_page_size() -> None:
 
     assert page.items == tuple(range(10))
     assert page.has_more is True
+
+
+def test_sync_paginate_offset_rejects_page_size_above_spec_max() -> None:
+    with (
+        PublicClient() as client,
+        pytest.raises(UserInputError, match="page_size must be at most 49"),
+    ):
+        sync_paginate_offset(client._ctx, _spec(max_page_size=49), page_size=50)
+
+
+def test_async_paginate_offset_rejects_page_size_above_spec_max() -> None:
+    async def run() -> None:
+        async with AsyncPublicClient() as client:
+            with pytest.raises(UserInputError, match="page_size must be at most 49"):
+                async_paginate_offset(client._ctx, _spec(max_page_size=49), page_size=50)
+
+    asyncio.run(run())
+
+
+def test_sync_paginate_offset_continues_past_clamped_probe() -> None:
+    # A server that clamps the page_size + 1 probe returns exactly page_size
+    # rows. Pagination must continue to the next offset instead of stopping.
+    captured: list[httpx.Request] = []
+    handler = _items_handler(captured, [list(range(0, 10)), list(range(10, 20))])
+    with PublicClient() as client:
+        _install_sync_data_transport(client, handler)
+        paginator = sync_paginate_offset(client._ctx, _spec(), page_size=10)
+        items = [item for page in paginator for item in page.items]
+
+    assert items == list(range(20))
+    offsets = [parse_qs(urlparse(str(request.url)).query)["offset"][0] for request in captured]
+    assert offsets == ["0", "10", "20"]
 
 
 def test_sync_paginate_offset_no_more_when_partial() -> None:

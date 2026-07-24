@@ -110,7 +110,11 @@ def compute_offset_page(
     page_size: int,
     items: tuple[T, ...],
 ) -> Page[T]:
-    has_more = len(items) > page_size
+    # >= tolerates servers that clamp the page_size + 1 probe back to page_size:
+    # a full page continues pagination instead of silently dropping the tail. It
+    # costs one extra empty-page request when the total count is an exact
+    # multiple of page_size.
+    has_more = len(items) >= page_size
     trimmed = items[:page_size]
     next_cursor = (
         encode_offset_cursor(
