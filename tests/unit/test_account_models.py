@@ -18,7 +18,7 @@ def _open_order_payload(**overrides: object) -> dict[str, object]:
         "asset_id": "8501497",
         "associate_trades": ["trade-1"],
         "created_at": 1700000000000,
-        "expiration": 1800000000000,
+        "expiration": 1800000000,
         "id": "order-1",
         "maker_address": "0xMAKER",
         "market": "0xMARKET",
@@ -94,6 +94,12 @@ def test_open_order_accepts_iso_string_with_z_suffix() -> None:
 
 def test_open_order_treats_empty_expiration_as_none() -> None:
     order = OpenOrder.parse_response(_open_order_payload(expiration=""))
+    assert order.expires_at is None
+
+
+@pytest.mark.parametrize("expiration", [0, "0"])
+def test_open_order_treats_zero_expiration_as_none(expiration: object) -> None:
+    order = OpenOrder.parse_response(_open_order_payload(expiration=expiration))
     assert order.expires_at is None
 
 
