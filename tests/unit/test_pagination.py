@@ -229,7 +229,10 @@ def test_compute_offset_page_emits_next_cursor_when_more() -> None:
     ) == (10, 10)
 
 
-def test_compute_offset_page_no_more_when_full() -> None:
+def test_compute_offset_page_more_when_full() -> None:
+    # A full page without the probe row means the server may have clamped the
+    # page_size + 1 probe back to its limit cap, so pagination must continue
+    # instead of silently dropping the tail.
     page = compute_offset_page(
         service="data",
         path="/positions",
@@ -239,8 +242,14 @@ def test_compute_offset_page_no_more_when_full() -> None:
         items=tuple(range(10)),
     )
     assert page.items == tuple(range(10))
-    assert page.has_more is False
-    assert page.next_cursor is None
+    assert page.has_more is True
+    assert page.next_cursor is not None
+    assert decode_offset_cursor(
+        page.next_cursor,
+        expected_service="data",
+        expected_path="/positions",
+        expected_base_params=None,
+    ) == (10, 10)
 
 
 def test_compute_offset_page_no_more_when_partial() -> None:
