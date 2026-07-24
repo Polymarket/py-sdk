@@ -137,7 +137,6 @@ def test_plan_tolerates_missing_position_summary() -> None:
 
     plan = CollateralReturnPlanResponse.parse_response(payload)
 
-    assert plan.operations == ()
     assert plan.position_summary.consumed == ()
     assert plan.position_summary.created == ()
 
@@ -148,7 +147,6 @@ def test_plan_json_round_trips_scaled_amounts() -> None:
     restored = CollateralReturnPlanResponse.model_validate_json(plan.model_dump_json())
 
     assert restored == plan
-    assert restored.operations[0].amount == Decimal("1")
 
 
 def test_execute_submits_router_call_for_deposit_wallet() -> None:

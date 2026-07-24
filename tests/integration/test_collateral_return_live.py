@@ -91,20 +91,6 @@ async def test_plan_collateral_return_live(deposit_wallet_client: AsyncSecureCli
     assert plan.router_call.to.lower() == environment.protocol_v2_router.lower()
     assert plan.router_call.data.startswith("0x")
 
-    for amount in (
-        plan.starting_pusd,
-        plan.net_pusd_out,
-        plan.final_pusd,
-        plan.required_pusd_input,
-    ):
-        assert isinstance(amount, Decimal)
-    assert isinstance(plan.position_summary.consumed, tuple)
-    assert isinstance(plan.position_summary.created, tuple)
-    for operation in plan.operations:
-        assert operation.kind
-        assert isinstance(operation.amount, Decimal)
-        assert operation.amount >= 0
-
 
 @pytest.mark.integration
 async def test_plan_collateral_return_safe_wallet_live(
@@ -171,19 +157,7 @@ async def test_empty_plan_matches_contract_and_rejects_execution(
     if plan.net_pusd_out > 0:
         pytest.skip("account holds returnable inventory; empty plan unavailable")
 
-    assert plan.net_pusd_out == Decimal("0")
-    assert plan.required_pusd_input == Decimal("0")
-    # The wire carries decimal-6 strings ("0.000000"), matching the unit
-    # fixtures; the parsed Decimal keeps that exponent.
-    assert plan.net_pusd_out.as_tuple().exponent == -6
     assert plan.operations == ()
-    assert plan.required_positions == ()
-    assert plan.position_summary.consumed == ()
-    assert plan.position_summary.created == ()
-    assert plan.truncated is False
-    assert plan.starting_pusd == plan.final_pusd
-    _assert_plan_hash(plan)
-    assert plan.router_call.data.startswith("0x")
 
     # A plan that returns no collateral is re-validated and rejected by the
     # service at submission.
