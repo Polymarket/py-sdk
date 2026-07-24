@@ -12,22 +12,18 @@ from _relayer_helpers import (
     install_combos_handler,
     install_combos_routes,
     install_relayer_routes,
-    install_rpc_handler,
     install_sync_combos_handler,
     install_sync_relayer_handler,
-    install_sync_rpc_handler,
     make_deposit_client,
     make_eoa_client,
     make_sync_deposit_client,
     request_json,
-    trading_approval_rpc_handler,
 )
 
 from polymarket import CollateralReturnOperationKind, CollateralReturnPlan
 from polymarket.environments import PRODUCTION
 from polymarket.errors import (
     CollateralReturnPlanRejectedError,
-    MissingTradingApprovalsError,
     UnexpectedResponseError,
     UserInputError,
 )
@@ -144,7 +140,6 @@ def test_execute_submits_router_call_for_deposit_wallet() -> None:
         client = await make_deposit_client()
         install_relayer_routes(client, [], _nonce_route(client))
         install_combos_routes(client, submit_captured, {_SUBMIT_PATH: _SUBMIT_OK})
-        install_rpc_handler(client, trading_approval_rpc_handler(allowance=10**12, approved=True))
         plan = CollateralReturnPlan.parse_response(_plan_payload(wallet=str(client.wallet)))
         try:
             handle = await client.execute_collateral_return_plan(plan=plan)
@@ -174,7 +169,6 @@ def test_sync_execute_submits_router_call_for_deposit_wallet() -> None:
     client = make_sync_deposit_client()
     install_sync_relayer_handler(client, relayer_handler)
     install_sync_combos_handler(client, submit_handler)
-    install_sync_rpc_handler(client, trading_approval_rpc_handler(allowance=10**12, approved=True))
     plan = CollateralReturnPlan.parse_response(_plan_payload(wallet=str(client.wallet)))
     try:
         handle = client.execute_collateral_return_plan(plan=plan)
@@ -227,27 +221,6 @@ def test_execute_rejects_mismatched_or_empty_plans() -> None:
     asyncio.run(run())
 
 
-def test_execute_fails_fast_on_missing_approvals() -> None:
-    relayer_captured: list[httpx.Request] = []
-    submit_captured: list[httpx.Request] = []
-
-    async def run() -> None:
-        client = await make_deposit_client()
-        install_relayer_routes(client, relayer_captured, _nonce_route(client))
-        install_combos_routes(client, submit_captured, {_SUBMIT_PATH: _SUBMIT_OK})
-        install_rpc_handler(client, trading_approval_rpc_handler(allowance=0, approved=False))
-        plan = CollateralReturnPlan.parse_response(_plan_payload(wallet=str(client.wallet)))
-        try:
-            with pytest.raises(MissingTradingApprovalsError, match="setup_trading_approvals"):
-                await client.execute_collateral_return_plan(plan=plan)
-        finally:
-            await client.close()
-
-    asyncio.run(run())
-    assert relayer_captured == []  # nothing signed or submitted after the failed pre-check
-    assert submit_captured == []
-
-
 def test_execute_maps_409_to_plan_rejected_without_retry() -> None:
     submit_count = 0
 
@@ -262,7 +235,6 @@ def test_execute_maps_409_to_plan_rejected_without_retry() -> None:
         client = await make_deposit_client()
         install_relayer_routes(client, [], _nonce_route(client))
         install_combos_handler(client, handler)
-        install_rpc_handler(client, trading_approval_rpc_handler(allowance=10**12, approved=True))
         plan = CollateralReturnPlan.parse_response(_plan_payload(wallet=str(client.wallet)))
         try:
             with pytest.raises(CollateralReturnPlanRejectedError, match="fresh plan required"):
@@ -294,7 +266,6 @@ def test_execute_resubmits_with_fresh_nonce_on_transient_wallet_busy() -> None:
         )
         install_relayer_routes(client, relayer_captured, _nonce_route(client, nonce="5"))
         install_combos_handler(client, handler)
-        install_rpc_handler(client, trading_approval_rpc_handler(allowance=10**12, approved=True))
         plan = CollateralReturnPlan.parse_response(_plan_payload(wallet=str(client.wallet)))
         try:
             handle = await client.execute_collateral_return_plan(plan=plan)

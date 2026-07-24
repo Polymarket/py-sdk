@@ -2,20 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Callable
-from dataclasses import dataclass
-from decimal import ROUND_CEILING
-from typing import cast
 
 import httpx
 
-from polymarket._internal.actions.relayer.calls import (
-    TransactionCall,
-    decode_erc20_allowance_result,
-    decode_erc1155_is_approved_for_all_result,
-    erc20_allowance_call,
-    erc1155_is_approved_for_all_call,
-)
+from polymarket._internal.actions.relayer.calls import TransactionCall
 from polymarket._internal.actions.relayer.gasless import (
     build_signed_payload_for_wallet_type,
     build_signed_payload_for_wallet_type_sync,
@@ -26,10 +16,8 @@ from polymarket._internal.actions.relayer.submit import (
 )
 from polymarket._internal.context import AsyncSecureClientContext, SyncSecureClientContext
 from polymarket._internal.wallet import WalletType
-from polymarket.environments import Environment
 from polymarket.errors import (
     CollateralReturnPlanRejectedError,
-    MissingTradingApprovalsError,
     RequestRejectedError,
     UserInputError,
 )
@@ -75,13 +63,6 @@ async def execute_collateral_return_plan(
     _require_plan_matches_client(plan, wallet=ctx.wallet, chain_id=ctx.environment.chain_id)
     _require_executable_plan(plan)
 
-    checks = _build_approval_checks(plan, wallet=ctx.wallet, environment=ctx.environment)
-    if checks:
-        results = await ctx.rpc.eth_call_batch(
-            [(str(check.call.to), check.call.data) for check in checks]
-        )
-        _require_approvals(checks, results)
-
     call = TransactionCall(to=plan.router_call.to, data=plan.router_call.data, value=0)
     env = ctx.environment
     retry_delay_s = env.relayer_poll_frequency_ms / 1000
@@ -113,13 +94,6 @@ def execute_collateral_return_plan_sync(
     _require_supported_wallet_type(ctx.wallet_type)
     _require_plan_matches_client(plan, wallet=ctx.wallet, chain_id=ctx.environment.chain_id)
     _require_executable_plan(plan)
-
-    checks = _build_approval_checks(plan, wallet=ctx.wallet, environment=ctx.environment)
-    if checks:
-        results = ctx.rpc.eth_call_batch(
-            [(str(check.call.to), check.call.data) for check in checks]
-        )
-        _require_approvals(checks, results)
 
     call = TransactionCall(to=plan.router_call.to, data=plan.router_call.data, value=0)
     env = ctx.environment
@@ -171,58 +145,6 @@ def _require_executable_plan(plan: CollateralReturnPlan) -> None:
             "Plan contains no operations; there is no collateral to return. "
             "Request a fresh plan once the wallet holds returnable positions."
         )
-
-
-@dataclass(frozen=True, slots=True)
-class _ApprovalCheck:
-    description: str
-    call: TransactionCall
-    is_satisfied: Callable[[str], bool]
-
-
-def _build_approval_checks(
-    plan: CollateralReturnPlan, *, wallet: EvmAddress, environment: Environment
-) -> list[_ApprovalCheck]:
-    checks: list[_ApprovalCheck] = []
-    if plan.required_positions:
-        checks.append(
-            _ApprovalCheck(
-                description="position operator approval",
-                call=erc1155_is_approved_for_all_call(
-                    token_address=cast(EvmAddress, environment.position_manager),
-                    owner=wallet,
-                    operator=cast(EvmAddress, environment.protocol_v2_router),
-                ),
-                is_satisfied=decode_erc1155_is_approved_for_all_result,
-            )
-        )
-    required_collateral_units = int(
-        plan.required_collateral.scaleb(6).to_integral_value(rounding=ROUND_CEILING)
-    )
-    if required_collateral_units > 0:
-        checks.append(
-            _ApprovalCheck(
-                description="collateral allowance",
-                call=erc20_allowance_call(
-                    token_address=cast(EvmAddress, environment.collateral_token),
-                    owner=wallet,
-                    spender=cast(EvmAddress, environment.protocol_v2_router),
-                ),
-                is_satisfied=lambda data: (
-                    decode_erc20_allowance_result(data) >= required_collateral_units
-                ),
-            )
-        )
-    return checks
-
-
-def _require_approvals(checks: list[_ApprovalCheck], results: list[str]) -> None:
-    for check, result in zip(checks, results, strict=True):
-        if not check.is_satisfied(result):
-            raise MissingTradingApprovalsError(
-                f"The wallet is missing the {check.description} required to execute "
-                "this plan. Run setup_trading_approvals() and retry."
-            )
 
 
 async def _submit_plan(

@@ -2802,8 +2802,7 @@ class AsyncSecureClient:
 
         The plan executes exactly as returned by
         :meth:`plan_collateral_return`; nothing is recomputed client-side.
-        Missing trading approvals fail fast before anything is signed — no
-        approval transactions are submitted implicitly.
+        No approval transactions are submitted implicitly.
 
         Plans with no operations are rejected before anything is signed.
 
@@ -2821,8 +2820,6 @@ class AsyncSecureClient:
             A transaction handle. Await ``wait()`` to wait for a terminal outcome.
 
         Raises:
-            MissingTradingApprovalsError: If the wallet is missing required
-                approvals; run :meth:`setup_trading_approvals` first.
             CollateralReturnPlanRejectedError: If the plan can no longer be
                 executed against current wallet state; request a fresh plan
                 and execute that instead.
