@@ -49,18 +49,19 @@ def test_descending_account_paginators_reject_malformed_cursor_fields() -> None:
                     await fills.from_cursor(_cursor(state)).first_page()
 
             deposits = perps_account.list_deposits(transport)
-            with pytest.raises(UserInputError, match="cursor"):
-                await deposits.from_cursor(
-                    _cursor(
-                        {
-                            "kind": "perpsDeposits",
-                            "start_timestamp": 0,
-                            "end_timestamp": 1,
-                            "seen_keys": [],
-                            "deposit_status": "bogus",
-                        }
-                    )
-                ).first_page()
+            for deposit_status in ("bogus", "failed"):
+                with pytest.raises(UserInputError, match="cursor"):
+                    await deposits.from_cursor(
+                        _cursor(
+                            {
+                                "kind": "perpsDeposits",
+                                "start_timestamp": 0,
+                                "end_timestamp": 1,
+                                "seen_keys": [],
+                                "deposit_status": deposit_status,
+                            }
+                        )
+                    ).first_page()
         finally:
             await transport.close()
 
@@ -117,6 +118,22 @@ def test_list_withdrawals_accepts_failed_filter_and_rejects_unknown() -> None:
         try:
             await perps_account.list_withdrawals(transport, withdrawal_status="failed").first_page()
             assert captured[0].url.params["withdrawal_status"] == "failed"
+            await (
+                perps_account.list_withdrawals(transport)
+                .from_cursor(
+                    _cursor(
+                        {
+                            "kind": "perpsWithdrawals",
+                            "start_timestamp": 0,
+                            "end_timestamp": 1,
+                            "seen_keys": [],
+                            "withdrawal_status": "failed",
+                        }
+                    )
+                )
+                .first_page()
+            )
+            assert captured[1].url.params["withdrawal_status"] == "failed"
             with pytest.raises(UserInputError, match="withdrawal_status"):
                 perps_account.list_withdrawals(transport, withdrawal_status="bogus")
         finally:

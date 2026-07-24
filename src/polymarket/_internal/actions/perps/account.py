@@ -257,8 +257,9 @@ def _descending_history(
                 **initial_extra,
             }
         else:
+            statuses = _WITHDRAWAL_STATUSES if kind == "perpsWithdrawals" else _FUND_STATUSES
             state = decode_perps_descending_account_cursor(
-                cursor, kind=kind, fund_statuses=_WITHDRAWAL_STATUSES
+                cursor, kind=kind, fund_statuses=statuses
             )
         params = {
             key: value
