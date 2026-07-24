@@ -15,7 +15,10 @@ PerpsTimeInForce: TypeAlias = Literal["gtc", "ioc", "fok"]
 PerpsTpSlKind: TypeAlias = Literal["tp", "sl"]
 PerpsTpSlScope: TypeAlias = Literal["order", "position"]
 PerpsDepositStatus: TypeAlias = Literal["pending", "confirmed", "removed"]
-PerpsWithdrawalStatus: TypeAlias = Literal["pending", "confirmed", "removed"]
+PerpsKnownWithdrawalStatus: TypeAlias = Literal["pending", "confirmed", "removed", "failed"]
+# The withdrawal status set can grow between SDK releases, so unknown values
+# flow through as plain strings instead of failing validation.
+PerpsWithdrawalStatus: TypeAlias = PerpsKnownWithdrawalStatus | str
 PerpsKlineInterval: TypeAlias = Literal["1s", "1m", "5m", "15m", "1h", "4h", "1d", "1w"]
 PerpsStreamCandleInterval: TypeAlias = Literal["1m", "5m", "15m", "1h", "4h", "1d", "1w"]
 PerpsPnlInterval: TypeAlias = Literal["1h", "4h", "1d", "1w"]
@@ -58,6 +61,7 @@ __all__ = [
     "PerpsInstrumentCategory",
     "PerpsInstrumentId",
     "PerpsKlineInterval",
+    "PerpsKnownWithdrawalStatus",
     "PerpsOrderId",
     "PerpsOrderStatus",
     "PerpsPnlInterval",
@@ -69,4 +73,5 @@ __all__ = [
     "PerpsTpSlScope",
     "PerpsTradeId",
     "PerpsWithdrawalId",
+    "PerpsWithdrawalStatus",
 ]
