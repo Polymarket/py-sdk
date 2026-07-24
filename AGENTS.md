@@ -4,6 +4,10 @@
 
 - Use `uv` for dependency management, testing, and builds.
 
+## Code Changes
+
+- Do not rename existing variables, functions, or other identifiers unless the operator explicitly asks for the rename. Keep diffs minimal and reuse existing names when extending behavior.
+
 ## SDK Design
 
 - Keep the PyPI distribution name as `polymarket-client` and the import package as `polymarket` unless explicitly changed.

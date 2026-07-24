@@ -41,7 +41,7 @@ from polymarket.pagination import AsyncPaginator, Page
 _M = TypeVar("_M", bound=BaseModel)
 
 _PNL_INTERVALS = ("1h", "4h", "1d", "1w")
-_DEPOSIT_STATUSES = ("pending", "confirmed", "removed")
+_FUND_STATUSES = ("pending", "confirmed", "removed")
 _WITHDRAWAL_STATUSES = ("pending", "confirmed", "removed", "failed")
 
 
@@ -148,9 +148,9 @@ def list_deposits(
     start: datetime | int | None = None,
     end: datetime | int | None = None,
 ) -> AsyncPaginator[PerpsDeposit]:
-    if deposit_status is not None and deposit_status not in _DEPOSIT_STATUSES:
+    if deposit_status is not None and deposit_status not in _FUND_STATUSES:
         raise UserInputError(
-            f"deposit_status must be one of {list(_DEPOSIT_STATUSES)}, got {deposit_status!r}"
+            f"deposit_status must be one of {list(_FUND_STATUSES)}, got {deposit_status!r}"
         )
     return _descending_history(
         api,
@@ -258,10 +258,7 @@ def _descending_history(
             }
         else:
             state = decode_perps_descending_account_cursor(
-                cursor,
-                kind=kind,
-                deposit_statuses=_DEPOSIT_STATUSES,
-                withdrawal_statuses=_WITHDRAWAL_STATUSES,
+                cursor, kind=kind, fund_statuses=_WITHDRAWAL_STATUSES
             )
         params = {
             key: value
