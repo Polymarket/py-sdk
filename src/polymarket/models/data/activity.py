@@ -211,7 +211,7 @@ class ConversionActivity(_MarketEventActivity):
     type: Literal["CONVERSION"]
 
 
-class _AccountCashActivity(_KnownActivityBase):
+class _AccountCreditActivity(_KnownActivityBase):
     amount: Decimal
 
     @field_validator("amount", mode="before")
@@ -220,31 +220,31 @@ class _AccountCashActivity(_KnownActivityBase):
         return parse_optional_decimal(value)
 
 
-class RewardActivity(_AccountCashActivity):
+class RewardActivity(_AccountCreditActivity):
     type: Literal["REWARD"]
 
 
-class DepositActivity(_AccountCashActivity):
+class DepositActivity(_AccountCreditActivity):
     type: Literal["DEPOSIT"]
 
 
-class WithdrawalActivity(_AccountCashActivity):
+class WithdrawalActivity(_AccountCreditActivity):
     type: Literal["WITHDRAWAL"]
 
 
-class MakerRebateActivity(_AccountCashActivity):
+class MakerRebateActivity(_AccountCreditActivity):
     type: Literal["MAKER_REBATE"]
 
 
-class TakerRebateActivity(_AccountCashActivity):
+class TakerRebateActivity(_AccountCreditActivity):
     type: Literal["TAKER_REBATE"]
 
 
-class ReferralRewardActivity(_AccountCashActivity):
+class ReferralRewardActivity(_AccountCreditActivity):
     type: Literal["REFERRAL_REWARD"]
 
 
-class YieldActivity(_AccountCashActivity):
+class YieldActivity(_AccountCreditActivity):
     type: Literal["YIELD"]
 
 
