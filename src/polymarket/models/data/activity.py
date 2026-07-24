@@ -80,7 +80,10 @@ ActivityType = Literal[
     "REDEEM",
     "REWARD",
     "CONVERSION",
+    "DEPOSIT",
+    "WITHDRAWAL",
     "MAKER_REBATE",
+    "TAKER_REBATE",
     "REFERRAL_REWARD",
     "YIELD",
 ]
@@ -208,7 +211,7 @@ class ConversionActivity(_MarketEventActivity):
     type: Literal["CONVERSION"]
 
 
-class _AccountCreditActivity(_KnownActivityBase):
+class _AccountCashActivity(_KnownActivityBase):
     amount: Decimal
 
     @field_validator("amount", mode="before")
@@ -217,19 +220,31 @@ class _AccountCreditActivity(_KnownActivityBase):
         return parse_optional_decimal(value)
 
 
-class RewardActivity(_AccountCreditActivity):
+class RewardActivity(_AccountCashActivity):
     type: Literal["REWARD"]
 
 
-class MakerRebateActivity(_AccountCreditActivity):
+class DepositActivity(_AccountCashActivity):
+    type: Literal["DEPOSIT"]
+
+
+class WithdrawalActivity(_AccountCashActivity):
+    type: Literal["WITHDRAWAL"]
+
+
+class MakerRebateActivity(_AccountCashActivity):
     type: Literal["MAKER_REBATE"]
 
 
-class ReferralRewardActivity(_AccountCreditActivity):
+class TakerRebateActivity(_AccountCashActivity):
+    type: Literal["TAKER_REBATE"]
+
+
+class ReferralRewardActivity(_AccountCashActivity):
     type: Literal["REFERRAL_REWARD"]
 
 
-class YieldActivity(_AccountCreditActivity):
+class YieldActivity(_AccountCashActivity):
     type: Literal["YIELD"]
 
 
@@ -279,7 +294,10 @@ Activity = (
     | RedeemActivity
     | ConversionActivity
     | RewardActivity
+    | DepositActivity
+    | WithdrawalActivity
     | MakerRebateActivity
+    | TakerRebateActivity
     | ReferralRewardActivity
     | YieldActivity
     | UnknownActivity
@@ -370,7 +388,10 @@ _KNOWN_ACTIVITY_TYPES: dict[str, type[_KnownActivityBase]] = {
     "REDEEM": RedeemActivity,
     "CONVERSION": ConversionActivity,
     "REWARD": RewardActivity,
+    "DEPOSIT": DepositActivity,
+    "WITHDRAWAL": WithdrawalActivity,
     "MAKER_REBATE": MakerRebateActivity,
+    "TAKER_REBATE": TakerRebateActivity,
     "REFERRAL_REWARD": ReferralRewardActivity,
     "YIELD": YieldActivity,
 }
@@ -457,15 +478,18 @@ __all__ = [
     "ComboUnwrapActivity",
     "ComboWrapActivity",
     "ConversionActivity",
+    "DepositActivity",
     "MakerRebateActivity",
     "MergeActivity",
     "RedeemActivity",
     "ReferralRewardActivity",
     "RewardActivity",
     "SplitActivity",
+    "TakerRebateActivity",
     "Trade",
     "TradeActivity",
     "UnknownActivity",
+    "WithdrawalActivity",
     "YieldActivity",
     "parse_activities",
     "parse_activity",

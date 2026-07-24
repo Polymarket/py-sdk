@@ -180,6 +180,17 @@ def test_list_activity_spec_validates_type_entries() -> None:
         data_actions.list_activity_spec(user="0xWALLET", activity_types=["BOGUS"])  # type: ignore[list-item]
 
 
+def test_list_activity_spec_accepts_cash_activity_types() -> None:
+    spec = data_actions.list_activity_spec(
+        user="0xWALLET",
+        activity_types=["DEPOSIT", "WITHDRAWAL", "TAKER_REBATE"],
+    )
+    assert spec.base_params == {
+        "user": "0xWALLET",
+        "type": "DEPOSIT,WITHDRAWAL,TAKER_REBATE",
+    }
+
+
 @pytest.mark.parametrize("field", ["start", "end"])
 def test_list_activity_spec_rejects_negative_time_bounds(field: str) -> None:
     with pytest.raises(UserInputError, match=field):

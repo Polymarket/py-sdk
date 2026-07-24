@@ -48,7 +48,10 @@ ActivityTypeFilter = Literal[
     "REDEEM",
     "REWARD",
     "CONVERSION",
+    "DEPOSIT",
+    "WITHDRAWAL",
     "MAKER_REBATE",
+    "TAKER_REBATE",
     "REFERRAL_REWARD",
     "YIELD",
 ]
