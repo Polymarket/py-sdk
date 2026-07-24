@@ -320,3 +320,25 @@ def test_keyset_parser_accepts_valid_next_cursor() -> None:
     payload = spec.parse_page({"events": [], "next_cursor": "opaque"})
 
     assert payload.server_next_cursor == "opaque"
+
+
+@pytest.mark.parametrize(
+    ("spec", "expected_max"),
+    [
+        (gamma_actions.list_series_spec(), 49),
+        (gamma_actions.list_tags_spec(), 99),
+        (gamma_actions.list_teams_spec(), 99),
+        (
+            gamma_actions.list_comments_spec(parent_entity_id="1", parent_entity_type="Event"),
+            99,
+        ),
+        (gamma_actions.list_comments_by_user_address_spec(address="0x" + "a" * 40), 99),
+    ],
+    ids=["series", "tags", "teams", "comments", "comments-by-user-address"],
+)
+def test_offset_specs_cap_page_size_below_server_limit(spec: object, expected_max: int) -> None:
+    # The dispatcher probes with page_size + 1, so each cap sits one below the
+    # server-side limit cap. Page sizes past the cap fail fast instead of the
+    # server clamping the probe and pagination stopping early.
+    assert isinstance(spec, OffsetPaginatedSpec)
+    assert spec.max_page_size == expected_max
