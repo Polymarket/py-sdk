@@ -32,12 +32,17 @@ def _items_handler(captured: list[httpx.Request], rows: list[list[int]]) -> http
     return httpx.MockTransport(handler)
 
 
-def _spec(path: str = "/positions", base_params: dict[str, str] | None = None):
+def _spec(
+    path: str = "/positions",
+    base_params: dict[str, str] | None = None,
+    max_page_size: int | None = None,
+):
     return OffsetPaginatedSpec[int](
         service="data",
         path=path,
         parse_items=lambda payload: tuple(payload),  # type: ignore[arg-type]
         base_params=base_params,
+        max_page_size=max_page_size,
     )
 
 
@@ -114,7 +119,7 @@ def _page_spec(
 
 def test_sync_paginate_offset_sends_limit_and_offset() -> None:
     captured: list[httpx.Request] = []
-    handler = _items_handler(captured, [list(range(0, 11))])
+    handler = _items_handler(captured, [list(range(0, 10))])
     with PublicClient() as client:
         _install_sync_data_transport(client, handler)
         page = sync_paginate_offset(
@@ -123,7 +128,7 @@ def test_sync_paginate_offset_sends_limit_and_offset() -> None:
 
     assert len(captured) == 1
     qs = parse_qs(urlparse(str(captured[0].url)).query)
-    assert qs["limit"] == ["11"]
+    assert qs["limit"] == ["10"]
     assert qs["offset"] == ["0"]
     assert qs["user"] == ["0xA"]
     assert page.items == tuple(range(10))
@@ -131,15 +136,37 @@ def test_sync_paginate_offset_sends_limit_and_offset() -> None:
     assert page.next_cursor is not None
 
 
-def test_sync_paginate_offset_trims_to_page_size() -> None:
+def test_sync_paginate_offset_rejects_page_size_above_spec_max() -> None:
+    with (
+        PublicClient() as client,
+        pytest.raises(UserInputError, match="page_size must be at most 49"),
+    ):
+        sync_paginate_offset(client._ctx, _spec(max_page_size=49), page_size=50)
+
+
+def test_async_paginate_offset_rejects_page_size_above_spec_max() -> None:
+    async def run() -> None:
+        async with AsyncPublicClient() as client:
+            with pytest.raises(UserInputError, match="page_size must be at most 49"):
+                async_paginate_offset(client._ctx, _spec(max_page_size=49), page_size=50)
+
+    asyncio.run(run())
+
+
+def test_sync_paginate_offset_continues_past_full_page() -> None:
+    # A full page means another page may exist, so pagination continues to the
+    # next offset and terminates on the empty page. This also protects against
+    # servers that clamp the limit instead of erroring.
     captured: list[httpx.Request] = []
-    handler = _items_handler(captured, [list(range(15))])
+    handler = _items_handler(captured, [list(range(0, 10)), list(range(10, 20))])
     with PublicClient() as client:
         _install_sync_data_transport(client, handler)
-        page = sync_paginate_offset(client._ctx, _spec(), page_size=10).first_page()
+        paginator = sync_paginate_offset(client._ctx, _spec(), page_size=10)
+        items = [item for page in paginator for item in page.items]
 
-    assert page.items == tuple(range(10))
-    assert page.has_more is True
+    assert items == list(range(20))
+    offsets = [parse_qs(urlparse(str(request.url)).query)["offset"][0] for request in captured]
+    assert offsets == ["0", "10", "20"]
 
 
 def test_sync_paginate_offset_no_more_when_partial() -> None:
@@ -158,7 +185,7 @@ def test_sync_paginate_offset_round_trip_next_cursor() -> None:
     captured: list[httpx.Request] = []
     handler = _items_handler(
         captured,
-        [list(range(0, 11)), list(range(10, 13))],
+        [list(range(0, 10)), list(range(10, 13))],
     )
     with PublicClient() as client:
         _install_sync_data_transport(client, handler)
@@ -170,12 +197,12 @@ def test_sync_paginate_offset_round_trip_next_cursor() -> None:
     assert len(captured) == 2
     qs1 = parse_qs(urlparse(str(captured[1].url)).query)
     assert qs1["offset"] == ["10"]
-    assert qs1["limit"] == ["11"]
+    assert qs1["limit"] == ["10"]
 
 
 def test_sync_paginate_offset_cursor_rejects_different_endpoint() -> None:
     captured: list[httpx.Request] = []
-    handler = _items_handler(captured, [list(range(11))])
+    handler = _items_handler(captured, [list(range(10))])
     with PublicClient() as client:
         _install_sync_data_transport(client, handler)
         paginator = sync_paginate_offset(client._ctx, _spec(path="/positions"), page_size=10)
@@ -190,7 +217,7 @@ def test_sync_paginate_offset_cursor_rejects_different_endpoint() -> None:
 
 def test_sync_paginate_offset_cursor_rejects_different_query() -> None:
     captured: list[httpx.Request] = []
-    handler = _items_handler(captured, [list(range(11))])
+    handler = _items_handler(captured, [list(range(10))])
     with PublicClient() as client:
         _install_sync_data_transport(client, handler)
         a_paginator = sync_paginate_offset(
@@ -207,7 +234,7 @@ def test_sync_paginate_offset_cursor_rejects_different_query() -> None:
 
 def test_sync_paginate_offset_next_cursor_decodes_to_expected_offset() -> None:
     captured: list[httpx.Request] = []
-    handler = _items_handler(captured, [list(range(11))])
+    handler = _items_handler(captured, [list(range(10))])
     with PublicClient() as client:
         _install_sync_data_transport(client, handler)
         spec = _spec(base_params={"user": "0xA"})
@@ -225,7 +252,7 @@ def test_sync_paginate_offset_next_cursor_decodes_to_expected_offset() -> None:
 def test_async_paginate_offset_sends_limit_and_offset() -> None:
     async def run() -> None:
         captured: list[httpx.Request] = []
-        handler = _items_handler(captured, [list(range(0, 11))])
+        handler = _items_handler(captured, [list(range(0, 10))])
         async with AsyncPublicClient() as client:
             _install_async_data_transport(client, handler)
             page = await async_paginate_offset(
@@ -234,7 +261,7 @@ def test_async_paginate_offset_sends_limit_and_offset() -> None:
 
         assert len(captured) == 1
         qs = parse_qs(urlparse(str(captured[0].url)).query)
-        assert qs["limit"] == ["11"]
+        assert qs["limit"] == ["10"]
         assert qs["offset"] == ["0"]
         assert qs["user"] == ["0xA"]
         assert page.items == tuple(range(10))
@@ -248,7 +275,7 @@ def test_async_paginate_offset_round_trip_next_cursor() -> None:
         captured: list[httpx.Request] = []
         handler = _items_handler(
             captured,
-            [list(range(0, 11)), list(range(10, 13))],
+            [list(range(0, 10)), list(range(10, 13))],
         )
         async with AsyncPublicClient() as client:
             _install_async_data_transport(client, handler)
@@ -261,7 +288,7 @@ def test_async_paginate_offset_round_trip_next_cursor() -> None:
         assert len(captured) == 2
         qs1 = parse_qs(urlparse(str(captured[1].url)).query)
         assert qs1["offset"] == ["10"]
-        assert qs1["limit"] == ["11"]
+        assert qs1["limit"] == ["10"]
 
     asyncio.run(run())
 
@@ -269,7 +296,7 @@ def test_async_paginate_offset_round_trip_next_cursor() -> None:
 def test_async_paginate_offset_cursor_rejects_different_endpoint() -> None:
     async def run() -> None:
         captured: list[httpx.Request] = []
-        handler = _items_handler(captured, [list(range(11))])
+        handler = _items_handler(captured, [list(range(10))])
         async with AsyncPublicClient() as client:
             _install_async_data_transport(client, handler)
             paginator = async_paginate_offset(client._ctx, _spec(path="/positions"), page_size=10)
@@ -285,7 +312,7 @@ def test_async_paginate_offset_cursor_rejects_different_endpoint() -> None:
 def test_async_paginate_offset_cursor_rejects_different_query() -> None:
     async def run() -> None:
         captured: list[httpx.Request] = []
-        handler = _items_handler(captured, [list(range(11))])
+        handler = _items_handler(captured, [list(range(10))])
         async with AsyncPublicClient() as client:
             _install_async_data_transport(client, handler)
             a_paginator = async_paginate_offset(

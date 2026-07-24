@@ -237,3 +237,32 @@ def test_list_trader_leaderboard_spec_serializes_all_filters() -> None:
 def test_list_trader_leaderboard_spec_validates_category() -> None:
     with pytest.raises(UserInputError, match="category"):
         data_actions.list_trader_leaderboard_spec(category="OTHER")  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("spec", "expected_max"),
+    [
+        (data_actions.list_positions_spec(user="0xWALLET"), 500),
+        (data_actions.list_closed_positions_spec(user="0xWALLET"), 50),
+        (data_actions.list_market_positions_spec(market="0xabc"), 500),
+        (data_actions.list_trades_spec(), 10_000),
+        (data_actions.list_activity_spec(user="0xWALLET"), 500),
+        (data_actions.list_builder_leaderboard_spec(), 50),
+        (data_actions.list_trader_leaderboard_spec(), 50),
+    ],
+    ids=[
+        "positions",
+        "closed-positions",
+        "market-positions",
+        "trades",
+        "activity",
+        "builder-leaderboard",
+        "trader-leaderboard",
+    ],
+)
+def test_offset_specs_cap_page_size_at_server_limit(spec: object, expected_max: int) -> None:
+    # Each cap matches the server-side limit cap. Page sizes past the cap fail
+    # fast instead of the server clamping or rejecting the request and
+    # pagination silently misbehaving.
+    assert isinstance(spec, data_actions.OffsetPaginatedSpec)
+    assert spec.max_page_size == expected_max
