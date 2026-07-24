@@ -5,6 +5,7 @@ from polymarket.models.clob.account import (
     MakerOrder,
     Notification,
     OpenOrder,
+    TradeStatus,
 )
 from polymarket.models.clob.api_key import ApiKeyCreds, BuilderApiKeyInfo
 from polymarket.models.clob.builder import BuilderFeeRates, BuilderTrade
@@ -50,6 +51,7 @@ __all__ = [
     "BuilderTrade",
     "CancelOrdersResponse",
     "ClobTrade",
+    "TradeStatus",
     "CurrentReward",
     "CurrentRewardConfig",
     "EarningBreakdown",

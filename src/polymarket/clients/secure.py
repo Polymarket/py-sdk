@@ -42,6 +42,7 @@ from polymarket._internal.actions.gamma import (
 )
 from polymarket._internal.actions.orders import cancel as _cancel_actions
 from polymarket._internal.actions.orders import post as _post_actions
+from polymarket._internal.actions.orders import settlement as _settlement_actions
 from polymarket._internal.actions.orders.estimate import (
     estimate_market_price_sync as _estimate_market_price_sync,
 )
@@ -60,6 +61,7 @@ from polymarket._internal.actions.orders.orders import (
 from polymarket._internal.actions.orders.place import (
     post_order_with_allowance_recovery_sync,
 )
+from polymarket._internal.actions.orders.settlement import DEFAULT_SETTLEMENT_TIMEOUT_S
 from polymarket._internal.actions.orders.typed_data import (
     build_order_signature,
     build_order_typed_data,
@@ -160,7 +162,7 @@ from polymarket.models import (
 )
 from polymarket.models.clob import BuilderApiKeyInfo, BuilderTrade
 from polymarket.models.clob.cancel import CancelOrdersResponse
-from polymarket.models.clob.order_response import OrderResponse
+from polymarket.models.clob.order_response import AcceptedOrder, OrderResponse
 from polymarket.models.clob.orders import MarketOrderType, SignedOrder
 from polymarket.models.clob.relayer import RelayerTransactionType
 from polymarket.models.clob.rewards import (
@@ -200,7 +202,7 @@ from polymarket.transactions import (
     SyncEoaTransactionHandle,
     SyncTransactionHandle,
 )
-from polymarket.types import EvmAddress, HexString
+from polymarket.types import EvmAddress, HexString, TransactionHash
 
 if TYPE_CHECKING:
     from polymarket.clients.public import PublicClient
@@ -1836,6 +1838,32 @@ class SecureClient:
         )
         return _post_actions.parse_order_responses(
             self._ctx.secure_clob.post_json(path, json=payload)
+        )
+
+    def wait_for_order_fill_settlement(
+        self,
+        order: AcceptedOrder,
+        *,
+        timeout_s: float = DEFAULT_SETTLEMENT_TIMEOUT_S,
+    ) -> tuple[TransactionHash, ...]:
+        """Wait until every fill listed in an order response settles.
+
+        Settlement covers the fills listed in this order response, identified
+        by the order's ``trade_ids``. These are the fills that happened
+        immediately when the order was accepted. This method does not wait for
+        later fills of any remaining quantity resting on the book. Fills that
+        fail execution contribute no hash.
+
+        Returns:
+            The settlement transaction hashes of the order's fills.
+
+        Raises:
+            TimeoutError: If fills are still settling when the timeout elapses.
+                The order placement itself is unaffected.
+            TransactionFailedError: If every fill failed execution.
+        """
+        return _settlement_actions.wait_for_order_fill_settlement_sync(
+            self._ctx.secure_clob, order, timeout_s=timeout_s
         )
 
     def cancel_order(self, *, order_id: str) -> CancelOrdersResponse:
