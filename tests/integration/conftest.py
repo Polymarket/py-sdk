@@ -110,10 +110,12 @@ def anyio_backend() -> str:
 async def deposit_wallet_client(
     deposit_wallet_private_key: str,
     deposit_wallet_address: str,
+    relayer_api_key: RelayerApiKey,
 ) -> AsyncGenerator[AsyncSecureClient, None]:
     client = await AsyncSecureClient.create(
         private_key=deposit_wallet_private_key,
         wallet=deposit_wallet_address,
+        api_key=relayer_api_key,
     )
     try:
         yield client
