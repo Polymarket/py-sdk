@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any, TypeAlias
 
 import httpx
+from httpx import USE_CLIENT_DEFAULT
 
 from polymarket._internal.request import QueryParamValue
 from polymarket.errors import (
@@ -85,8 +86,11 @@ class SyncTransport:
         json: object | None = None,
         params: Mapping[str, QueryParamValue | None] | None = None,
         headers: Mapping[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
     ) -> Any:
-        response = self._request("POST", path, params=params, json=json, headers=headers)
+        response = self._request(
+            "POST", path, params=params, json=json, headers=headers, timeout=timeout
+        )
         return _read_json(response)
 
     def delete_json(
@@ -122,6 +126,7 @@ class SyncTransport:
         params: Mapping[str, QueryParamValue | None] | None = None,
         json: object | None = None,
         headers: Mapping[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
     ) -> httpx.Response:
         body_str: str | None = None
         content: bytes | None = None
@@ -144,6 +149,7 @@ class SyncTransport:
                 params=_clean_params(params),
                 content=content,
                 headers=merged_headers or None,
+                timeout=timeout if timeout is not None else USE_CLIENT_DEFAULT,
             )
         except httpx.HTTPError as error:
             _log_failure(self._logger, method, path, error, started)
@@ -203,8 +209,11 @@ class AsyncTransport:
         json: object | None = None,
         params: Mapping[str, QueryParamValue | None] | None = None,
         headers: Mapping[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
     ) -> Any:
-        response = await self._request("POST", path, params=params, json=json, headers=headers)
+        response = await self._request(
+            "POST", path, params=params, json=json, headers=headers, timeout=timeout
+        )
         return _read_json(response)
 
     async def delete_json(
@@ -240,6 +249,7 @@ class AsyncTransport:
         params: Mapping[str, QueryParamValue | None] | None = None,
         json: object | None = None,
         headers: Mapping[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
     ) -> httpx.Response:
         body_str: str | None = None
         content: bytes | None = None
@@ -262,6 +272,7 @@ class AsyncTransport:
                 params=_clean_params(params),
                 content=content,
                 headers=merged_headers or None,
+                timeout=timeout if timeout is not None else USE_CLIENT_DEFAULT,
             )
         except httpx.HTTPError as error:
             _log_failure(self._logger, method, path, error, started)

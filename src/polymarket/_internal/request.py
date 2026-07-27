@@ -22,10 +22,18 @@ class RequestSpec(Generic[T]):
 
 @dataclass(frozen=True, slots=True)
 class OffsetPaginatedSpec(Generic[T]):
+    """A spec for endpoints that paginate via limit/offset.
+
+    `max_page_size` must match the endpoint's server-side limit cap. Without
+    it, a page size above the cap makes the server clamp or reject the request
+    and pagination silently skips or drops rows.
+    """
+
     service: Service
     path: str
     parse_items: Callable[[object], tuple[T, ...]]
     base_params: Mapping[str, QueryParamValue] | None = None
+    max_page_size: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

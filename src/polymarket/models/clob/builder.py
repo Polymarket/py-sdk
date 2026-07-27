@@ -11,7 +11,7 @@ from polymarket.models.clob._validators import (
     RequiredEpochOrIsoTimestamp,
     _DecimalFromString,  # pyright: ignore[reportPrivateUsage]
 )
-from polymarket.models.types import OrderSide, TokenId
+from polymarket.models.types import CtfConditionId, OrderSide, TokenId
 
 _BUILDER_FEES_BPS = Decimal(10_000)
 
@@ -44,7 +44,13 @@ class BuilderTrade(BaseModel):
     trade_type: str = Field(validation_alias="tradeType")
     taker_order_hash: str = Field(validation_alias="takerOrderHash")
     builder: str
-    market: str
+    market: CtfConditionId = Field(
+        description="Deprecated: use condition_id. Retained for backward compatibility."
+    )
+    condition_id: CtfConditionId = Field(
+        validation_alias="market",
+        description="CTF condition id for the market associated with this trade.",
+    )
     token_id: TokenId = Field(validation_alias="assetId")
     side: OrderSide
     size: _DecimalFromString

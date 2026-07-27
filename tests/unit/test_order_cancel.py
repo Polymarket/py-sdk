@@ -72,6 +72,12 @@ def test_parse_cancel_orders_response_returns_model() -> None:
     assert parsed.not_canceled == {"c": "in flight"}
 
 
+def test_parse_cancel_orders_response_accepts_empty_collections() -> None:
+    parsed = parse_cancel_orders_response({"canceled": [], "not_canceled": {}})
+    assert parsed.canceled == ()
+    assert parsed.not_canceled == {}
+
+
 def test_parse_cancel_orders_response_rejects_non_dict() -> None:
     with pytest.raises(UnexpectedResponseError):
         parse_cancel_orders_response([])

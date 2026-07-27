@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from dotenv import load_dotenv
 
-from polymarket import AsyncPublicClient, AsyncSecureClient, BuilderApiKey, Market
+from polymarket import AsyncPublicClient, AsyncSecureClient, BuilderApiKey, Market, RelayerApiKey
 from polymarket.models.types import TokenId
 
 _DOTENV_PATH = Path(__file__).resolve().parents[2] / ".env"
@@ -64,6 +64,14 @@ def builder_api_key(require_env: Callable[[str], str]) -> BuilderApiKey:
 
 
 @pytest.fixture
+def relayer_api_key(require_env: Callable[[str], str]) -> RelayerApiKey:
+    return RelayerApiKey(
+        key=require_env("POLYMARKET_RELAYER_API_KEY"),
+        address=require_env("POLYMARKET_RELAYER_API_KEY_ADDRESS"),
+    )
+
+
+@pytest.fixture
 def deposit_wallet_private_key(require_env: Callable[[str], str]) -> str:
     return require_env("POLYMARKET_PRIVATE_KEY")
 
@@ -102,10 +110,12 @@ def anyio_backend() -> str:
 async def deposit_wallet_client(
     deposit_wallet_private_key: str,
     deposit_wallet_address: str,
+    relayer_api_key: RelayerApiKey,
 ) -> AsyncGenerator[AsyncSecureClient, None]:
     client = await AsyncSecureClient.create(
         private_key=deposit_wallet_private_key,
         wallet=deposit_wallet_address,
+        api_key=relayer_api_key,
     )
     try:
         yield client

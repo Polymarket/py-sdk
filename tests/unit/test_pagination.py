@@ -208,28 +208,10 @@ def test_fingerprint_differentiates_values() -> None:
     assert fingerprint_query({"user": "0xA"}) != fingerprint_query({"user": "0xB"})
 
 
-def test_compute_offset_page_emits_next_cursor_when_more() -> None:
-    items = tuple(range(11))
-    page = compute_offset_page(
-        service="data",
-        path="/positions",
-        base_params={"user": "0xA"},
-        offset=0,
-        page_size=10,
-        items=items,
-    )
-    assert page.items == tuple(range(10))
-    assert page.has_more is True
-    assert page.next_cursor is not None
-    assert decode_offset_cursor(
-        page.next_cursor,
-        expected_service="data",
-        expected_path="/positions",
-        expected_base_params={"user": "0xA"},
-    ) == (10, 10)
-
-
-def test_compute_offset_page_no_more_when_full() -> None:
+def test_compute_offset_page_more_when_full() -> None:
+    # Requests ask for exactly page_size rows, so a full page means another
+    # page may exist and pagination must continue instead of silently
+    # dropping the tail.
     page = compute_offset_page(
         service="data",
         path="/positions",
@@ -239,8 +221,14 @@ def test_compute_offset_page_no_more_when_full() -> None:
         items=tuple(range(10)),
     )
     assert page.items == tuple(range(10))
-    assert page.has_more is False
-    assert page.next_cursor is None
+    assert page.has_more is True
+    assert page.next_cursor is not None
+    assert decode_offset_cursor(
+        page.next_cursor,
+        expected_service="data",
+        expected_path="/positions",
+        expected_base_params=None,
+    ) == (10, 10)
 
 
 def test_compute_offset_page_no_more_when_partial() -> None:

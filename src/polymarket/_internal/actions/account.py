@@ -6,7 +6,6 @@ from pydantic import TypeAdapter, ValidationError
 from polymarket._internal.actions._cursor import (
     END_CURSOR,
     next_cursor_or_none,
-    optional_int,
     validate_cursor,
 )
 from polymarket._internal.request import QueryParamValue
@@ -91,7 +90,6 @@ def parse_open_orders_page(data: object) -> Page[OpenOrder]:
         items=items,
         has_more=next_cursor is not None,
         next_cursor=next_cursor,
-        total_count=optional_int(payload, "count"),
     )
 
 
@@ -146,7 +144,6 @@ def parse_account_trades_page(data: object) -> Page[ClobTrade]:
         items=items,
         has_more=next_cursor is not None,
         next_cursor=next_cursor,
-        total_count=optional_int(payload, "count"),
     )
 
 

@@ -106,6 +106,7 @@ async def test_public_perps_reads() -> None:
         assert book.instrument_id == instrument.id
         fees = await client.fetch_perps_fees()
         assert fees
+        assert fees[0].tiers
         candles = await client.list_perps_candles(
             instrument_id=instrument.id, interval="1h"
         ).first_page()

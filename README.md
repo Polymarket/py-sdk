@@ -1,27 +1,19 @@
 # Polymarket Python SDK
 
-![Beta](https://img.shields.io/badge/status-beta-yellow)
-
 Official Python SDK for Polymarket.
 
 The SDK gives Python developers one coherent, workflow-oriented interface for building on Polymarket across public data, authenticated account, trading, builder attribution, and wallet workflows.
 
-## Beta Status
-
-The Python SDK is currently in beta. We are working toward a stable public API and will use feedback during the beta period to refine the developer experience.
-
-We welcome bug reports, feature requests, and general feedback through GitHub Issues. Please use the provided issue templates so we can triage reports consistently.
-
 ## Installation
 
 ```bash
-uv add --prerelease allow polymarket-client
+uv add polymarket-client
 ```
 
 or:
 
 ```bash
-pip install --pre polymarket-client
+pip install polymarket-client
 ```
 
 ## Usage
@@ -99,6 +91,15 @@ handle = client.merge_multiple_positions(
 
 outcome = handle.wait()
 ```
+
+## API Compatibility
+
+The SDK follows semantic versioning. Although minor releases on the 0.x line
+may include breaking changes, we aim to avoid them and, whenever possible,
+provide a deprecation path before removing or changing an API. Patch releases
+remain backward compatible except for APIs marked experimental, which may
+change in any release. All Perps APIs are currently experimental, including
+client methods, sessions, stream subscriptions, and models.
 
 ## API Design
 
@@ -190,3 +191,8 @@ def test_order_lifecycle(require_env):
 ```bash
 POLYMARKET_RUN_METERED_TESTS=1 make test-integration
 ```
+
+## Contributing
+
+We welcome bug reports, feature requests, and feedback through GitHub Issues.
+See [CONTRIBUTING.md](CONTRIBUTING.md) before proposing code changes.
