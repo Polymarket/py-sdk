@@ -204,7 +204,7 @@ class TestParseBuilderTradesPage:
         assert page.items[0].id == "trade-1"
         assert page.next_cursor == "cursor-2"
         assert page.has_more is True
-        assert page.total_count == 1
+        assert page.total_count is None
 
     def test_end_cursor_signals_no_more(self) -> None:
         page = parse_builder_trades_page(

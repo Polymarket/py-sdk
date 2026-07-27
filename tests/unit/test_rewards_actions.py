@@ -137,7 +137,7 @@ def test_parse_current_rewards_page_decodes_end_cursor_as_none() -> None:
     )
     assert page.next_cursor is None
     assert page.has_more is False
-    assert page.total_count == 1
+    assert page.total_count is None
     assert len(page.items) == 1
     assert page.items[0].condition_id == _CONDITION_ID
     assert page.items[0].sponsors_count == 2
@@ -154,11 +154,6 @@ def test_parse_current_rewards_page_keeps_non_terminal_cursor() -> None:
 def test_parse_current_rewards_page_returns_none_total_count_when_missing() -> None:
     page = parse_current_rewards_page({"data": [], "next_cursor": END_CURSOR})
     assert page.total_count is None
-
-
-def test_parse_current_rewards_page_raises_on_wrong_type_count() -> None:
-    with pytest.raises(UnexpectedResponseError, match="count"):
-        parse_current_rewards_page({"data": [], "next_cursor": END_CURSOR, "count": "0"})
 
 
 def test_parse_current_rewards_page_raises_on_empty_string_next_cursor() -> None:
@@ -343,9 +338,11 @@ def test_parse_user_rewards_earnings_page_decodes_full_payload() -> None:
             "data": [_USER_REWARDS_EARNING_PAYLOAD],
             "next_cursor": END_CURSOR,
             "count": 1,
+            "total_count": 42,
             "limit": 100,
         }
     )
+    assert page.total_count == 42
     assert len(page.items) == 1
     item = page.items[0]
     assert item.earning_percentage == 0.25

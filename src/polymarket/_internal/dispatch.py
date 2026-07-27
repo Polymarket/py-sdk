@@ -79,6 +79,8 @@ def sync_paginate_offset(
 ) -> Paginator[T]:
     if page_size < 1:
         raise UserInputError("page_size must be a positive integer.")
+    if spec.max_page_size is not None and page_size > spec.max_page_size:
+        raise UserInputError(f"page_size must be at most {spec.max_page_size}.")
     transport = _sync_transport_for(ctx, spec.service)
 
     def fetch(cursor: str | None) -> Page[T]:
@@ -94,7 +96,7 @@ def sync_paginate_offset(
         )
         params: dict[str, QueryParamValue] = {
             **(spec.base_params or {}),
-            "limit": effective_size + 1,
+            "limit": effective_size,
             "offset": offset,
         }
         payload = transport.get_json(spec.path, params=params)
@@ -120,6 +122,8 @@ def async_paginate_offset(
 ) -> AsyncPaginator[T]:
     if page_size < 1:
         raise UserInputError("page_size must be a positive integer.")
+    if spec.max_page_size is not None and page_size > spec.max_page_size:
+        raise UserInputError(f"page_size must be at most {spec.max_page_size}.")
     transport = _async_transport_for(ctx, spec.service)
 
     async def fetch(cursor: str | None) -> Page[T]:
@@ -135,7 +139,7 @@ def async_paginate_offset(
         )
         params: dict[str, QueryParamValue] = {
             **(spec.base_params or {}),
-            "limit": effective_size + 1,
+            "limit": effective_size,
             "offset": offset,
         }
         payload = await transport.get_json(spec.path, params=params)

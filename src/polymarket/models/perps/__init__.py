@@ -1,4 +1,8 @@
-"""Perps SDK models."""
+"""Experimental Perps SDK models.
+
+Experimental: This API may change in a breaking way in any release, including
+patch releases.
+"""
 
 from polymarket.models.perps.account import (
     PerpsAccountConfig,
@@ -51,6 +55,7 @@ from polymarket.models.perps.market import (
     PerpsCandle,
     PerpsCandleBatch,
     PerpsFeeScheduleEntry,
+    PerpsFeeTier,
     PerpsFundingRate,
     PerpsInstrument,
     PerpsRiskTier,
@@ -80,6 +85,7 @@ from polymarket.models.perps.types import (
     PerpsInstrumentCategory,
     PerpsInstrumentId,
     PerpsKlineInterval,
+    PerpsKnownWithdrawalStatus,
     PerpsOrderId,
     PerpsOrderStatus,
     PerpsPnlInterval,
@@ -121,6 +127,7 @@ __all__ = [
     "PerpsEntityId",
     "PerpsEquityPoint",
     "PerpsFeeScheduleEntry",
+    "PerpsFeeTier",
     "PerpsFill",
     "PerpsFillEvent",
     "PerpsFundingEvent",
@@ -130,6 +137,7 @@ __all__ = [
     "PerpsInstrumentCategory",
     "PerpsInstrumentId",
     "PerpsKlineInterval",
+    "PerpsKnownWithdrawalStatus",
     "PerpsMarginSummary",
     "PerpsMarketEvent",
     "PerpsOrder",

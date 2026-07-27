@@ -24,7 +24,7 @@ _OPEN_ORDER_PAYLOAD: dict[str, Any] = {
     "asset_id": "8501497",
     "associate_trades": ["trade-1"],
     "created_at": 1700000000000,
-    "expiration": 1800000000000,
+    "expiration": 1800000000,
     "id": "order-1",
     "maker_address": "0xMAKER",
     "market": "0xMARKET",
@@ -117,7 +117,7 @@ def test_parse_open_orders_page_decodes_end_cursor_as_none() -> None:
         {"data": [_OPEN_ORDER_PAYLOAD], "next_cursor": END_CURSOR, "count": 1}
     )
     assert page.next_cursor is None
-    assert page.total_count == 1
+    assert page.total_count is None
     assert len(page.items) == 1
     assert page.items[0].id == "order-1"
 
@@ -136,11 +136,6 @@ def test_parse_open_orders_page_returns_none_total_count_when_missing() -> None:
     page = parse_open_orders_page({"data": [], "next_cursor": END_CURSOR})
     assert page.total_count is None
     assert page.next_cursor is None
-
-
-def test_parse_open_orders_page_raises_on_wrong_type_count() -> None:
-    with pytest.raises(UnexpectedResponseError, match="count"):
-        parse_open_orders_page({"data": [], "next_cursor": END_CURSOR, "count": "5"})
 
 
 def test_parse_open_orders_page_treats_missing_next_cursor_as_terminal() -> None:

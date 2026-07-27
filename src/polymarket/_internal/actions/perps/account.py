@@ -44,6 +44,7 @@ _M = TypeVar("_M", bound=BaseModel)
 _PNL_INTERVALS = ("1h", "4h", "1d", "1w")
 _FUND_STATUSES = ("pending", "confirmed", "removed")
 _SORT_DIRECTIONS = ("desc", "asc")
+_WITHDRAWAL_STATUSES = ("pending", "confirmed", "removed", "failed")
 
 
 async def fetch_balances(api: AsyncTransport) -> tuple[PerpsBalance, ...]:
@@ -189,9 +190,10 @@ def list_withdrawals(
     start: datetime | int | None = None,
     end: datetime | int | None = None,
 ) -> AsyncPaginator[PerpsWithdrawal]:
-    if withdrawal_status is not None and withdrawal_status not in _FUND_STATUSES:
+    if withdrawal_status is not None and withdrawal_status not in _WITHDRAWAL_STATUSES:
         raise UserInputError(
-            f"withdrawal_status must be one of {list(_FUND_STATUSES)}, got {withdrawal_status!r}"
+            f"withdrawal_status must be one of {list(_WITHDRAWAL_STATUSES)},"
+            f" got {withdrawal_status!r}"
         )
     return _descending_history(
         api,
@@ -271,8 +273,9 @@ def _descending_history(
                 **initial_extra,
             }
         else:
+            statuses = _WITHDRAWAL_STATUSES if kind == "perpsWithdrawals" else _FUND_STATUSES
             state = decode_perps_descending_account_cursor(
-                cursor, kind=kind, fund_statuses=_FUND_STATUSES
+                cursor, kind=kind, fund_statuses=statuses
             )
         params = {
             key: value

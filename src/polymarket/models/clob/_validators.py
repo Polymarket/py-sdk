@@ -4,16 +4,10 @@ from typing import TYPE_CHECKING, Annotated
 
 from pydantic import BeforeValidator
 
-
-def _require_decimal_string(value: object) -> object:
-    if value is None:
-        return None
-    if isinstance(value, Decimal):
-        return value
-    if not isinstance(value, str):
-        msg = f"expected decimal string, got {type(value).__name__}"
-        raise ValueError(msg)
-    return value
+# Re-exported under the historical private name for the CLOB model modules.
+from polymarket.models._validators import (  # noqa: F401
+    DecimalFromString as _DecimalFromString,  # pyright: ignore[reportUnusedImport]
+)
 
 
 def _coerce_decimalish(value: object) -> object:
@@ -202,11 +196,9 @@ def _parse_expiration_timestamp(value: object) -> object:
 
 
 if TYPE_CHECKING:
-    _DecimalFromString = Decimal
     _DecimalFromNumberOrString = Decimal
     _OptionalDecimalFromNumberOrString = Decimal | None
 else:
-    _DecimalFromString = Annotated[Decimal, BeforeValidator(_require_decimal_string)]
     _DecimalFromNumberOrString = Annotated[Decimal, BeforeValidator(_coerce_decimalish)]
     # The validator must wrap the whole optional annotation: on a
     # ``Decimal | None`` union, a BeforeValidator attached only to the Decimal

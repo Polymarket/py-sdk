@@ -10,6 +10,7 @@ from polymarket.models.clob._validators import (
     _DecimalFromNumberOrString,  # pyright: ignore[reportPrivateUsage]
     _OptionalDecimalFromNumberOrString,  # pyright: ignore[reportPrivateUsage]
 )
+from polymarket.models.clob.account import TradeStatusField
 from polymarket.models.types import TokenId
 
 
@@ -30,25 +31,6 @@ _OrderType = Literal["GTC", "FOK", "IOC", "GTD", "FAK"]
 
 
 _TraderSide = Annotated[Literal["TAKER", "MAKER"], BeforeValidator(_uppercase_string)]
-
-
-_TradeStatus = Literal[
-    "MATCHED",
-    "MATCHED_NOT_BROADCASTED",
-    "MINED",
-    "CONFIRMED",
-    "RETRYING",
-    "FAILED",
-]
-
-
-def _normalize_trade_status(value: object) -> object:
-    if isinstance(value, str) and value.startswith("TRADE_STATUS_"):
-        return value[len("TRADE_STATUS_") :]
-    return value
-
-
-_TradeStatusValidator = Annotated[_TradeStatus, BeforeValidator(_normalize_trade_status)]
 
 
 class UserOrderPayload(BaseModel):
@@ -93,7 +75,7 @@ class UserTradePayload(BaseModel):
     side: _OrderSide
     size: _DecimalFromNumberOrString
     price: _DecimalFromNumberOrString
-    status: _TradeStatusValidator
+    status: TradeStatusField
     owner: str
     timestamp: EpochSecondsOrMsTimestamp = None
     fee_rate_bps: _OptionalDecimalFromNumberOrString = None

@@ -126,22 +126,36 @@ def test_paginator_limit_int_larger_than_available() -> None:
     assert "polymarket_truncated" not in df.attrs
 
 
-def test_paginator_limit_at_page_boundary_does_not_fetch_extra_page() -> None:
-    """limit landing exactly on a full page that reports has_more=True
-    must read truncation from page metadata, not by fetching the next page."""
+def test_paginator_limit_at_page_boundary_confirms_truncation_via_next_page() -> None:
+    """A full page reports has_more=True as a heuristic, so limit landing
+    exactly on a page boundary fetches the next page: a further item proves
+    truncation."""
     paginator, fetched = _three_page_sync()
     df = paginator.to_pandas(limit=2)
     assert len(df) == 2
     assert df.attrs.get("polymarket_truncated") is True
-    assert fetched == [None, "p2"]
+    assert fetched == [None, "p2", "p3"]
 
 
-def test_paginator_limit_at_first_page_boundary_fetches_only_one_page() -> None:
-    paginator, fetched = _three_page_sync()
-    df = paginator.to_pandas(limit=1)
+def test_paginator_limit_at_exhausted_boundary_omits_truncation_marker() -> None:
+    """When the collection ends exactly at limit, the confirming fetch returns
+    an empty page and no truncation is reported."""
+    fetched: list[str | None] = []
+
+    def fetch(cursor: str | None) -> Page[_Item]:
+        fetched.append(cursor)
+        if cursor is None:
+            return Page(
+                items=(_Item(n=1, v=Decimal("0.1")),),
+                has_more=True,
+                next_cursor="p2",
+            )
+        return Page(items=(), has_more=False)
+
+    df = Paginator(fetch=fetch).to_pandas(limit=1)
     assert len(df) == 1
-    assert df.attrs.get("polymarket_truncated") is True
-    assert fetched == [None]
+    assert "polymarket_truncated" not in df.attrs
+    assert fetched == [None, "p2"]
 
 
 def test_paginator_limit_zero_returns_empty_dataframe_without_fetching() -> None:
@@ -227,13 +241,35 @@ def test_async_paginator_limit_int_truncated() -> None:
     _run(go())
 
 
-def test_async_paginator_limit_at_page_boundary_does_not_fetch_extra_page() -> None:
+def test_async_paginator_limit_at_page_boundary_confirms_truncation_via_next_page() -> None:
     async def go() -> None:
         paginator, fetched = _three_page_async()
         df = await paginator.to_pandas(limit=1)
         assert len(df) == 1
         assert df.attrs.get("polymarket_truncated") is True
-        assert fetched == [None]
+        assert fetched == [None, "p2"]
+
+    _run(go())
+
+
+def test_async_paginator_limit_at_exhausted_boundary_omits_truncation_marker() -> None:
+    async def go() -> None:
+        fetched: list[str | None] = []
+
+        async def fetch(cursor: str | None) -> Page[_Item]:
+            fetched.append(cursor)
+            if cursor is None:
+                return Page(
+                    items=(_Item(n=1, v=Decimal("0.1")),),
+                    has_more=True,
+                    next_cursor="p2",
+                )
+            return Page(items=(), has_more=False)
+
+        df = await AsyncPaginator(fetch=fetch).to_pandas(limit=1)
+        assert len(df) == 1
+        assert "polymarket_truncated" not in df.attrs
+        assert fetched == [None, "p2"]
 
     _run(go())
 

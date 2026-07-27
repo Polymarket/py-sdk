@@ -1,4 +1,7 @@
-"""Perps trading session types.
+"""Experimental Perps trading session types.
+
+Experimental: This API may change in a breaking way in any release, including
+patch releases.
 
 Open a session with :meth:`polymarket.AsyncSecureClient.open_perps_session`.
 """

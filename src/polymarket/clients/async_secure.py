@@ -25,6 +25,7 @@ from polymarket._internal.actions import account as _account_actions
 from polymarket._internal.actions import auth as _auth_actions
 from polymarket._internal.actions import builders as _builders_actions
 from polymarket._internal.actions import clob as _clob_actions
+from polymarket._internal.actions import combos as _combos_actions
 from polymarket._internal.actions import data as _data_actions
 from polymarket._internal.actions import gamma as _gamma_actions
 from polymarket._internal.actions import rewards as _rewards_actions
@@ -52,6 +53,7 @@ from polymarket._internal.actions.gamma import (
 )
 from polymarket._internal.actions.orders import cancel as _cancel_actions
 from polymarket._internal.actions.orders import post as _post_actions
+from polymarket._internal.actions.orders import settlement as _settlement_actions
 from polymarket._internal.actions.orders.estimate import (
     estimate_market_price as _estimate_market_price,
 )
@@ -70,6 +72,7 @@ from polymarket._internal.actions.orders.orders import (
 from polymarket._internal.actions.orders.place import (
     post_order_with_allowance_recovery,
 )
+from polymarket._internal.actions.orders.settlement import DEFAULT_SETTLEMENT_TIMEOUT_S
 from polymarket._internal.actions.orders.typed_data import (
     build_order_signature,
     build_order_typed_data,
@@ -179,7 +182,7 @@ from polymarket.models import (
 from polymarket.models.clob.api_key import BuilderApiKeyInfo
 from polymarket.models.clob.cancel import CancelOrdersResponse
 from polymarket.models.clob.market_events import MarketEvent
-from polymarket.models.clob.order_response import OrderResponse
+from polymarket.models.clob.order_response import AcceptedOrder, OrderResponse
 from polymarket.models.clob.orders import MarketOrderType, SignedOrder
 from polymarket.models.clob.relayer import RelayerTransactionType
 from polymarket.models.clob.rewards import (
@@ -191,6 +194,7 @@ from polymarket.models.clob.rewards import (
     UserRewardsEarning,
 )
 from polymarket.models.clob.user_events import UserEvent
+from polymarket.models.collateral_return import CollateralReturnPlanResponse
 from polymarket.models.data import (
     Activity,
     BuilderVolumeEntry,
@@ -250,10 +254,11 @@ from polymarket.streams._specs import (
 from polymarket.transactions import (
     DeprecatedTransactionHandle,
     EoaTransactionHandle,
+    GaslessTransactionHandle,
     MergePositionRequest,
     TransactionHandle,
 )
-from polymarket.types import EvmAddress, HexString
+from polymarket.types import EvmAddress, HexString, TransactionHash
 
 if TYPE_CHECKING:
     from datetime import datetime, timedelta
@@ -455,6 +460,11 @@ class AsyncSecureClient:
             logger=logger,
             header_resolver=relayer_resolver,
         )
+        combos = AsyncTransport(
+            base_url=environment.collateral_return_url,
+            logger=logger,
+            header_resolver=relayer_resolver,
+        )
         secure_clob = AsyncTransport(
             base_url=environment.clob_url,
             logger=logger,
@@ -476,6 +486,7 @@ class AsyncSecureClient:
             wallet=branded_wallet,
             wallet_type=wallet_type,
             relayer=relayer,
+            combos=combos,
             api_key=api_key,
             rpc=rpc,
         )
@@ -673,7 +684,10 @@ class AsyncSecureClient:
         expires_in: "timedelta | None" = None,
         label: str | None = None,
     ) -> "PerpsSession":
-        """Open an authenticated Perps account session.
+        """Experimental: This API may change in a breaking way in any release,
+        including patch releases.
+
+        Open an authenticated Perps account session.
 
         With no arguments, new delegated session credentials are created with
         a wallet signature and expire after one week. Pass ``expires_in`` for
@@ -730,7 +744,10 @@ class AsyncSecureClient:
         return session
 
     async def revoke_perps_credentials(self, *, proxy: str) -> None:
-        """Revoke delegated Perps session credentials by proxy address.
+        """Experimental: This API may change in a breaking way in any release,
+        including patch releases.
+
+        Revoke delegated Perps session credentials by proxy address.
 
         The revocation is signed by the owner account and also works for
         credentials that are not currently in use.
@@ -745,7 +762,10 @@ class AsyncSecureClient:
     async def deposit_to_perps(
         self, *, amount: int, metadata: str | None = None
     ) -> TransactionHandle:
-        """Deposit collateral into the Perps account.
+        """Experimental: This API may change in a breaking way in any release,
+        including patch releases.
+
+        Deposit collateral into the Perps account.
 
         The deposit sends approved collateral into the Perps deposit contract
         and credits the authenticated signer account. It does not approve
@@ -770,7 +790,10 @@ class AsyncSecureClient:
         return await self._dispatch_single_call(call, metadata=resolved_metadata)
 
     async def withdraw_from_perps(self, *, amount: int) -> PerpsWithdrawalId:
-        """Request a Perps withdrawal to the authenticated wallet.
+        """Experimental: This API may change in a breaking way in any release,
+        including patch releases.
+
+        Request a Perps withdrawal to the authenticated wallet.
 
         The withdrawal is signed by the owner account and sends funds to the
         wallet address associated with this client.
@@ -880,6 +903,7 @@ class AsyncSecureClient:
             ctx.perps,
             ctx.secure_clob,
             ctx.relayer,
+            ctx.combos,
             ctx.rpc,
         )
 
@@ -2758,6 +2782,51 @@ class AsyncSecureClient:
         )
         return await self._dispatch_single_call(call, metadata=resolved_metadata)
 
+    async def plan_collateral_return(self) -> CollateralReturnPlanResponse:
+        """Plan a collateral return for the authenticated wallet.
+
+        Builds an executable plan that unwinds redundant position value and
+        returns it to the wallet as collateral. Planning can take several
+        minutes for wallets with many positions. Inspect the plan — notably
+        ``net_pusd_out`` and ``position_summary`` — before executing it
+        with :meth:`execute_collateral_return_plan`.
+
+        Returns:
+            The collateral return plan. When ``truncated`` is True the plan
+            covers only the first executable chunk; execute it, then request
+            a fresh plan for the remainder.
+        """
+        return await _combos_actions.plan_collateral_return(self._ctx)
+
+    async def execute_collateral_return_plan(
+        self, *, plan: CollateralReturnPlanResponse
+    ) -> GaslessTransactionHandle:
+        """Execute a collateral return plan.
+
+        The plan executes exactly as returned by
+        :meth:`plan_collateral_return`; nothing is recomputed client-side.
+        No approval transactions are submitted implicitly.
+
+        Example::
+
+            plan = await client.plan_collateral_return()
+            while plan.net_pusd_out > 0:
+                handle = await client.execute_collateral_return_plan(plan=plan)
+                await handle.wait()
+                if not plan.truncated:
+                    break
+                plan = await client.plan_collateral_return()
+
+        Returns:
+            A transaction handle. Await ``wait()`` to wait for a terminal outcome.
+
+        Raises:
+            RequestRejectedError: With ``status`` 409 if the plan no longer
+                matches current wallet state; request a fresh plan and
+                execute that instead.
+        """
+        return await _combos_actions.execute_collateral_return_plan(self._ctx, plan=plan)
+
     async def _resolve_market_position_context(
         self,
         *,
@@ -2819,6 +2888,32 @@ class AsyncSecureClient:
         )
         return _post_actions.parse_order_responses(
             await self._ctx.secure_clob.post_json(path, json=payload)
+        )
+
+    async def wait_for_order_fill_settlement(
+        self,
+        order: AcceptedOrder,
+        *,
+        timeout_s: float = DEFAULT_SETTLEMENT_TIMEOUT_S,
+    ) -> tuple[TransactionHash, ...]:
+        """Wait until every fill listed in an order response settles.
+
+        Settlement covers the fills listed in this order response, identified
+        by the order's ``trade_ids``. These are the fills that happened
+        immediately when the order was accepted. This method does not wait for
+        later fills of any remaining quantity resting on the book. Fills that
+        fail execution contribute no hash.
+
+        Returns:
+            The settlement transaction hashes of the order's fills.
+
+        Raises:
+            TimeoutError: If fills are still settling when the timeout elapses.
+                The order placement itself is unaffected.
+            TransactionFailedError: If every fill failed execution.
+        """
+        return await _settlement_actions.wait_for_order_fill_settlement(
+            self._ctx.secure_clob, order, timeout_s=timeout_s
         )
 
     async def cancel_order(self, *, order_id: str) -> CancelOrdersResponse:
@@ -2995,25 +3090,40 @@ class AsyncSecureClient:
         instrument_id: int | None = None,
         category: PerpsInstrumentCategory | None = None,
     ) -> tuple[PerpsInstrument, ...]:
-        """Fetch Perps instruments, optionally filtered by instrument or category."""
+        """Experimental: This API may change in a breaking way in any release,
+        including patch releases.
+
+        Fetch Perps instruments, optionally filtered by instrument or category.
+        """
         return await _perps_actions.fetch_instruments(
             self._ctx.perps, instrument_id=instrument_id, category=category
         )
 
     async def fetch_perps_ticker(self, *, instrument_id: int) -> PerpsTicker:
-        """Fetch the current Perps ticker for an instrument."""
+        """Experimental: This API may change in a breaking way in any release,
+        including patch releases.
+
+        Fetch the current Perps ticker for an instrument.
+        """
         return await _perps_actions.fetch_ticker(self._ctx.perps, instrument_id=instrument_id)
 
     async def fetch_perps_tickers(
         self, *, instrument_id: int | None = None
     ) -> tuple[PerpsTicker, ...]:
-        """Fetch current Perps tickers."""
+        """Experimental: This API may change in a breaking way in any release,
+        including patch releases.
+
+        Fetch current Perps tickers.
+        """
         return await _perps_actions.fetch_tickers(self._ctx.perps, instrument_id=instrument_id)
 
     async def fetch_perps_book(
         self, *, instrument_id: int, depth: PerpsBookDepth = 100
     ) -> PerpsBook:
-        """Fetch a Perps order book snapshot.
+        """Experimental: This API may change in a breaking way in any release,
+        including patch releases.
+
+        Fetch a Perps order book snapshot.
 
         ``depth`` controls the number of price levels returned on each side.
         """
@@ -3022,7 +3132,11 @@ class AsyncSecureClient:
         )
 
     async def fetch_perps_fees(self) -> tuple[PerpsFeeScheduleEntry, ...]:
-        """Fetch the Perps fee schedule."""
+        """Experimental: This API may change in a breaking way in any release,
+        including patch releases.
+
+        Fetch the Perps fee schedule.
+        """
         return await _perps_actions.fetch_fees(self._ctx.perps)
 
     def list_perps_candles(
@@ -3033,7 +3147,10 @@ class AsyncSecureClient:
         start: "datetime | int | None" = None,
         end: "datetime | int | None" = None,
     ) -> AsyncPaginator[PerpsCandle]:
-        """List Perps candles for an instrument with SDK-owned pagination.
+        """Experimental: This API may change in a breaking way in any release,
+        including patch releases.
+
+        List Perps candles for an instrument with SDK-owned pagination.
 
         Defaults to the past 24 hours when ``start`` is omitted. ``start`` and
         ``end`` accept a ``datetime`` or an epoch-milliseconds int.
@@ -3056,7 +3173,10 @@ class AsyncSecureClient:
         start: "datetime | int | None" = None,
         end: "datetime | int | None" = None,
     ) -> AsyncPaginator[PerpsFundingRate]:
-        """List Perps funding-rate history with SDK-owned pagination.
+        """Experimental: This API may change in a breaking way in any release,
+        including patch releases.
+
+        List Perps funding-rate history with SDK-owned pagination.
 
         Defaults to the past 24 hours when ``start`` is omitted. ``start`` and
         ``end`` accept a ``datetime`` or an epoch-milliseconds int.
@@ -3075,7 +3195,10 @@ class AsyncSecureClient:
         start: "datetime | int | None" = None,
         end: "datetime | int | None" = None,
     ) -> AsyncPaginator[PerpsTrade]:
-        """List recent public Perps trades with SDK-owned pagination.
+        """Experimental: This API may change in a breaking way in any release,
+        including patch releases.
+
+        List recent public Perps trades with SDK-owned pagination.
 
         Defaults to the past 24 hours when ``start`` is omitted. ``start`` and
         ``end`` accept a ``datetime`` or an epoch-milliseconds int.

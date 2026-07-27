@@ -15,6 +15,7 @@ from polymarket._internal.actions import account as _account_actions
 from polymarket._internal.actions import auth as _auth_actions
 from polymarket._internal.actions import builders as _builders_actions
 from polymarket._internal.actions import clob as _clob_actions
+from polymarket._internal.actions import combos as _combos_actions
 from polymarket._internal.actions import data as _data_actions
 from polymarket._internal.actions import gamma as _gamma_actions
 from polymarket._internal.actions import rewards as _rewards_actions
@@ -42,6 +43,7 @@ from polymarket._internal.actions.gamma import (
 )
 from polymarket._internal.actions.orders import cancel as _cancel_actions
 from polymarket._internal.actions.orders import post as _post_actions
+from polymarket._internal.actions.orders import settlement as _settlement_actions
 from polymarket._internal.actions.orders.estimate import (
     estimate_market_price_sync as _estimate_market_price_sync,
 )
@@ -60,6 +62,7 @@ from polymarket._internal.actions.orders.orders import (
 from polymarket._internal.actions.orders.place import (
     post_order_with_allowance_recovery_sync,
 )
+from polymarket._internal.actions.orders.settlement import DEFAULT_SETTLEMENT_TIMEOUT_S
 from polymarket._internal.actions.orders.typed_data import (
     build_order_signature,
     build_order_typed_data,
@@ -160,7 +163,7 @@ from polymarket.models import (
 )
 from polymarket.models.clob import BuilderApiKeyInfo, BuilderTrade
 from polymarket.models.clob.cancel import CancelOrdersResponse
-from polymarket.models.clob.order_response import OrderResponse
+from polymarket.models.clob.order_response import AcceptedOrder, OrderResponse
 from polymarket.models.clob.orders import MarketOrderType, SignedOrder
 from polymarket.models.clob.relayer import RelayerTransactionType
 from polymarket.models.clob.rewards import (
@@ -171,6 +174,7 @@ from polymarket.models.clob.rewards import (
     UserEarning,
     UserRewardsEarning,
 )
+from polymarket.models.collateral_return import CollateralReturnPlanResponse
 from polymarket.models.data import (
     Activity,
     BuilderVolumeEntry,
@@ -198,9 +202,10 @@ from polymarket.transactions import (
     MergePositionRequest,
     SyncDeprecatedTransactionHandle,
     SyncEoaTransactionHandle,
+    SyncGaslessTransactionHandle,
     SyncTransactionHandle,
 )
-from polymarket.types import EvmAddress, HexString
+from polymarket.types import EvmAddress, HexString, TransactionHash
 
 if TYPE_CHECKING:
     from polymarket.clients.public import PublicClient
@@ -376,6 +381,11 @@ class SecureClient:
             logger=logger,
             header_resolver=relayer_resolver,
         )
+        combos = SyncTransport(
+            base_url=environment.collateral_return_url,
+            logger=logger,
+            header_resolver=relayer_resolver,
+        )
         try:
             secure_clob = SyncTransport(
                 base_url=environment.clob_url,
@@ -390,6 +400,7 @@ class SecureClient:
             rfq.close()
             clob.close()
             relayer.close()
+            combos.close()
             raise
 
         ctx = SyncSecureClientContext(
@@ -404,6 +415,7 @@ class SecureClient:
             wallet=branded_wallet,
             wallet_type=wallet_type,
             relayer=relayer,
+            combos=combos,
             api_key=api_key,
             rpc=rpc,
         )
@@ -466,7 +478,10 @@ class SecureClient:
                             try:
                                 ctx.relayer.close()
                             finally:
-                                ctx.rpc.close()
+                                try:
+                                    ctx.combos.close()
+                                finally:
+                                    ctx.rpc.close()
 
     def _user_or_wallet(self, user: str | None) -> str:
         return self._ctx.wallet if user is None else user
@@ -1838,6 +1853,32 @@ class SecureClient:
             self._ctx.secure_clob.post_json(path, json=payload)
         )
 
+    def wait_for_order_fill_settlement(
+        self,
+        order: AcceptedOrder,
+        *,
+        timeout_s: float = DEFAULT_SETTLEMENT_TIMEOUT_S,
+    ) -> tuple[TransactionHash, ...]:
+        """Wait until every fill listed in an order response settles.
+
+        Settlement covers the fills listed in this order response, identified
+        by the order's ``trade_ids``. These are the fills that happened
+        immediately when the order was accepted. This method does not wait for
+        later fills of any remaining quantity resting on the book. Fills that
+        fail execution contribute no hash.
+
+        Returns:
+            The settlement transaction hashes of the order's fills.
+
+        Raises:
+            TimeoutError: If fills are still settling when the timeout elapses.
+                The order placement itself is unaffected.
+            TransactionFailedError: If every fill failed execution.
+        """
+        return _settlement_actions.wait_for_order_fill_settlement_sync(
+            self._ctx.secure_clob, order, timeout_s=timeout_s
+        )
+
     def cancel_order(self, *, order_id: str) -> CancelOrdersResponse:
         """Cancel one open order for the authenticated account."""
         path, body = _cancel_actions.build_cancel_order_request(order_id=order_id)
@@ -2470,6 +2511,51 @@ class SecureClient:
             else f"Redeem positions for condition {context.condition_id}"
         )
         return self._dispatch_single_call(call, metadata=resolved_metadata)
+
+    def plan_collateral_return(self) -> CollateralReturnPlanResponse:
+        """Plan a collateral return for the authenticated wallet.
+
+        Builds an executable plan that unwinds redundant position value and
+        returns it to the wallet as collateral. Planning can take several
+        minutes for wallets with many positions. Inspect the plan — notably
+        ``net_pusd_out`` and ``position_summary`` — before executing it
+        with :meth:`execute_collateral_return_plan`.
+
+        Returns:
+            The collateral return plan. When ``truncated`` is True the plan
+            covers only the first executable chunk; execute it, then request
+            a fresh plan for the remainder.
+        """
+        return _combos_actions.plan_collateral_return_sync(self._ctx)
+
+    def execute_collateral_return_plan(
+        self, *, plan: CollateralReturnPlanResponse
+    ) -> SyncGaslessTransactionHandle:
+        """Execute a collateral return plan.
+
+        The plan executes exactly as returned by
+        :meth:`plan_collateral_return`; nothing is recomputed client-side.
+        No approval transactions are submitted implicitly.
+
+        Example::
+
+            plan = client.plan_collateral_return()
+            while plan.net_pusd_out > 0:
+                handle = client.execute_collateral_return_plan(plan=plan)
+                handle.wait()
+                if not plan.truncated:
+                    break
+                plan = client.plan_collateral_return()
+
+        Returns:
+            A transaction handle. Call ``wait()`` to wait for a terminal outcome.
+
+        Raises:
+            RequestRejectedError: With ``status`` 409 if the plan no longer
+                matches current wallet state; request a fresh plan and
+                execute that instead.
+        """
+        return _combos_actions.execute_collateral_return_plan_sync(self._ctx, plan=plan)
 
     def _broadcast_eoa_call(self, call: TransactionCall) -> SyncEoaTransactionHandle:
         env = self._ctx.environment

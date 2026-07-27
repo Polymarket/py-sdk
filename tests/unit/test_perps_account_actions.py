@@ -49,18 +49,93 @@ def test_descending_account_paginators_reject_malformed_cursor_fields() -> None:
                     await funding.from_cursor(_cursor(state)).first_page()
 
             deposits = perps_account.list_deposits(transport)
-            with pytest.raises(UserInputError, match="cursor"):
-                await deposits.from_cursor(
+            for deposit_status in ("bogus", "failed"):
+                with pytest.raises(UserInputError, match="cursor"):
+                    await deposits.from_cursor(
+                        _cursor(
+                            {
+                                "kind": "perpsDeposits",
+                                "start_timestamp": 0,
+                                "end_timestamp": 1,
+                                "seen_keys": [],
+                                "deposit_status": deposit_status,
+                            }
+                        )
+                    ).first_page()
+        finally:
+            await transport.close()
+
+    asyncio.run(run())
+
+
+def _withdrawal_payload(withdraw_id: int, status: str) -> dict[str, Any]:
+    return {
+        "withdraw_id": withdraw_id,
+        "asset": "USDC",
+        "amount": "100.5",
+        "fee": "0.5",
+        "status": status,
+        "to": "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
+        "confirmations": 3,
+        "required_confirmations": 3,
+        "created_timestamp": 1747660800000,
+    }
+
+
+def test_list_withdrawals_parses_failed_and_unknown_statuses() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    _withdrawal_payload(1, "failed"),
+                    _withdrawal_payload(2, "not-a-status-yet"),
+                ],
+                "more": False,
+            },
+        )
+
+    async def run() -> None:
+        transport = _transport(handler)
+        try:
+            page = await perps_account.list_withdrawals(transport).first_page()
+            assert [item.status for item in page.items] == ["failed", "not-a-status-yet"]
+        finally:
+            await transport.close()
+
+    asyncio.run(run())
+
+
+def test_list_withdrawals_accepts_failed_filter_and_rejects_unknown() -> None:
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json={"data": [], "more": False})
+
+    async def run() -> None:
+        transport = _transport(handler)
+        try:
+            await perps_account.list_withdrawals(transport, withdrawal_status="failed").first_page()
+            assert captured[0].url.params["withdrawal_status"] == "failed"
+            await (
+                perps_account.list_withdrawals(transport)
+                .from_cursor(
                     _cursor(
                         {
-                            "kind": "perpsDeposits",
+                            "kind": "perpsWithdrawals",
                             "start_timestamp": 0,
                             "end_timestamp": 1,
                             "seen_keys": [],
-                            "deposit_status": "bogus",
+                            "withdrawal_status": "failed",
                         }
                     )
-                ).first_page()
+                )
+                .first_page()
+            )
+            assert captured[1].url.params["withdrawal_status"] == "failed"
+            with pytest.raises(UserInputError, match="withdrawal_status"):
+                perps_account.list_withdrawals(transport, withdrawal_status="bogus")
         finally:
             await transport.close()
 

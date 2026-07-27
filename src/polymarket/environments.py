@@ -45,6 +45,7 @@ class Environment:
     position_manager: str = "0x006F54F7f9A22e0000CC2AB60031000000ae9fEF"
     rfq_quoter_ws_url: str = "wss://combos-rfq-gateway-quoter.polymarket.com/ws/rfq"
     rfq_quoter_ws_headers: dict[str, str] | None = None
+    collateral_return_url: str = "https://combos-rfq-collateral-return.polymarket.com"
     perps_url: str = "https://api.perpetuals.polymarket.com"
     perps_ws_url: str = "wss://ws.perpetuals.polymarket.com/v1/ws"
     perps_deposit_contract: str = "0xDCa4af75705dbB50f62437045afF9921947917d2"
