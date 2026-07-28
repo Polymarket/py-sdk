@@ -7,6 +7,7 @@ from polymarket.models.rtds_events import (
     CommentRemovedEvent,
     CryptoPricesBinanceEvent,
     CryptoPricesChainlinkEvent,
+    CryptoPricesChainlinkTwapEvent,
     EquityPricesSubscribeEvent,
     EquityPricesUpdateEvent,
     ReactionCreatedEvent,
@@ -16,6 +17,8 @@ from polymarket.models.rtds_events import (
 )
 from polymarket.streams._specs import (
     CommentsSpec,
+    CryptoPricesChainlinkTwapSpec,
+    CryptoPricesChainlinkTwapWindowSeconds,
     CryptoPricesSpec,
     EquityPricesSpec,
     RtdsSpec,
@@ -38,10 +41,25 @@ def server_subscriptions_for(spec: RtdsSpec) -> tuple[RtdsServerSubscription, ..
     if isinstance(spec, CommentsSpec):
         types = spec.types if spec.types else _DEFAULT_COMMENT_TYPES
         return tuple(RtdsServerSubscription(topic="comments", type=t) for t in types)
+    if isinstance(spec, CryptoPricesChainlinkTwapSpec):
+        return (
+            RtdsServerSubscription(
+                topic=_twap_wire_topic(spec.window_seconds),
+                type="update",
+            ),
+        )
     if isinstance(spec, CryptoPricesSpec | EquityPricesSpec):  # pyright: ignore[reportUnnecessaryIsInstance]
         wire = api_topic_to_wire(spec.topic)
         return (RtdsServerSubscription(topic=wire, type="update"),)
     assert_never(spec)
+
+
+def _twap_wire_topic(window_seconds: CryptoPricesChainlinkTwapWindowSeconds) -> str:
+    if window_seconds == 30:
+        return "crypto_prices_twap_thirty"
+    if window_seconds == 60:
+        return "crypto_prices_twap_sixty"
+    assert_never(window_seconds)
 
 
 def derive_state(subs: Iterable[RtdsSpec]) -> dict[str, RtdsServerSubscription]:
@@ -83,6 +101,8 @@ def diff_state_frames(
 def matcher_for(spec: RtdsSpec) -> Callable[[RtdsEvent], bool]:
     if isinstance(spec, CommentsSpec):
         return _comments_matcher(spec)
+    if isinstance(spec, CryptoPricesChainlinkTwapSpec):
+        return _twap_matcher(spec)
     if isinstance(spec, CryptoPricesSpec):
         return _crypto_matcher(spec)
     return _equity_matcher(spec)
@@ -125,6 +145,20 @@ def _crypto_matcher(spec: CryptoPricesSpec) -> Callable[[RtdsEvent], bool]:
         if not isinstance(event, CryptoPricesBinanceEvent | CryptoPricesChainlinkEvent):
             return False
         if event.topic != expected_topic:
+            return False
+        return not (allowed_symbols is not None and event.payload.symbol not in allowed_symbols)
+
+    return matches
+
+
+def _twap_matcher(spec: CryptoPricesChainlinkTwapSpec) -> Callable[[RtdsEvent], bool]:
+    expected_window = spec.window_seconds
+    allowed_symbols = frozenset(spec.symbols) if spec.symbols else None
+
+    def matches(event: RtdsEvent) -> bool:
+        if not isinstance(event, CryptoPricesChainlinkTwapEvent):
+            return False
+        if event.payload.window_seconds != expected_window:
             return False
         return not (allowed_symbols is not None and event.payload.symbol not in allowed_symbols)
 

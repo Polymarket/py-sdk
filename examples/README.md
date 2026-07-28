@@ -8,6 +8,7 @@ uv run python -m examples.list_markets
 uv run python -m examples.fetch_market
 uv run python -m examples.pagination
 uv run python -m examples.market_prices
+uv run python -m examples.crypto_twap_stream
 uv run python -m examples.search
 uv run python -m examples.list_positions
 uv run python -m examples.create_limit_order
@@ -17,7 +18,7 @@ uv run python -m examples.create_market_order
 ## Credentials
 
 The read examples (`list_markets`, `fetch_market`, `pagination`,
-`market_prices`, `search`) need no credentials.
+`market_prices`, `crypto_twap_stream`, `search`) need no credentials.
 
 The remaining examples read environment variables — the same ones the
 integration tests use — straight from your shell. Nothing auto-loads a `.env`
