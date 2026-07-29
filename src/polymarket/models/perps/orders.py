@@ -154,6 +154,17 @@ class PerpsCancelAllOrdersResponse(BaseModel):
     status: Literal["ok"]
 
 
+class PerpsAutoCancelResponse(BaseModel):
+    """Accepted response for a Perps auto-cancel update.
+
+    ``deadline`` echoes the armed cancellation time in epoch milliseconds, or
+    ``0`` when the schedule was cleared.
+    """
+
+    status: Literal["ok"]
+    deadline: int
+
+
 class PerpsUpdateLeverageResult(BaseModel):
     """Result of a Perps leverage update."""
 
@@ -164,6 +175,7 @@ class PerpsUpdateLeverageResult(BaseModel):
 
 
 __all__ = [
+    "PerpsAutoCancelResponse",
     "PerpsCancelAllOrdersResponse",
     "PerpsCancelOrderResult",
     "PerpsFill",

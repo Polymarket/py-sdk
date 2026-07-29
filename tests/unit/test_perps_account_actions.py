@@ -195,6 +195,37 @@ def _fill(trade_id: int, timestamp: int) -> dict[str, Any]:
     }
 
 
+def test_fetch_auto_cancel_parses_status() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "deadline": 1_767_000_045_000,
+                "triggered": 2,
+                "daily_limit": 1000,
+                "next_reset": 1_767_052_800_000,
+            },
+        )
+
+    async def run() -> None:
+        transport = _transport(handler)
+        try:
+            status = await perps_account.fetch_auto_cancel(transport)
+        finally:
+            await transport.close()
+
+        assert requests[0].url.path == "/v1/account/auto-cancel"
+        assert status.deadline == 1_767_000_045_000
+        assert status.triggered == 2
+        assert status.daily_limit == 1000
+        assert status.next_reset == 1_767_052_800_000
+
+    asyncio.run(run())
+
+
 def test_list_fills_first_page_sends_no_pagination_params() -> None:
     requests: list[httpx.Request] = []
 

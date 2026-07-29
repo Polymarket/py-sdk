@@ -21,6 +21,21 @@ class PerpsBalance(BaseModel):
     value: _Decimal
 
 
+class PerpsAutoCancelStatus(BaseModel):
+    """Current auto-cancel state for the account.
+
+    ``deadline`` is the armed cancellation time in epoch milliseconds, or
+    ``0`` when no schedule is armed. ``triggered`` counts today's fires,
+    ``daily_limit`` is the maximum triggers allowed per UTC day, and
+    ``next_reset`` is the epoch-ms time when the daily counter resets.
+    """
+
+    deadline: int
+    triggered: int
+    daily_limit: int
+    next_reset: int
+
+
 class PerpsAccountStats(BaseModel):
     """Rolling 7-day trading statistics for the Perps account."""
 
@@ -151,6 +166,7 @@ class PerpsCredentialsInfo(BaseModel):
 __all__ = [
     "PerpsAccountConfig",
     "PerpsAccountStats",
+    "PerpsAutoCancelStatus",
     "PerpsBalance",
     "PerpsCredentialsInfo",
     "PerpsEquityPoint",

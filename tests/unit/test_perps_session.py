@@ -15,7 +15,7 @@ from websockets.asyncio.server import ServerConnection, serve
 
 from polymarket._internal.perps_session import PerpsSession
 from polymarket.clients._transport import AsyncTransport
-from polymarket.errors import RequestRejectedError, TransportError
+from polymarket.errors import AutoCancelDailyLimitError, RequestRejectedError, TransportError
 from polymarket.models.perps.credentials import PerpsCredentials
 from polymarket.models.perps.events import (
     PerpsFillEvent,
@@ -459,6 +459,89 @@ def test_cancel_all_orders_uses_signed_rest_endpoint() -> None:
     unscoped_body = json.loads(captured[1].content)
     assert unscoped_body["op"] == {"type": "cancelAll", "args": {}}
     assert "exp" not in unscoped_body
+
+
+def test_auto_cancel_uses_signed_rest_endpoint() -> None:
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        time_ms = json.loads(request.content)["op"]["args"]["time"]
+        return httpx.Response(200, json={"status": "ok", "deadline": time_ms}, request=request)
+
+    async def run() -> None:
+        session = PerpsSession(
+            chain_id=137,
+            credentials=_CREDENTIALS,
+            rest_url="https://perps.test",
+            ws_url="ws://127.0.0.1:9",
+        )
+        session._api = AsyncTransport(
+            base_url="https://perps.test",
+            client=httpx.AsyncClient(
+                base_url="https://perps.test",
+                transport=httpx.MockTransport(handler),
+            ),
+            header_resolver=session._resolve_auth_headers,
+        )
+        try:
+            await session.arm_auto_cancel(cancel_at=1_767_000_045_000, expires_at=1_700_000_005_000)
+            await session.clear_auto_cancel()
+        finally:
+            await session.close()
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+
+    assert len(captured) == 2
+    assert captured[0].method == "PATCH"
+    assert captured[0].url.path == "/v1/trade/auto-cancel"
+    assert captured[0].headers["polymarket-proxy"] == _PROXY_ADDRESS
+    assert captured[0].headers["polymarket-secret"] == "session-secret"
+
+    arm_body = json.loads(captured[0].content)
+    assert arm_body["op"] == {"type": "autoCancel", "args": {"time": 1_767_000_045_000}}
+    assert arm_body["exp"] == 1_700_000_005_000
+    assert isinstance(arm_body["salt"], int)
+    assert isinstance(arm_body["ts"], int)
+    assert arm_body["sig"].startswith("0x") and len(arm_body["sig"]) == 132
+
+    clear_body = json.loads(captured[1].content)
+    assert clear_body["op"] == {"type": "autoCancel", "args": {"time": 0}}
+    assert "exp" not in clear_body
+
+
+def test_arm_auto_cancel_daily_limit_raises_typed_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            422,
+            json={"status": "err", "error": "auto_cancel_daily_limit_reached"},
+            request=request,
+        )
+
+    async def run() -> None:
+        session = PerpsSession(
+            chain_id=137,
+            credentials=_CREDENTIALS,
+            rest_url="https://perps.test",
+            ws_url="ws://127.0.0.1:9",
+        )
+        session._api = AsyncTransport(
+            base_url="https://perps.test",
+            client=httpx.AsyncClient(
+                base_url="https://perps.test",
+                transport=httpx.MockTransport(handler),
+            ),
+            header_resolver=session._resolve_auth_headers,
+        )
+        try:
+            with pytest.raises(AutoCancelDailyLimitError) as excinfo:
+                await session.arm_auto_cancel(cancel_at=1_767_000_045_000)
+            assert excinfo.value.status == 422
+            assert isinstance(excinfo.value, RequestRejectedError)
+        finally:
+            await session.close()
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
 
 
 def test_sequence_gap_emits_resync_event_before_update() -> None:
