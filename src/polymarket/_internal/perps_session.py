@@ -58,6 +58,10 @@ from polymarket.models.perps.events import (
     parse_perps_session_event,
 )
 from polymarket.models.perps.funds import PerpsDeposit, PerpsWithdrawal
+from polymarket.models.perps.notifications import (
+    PerpsNotificationEntry,
+    PerpsNotificationsPaginator,
+)
 from polymarket.models.perps.orders import (
     PerpsCancelAllOrdersResponse,
     PerpsCancelOrderResult,
@@ -82,6 +86,7 @@ from polymarket.models.perps.types import (
     PerpsDepositStatus,
     PerpsOrderId,
     PerpsPnlInterval,
+    PerpsSortDirection,
     PerpsTimeInForce,
     PerpsWithdrawalStatus,
 )
@@ -102,8 +107,11 @@ _SESSION_CHANNELS = (
     "funding",
     "deposits",
     "withdrawals",
+    "notifications",
     "tpsl",
 )
+
+_SERVER_RESYNC_CHANNELS = frozenset({"notifications"})
 
 
 class _EndSentinel:
@@ -591,12 +599,16 @@ class PerpsSession:
         *,
         start: datetime | int | None = None,
         end: datetime | int | None = None,
+        sort: PerpsSortDirection | None = None,
+        cursor: str | None = None,
     ) -> AsyncPaginator[PerpsFill]:
         """List Perps fills for the session account.
 
-        Defaults to the past 24 hours when ``start`` is omitted.
+        Fills are returned newest first by default; pass ``sort="asc"`` for
+        oldest first. ``cursor`` resumes from an opaque page cursor returned
+        by a previous page.
         """
-        return _account.list_fills(self._api, start=start, end=end)
+        return _account.list_fills(self._api, start=start, end=end, sort=sort, cursor=cursor)
 
     def list_funding_payments(
         self,
@@ -648,6 +660,40 @@ class PerpsSession:
             start=start,
             end=end,
         )
+
+    def list_notifications(
+        self,
+        *,
+        since_seq: int | None = None,
+        limit: int | None = None,
+    ) -> PerpsNotificationsPaginator:
+        """List notifications for the session account, newest first.
+
+        Each page also reports the account's ``unread`` count and the
+        ``durable_source_seq`` high-water mark. After a ``resync`` session
+        event or a reconnect, pass ``since_seq`` to backfill missed
+        notifications: anchor it at the sequence of the last notification
+        event processed before the gap and retry until ``durable_source_seq``
+        reaches the catch-up target, deduplicating merged results by
+        notification id. Follow-up pages keep the same ``since_seq`` bound
+        automatically.
+        """
+        return _account.list_notifications(self._api, since_seq=since_seq, limit=limit)
+
+    async def mark_notifications_read(
+        self,
+        *,
+        ids: Sequence[str] | None = None,
+        up_to: PerpsNotificationEntry | None = None,
+    ) -> None:
+        """Mark notifications read, by ids or up to a notification entry.
+
+        Provide exactly one of ``ids`` or ``up_to``. ``up_to`` marks that
+        entry and every earlier notification read, inclusive. Read state is
+        account-scoped: only the session account's notifications can be
+        marked read.
+        """
+        await _account.mark_notifications_read(self._api, ids=ids, up_to=up_to)
 
     def list_equity_history(
         self,
@@ -926,9 +972,13 @@ class PerpsSession:
                 )
 
     def _push_sequence_gap_if_needed(self, event: PerpsSessionEvent) -> None:
+        if isinstance(event, PerpsResyncEvent):
+            return
         channel = getattr(event, "channel", None)
         sequence = getattr(event, "sequence", None)
         if not isinstance(channel, str) or not isinstance(sequence, int):
+            return
+        if channel in _SERVER_RESYNC_CHANNELS:
             return
         previous = self._sequences.get(channel)
         self._sequences[channel] = sequence

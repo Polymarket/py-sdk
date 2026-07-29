@@ -120,6 +120,14 @@ def decode_perps_ascending_account_cursor(
     return state
 
 
+def decode_perps_notifications_cursor(cursor: str) -> dict[str, Any]:
+    state = decode_perps_cursor(cursor, kind="perpsNotifications")
+    _require_str(state, "cursor")
+    _allow_optional_non_negative_int(state, "since_seq")
+    _allow_optional_positive_int(state, "limit")
+    return state
+
+
 def _require_non_negative_int(state: dict[str, Any], key: str) -> None:
     value = state.get(key)
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
@@ -155,6 +163,20 @@ def _allow_optional_str(state: dict[str, Any], key: str) -> None:
     if value is None:
         return
     if not isinstance(value, str):
+        raise _invalid_cursor()
+
+
+def _require_str(state: dict[str, Any], key: str) -> None:
+    value = state.get(key)
+    if not isinstance(value, str) or not value:
+        raise _invalid_cursor()
+
+
+def _allow_optional_positive_int(state: dict[str, Any], key: str) -> None:
+    value = state.get(key)
+    if value is None:
+        return
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise _invalid_cursor()
 
 
@@ -198,6 +220,7 @@ __all__ = [
     "decode_perps_cursor",
     "decode_perps_descending_account_cursor",
     "decode_perps_funding_cursor",
+    "decode_perps_notifications_cursor",
     "decode_perps_trades_cursor",
     "encode_perps_cursor",
     "interval_ms",

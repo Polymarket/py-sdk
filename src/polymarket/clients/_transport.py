@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json as _json
 import logging
+import math
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
@@ -329,7 +330,34 @@ def _raise_for_response_status(response: httpx.Response) -> None:
     raise RequestRejectedError(
         _extract_response_error_message(response),
         status=response.status_code,
+        retry_after=_extract_retry_after(response),
     )
+
+
+def _extract_retry_after(response: httpx.Response) -> float | None:
+    header = response.headers.get("retry-after")
+    if header is not None:
+        try:
+            seconds = float(header.strip())
+        except ValueError:
+            seconds = None
+        if seconds is not None and math.isfinite(seconds) and seconds >= 0:
+            return seconds
+
+    if "application/json" in response.headers.get("content-type", "").lower():
+        try:
+            value = response.json().get("retry_after_seconds")
+        except (AttributeError, ValueError):
+            value = None
+        if isinstance(value, int | float) and not isinstance(value, bool):
+            try:
+                seconds = float(value)
+            except OverflowError:
+                seconds = None
+            if seconds is not None and math.isfinite(seconds) and seconds >= 0:
+                return seconds
+
+    return None
 
 
 def _clean_params(

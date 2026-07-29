@@ -5,11 +5,23 @@ from typing import Literal, NewType, TypeAlias
 PerpsInstrumentId = NewType("PerpsInstrumentId", int)
 PerpsOrderId = NewType("PerpsOrderId", int)
 PerpsClientOrderId = NewType("PerpsClientOrderId", str)
+PerpsNotificationId = NewType("PerpsNotificationId", str)
 PerpsTradeId = NewType("PerpsTradeId", int)
 PerpsWithdrawalId = NewType("PerpsWithdrawalId", int)
 PerpsEntityId = NewType("PerpsEntityId", int)
 
 PerpsInstrumentCategory: TypeAlias = Literal["equity", "commodity", "index", "crypto"]
+PerpsMarginType: TypeAlias = Literal["cross", "isolated"]
+PerpsNotificationOrderType: TypeAlias = Literal["market", "limit", "take_profit", "stop_loss"]
+PerpsNotificationType: TypeAlias = Literal[
+    "position_opened",
+    "position_increased",
+    "position_reduced",
+    "position_closed",
+    "limit_order_canceled",
+    "liquidation_warning",
+    "position_liquidated",
+]
 PerpsSide: TypeAlias = Literal["long", "short"]
 PerpsTimeInForce: TypeAlias = Literal["gtc", "ioc", "fok"]
 PerpsTpSlKind: TypeAlias = Literal["tp", "sl"]
@@ -22,6 +34,7 @@ PerpsWithdrawalStatus: TypeAlias = PerpsKnownWithdrawalStatus | str
 PerpsKlineInterval: TypeAlias = Literal["1s", "1m", "5m", "15m", "1h", "4h", "1d", "1w"]
 PerpsStreamCandleInterval: TypeAlias = Literal["1m", "5m", "15m", "1h", "4h", "1d", "1w"]
 PerpsPnlInterval: TypeAlias = Literal["1h", "4h", "1d", "1w"]
+PerpsSortDirection: TypeAlias = Literal["desc", "asc"]
 PerpsBookDepth: TypeAlias = Literal[10, 100, 500, 1000]
 PerpsTpSlLifecycleStatus: TypeAlias = Literal["untriggered", "armed", "cancelled", "expired"]
 
@@ -62,6 +75,10 @@ __all__ = [
     "PerpsInstrumentId",
     "PerpsKlineInterval",
     "PerpsKnownWithdrawalStatus",
+    "PerpsMarginType",
+    "PerpsNotificationId",
+    "PerpsNotificationOrderType",
+    "PerpsNotificationType",
     "PerpsOrderId",
     "PerpsOrderStatus",
     "PerpsPnlInterval",
