@@ -42,6 +42,8 @@ class CollateralReturnOperation(BaseModel):
 
     kind: CollateralReturnOperationKind | str
     condition_id: ComboConditionId | None = None
+    # On-chain neg-risk event id (0x-prefixed bytes32), not the numeric Gamma
+    # event id that ``EventId`` carries elsewhere in the SDK.
     event_id: EventId | None = None
     position_id: PositionId | None = None
     condition_index: int = 0
