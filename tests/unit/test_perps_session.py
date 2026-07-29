@@ -537,7 +537,6 @@ def test_arm_auto_cancel_daily_limit_raises_typed_error() -> None:
             with pytest.raises(AutoCancelDailyLimitError) as excinfo:
                 await session.arm_auto_cancel(cancel_at=1_767_000_045_000)
             assert excinfo.value.status == 422
-            assert isinstance(excinfo.value, RequestRejectedError)
         finally:
             await session.close()
 

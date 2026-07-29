@@ -575,7 +575,7 @@ class PerpsSession:
         """
         cancel_at_ms = to_epoch_ms("cancel_at", cancel_at)
         if not cancel_at_ms:
-            raise UserInputError("cancel_at must be a future timestamp")
+            raise UserInputError("cancel_at must be non-zero; use clear_auto_cancel() to clear")
         op = auto_cancel_op(time_ms=cancel_at_ms)
         try:
             response = await self._api.patch_json(
