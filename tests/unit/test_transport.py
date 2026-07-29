@@ -129,6 +129,59 @@ def test_sync_transport_ignores_unparseable_retry_after_header() -> None:
     assert exc_info.value.retry_after is None
 
 
+@pytest.mark.parametrize("header_value", ["1e400", "inf", "nan"])
+def test_sync_transport_ignores_non_finite_retry_after_header(header_value: str) -> None:
+    transport = SyncTransport(
+        base_url="https://example.test",
+        client=httpx.Client(
+            base_url="https://example.test",
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(
+                    503,
+                    json={"error": "unavailable"},
+                    headers={"Retry-After": header_value},
+                    request=request,
+                )
+            ),
+        ),
+    )
+
+    with pytest.raises(RequestRejectedError) as exc_info:
+        transport.get_json("/markets/1")
+
+    assert exc_info.value.retry_after is None
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b'{"error": "unavailable", "retry_after_seconds": Infinity}',
+        b'{"error": "unavailable", "retry_after_seconds": 1e400}',
+        b'{"error": "unavailable", "retry_after_seconds": ' + b"9" * 400 + b"}",
+    ],
+)
+def test_sync_transport_ignores_out_of_range_retry_after_seconds_in_body(body: bytes) -> None:
+    transport = SyncTransport(
+        base_url="https://example.test",
+        client=httpx.Client(
+            base_url="https://example.test",
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(
+                    503,
+                    content=body,
+                    headers={"Content-Type": "application/json"},
+                    request=request,
+                )
+            ),
+        ),
+    )
+
+    with pytest.raises(RequestRejectedError) as exc_info:
+        transport.get_json("/markets/1")
+
+    assert exc_info.value.retry_after is None
+
+
 def test_sync_transport_maps_non_json_success_response() -> None:
     transport = SyncTransport(
         base_url="https://example.test",
