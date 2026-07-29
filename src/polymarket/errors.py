@@ -32,11 +32,17 @@ class ConnectionLostError(PolymarketError):
 
 
 class RequestRejectedError(PolymarketError):
-    """Error raised when a request receives a non-success status."""
+    """Error raised when a request receives a non-success status.
 
-    def __init__(self, message: str, *, status: int) -> None:
+    ``retry_after`` is the server-suggested delay in seconds before retrying,
+    taken from the ``Retry-After`` response header or a ``retry_after_seconds``
+    field in the response body; ``None`` when the response provides neither.
+    """
+
+    def __init__(self, message: str, *, status: int, retry_after: float | None = None) -> None:
         super().__init__(message)
         self.status = status
+        self.retry_after = retry_after
 
 
 class RateLimitError(PolymarketError):
