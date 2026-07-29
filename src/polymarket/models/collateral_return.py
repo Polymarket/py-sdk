@@ -8,6 +8,7 @@ from polymarket.models._validators import DecimalFromE6String, DecimalFromString
 from polymarket.models.base import BaseModel
 from polymarket.models.types import (
     ComboConditionId,
+    EventId,
     PositionId,
     validate_optional_combo_condition_id,
 )
@@ -41,7 +42,9 @@ class CollateralReturnOperation(BaseModel):
 
     kind: CollateralReturnOperationKind | str
     condition_id: ComboConditionId | None = None
-    event_id: HexString | None = None
+    # On-chain neg-risk event id (0x-prefixed bytes32), not the numeric Gamma
+    # event id that ``EventId`` carries elsewhere in the SDK.
+    event_id: EventId | None = None
     position_id: PositionId | None = None
     condition_index: int = 0
     amount: DecimalFromE6String
