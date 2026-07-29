@@ -3,17 +3,27 @@
 from decimal import Decimal
 
 import pytest
+from pydantic import ValidationError
 
 from polymarket.models.perps.events import (
     PerpsBookEvent,
     PerpsCandleEvent,
     PerpsDepositEvent,
+    PerpsNotificationEvent,
     PerpsOrderEvent,
+    PerpsResyncEvent,
     PerpsTickerEvent,
     PerpsTpSlEvent,
     parse_perps_market_event,
     parse_perps_market_events,
     parse_perps_session_event,
+)
+from polymarket.models.perps.notifications import (
+    PerpsCrossLiquidationWarningNotification,
+    PerpsIsolatedLiquidationWarningNotification,
+    PerpsPositionChangeNotification,
+    PerpsPositionClosedNotification,
+    PerpsPositionLiquidatedNotification,
 )
 from polymarket.models.perps.orders import PerpsOrder
 
@@ -175,3 +185,125 @@ def test_session_deposit_event_normalizes_placeholder_hash() -> None:
 )
 def test_session_parser_returns_none_for_non_events(frame: object) -> None:
     assert parse_perps_session_event(frame) is None
+
+
+def _notification_frame(notification: dict[str, object]) -> dict[str, object]:
+    return {"ch": "notifications", "ts": 1751500000000, "sq": 42, "data": notification}
+
+
+def test_session_notification_event_parses_position_change() -> None:
+    event = parse_perps_session_event(
+        _notification_frame(
+            {
+                "id": "5f4a3c2b-1d0e-49f8-a7b6-c5d4e3f2a1b0",
+                "type": "position_increased",
+                "instrument_id": 3,
+                "side": "short",
+                "size": "1.5",
+                "avg_price": "99.5",
+                "leverage": 4,
+                "order_type": "stop_loss",
+            }
+        )
+    )
+    assert isinstance(event, PerpsNotificationEvent)
+    assert event.sequence == 42
+    assert isinstance(event.payload, PerpsPositionChangeNotification)
+    assert event.payload.type == "position_increased"
+    assert event.payload.size == Decimal("1.5")
+    assert event.payload.order_type == "stop_loss"
+
+
+def test_session_notification_event_parses_position_closed_without_order_type() -> None:
+    event = parse_perps_session_event(
+        _notification_frame(
+            {
+                "id": "5f4a3c2b-1d0e-49f8-a7b6-c5d4e3f2a1b0",
+                "type": "position_closed",
+                "instrument_id": 3,
+                "side": "long",
+                "size": "1.5",
+                "avg_price": "99.5",
+                "pnl": "-0.25",
+            }
+        )
+    )
+    assert isinstance(event, PerpsNotificationEvent)
+    assert isinstance(event.payload, PerpsPositionClosedNotification)
+    assert event.payload.pnl == Decimal("-0.25")
+    assert event.payload.order_type is None
+
+
+def test_session_notification_event_parses_liquidation_warning_variants() -> None:
+    isolated = parse_perps_session_event(
+        _notification_frame(
+            {
+                "id": "5f4a3c2b-1d0e-49f8-a7b6-c5d4e3f2a1b0",
+                "type": "liquidation_warning",
+                "margin_type": "isolated",
+                "instrument_id": 3,
+                "mark_price": "100",
+                "liq_price": "95",
+            }
+        )
+    )
+    assert isinstance(isolated, PerpsNotificationEvent)
+    assert isinstance(isolated.payload, PerpsIsolatedLiquidationWarningNotification)
+    assert isolated.payload.liquidation_price == Decimal("95")
+
+    cross = parse_perps_session_event(
+        _notification_frame(
+            {
+                "id": "5f4a3c2b-1d0e-49f8-a7b6-c5d4e3f2a1b0",
+                "type": "liquidation_warning",
+                "margin_type": "cross",
+                "instrument_id": None,
+                "mark_price": "100",
+                "affected_instruments": [3, 5],
+            }
+        )
+    )
+    assert isinstance(cross, PerpsNotificationEvent)
+    assert isinstance(cross.payload, PerpsCrossLiquidationWarningNotification)
+    assert cross.payload.affected_instruments == (3, 5)
+
+
+def test_session_notification_event_parses_position_liquidated_with_null_pnl() -> None:
+    event = parse_perps_session_event(
+        _notification_frame(
+            {
+                "id": "5f4a3c2b-1d0e-49f8-a7b6-c5d4e3f2a1b0",
+                "type": "position_liquidated",
+                "instrument_id": 3,
+                "side": "long",
+                "size_closed": "1.5",
+                "pnl": None,
+                "margin_type": "cross",
+                "via_backstop": True,
+            }
+        )
+    )
+    assert isinstance(event, PerpsNotificationEvent)
+    assert isinstance(event.payload, PerpsPositionLiquidatedNotification)
+    assert event.payload.pnl is None
+    assert event.payload.via_backstop is True
+
+
+def test_session_notification_with_unknown_type_fails_validation() -> None:
+    with pytest.raises(ValidationError):
+        parse_perps_session_event(
+            _notification_frame(
+                {"id": "5f4a3c2b-1d0e-49f8-a7b6-c5d4e3f2a1b0", "type": "new_notification_kind"}
+            )
+        )
+
+
+def test_notifications_resync_frame_parses_as_server_resync_event() -> None:
+    event = parse_perps_session_event(
+        {"ch": "notifications", "ts": 1751500000000, "sq": 77, "type": "resync"}
+    )
+    assert isinstance(event, PerpsResyncEvent)
+    assert event.reason == "server"
+    assert event.channel == "notifications"
+    assert event.sequence == 77
+    assert event.timestamp is not None

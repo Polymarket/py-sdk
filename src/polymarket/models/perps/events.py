@@ -6,7 +6,7 @@ from typing import Annotated, Any, Literal, cast
 from pydantic import Field, TypeAdapter, ValidationError
 
 from polymarket.models.base import BaseModel
-from polymarket.models.perps._validators import PerpsTimestamp
+from polymarket.models.perps._validators import OptionalPerpsTimestamp, PerpsTimestamp
 from polymarket.models.perps.account import PerpsBalance, PerpsFundingPayment, PerpsPortfolio
 from polymarket.models.perps.funds import PerpsDepositUpdate, PerpsWithdrawalUpdate
 from polymarket.models.perps.market import (
@@ -17,6 +17,7 @@ from polymarket.models.perps.market import (
     PerpsTickerUpdate,
     PerpsTrade,
 )
+from polymarket.models.perps.notifications import PerpsNotification
 from polymarket.models.perps.orders import PerpsFill, PerpsOrder
 from polymarket.models.perps.types import PerpsOrderId, PerpsTpSlLifecycleStatus
 
@@ -36,7 +37,10 @@ _SESSION_CHANNEL_TYPES: dict[str, str] = {
     "funding": "funding",
     "deposits": "deposit",
     "withdrawals": "withdrawal",
+    "notifications": "notification",
 }
+
+_NOTIFICATIONS_CHANNEL = "notifications"
 
 
 class PerpsTradeEvent(BaseModel):
@@ -206,18 +210,31 @@ class PerpsTpSlEvent(BaseModel):
     payload: PerpsTpSlUpdate
 
 
+class PerpsNotificationEvent(BaseModel):
+    """An account notification for the session account."""
+
+    type: Literal["notification"]
+    channel: str
+    timestamp: PerpsTimestamp
+    sequence: int
+    payload: PerpsNotification
+
+
 class PerpsResyncEvent(BaseModel):
     """A signal that session state should be refetched.
 
-    Emitted after a reconnect and when a gap is detected in a channel's
-    sequence numbers.
+    Emitted after a reconnect, when a gap is detected in a channel's
+    sequence numbers, and when the server reports dropped ``notifications``
+    frames (``reason="server"``); a server resync's ``sequence`` is the
+    highest engine sequence among the dropped notifications.
     """
 
     type: Literal["resync"] = "resync"
-    reason: Literal["reconnect", "sequence_gap"]
+    reason: Literal["reconnect", "sequence_gap", "server"]
     channel: str | None = None
     previous_sequence: int | None = None
     sequence: int | None = None
+    timestamp: OptionalPerpsTimestamp = None
 
 
 PerpsSessionEvent = (
@@ -228,6 +245,7 @@ PerpsSessionEvent = (
     | PerpsFundingEvent
     | PerpsDepositEvent
     | PerpsWithdrawalEvent
+    | PerpsNotificationEvent
     | PerpsTpSlEvent
     | PerpsResyncEvent
 )
@@ -240,6 +258,7 @@ _SessionUpdateEvent = Annotated[
     | PerpsFundingEvent
     | PerpsDepositEvent
     | PerpsWithdrawalEvent
+    | PerpsNotificationEvent
     | PerpsTpSlEvent,
     Field(discriminator="type"),
 ]
@@ -306,6 +325,15 @@ def parse_perps_session_event(raw: object) -> PerpsSessionEvent | None:
     channel = wire.get("ch")
     if not isinstance(channel, str) or "ts" not in wire or "sq" not in wire:
         return None
+    if channel == _NOTIFICATIONS_CHANNEL and wire.get("type") == "resync":
+        return PerpsResyncEvent.model_validate(
+            {
+                "reason": "server",
+                "channel": channel,
+                "sequence": wire.get("sq"),
+                "timestamp": wire.get("ts"),
+            }
+        )
     if _TPSL_CHANNEL.match(channel):
         event_type = "tpsl"
     else:
@@ -354,6 +382,7 @@ __all__ = [
     "PerpsFillEvent",
     "PerpsFundingEvent",
     "PerpsMarketEvent",
+    "PerpsNotificationEvent",
     "PerpsOrderEvent",
     "PerpsPortfolioEvent",
     "PerpsResyncEvent",
