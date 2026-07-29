@@ -31,6 +31,7 @@ class SyncSecureClientContext(SyncClientContext):
     wallet_type: WalletType
     relayer: SyncTransport
     combos: SyncTransport
+    builder_gateway: SyncTransport
     api_key: ApiKey | None
     rpc: SyncJsonRpcClient
 
@@ -54,6 +55,7 @@ class AsyncSecureClientContext(AsyncClientContext):
     wallet_type: WalletType
     relayer: AsyncTransport
     combos: AsyncTransport
+    builder_gateway: AsyncTransport
     api_key: ApiKey | None
     rpc: JsonRpcClient
 

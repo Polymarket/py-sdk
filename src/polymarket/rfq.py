@@ -9,7 +9,7 @@ from typing import Any, Literal, Protocol, TypeAlias, runtime_checkable
 
 from polymarket.errors import PolymarketError
 from polymarket.models.types import ComboConditionId, PositionId
-from polymarket.types import EvmAddress, TransactionHash
+from polymarket.types import EvmAddress, HexString, TransactionHash
 
 RfqId: TypeAlias = str
 RfqQuoteId: TypeAlias = str
@@ -48,6 +48,49 @@ class RfqExecutionStatus(StrEnum):
     FAILED = "FAILED"
 
 
+class RfqStatus(StrEnum):
+    """Lifecycle status of an RFQ."""
+
+    AWAITING_REQUESTER_ACCEPTANCE = "AWAITING_REQUESTER_ACCEPTANCE"
+    AWAITING_MAKER_CONFIRMATION = "AWAITING_MAKER_CONFIRMATION"
+    EXECUTING = "EXECUTING"
+    FILLED = "FILLED"
+    FAILED = "FAILED"
+    EXPIRED = "EXPIRED"
+    CANCELED = "CANCELED"
+
+
+class RfqRejectionCode(StrEnum):
+    """Known reasons an RFQ request or acceptance is rejected.
+
+    The rejection vocabulary evolves independently of released clients; codes
+    not yet enumerated here are carried on ``RfqRequestRejectedError.code`` as
+    plain strings.
+    """
+
+    INVALID_RFQ = "INVALID_RFQ"
+    CONTRADICTORY_LEGS = "CONTRADICTORY_LEGS"
+    LEG_METADATA_UNAVAILABLE = "LEG_METADATA_UNAVAILABLE"
+    INVALID_ACCEPTANCE = "INVALID_ACCEPTANCE"
+    INVALID_QUOTE = "INVALID_QUOTE"
+    INVALID_SIGNATURE = "INVALID_SIGNATURE"
+
+
+class ComboQuoteUnavailableReason(StrEnum):
+    """Reason no quote was returned for a combo quote request."""
+
+    NO_QUOTES = "NO_QUOTES"
+    SIZE_TOO_LARGE = "SIZE_TOO_LARGE"
+
+
+class ComboAcceptFailureReason(StrEnum):
+    """Reason an accepted combo quote did not proceed to a fill."""
+
+    MAKER_DECLINED = "MAKER_DECLINED"
+    ACCEPTANCE_WINDOW_EXPIRED = "ACCEPTANCE_WINDOW_EXPIRED"
+    EXECUTION_FAILED = "EXECUTION_FAILED"
+
+
 class RfqErrorCode(StrEnum):
     """Known RFQ error codes.
 
@@ -75,6 +118,7 @@ class RfqErrorCode(StrEnum):
     INTERNAL_ERROR = "INTERNAL_ERROR"
     LEG_METADATA_UNAVAILABLE = "LEG_METADATA_UNAVAILABLE"
     MAKER_ALREADY_RESPONDED = "MAKER_ALREADY_RESPONDED"
+    MAKER_DECLINED = "MAKER_DECLINED"
     MAKER_NOT_REQUIRED = "MAKER_NOT_REQUIRED"
     MAKER_QUOTE_LIMITED = "MAKER_QUOTE_LIMITED"
     MISSING_MAKER_ADDRESS_IN_QUOTE = "MISSING_MAKER_ADDRESS_IN_QUOTE"
@@ -89,6 +133,7 @@ class RfqErrorCode(StrEnum):
     MISSING_TAKER_AMOUNT_IN_SIGNED_ORDER = "MISSING_TAKER_AMOUNT_IN_SIGNED_ORDER"
     MISSING_TIMESTAMP_IN_SIGNED_ORDER = "MISSING_TIMESTAMP_IN_SIGNED_ORDER"
     MISSING_TOKEN_ID_IN_SIGNED_ORDER = "MISSING_TOKEN_ID_IN_SIGNED_ORDER"
+    NO_QUOTES = "NO_QUOTES"
     ORDER_SIDE_OR_TOKEN_DOES_NOT_MATCH_REQUEST = "ORDER_SIDE_OR_TOKEN_DOES_NOT_MATCH_REQUEST"
     PRE_EXECUTION_BALANCE_RESERVATION_FAILED = "PRE_EXECUTION_BALANCE_RESERVATION_FAILED"
     PRICE_E6_NOT_POSITIVE = "PRICE_E6_NOT_POSITIVE"
@@ -109,6 +154,7 @@ class RfqErrorCode(StrEnum):
     SIGNED_ORDER_SIZE_DOES_NOT_COVER_QUOTE = "SIGNED_ORDER_SIZE_DOES_NOT_COVER_QUOTE"
     SIGNED_ORDER_TAKER_AMOUNT_NOT_POSITIVE = "SIGNED_ORDER_TAKER_AMOUNT_NOT_POSITIVE"
     SIZE_E6_NOT_POSITIVE = "SIZE_E6_NOT_POSITIVE"
+    SIZE_TOO_LARGE = "SIZE_TOO_LARGE"
     SUBMISSION_WINDOW_CLOSED = "SUBMISSION_WINDOW_CLOSED"
     TRADE_SUBMISSION_FAILED = "TRADE_SUBMISSION_FAILED"
     UNAUTHENTICATED = "UNAUTHENTICATED"
@@ -138,6 +184,102 @@ class RfqCancelQuoteAck:
 class RfqConfirmationAck:
     rfq_id: RfqId
     quote_id: RfqQuoteId
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RfqErrorDetail:
+    """Structured error reported for an RFQ."""
+
+    code: RfqErrorCode | str
+    message: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ComboQuote:
+    """The winning quote for a combo quote request.
+
+    ``maker_amount`` and ``taker_amount`` are the amounts of the acceptance
+    order: for a BUY, collateral spent and outcome tokens received; for a
+    SELL, outcome tokens sold and collateral received. ``total_required`` is
+    the total collateral (BUY) or position-share (SELL) balance required to
+    accept. ``expires_at`` is the acceptance deadline in Unix milliseconds.
+    """
+
+    quote_id: RfqQuoteId
+    blended_price: Decimal
+    maker_amount: Decimal
+    taker_amount: Decimal
+    total_required: Decimal
+    expires_at: int
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ComboQuoteResult:
+    """Outcome of a combo quote request.
+
+    ``quote`` is ``None`` when the request attracted no usable quotes; then
+    ``reason`` explains why. When a quote is present, ``position_id``,
+    ``condition_id``, and ``builder_code`` carry the combo position and
+    builder attribution the acceptance order trades with.
+    """
+
+    rfq_id: RfqId
+    direction: RfqDirection
+    quote: ComboQuote | None
+    reason: ComboQuoteUnavailableReason | None = None
+    position_id: PositionId | None = None
+    condition_id: ComboConditionId | None = None
+    builder_code: HexString | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ComboQuoteAcceptance:
+    """Outcome of accepting a combo quote.
+
+    ``executing`` means the trade was handed off for onchain execution;
+    follow it with ``wait_for_combo_fill``. A maker declining or the
+    acceptance window expiring is a normal outcome reported as ``failed``
+    with a ``reason``.
+
+    ``taker_order_hash`` identifies the recorded acceptance order. It is
+    ``None`` when a retry attached to an acceptance recorded by an earlier
+    attempt; the retried order was not the one recorded.
+    """
+
+    rfq_id: RfqId
+    status: Literal["executing", "failed"]
+    taker_order_hash: HexString | None = None
+    reason: ComboAcceptFailureReason | None = None
+    error: RfqErrorDetail | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RfqStatusResult:
+    """Status of an accepted RFQ.
+
+    Onchain execution progress is merged into ``status``: execution statuses
+    surface alongside the RFQ lifecycle values.
+    """
+
+    rfq_id: RfqId
+    status: RfqStatus | RfqExecutionStatus
+    taker_order_hash: HexString | None = None
+    tx_hash: TransactionHash | None = None
+    error: RfqErrorDetail | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ComboFillResult:
+    """Terminal state of an accepted RFQ.
+
+    ``tx_hash`` is set when the RFQ filled. Terminal failure is a normal
+    outcome reported through ``status`` and ``error``, not raised.
+    """
+
+    rfq_id: RfqId
+    status: Literal[RfqStatus.FILLED, RfqStatus.FAILED, RfqStatus.EXPIRED, RfqStatus.CANCELED]
+    tx_hash: TransactionHash | None = None
+    error: RfqErrorDetail | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -222,6 +364,27 @@ RfqEvent = (
 )
 
 
+class RfqRequestRejectedError(PolymarketError):
+    """Error raised when an RFQ request or acceptance is rejected.
+
+    ``code`` distinguishes permanent input problems (``INVALID_RFQ``,
+    ``CONTRADICTORY_LEGS``) from transient conditions
+    (``LEG_METADATA_UNAVAILABLE``) that may be retried. Codes not enumerated
+    in ``RfqRejectionCode`` are carried as plain strings.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status: int,
+        code: RfqRejectionCode | str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.status = status
+        self.code = code
+
+
 class RfqQuoteRejectedError(PolymarketError):
     def __init__(
         self,
@@ -302,6 +465,12 @@ class RfqSession(Protocol):
 
 
 __all__ = [
+    "ComboAcceptFailureReason",
+    "ComboFillResult",
+    "ComboQuote",
+    "ComboQuoteAcceptance",
+    "ComboQuoteResult",
+    "ComboQuoteUnavailableReason",
     "RfqCancelQuoteAck",
     "RfqCancelQuoteRejectedError",
     "RfqConfirmationAck",
@@ -310,6 +479,7 @@ __all__ = [
     "RfqConfirmationRequestEvent",
     "RfqDirection",
     "RfqErrorCode",
+    "RfqErrorDetail",
     "RfqEvent",
     "RfqExecutionStatus",
     "RfqExecutionUpdateEvent",
@@ -319,10 +489,14 @@ __all__ = [
     "RfqQuoteRejectedError",
     "RfqQuoteRequestEvent",
     "RfqQuoteSource",
+    "RfqRejectionCode",
+    "RfqRequestRejectedError",
     "RfqRequestedSize",
     "RfqRequestedSizeUnit",
     "RfqRequestorPublicId",
     "RfqSession",
     "RfqSide",
+    "RfqStatus",
+    "RfqStatusResult",
     "RfqTradeEvent",
 ]
