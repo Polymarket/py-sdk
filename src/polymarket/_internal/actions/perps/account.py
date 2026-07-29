@@ -136,11 +136,9 @@ def list_fills(
             )
         )
         items = tuple(PerpsFill.parse_response(item) for item in data)
-        last = as_json_dict(data[-1]) if data else None
-        trade_id = last.get("trade_id") if last is not None else None
-        if not more or isinstance(trade_id, bool) or not isinstance(trade_id, int):
+        if not more or not items:
             return Page(items=items, has_more=False)
-        return Page(items=items, has_more=True, next_cursor=str(trade_id))
+        return Page(items=items, has_more=True, next_cursor=str(items[-1].trade_id))
 
     return AsyncPaginator(fetch=fetch, initial_cursor=cursor)
 
