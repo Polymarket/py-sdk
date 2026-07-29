@@ -422,6 +422,13 @@ def list_activity_spec(
                     f"activity_types entries must be one of {_ACTIVITY_TYPES}, got {value!r}."
                 )
 
+    # The service defaults excludeDepositsWithdrawals=true and drops DEPOSIT and
+    # WITHDRAWAL from the type filter even when requested explicitly, so opt out
+    # of the exclusion whenever the caller asks for those types.
+    exclude_deposits_withdrawals: bool | None = None
+    if activity_types is not None and {"DEPOSIT", "WITHDRAWAL"} & set(activity_types):
+        exclude_deposits_withdrawals = False
+
     return OffsetPaginatedSpec(
         service="data",
         path="/activity",
@@ -431,6 +438,7 @@ def list_activity_spec(
                 "market": market,
                 "eventId": event_id,
                 "type": activity_types,
+                "excludeDepositsWithdrawals": exclude_deposits_withdrawals,
                 "start": start,
                 "end": end,
                 "sortBy": sort_by,
