@@ -770,3 +770,45 @@ def test_gasless_submit_retries_on_retryable_400_then_succeeds() -> None:
     assert handle.transaction_id == "tx-retry"
     submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
     assert len(submit_calls) == 2
+
+
+def test_gasless_submit_self_heals_with_nonce_from_submit_error() -> None:
+    captured: list[httpx.Request] = []
+    attempts = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        path = urlparse(str(request.url)).path
+        if path == "/v1/account/transactions/params":
+            return httpx.Response(200, json={"address": "0xRELAY", "nonce": "9"}, request=request)
+        if path == "/submit":
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                return httpx.Response(
+                    400,
+                    json={"error": "batch nonce 9 does not match on-chain nonce 2"},
+                    request=request,
+                )
+            return httpx.Response(
+                200,
+                json={
+                    "state": "STATE_NEW",
+                    "transactionHash": None,
+                    "transactionID": "tx-healed",
+                },
+                request=request,
+            )
+        return httpx.Response(404, request=request)
+
+    with make_sync_deposit_client() as client:
+        install_sync_relayer_handler(client, handler)
+        handle = client.approve_erc20(token_address=TOKEN, spender_address=SPENDER, amount=1)
+
+    assert handle.transaction_id == "tx-healed"
+    params_calls = [
+        r for r in captured if urlparse(str(r.url)).path == "/v1/account/transactions/params"
+    ]
+    assert len(params_calls) == 1
+    submit_bodies = [request_json(r) for r in captured if urlparse(str(r.url)).path == "/submit"]
+    assert [body["nonce"] for body in submit_bodies] == ["9", "2"]
+    assert submit_bodies[0]["signature"] != submit_bodies[1]["signature"]
