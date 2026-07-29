@@ -7,7 +7,12 @@ from polymarket._internal.streams.rtds.protocol import (
     server_subscriptions_for,
 )
 from polymarket.models.rtds_events import RtdsEvent, parse_rtds_event
-from polymarket.streams._specs import CommentsSpec, CryptoPricesSpec, EquityPricesSpec
+from polymarket.streams._specs import (
+    CommentsSpec,
+    CryptoPricesChainlinkTwapSpec,
+    CryptoPricesSpec,
+    EquityPricesSpec,
+)
 
 
 def test_comments_defaults_to_comment_created_only_when_unspecified() -> None:
@@ -42,6 +47,14 @@ def test_crypto_uses_wire_topic_name() -> None:
     assert chainlink == (type(chainlink[0])(topic="crypto_prices_chainlink", type="update"),)
 
 
+def test_chainlink_twap_uses_window_specific_wire_topic() -> None:
+    thirty = server_subscriptions_for(CryptoPricesChainlinkTwapSpec(window_seconds=30))
+    sixty = server_subscriptions_for(CryptoPricesChainlinkTwapSpec(window_seconds=60))
+
+    assert thirty == (type(thirty[0])(topic="crypto_prices_twap_thirty", type="update"),)
+    assert sixty == (type(sixty[0])(topic="crypto_prices_twap_sixty", type="update"),)
+
+
 def test_equity_always_server_subscribes_to_update_only() -> None:
     srvs = server_subscriptions_for(EquityPricesSpec(symbol="AAPL"))
     assert srvs == (type(srvs[0])(topic="equity_prices", type="update"),)
@@ -70,6 +83,21 @@ def test_dedup_keeps_distinct_topics_separately() -> None:
         ]
     )
     assert set(state.keys()) == {"crypto_prices:update", "crypto_prices_chainlink:update"}
+
+
+def test_chainlink_twap_dedup_shares_a_window_but_keeps_windows_distinct() -> None:
+    state = derive_state(
+        [
+            CryptoPricesChainlinkTwapSpec(window_seconds=30, symbols=["btc/usd"]),
+            CryptoPricesChainlinkTwapSpec(window_seconds=30, symbols=["eth/usd"]),
+            CryptoPricesChainlinkTwapSpec(window_seconds=60, symbols=["btc/usd"]),
+        ]
+    )
+
+    assert set(state) == {
+        "crypto_prices_twap_thirty:update",
+        "crypto_prices_twap_sixty:update",
+    }
 
 
 def test_dedup_keeps_distinct_comment_types() -> None:
@@ -142,6 +170,24 @@ def _crypto_event(symbol: str, topic: str = "crypto_prices") -> RtdsEvent:
     )
 
 
+def _twap_event(symbol: str, window_seconds: int) -> RtdsEvent:
+    topic = "crypto_prices_twap_thirty" if window_seconds == 30 else "crypto_prices_twap_sixty"
+    return parse_rtds_event(
+        {
+            "topic": topic,
+            "type": "update",
+            "timestamp": 1772752582004,
+            "payload": {
+                "symbol": symbol,
+                "value": 1.0,
+                "full_accuracy_value": "1000000000000000000",
+                "timestamp": 1772752581815,
+                "window_s": window_seconds,
+            },
+        }
+    )
+
+
 def _comment_created(parent_entity_id: int = 1, parent_entity_type: str = "Event") -> RtdsEvent:
     return parse_rtds_event(
         {
@@ -199,6 +245,24 @@ def test_crypto_matcher_no_symbol_filter_accepts_all_symbols() -> None:
 def test_crypto_matcher_filters_by_topic_source() -> None:
     matches = matcher_for(CryptoPricesSpec(topic="prices.crypto.binance"))
     assert matches(_crypto_event("btcusdt", topic="crypto_prices_chainlink")) is False
+
+
+def test_chainlink_twap_matcher_filters_by_window_and_symbol() -> None:
+    matches = matcher_for(CryptoPricesChainlinkTwapSpec(window_seconds=30, symbols=["btc/usd"]))
+
+    assert matches(_twap_event("btc/usd", 30)) is True
+    assert matches(_twap_event("eth/usd", 30)) is False
+    assert matches(_twap_event("BTC/USD", 30)) is False
+    assert matches(_twap_event("btc/usd", 60)) is False
+    assert matches(_crypto_event("btc/usd", topic="crypto_prices_chainlink")) is False
+
+
+def test_chainlink_twap_matcher_without_symbols_accepts_all_for_its_window() -> None:
+    matches = matcher_for(CryptoPricesChainlinkTwapSpec(window_seconds=60))
+
+    assert matches(_twap_event("btc/usd", 60)) is True
+    assert matches(_twap_event("eth/usd", 60)) is True
+    assert matches(_twap_event("btc/usd", 30)) is False
 
 
 def test_comments_matcher_filters_by_type() -> None:

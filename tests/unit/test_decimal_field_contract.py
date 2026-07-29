@@ -5,7 +5,7 @@ import pytest
 
 from polymarket.errors import UnexpectedResponseError
 from polymarket.models.clob.order_book import OrderBookLevel
-from polymarket.models.rtds_events import PriceUpdatePayload
+from polymarket.models.rtds_events import CryptoPricesChainlinkTwapPayload, PriceUpdatePayload
 
 
 class TestStrictStringFieldsExposeBareDecimal:
@@ -70,6 +70,15 @@ class TestNumberOrStringValidatorAcceptsBroaderInput:
     def test_bool_input_is_rejected(self) -> None:
         with pytest.raises(UnexpectedResponseError):
             PriceUpdatePayload.parse_response({"symbol": "BTC", "timestamp": 0, "value": True})
+
+
+class TestTwapPayloadExposesBareDecimal:
+    def test_model_field_annotation_is_bare_decimal(self) -> None:
+        assert CryptoPricesChainlinkTwapPayload.model_fields["value"].annotation is Decimal
+
+    def test_get_type_hints_resolves_to_bare_decimal(self) -> None:
+        hints = get_type_hints(CryptoPricesChainlinkTwapPayload)
+        assert hints["value"] is Decimal
 
 
 class TestNoDecimalStringAliasLeaksToPublicSurface:
