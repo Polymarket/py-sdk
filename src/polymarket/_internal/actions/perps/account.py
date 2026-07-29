@@ -34,6 +34,7 @@ from polymarket.models.perps.requests import validate_client_order_id
 from polymarket.models.perps.types import (
     PerpsDepositStatus,
     PerpsPnlInterval,
+    PerpsSortDirection,
     PerpsWithdrawalStatus,
 )
 from polymarket.pagination import AsyncPaginator, Page
@@ -42,6 +43,7 @@ _M = TypeVar("_M", bound=BaseModel)
 
 _PNL_INTERVALS = ("1h", "4h", "1d", "1w")
 _FUND_STATUSES = ("pending", "confirmed", "removed")
+_SORT_DIRECTIONS = ("desc", "asc")
 _WITHDRAWAL_STATUSES = ("pending", "confirmed", "removed", "failed")
 
 
@@ -103,18 +105,32 @@ def list_fills(
     *,
     start: datetime | int | None = None,
     end: datetime | int | None = None,
+    sort: PerpsSortDirection | None = None,
+    cursor: str | None = None,
 ) -> AsyncPaginator[PerpsFill]:
-    return _descending_history(
-        api,
-        path="/v1/account/fills",
-        kind="perpsFills",
-        model=PerpsFill,
-        default_window_ms=ONE_DAY_MS,
-        start=start,
-        end=end,
-        get_key=lambda item: str(item.get("trade_id")),
-        get_timestamp=lambda item: item.get("timestamp"),
-    )
+    if sort is not None and sort not in _SORT_DIRECTIONS:
+        raise UserInputError(f"sort must be one of {list(_SORT_DIRECTIONS)}, got {sort!r}")
+    start_ms = to_epoch_ms("start", start)
+    end_ms = to_epoch_ms("end", end)
+
+    async def fetch(page_cursor: str | None) -> Page[PerpsFill]:
+        data, more = parse_data_envelope(
+            await api.get_json(
+                "/v1/account/fills",
+                params={
+                    "start_timestamp": start_ms,
+                    "end_timestamp": end_ms,
+                    "sort": sort,
+                    "cursor": page_cursor,
+                },
+            )
+        )
+        items = tuple(PerpsFill.parse_response(item) for item in data)
+        if not more or not items:
+            return Page(items=items, has_more=False)
+        return Page(items=items, has_more=True, next_cursor=str(items[-1].trade_id))
+
+    return AsyncPaginator(fetch=fetch, initial_cursor=cursor)
 
 
 def list_funding_payments(
