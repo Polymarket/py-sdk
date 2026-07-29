@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.3.0-b1](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.2.0...polymarket-client-v0.3.0-b1) (2026-07-29)
+
+
+### Features
+
+* add Chainlink TWAP subscriptions ([3094295](https://github.com/Polymarket/py-sdk/commit/3094295c2575bb73ec6220d8d7f71e4811747bce))
+* add Chainlink TWAP subscriptions ([5bd34cf](https://github.com/Polymarket/py-sdk/commit/5bd34cf045a72b60160a29aaebe5f5c6e84b7141))
+* **perps:** paginate fills with the native cursor and sort ([1b87a81](https://github.com/Polymarket/py-sdk/commit/1b87a81162ed746f4f0b9be3b2ea5f175ed41ec5))
+* **perps:** support account notifications in session reads and events ([9ec77d3](https://github.com/Polymarket/py-sdk/commit/9ec77d3d12da3777e6f5afb11f43fd18c57da498))
+* **rfq:** expose granular quote validation errors ([e3a3b2d](https://github.com/Polymarket/py-sdk/commit/e3a3b2d0cec7707fae1e72fe539d4a19f93ef169))
+* **rfq:** expose granular quote validation errors ([91d1221](https://github.com/Polymarket/py-sdk/commit/91d1221a0cc50fb23c8fa49c4101b4e2e934276e))
+
+
+### Bug Fixes
+
+* **errors:** expose retry_after on RequestRejectedError ([338f2d7](https://github.com/Polymarket/py-sdk/commit/338f2d7ef5f18b5b8c8c347ad8d81ade82974e0a))
+* **errors:** reject non-finite retry_after values ([891a413](https://github.com/Polymarket/py-sdk/commit/891a413881d738bde586320ada2493649270432f))
+* **models:** type collateral return event ids as EventId ([8c78c9e](https://github.com/Polymarket/py-sdk/commit/8c78c9ea8d748f29f89a50d50d1871874954d1e1))
+* **models:** type collateral return event ids as EventId ([2b781f2](https://github.com/Polymarket/py-sdk/commit/2b781f2eaef6bf51c718a6345ab7296dd1eb5ed5))
+
+
+### Documentation
+
+* **models:** clarify collateral return event ids are neg-risk ids ([e3b306a](https://github.com/Polymarket/py-sdk/commit/e3b306a12133e980f0dea4e9f439f48177c03a95))
+
 ## [0.2.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.1.0...polymarket-client-v0.2.0) (2026-07-24)
 
 
