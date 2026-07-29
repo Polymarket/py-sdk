@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import dataclasses
 import json
 from collections.abc import Callable
 from decimal import Decimal
+from typing import Any
 
 import httpx
 import pytest
@@ -40,7 +42,7 @@ TAKER_ORDER_HASH = "0x" + "ef" * 32
 LEGS = ["123", "456"]
 CONDITION_ID = "0x03" + "0" * 60
 
-QUOTE_READY = {
+QUOTE_READY: dict[str, Any] = {
     "rfq_id": "rfq-1",
     "status": "AWAITING_REQUESTER_ACCEPTANCE",
     "expires_at": 1_773_890_765_500,
@@ -243,6 +245,8 @@ def test_request_combo_quote_validates_input_before_sending() -> None:
         {"leg_position_ids": LEGS, "direction": "SELL", "size": -1},
         {"leg_position_ids": LEGS, "direction": "HOLD", "amount": 1},
         {"leg_position_ids": LEGS, "direction": "BUY", "amount": 1, "side": "NO"},
+        {"leg_position_ids": LEGS, "direction": "BUY", "amount": float("nan")},
+        {"leg_position_ids": LEGS, "direction": "BUY", "amount": float("inf")},
     ]
 
     for kwargs in invalid_calls:
@@ -490,3 +494,49 @@ def test_fetch_rfq_status_maps_rejections() -> None:
 
     assert rejected.value.status == 409
     assert rejected.value.code == "RFQ_NOT_ACCEPTED"
+
+
+def test_sync_client_requests_and_accepts_a_combo_quote() -> None:
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        if request.url.path.endswith("/accept"):
+            return httpx.Response(
+                200,
+                json={
+                    "rfq_id": "rfq-1",
+                    "status": "EXECUTING",
+                    "taker_order_hash": TAKER_ORDER_HASH,
+                },
+                request=request,
+            )
+        return httpx.Response(200, json=QUOTE_READY, request=request)
+
+    client = make_sync_eoa_client()
+    install_sync_builder_gateway_handler(client, handler)
+
+    result = client.request_combo_quote(leg_position_ids=LEGS, direction="BUY", amount=100)
+    assert result.quote is not None
+
+    acceptance = client.accept_combo_quote(result)
+
+    accept_request = captured[1]
+    assert accept_request.url.path == "/v1/builder/rfq/requests/rfq-1/accept"
+    body = json.loads(accept_request.content.decode("utf-8"))
+    assert body["quote_id"] == "quote-1"
+    assert body["signed_order"]["makerAmount"] == "966191"
+    assert acceptance.status == "executing"
+    assert acceptance.taker_order_hash == TAKER_ORDER_HASH
+
+
+def test_request_combo_quote_rejects_malformed_condition_id() -> None:
+    from polymarket.errors import UnexpectedResponseError
+
+    malformed = copy.deepcopy(QUOTE_READY)
+    malformed["request"]["condition_id"] = "0x04" + "0" * 60
+    client = make_sync_eoa_client()
+    install_sync_builder_gateway_handler(client, json_handler(httpx.Response(200, json=malformed)))
+
+    with pytest.raises(UnexpectedResponseError):
+        client.request_combo_quote(leg_position_ids=LEGS, direction="BUY", amount=100)

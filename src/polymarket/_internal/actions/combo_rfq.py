@@ -419,6 +419,8 @@ def _decimal_to_e6(name: str, value: Decimal | int | float | str) -> int:
         decimal = Decimal(str(value))
     except (InvalidOperation, ValueError) as error:
         raise UserInputError(f"{name} must be a valid decimal.") from error
+    if not decimal.is_finite():
+        raise UserInputError(f"{name} must be a valid decimal.")
     if decimal <= 0:
         raise UserInputError(f"{name} must be greater than 0.")
     scaled = decimal * _E6
@@ -607,7 +609,7 @@ def _parse_error_code(value: str) -> RfqErrorCode | str:
 def _parse_condition_id(value: str) -> ComboConditionId:
     try:
         return to_combo_condition_id(value)
-    except ValueError as error:
+    except TypeError as error:
         raise UnexpectedResponseError(f"Invalid combo condition ID: {value}") from error
 
 
