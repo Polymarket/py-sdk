@@ -8,7 +8,6 @@ from polymarket._internal.actions.relayer.poll import poll_until_terminal
 from polymarket._internal.actions.relayer.submit import (
     RelayerEnvelope,
     is_retryable_submit_error,
-    onchain_nonce_from_submit_error,
     submit_gasless,
 )
 from polymarket.clients._transport import AsyncTransport
@@ -106,22 +105,6 @@ def test_is_retryable_submit_error_classification() -> None:
 
     assert is_retryable_submit_error(RateLimitError("slow down"))
     assert not is_retryable_submit_error(UnexpectedResponseError("bad json"))
-
-
-def test_onchain_nonce_from_submit_error_extraction() -> None:
-    behind = RequestRejectedError("batch nonce 5 does not match on-chain nonce 7", status=400)
-    assert onchain_nonce_from_submit_error(behind) == "7"
-
-    ahead = RequestRejectedError("batch nonce 9 does not match on-chain nonce 7", status=400)
-    assert onchain_nonce_from_submit_error(ahead) == "7"
-
-    unrelated = RequestRejectedError("totally unrelated", status=400)
-    assert onchain_nonce_from_submit_error(unrelated) is None
-
-    server_error = RequestRejectedError("batch nonce 5 does not match on-chain nonce 7", status=500)
-    assert onchain_nonce_from_submit_error(server_error) is None
-
-    assert onchain_nonce_from_submit_error(RateLimitError("slow down")) is None
 
 
 def test_execute_params_rejects_empty_nonce() -> None:
