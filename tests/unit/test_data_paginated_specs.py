@@ -180,6 +180,47 @@ def test_list_activity_spec_validates_type_entries() -> None:
         data_actions.list_activity_spec(user="0xWALLET", activity_types=["BOGUS"])  # type: ignore[list-item]
 
 
+def test_list_activity_spec_accepts_cash_activity_types() -> None:
+    spec = data_actions.list_activity_spec(
+        user="0xWALLET",
+        activity_types=["DEPOSIT", "WITHDRAWAL", "TAKER_REBATE"],
+    )
+    assert spec.base_params == {
+        "user": "0xWALLET",
+        "type": "DEPOSIT,WITHDRAWAL,TAKER_REBATE",
+        "excludeDepositsWithdrawals": False,
+    }
+
+
+@pytest.mark.parametrize(
+    "activity_types",
+    [["DEPOSIT"], ["WITHDRAWAL"], ["TRADE", "DEPOSIT"]],
+)
+def test_list_activity_spec_disables_deposit_withdrawal_exclusion(
+    activity_types: list[str],
+) -> None:
+    spec = data_actions.list_activity_spec(
+        user="0xWALLET",
+        activity_types=activity_types,  # type: ignore[arg-type]
+    )
+    assert spec.base_params == {
+        "user": "0xWALLET",
+        "type": ",".join(activity_types),
+        "excludeDepositsWithdrawals": False,
+    }
+
+
+def test_list_activity_spec_keeps_exclusion_default_for_other_types() -> None:
+    spec = data_actions.list_activity_spec(
+        user="0xWALLET",
+        activity_types=["TAKER_REBATE", "MAKER_REBATE"],
+    )
+    assert spec.base_params == {
+        "user": "0xWALLET",
+        "type": "TAKER_REBATE,MAKER_REBATE",
+    }
+
+
 @pytest.mark.parametrize("field", ["start", "end"])
 def test_list_activity_spec_rejects_negative_time_bounds(field: str) -> None:
     with pytest.raises(UserInputError, match=field):
