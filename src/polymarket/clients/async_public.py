@@ -119,7 +119,6 @@ from polymarket.models.rtds_events import (
 from polymarket.models.sports_events import SportsEvent
 from polymarket.models.types import CtfConditionId, TokenId
 from polymarket.pagination import AsyncPaginator, Page
-from polymarket.rate_limit import RateLimitUpdateListener
 from polymarket.streams._specs import (
     CommentsSpec,
     CryptoPricesChainlinkTwapSpec,
@@ -152,18 +151,13 @@ class AsyncPublicClient:
         environment: Environment = PRODUCTION,
         *,
         logger: logging.Logger | None = None,
-        on_rate_limit_update: RateLimitUpdateListener | None = None,
     ) -> None:
         self._ctx = AsyncClientContext(
             environment=environment,
             gamma=AsyncTransport(base_url=environment.gamma_url, logger=logger),
             data=AsyncTransport(base_url=environment.data_url, logger=logger),
             rfq=AsyncTransport(base_url=environment.rfq_url, logger=logger),
-            clob=AsyncTransport(
-                base_url=environment.clob_url,
-                logger=logger,
-                on_rate_limit_update=on_rate_limit_update,
-            ),
+            clob=AsyncTransport(base_url=environment.clob_url, logger=logger),
             perps=AsyncTransport(base_url=environment.perps_url, logger=logger),
         )
         self._market_manager: ClobMarketStreamManager | None = None

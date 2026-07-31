@@ -183,6 +183,7 @@ def test_sync_transport_ignores_out_of_range_retry_after_seconds_in_body(body: b
 
 
 def test_sync_transport_exposes_rate_limit_state_on_rate_limit_response() -> None:
+    updates: list[RateLimitUpdate] = []
     transport = SyncTransport(
         base_url="https://example.test",
         client=httpx.Client(
@@ -200,18 +201,21 @@ def test_sync_transport_exposes_rate_limit_state_on_rate_limit_response() -> Non
                 )
             ),
         ),
+        on_rate_limit_update=updates.append,
     )
 
     with pytest.raises(RateLimitError) as exc_info:
         transport.post_json("/order", json={})
 
-    assert exc_info.value.retry_after == 3.0
-    assert exc_info.value.rate_limit == RateLimitUpdate(
+    expected = RateLimitUpdate(
         remaining=-2.0,
         reset=1784913054.0,
         tier="standard",
         warning=False,
     )
+    assert exc_info.value.retry_after == 3.0
+    assert exc_info.value.rate_limit == expected
+    assert updates == [expected]
 
 
 def test_sync_transport_notifies_rate_limit_listener() -> None:

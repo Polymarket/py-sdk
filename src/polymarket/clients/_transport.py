@@ -18,7 +18,7 @@ from polymarket.errors import (
     TransportError,
     UnexpectedResponseError,
 )
-from polymarket.rate_limit import RateLimitUpdateListener, parse_rate_limit_headers
+from polymarket.rate_limit import RateLimitUpdate, RateLimitUpdateListener
 
 SyncHeaderResolver: TypeAlias = Callable[[str, str, str | None], Mapping[str, str]]
 HeaderResolver: TypeAlias = Callable[[str, str, str | None], Awaitable[Mapping[str, str]]]
@@ -327,6 +327,40 @@ def _log_failure(
     )
 
 
+def _parse_rate_limit_headers(headers: httpx.Headers) -> RateLimitUpdate | None:
+    """Parse the ``Poly-RateLimit-*`` response headers.
+
+    Returns ``None`` when the response carries none of them.
+    """
+    remaining = _parse_numeric_header(headers.get("Poly-RateLimit-Remaining"))
+    reset = _parse_numeric_header(headers.get("Poly-RateLimit-Reset"))
+    tier = _parse_text_header(headers.get("Poly-RateLimit-Tier"))
+    warning_header = _parse_text_header(headers.get("Poly-RateLimit-Warning"))
+    warning = warning_header is not None and warning_header.lower() == "true"
+
+    if remaining is None and reset is None and tier is None and not warning:
+        return None
+
+    return RateLimitUpdate(remaining=remaining, reset=reset, tier=tier, warning=warning)
+
+
+def _parse_numeric_header(value: str | None) -> float | None:
+    if value is None:
+        return None
+    try:
+        parsed = float(value.strip())
+    except ValueError:
+        return None
+    return parsed if math.isfinite(parsed) else None
+
+
+def _parse_text_header(value: str | None) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped if stripped else None
+
+
 def _notify_rate_limit_update(
     listener: RateLimitUpdateListener | None,
     logger: logging.Logger | None,
@@ -335,7 +369,7 @@ def _notify_rate_limit_update(
     if listener is None:
         return
 
-    update = parse_rate_limit_headers(response.headers)
+    update = _parse_rate_limit_headers(response.headers)
     if update is None:
         return
 
@@ -354,7 +388,7 @@ def _raise_for_response_status(response: httpx.Response) -> None:
         raise RateLimitError(
             f"Request to {response.url} was rate limited",
             retry_after=_extract_retry_after(response),
-            rate_limit=parse_rate_limit_headers(response.headers),
+            rate_limit=_parse_rate_limit_headers(response.headers),
         )
 
     raise RequestRejectedError(

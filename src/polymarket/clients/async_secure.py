@@ -451,7 +451,7 @@ class AsyncSecureClient:
         credentials: ApiKeyCreds,
         api_key: ApiKey | None,
         logger: logging.Logger | None,
-        on_rate_limit_update: RateLimitUpdateListener | None = None,
+        on_rate_limit_update: RateLimitUpdateListener | None,
     ) -> Self:
         wallet_checksum = to_checksum_address(wallet)
         wallet_type = classify_wallet_type(

@@ -94,7 +94,6 @@ from polymarket.models.data import (
 )
 from polymarket.models.types import CtfConditionId, TokenId
 from polymarket.pagination import Page, Paginator
-from polymarket.rate_limit import RateLimitUpdateListener
 
 
 class PublicClient:
@@ -108,18 +107,13 @@ class PublicClient:
         environment: Environment = PRODUCTION,
         *,
         logger: logging.Logger | None = None,
-        on_rate_limit_update: RateLimitUpdateListener | None = None,
     ) -> None:
         self._ctx = SyncClientContext(
             environment=environment,
             gamma=SyncTransport(base_url=environment.gamma_url, logger=logger),
             data=SyncTransport(base_url=environment.data_url, logger=logger),
             rfq=SyncTransport(base_url=environment.rfq_url, logger=logger),
-            clob=SyncTransport(
-                base_url=environment.clob_url,
-                logger=logger,
-                on_rate_limit_update=on_rate_limit_update,
-            ),
+            clob=SyncTransport(base_url=environment.clob_url, logger=logger),
         )
 
     @property
