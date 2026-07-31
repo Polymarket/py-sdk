@@ -4,7 +4,7 @@ import logging
 import httpx
 import pytest
 
-from polymarket import PublicClient
+from polymarket import PublicClient, RateLimitUpdate
 from polymarket.clients._transport import AsyncTransport, SyncTransport
 from polymarket.errors import (
     RateLimitError,
@@ -182,6 +182,112 @@ def test_sync_transport_ignores_out_of_range_retry_after_seconds_in_body(body: b
     assert exc_info.value.retry_after is None
 
 
+def test_sync_transport_exposes_rate_limit_state_on_rate_limit_response() -> None:
+    transport = SyncTransport(
+        base_url="https://example.test",
+        client=httpx.Client(
+            base_url="https://example.test",
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(
+                    429,
+                    headers={
+                        "Retry-After": "3",
+                        "Poly-RateLimit-Remaining": "-2",
+                        "Poly-RateLimit-Reset": "1784913054",
+                        "Poly-RateLimit-Tier": "standard",
+                    },
+                    request=request,
+                )
+            ),
+        ),
+    )
+
+    with pytest.raises(RateLimitError) as exc_info:
+        transport.post_json("/order", json={})
+
+    assert exc_info.value.retry_after == 3.0
+    assert exc_info.value.rate_limit == RateLimitUpdate(
+        remaining=-2.0,
+        reset=1784913054.0,
+        tier="standard",
+        warning=False,
+    )
+
+
+def test_sync_transport_notifies_rate_limit_listener() -> None:
+    updates: list[RateLimitUpdate] = []
+    transport = SyncTransport(
+        base_url="https://example.test",
+        client=httpx.Client(
+            base_url="https://example.test",
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(
+                    200,
+                    json={"ok": True},
+                    headers={
+                        "Poly-RateLimit-Remaining": "59",
+                        "Poly-RateLimit-Reset": "1784913054",
+                        "Poly-RateLimit-Tier": "standard",
+                        "Poly-RateLimit-Warning": "true",
+                    },
+                    request=request,
+                )
+            ),
+        ),
+        on_rate_limit_update=updates.append,
+    )
+
+    assert transport.post_json("/order", json={}) == {"ok": True}
+    assert updates == [
+        RateLimitUpdate(
+            remaining=59.0,
+            reset=1784913054.0,
+            tier="standard",
+            warning=True,
+        )
+    ]
+
+
+def test_sync_transport_skips_rate_limit_listener_without_headers() -> None:
+    updates: list[RateLimitUpdate] = []
+    transport = SyncTransport(
+        base_url="https://example.test",
+        client=httpx.Client(
+            base_url="https://example.test",
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(200, json={"ok": True}, request=request)
+            ),
+        ),
+        on_rate_limit_update=updates.append,
+    )
+
+    assert transport.get_json("/markets/1") == {"ok": True}
+    assert updates == []
+
+
+def test_sync_transport_ignores_rate_limit_listener_errors() -> None:
+    def explode(update: RateLimitUpdate) -> None:
+        raise RuntimeError("listener failure")
+
+    transport = SyncTransport(
+        base_url="https://example.test",
+        client=httpx.Client(
+            base_url="https://example.test",
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(
+                    200,
+                    json={"ok": True},
+                    headers={"Poly-RateLimit-Remaining": "10"},
+                    request=request,
+                )
+            ),
+        ),
+        on_rate_limit_update=explode,
+    )
+
+    assert transport.post_json("/order", json={}) == {"ok": True}
+
+
 def test_sync_transport_maps_non_json_success_response() -> None:
     transport = SyncTransport(
         base_url="https://example.test",
@@ -235,6 +341,35 @@ def test_async_transport_returns_json_payload() -> None:
         assert await transport.get_json("/markets/1") == {"ok": True}
 
     asyncio.run(run())
+
+
+def test_async_transport_notifies_rate_limit_listener() -> None:
+    updates: list[RateLimitUpdate] = []
+
+    async def run() -> None:
+        transport = AsyncTransport(
+            base_url="https://example.test",
+            client=httpx.AsyncClient(
+                base_url="https://example.test",
+                transport=httpx.MockTransport(
+                    lambda request: httpx.Response(
+                        200,
+                        json={"ok": True},
+                        headers={
+                            "Poly-RateLimit-Remaining": "59",
+                            "Poly-RateLimit-Tier": "standard",
+                        },
+                        request=request,
+                    )
+                ),
+            ),
+            on_rate_limit_update=updates.append,
+        )
+
+        assert await transport.post_json("/order", json={}) == {"ok": True}
+
+    asyncio.run(run())
+    assert updates == [RateLimitUpdate(remaining=59.0, tier="standard")]
 
 
 def test_client_accepts_logger_and_logs_at_debug(

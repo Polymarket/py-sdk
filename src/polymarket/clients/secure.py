@@ -198,6 +198,7 @@ from polymarket.models.data import (
 )
 from polymarket.models.types import CtfConditionId, TokenId
 from polymarket.pagination import Page, Paginator
+from polymarket.rate_limit import RateLimitUpdateListener
 from polymarket.transactions import (
     MergePositionRequest,
     SyncDeprecatedTransactionHandle,
@@ -263,6 +264,7 @@ class SecureClient:
         api_key: ApiKey | None = None,
         nonce: int = 0,
         logger: logging.Logger | None = None,
+        on_rate_limit_update: RateLimitUpdateListener | None = None,
     ) -> Self:
         """Create an authenticated synchronous client.
 
@@ -273,6 +275,9 @@ class SecureClient:
                 derived during client creation.
             api_key: Optional key for gasless wallet and relayed transaction workflows.
             nonce: Credential derivation nonce. Cannot be combined with ``credentials``.
+            on_rate_limit_update: Listener invoked whenever a response reports
+                per-signer rate-limit state, as order and cancellation responses
+                do. Errors raised by the listener are ignored.
 
         Raises:
             UserInputError: If key material, wallet, nonce, or credentials are invalid.
@@ -287,6 +292,7 @@ class SecureClient:
             nonce=nonce,
             validate_credentials=True,
             logger=logger,
+            on_rate_limit_update=on_rate_limit_update,
         )
         try:
             return client._ensure_wallet_ready()
@@ -306,6 +312,7 @@ class SecureClient:
         nonce: int = 0,
         validate_credentials: bool = True,
         logger: logging.Logger | None = None,
+        on_rate_limit_update: RateLimitUpdateListener | None = None,
     ) -> Self:
         if not private_key:
             raise UserInputError("private_key is required")
@@ -345,6 +352,7 @@ class SecureClient:
             credentials=resolved_credentials,
             api_key=api_key,
             logger=logger,
+            on_rate_limit_update=on_rate_limit_update,
         )
 
     @classmethod
@@ -357,6 +365,7 @@ class SecureClient:
         credentials: ApiKeyCreds,
         api_key: ApiKey | None,
         logger: logging.Logger | None,
+        on_rate_limit_update: RateLimitUpdateListener | None = None,
     ) -> Self:
         try:
             wallet_checksum = to_checksum_address(wallet)
@@ -372,7 +381,11 @@ class SecureClient:
         gamma = SyncTransport(base_url=environment.gamma_url, logger=logger)
         data = SyncTransport(base_url=environment.data_url, logger=logger)
         rfq = SyncTransport(base_url=environment.rfq_url, logger=logger)
-        clob = SyncTransport(base_url=environment.clob_url, logger=logger)
+        clob = SyncTransport(
+            base_url=environment.clob_url,
+            logger=logger,
+            on_rate_limit_update=on_rate_limit_update,
+        )
         relayer_resolver = (
             make_relayer_header_resolver_sync(api_key) if api_key is not None else None
         )
@@ -391,6 +404,7 @@ class SecureClient:
                 base_url=environment.clob_url,
                 logger=logger,
                 header_resolver=_make_l2_header_resolver_sync(signer, credentials),
+                on_rate_limit_update=on_rate_limit_update,
             )
             rpc_transport = SyncTransport(base_url=environment.rpc_url, logger=logger)
             rpc = SyncJsonRpcClient(rpc_transport)

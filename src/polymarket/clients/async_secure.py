@@ -241,6 +241,7 @@ from polymarket.models.rtds_events import (
 from polymarket.models.sports_events import SportsEvent
 from polymarket.models.types import CtfConditionId, TokenId
 from polymarket.pagination import AsyncPaginator, Page
+from polymarket.rate_limit import RateLimitUpdateListener
 from polymarket.streams._specs import (
     CommentsSpec,
     CryptoPricesChainlinkTwapSpec,
@@ -345,6 +346,7 @@ class AsyncSecureClient:
         api_key: ApiKey | None = None,
         nonce: int = 0,
         logger: logging.Logger | None = None,
+        on_rate_limit_update: RateLimitUpdateListener | None = None,
     ) -> Self:
         """Create an authenticated async client.
 
@@ -355,6 +357,9 @@ class AsyncSecureClient:
                 derived during client creation.
             api_key: Optional key for gasless wallet and relayed transaction workflows.
             nonce: Credential derivation nonce. Cannot be combined with ``credentials``.
+            on_rate_limit_update: Listener invoked whenever a response reports
+                per-signer rate-limit state, as order and cancellation responses
+                do. Errors raised by the listener are ignored.
 
         Raises:
             UserInputError: If key material, wallet, nonce, or credentials are invalid.
@@ -369,6 +374,7 @@ class AsyncSecureClient:
             nonce=nonce,
             validate_credentials=True,
             logger=logger,
+            on_rate_limit_update=on_rate_limit_update,
         )
         try:
             return await client._ensure_wallet_ready()
@@ -388,6 +394,7 @@ class AsyncSecureClient:
         nonce: int = 0,
         validate_credentials: bool = True,
         logger: logging.Logger | None = None,
+        on_rate_limit_update: RateLimitUpdateListener | None = None,
     ) -> Self:
         if not private_key:
             raise UserInputError("private_key is required")
@@ -431,6 +438,7 @@ class AsyncSecureClient:
             credentials=resolved_credentials,
             api_key=api_key,
             logger=logger,
+            on_rate_limit_update=on_rate_limit_update,
         )
 
     @classmethod
@@ -443,6 +451,7 @@ class AsyncSecureClient:
         credentials: ApiKeyCreds,
         api_key: ApiKey | None,
         logger: logging.Logger | None,
+        on_rate_limit_update: RateLimitUpdateListener | None = None,
     ) -> Self:
         wallet_checksum = to_checksum_address(wallet)
         wallet_type = classify_wallet_type(
@@ -455,7 +464,11 @@ class AsyncSecureClient:
         gamma = AsyncTransport(base_url=environment.gamma_url, logger=logger)
         data = AsyncTransport(base_url=environment.data_url, logger=logger)
         rfq = AsyncTransport(base_url=environment.rfq_url, logger=logger)
-        clob = AsyncTransport(base_url=environment.clob_url, logger=logger)
+        clob = AsyncTransport(
+            base_url=environment.clob_url,
+            logger=logger,
+            on_rate_limit_update=on_rate_limit_update,
+        )
         relayer_resolver = make_relayer_header_resolver(api_key) if api_key is not None else None
         relayer = AsyncTransport(
             base_url=environment.relayer_url,
@@ -471,6 +484,7 @@ class AsyncSecureClient:
             base_url=environment.clob_url,
             logger=logger,
             header_resolver=_make_l2_header_resolver(signer, credentials),
+            on_rate_limit_update=on_rate_limit_update,
         )
         rpc_transport = AsyncTransport(base_url=environment.rpc_url, logger=logger)
         rpc = JsonRpcClient(rpc_transport)
