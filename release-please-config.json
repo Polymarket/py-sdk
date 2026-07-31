@@ -6,8 +6,7 @@
       "changelog-path": "CHANGELOG.md",
       "versioning": "prerelease",
       "prerelease": true,
-      "prerelease-type": "b",
-      "release-as": "0.3.0-b1"
+      "prerelease-type": "b"
     }
   }
 }
