@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal, TypeAlias, cast
+from typing import Annotated, Literal, TypeAlias, cast
 
 from pydantic import BeforeValidator, Field, field_validator
 
@@ -149,31 +149,6 @@ class ClobTrade(BaseModel):
         return render(self)
 
 
-class Notification(BaseModel):
-    """Account notification."""
-
-    id: int
-    owner: str
-    type: int
-    payload: Any = None
-    timestamp: RequiredEpochOrIsoTimestamp
-
-    @field_validator("id", mode="before")
-    @classmethod
-    def _parse_id(cls, value: object) -> int:
-        if isinstance(value, bool):
-            msg = f"notification id must be an integer, got bool {value!r}"
-            raise ValueError(msg)
-        if isinstance(value, int):
-            return value
-        if isinstance(value, str) and (
-            value.isdigit() or (value.startswith("-") and value[1:].isdigit())
-        ):
-            return int(value)
-        msg = f"notification id must be an integer or numeric string, got {type(value).__name__}"
-        raise ValueError(msg)
-
-
 class BalanceAllowance(BaseModel):
     """Balance and allowance values for an asset in base units."""
 
@@ -222,6 +197,5 @@ __all__ = [
     "BalanceAllowance",
     "ClobTrade",
     "MakerOrder",
-    "Notification",
     "OpenOrder",
 ]

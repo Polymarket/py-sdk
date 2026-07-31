@@ -4,6 +4,7 @@ from typing import Literal, NewType, TypeAlias
 
 OrderSide: TypeAlias = Literal["BUY", "SELL"]
 
+ApiKey = NewType("ApiKey", str)
 BestLineId = NewType("BestLineId", str)
 CategoryId = NewType("CategoryId", str)
 ChatId = NewType("ChatId", str)
@@ -98,6 +99,7 @@ def _is_hex_string(value: object) -> bool:
 
 
 __all__ = [
+    "ApiKey",
     "BestLineId",
     "CategoryId",
     "ChatId",

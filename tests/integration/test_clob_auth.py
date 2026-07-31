@@ -11,6 +11,7 @@ from polymarket import (
     BalanceAllowance,
     ClobTrade,
     Notification,
+    NotificationType,
     OpenOrder,
 )
 
@@ -110,7 +111,7 @@ def test_get_notifications_returns_notification_models(
 
     items = asyncio.run(run())
     for item in items:
-        assert isinstance(item, Notification)
+        assert isinstance(item.type, NotificationType)
 
 
 @pytest.mark.integration
