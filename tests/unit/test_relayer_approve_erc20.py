@@ -354,6 +354,59 @@ def test_approve_erc20_retries_with_fresh_nonce_on_nonce_mismatch() -> None:
     assert submit_bodies[0]["signature"] != submit_bodies[1]["signature"]
 
 
+def test_approve_erc20_self_heals_with_nonce_from_submit_error() -> None:
+    captured: list[httpx.Request] = []
+    submit_attempts = 0
+
+    async def run() -> TransactionHandle:
+        nonlocal submit_attempts
+        client = await make_deposit_client()
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal submit_attempts
+            captured.append(request)
+            path = urlparse(str(request.url)).path
+            if path == "/v1/account/transactions/params":
+                return httpx.Response(
+                    200,
+                    json={"address": client._ctx.signer.address, "nonce": "9"},
+                    request=request,
+                )
+            if path == "/submit":
+                submit_attempts += 1
+                if submit_attempts == 1:
+                    return httpx.Response(
+                        400,
+                        json={"error": "batch nonce 9 does not match on-chain nonce 2"},
+                        request=request,
+                    )
+                return httpx.Response(
+                    200,
+                    json={
+                        "state": "STATE_NEW",
+                        "transactionHash": None,
+                        "transactionID": "tx-healed",
+                    },
+                    request=request,
+                )
+            return httpx.Response(404, request=request)
+
+        install_relayer_handler(client, handler)
+        try:
+            return await client.approve_erc20(
+                token_address=TOKEN, spender_address=SPENDER, amount=1
+            )
+        finally:
+            await client.close()
+
+    handle = asyncio.run(run())
+    assert handle.transaction_id == "tx-healed"
+    assert submit_attempts == 2
+
+    submit_bodies = [request_json(r) for r in captured if urlparse(str(r.url)).path == "/submit"]
+    assert submit_bodies[1]["nonce"] == "2"
+
+
 def test_wait_polls_until_confirmed() -> None:
     captured: list[httpx.Request] = []
     polls = 0

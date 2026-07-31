@@ -292,3 +292,62 @@ def test_execute_resubmits_with_fresh_nonce_on_transient_wallet_busy() -> None:
         request for request in relayer_captured if urlparse(str(request.url)).path == _NONCE_PATH
     ]
     assert len(nonce_fetches) == 2
+
+
+def test_execute_self_heals_with_nonce_from_submit_error() -> None:
+    submit_bodies: list[Any] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        submit_bodies.append(json.loads(request.content.decode("utf-8")))
+        if len(submit_bodies) == 1:
+            return httpx.Response(
+                400,
+                json={"error": "batch nonce 9 does not match on-chain nonce 2"},
+                request=request,
+            )
+        return httpx.Response(200, json=_SUBMIT_OK, request=request)
+
+    async def run() -> None:
+        client = await make_deposit_client()
+        install_relayer_routes(client, [], _nonce_route(client, nonce="9"))
+        install_combos_handler(client, handler)
+        plan = CollateralReturnPlanResponse.parse_response(_plan_payload(wallet=str(client.wallet)))
+        try:
+            handle = await client.execute_collateral_return_plan(plan=plan)
+            assert handle.transaction_id == "tx-collateral-return"
+        finally:
+            await client.close()
+
+    asyncio.run(run())
+    assert len(submit_bodies) == 2
+    assert submit_bodies[1]["envelope"]["nonce"] == "2"
+
+
+def test_sync_execute_self_heals_with_nonce_from_submit_error() -> None:
+    submit_bodies: list[Any] = []
+
+    def relayer_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"address": "0x0", "nonce": "9"}, request=request)
+
+    def submit_handler(request: httpx.Request) -> httpx.Response:
+        submit_bodies.append(json.loads(request.content.decode("utf-8")))
+        if len(submit_bodies) == 1:
+            return httpx.Response(
+                400,
+                json={"error": "batch nonce 9 does not match on-chain nonce 2"},
+                request=request,
+            )
+        return httpx.Response(200, json=_SUBMIT_OK, request=request)
+
+    client = make_sync_deposit_client()
+    install_sync_relayer_handler(client, relayer_handler)
+    install_sync_combos_handler(client, submit_handler)
+    plan = CollateralReturnPlanResponse.parse_response(_plan_payload(wallet=str(client.wallet)))
+    try:
+        handle = client.execute_collateral_return_plan(plan=plan)
+        assert handle.transaction_id == "tx-collateral-return"
+    finally:
+        client.close()
+
+    assert len(submit_bodies) == 2
+    assert submit_bodies[1]["envelope"]["nonce"] == "2"

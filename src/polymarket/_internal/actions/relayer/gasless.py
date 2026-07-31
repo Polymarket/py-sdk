@@ -28,11 +28,12 @@ from polymarket._internal.actions.relayer.submit import (
     GASLESS_SUBMIT_RETRY_ATTEMPTS,
     RelayerEnvelope,
     is_retryable_submit_error,
+    onchain_nonce_from_submit_error,
     submit_gasless,
     submit_gasless_sync,
 )
 from polymarket._internal.context import AsyncSecureClientContext, SyncSecureClientContext
-from polymarket.errors import UserInputError
+from polymarket.errors import RequestRejectedError, UserInputError
 from polymarket.models.clob.relayer import (
     RelayerExecuteResponse,
     RelayerTransactionType,
@@ -109,7 +110,16 @@ async def _submit_for_wallet_type(
     metadata: str,
 ) -> RelayerExecuteResponse:
     payload = await build_signed_payload_for_wallet_type(ctx, calls=calls, metadata=metadata)
-    return await submit_gasless(ctx.relayer, payload=payload)
+    try:
+        return await submit_gasless(ctx.relayer, payload=payload)
+    except RequestRejectedError as error:
+        nonce = onchain_nonce_from_submit_error(error)
+        if nonce is None or ctx.wallet_type != "DEPOSIT_WALLET":
+            raise
+        payload = await build_signed_deposit_wallet_payload(
+            ctx, calls=calls, metadata=metadata, nonce=nonce
+        )
+        return await submit_gasless(ctx.relayer, payload=payload)
 
 
 async def build_signed_payload_for_wallet_type(
@@ -136,16 +146,19 @@ async def build_signed_deposit_wallet_payload(
     *,
     calls: list[TransactionCall],
     metadata: str,
+    nonce: str | None = None,
 ) -> RelayerEnvelope:
-    params = await fetch_execute_params(
-        ctx.relayer, address=ctx.signer.address, type=RelayerTransactionType.WALLET
-    )
+    if nonce is None:
+        params = await fetch_execute_params(
+            ctx.relayer, address=ctx.signer.address, type=RelayerTransactionType.WALLET
+        )
+        nonce = params.nonce
     deadline = str(int(time.time()) + _DEPOSIT_WALLET_DEADLINE_S)
     signature = sign_deposit_wallet_batch(
         ctx.signer,
         wallet=ctx.wallet,
         calls=calls,
-        nonce=params.nonce,
+        nonce=nonce,
         deadline=deadline,
         chain_id=ctx.environment.chain_id,
     )
@@ -154,7 +167,7 @@ async def build_signed_deposit_wallet_payload(
         deposit_wallet_factory=ctx.environment.wallet_derivation.deposit_wallet_factory,
         wallet=ctx.wallet,
         calls=calls,
-        nonce=params.nonce,
+        nonce=nonce,
         deadline=deadline,
         signature=signature,
         metadata=metadata,
@@ -451,7 +464,16 @@ def _submit_for_wallet_type_sync(
     metadata: str,
 ) -> RelayerExecuteResponse:
     payload = build_signed_payload_for_wallet_type_sync(ctx, calls=calls, metadata=metadata)
-    return submit_gasless_sync(ctx.relayer, payload=payload)
+    try:
+        return submit_gasless_sync(ctx.relayer, payload=payload)
+    except RequestRejectedError as error:
+        nonce = onchain_nonce_from_submit_error(error)
+        if nonce is None or ctx.wallet_type != "DEPOSIT_WALLET":
+            raise
+        payload = build_signed_deposit_wallet_payload_sync(
+            ctx, calls=calls, metadata=metadata, nonce=nonce
+        )
+        return submit_gasless_sync(ctx.relayer, payload=payload)
 
 
 def build_signed_payload_for_wallet_type_sync(
@@ -478,16 +500,19 @@ def build_signed_deposit_wallet_payload_sync(
     *,
     calls: list[TransactionCall],
     metadata: str,
+    nonce: str | None = None,
 ) -> RelayerEnvelope:
-    params = fetch_execute_params_sync(
-        ctx.relayer, address=ctx.signer.address, type=RelayerTransactionType.WALLET
-    )
+    if nonce is None:
+        params = fetch_execute_params_sync(
+            ctx.relayer, address=ctx.signer.address, type=RelayerTransactionType.WALLET
+        )
+        nonce = params.nonce
     deadline = str(int(time.time()) + _DEPOSIT_WALLET_DEADLINE_S)
     signature = sign_deposit_wallet_batch(
         ctx.signer,
         wallet=ctx.wallet,
         calls=calls,
-        nonce=params.nonce,
+        nonce=nonce,
         deadline=deadline,
         chain_id=ctx.environment.chain_id,
     )
@@ -496,7 +521,7 @@ def build_signed_deposit_wallet_payload_sync(
         deposit_wallet_factory=ctx.environment.wallet_derivation.deposit_wallet_factory,
         wallet=ctx.wallet,
         calls=calls,
-        nonce=params.nonce,
+        nonce=nonce,
         deadline=deadline,
         signature=signature,
         metadata=metadata,
