@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "polymarket-client"
-version = "0.3.0-b1"
+version = "0.3.0-b2"
 description = "Official Python client for Polymarket"
 readme = "README.md"
 requires-python = ">=3.11"
