@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0-b2](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.3.0-b1...polymarket-client-v0.3.0-b2) (2026-07-31)
+
+
+### Bug Fixes
+
+* **relayer:** self-heal deposit wallet nonce on submit rejection ([d711cd1](https://github.com/Polymarket/py-sdk/commit/d711cd19d54b9275e94e41ce366a91da3c818db4))
+* support TAKER_REBATE, DEPOSIT, and WITHDRAWAL activity types ([c426bc7](https://github.com/Polymarket/py-sdk/commit/c426bc7eb9a685fa273efa74e74fcec544eb4763))
+
 ## [0.3.0-b1](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.2.0...polymarket-client-v0.3.0-b1) (2026-07-29)
 
 
