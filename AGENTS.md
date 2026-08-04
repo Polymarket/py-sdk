@@ -25,9 +25,11 @@
 
 ## Client Sync/Async Design
 
-- The default public clients should be synchronous: use `PublicClient` and `SecureClient` for normal imports, docs, examples, notebooks, scripts, and basic bot usage.
+- For request/response workflows supported by both client modes, the default public clients should be synchronous: use `PublicClient` and `SecureClient` for normal imports, docs, examples, notebooks, scripts, and basic bot usage.
 - Async clients should be explicit alternatives named with an `Async` prefix, such as `AsyncPublicClient` and `AsyncSecureClient`.
-- Keep sync and async method names the same where possible: sync methods return values directly, async methods return awaitables and are called with `await`.
+- WebSocket-backed features are intentionally async-only. This includes realtime subscriptions and any Perps or combo workflow that requires a persistent WebSocket connection or session. Expose these workflows through the `Async` clients and use the async clients in their docs and examples.
+- Do not add synchronous facades, placeholder methods, or event-loop bridges solely to create sync parity for WebSocket-only features.
+- Keep sync and async method names the same for features implemented in both modes: sync methods return values directly, async methods return awaitables and are called with `await`. Async-only WebSocket features do not require a matching sync method.
 - Avoid mixed-mode clients with flags such as `async_mode=True`, and avoid adding `_async` method variants to synchronous clients by default.
 - Share business logic between sync and async implementations. Request construction, URL/path selection, auth/signing, serialization, validation, response parsing, models, and endpoint namespace structure should be reusable.
 - Keep the transport boundary separate: synchronous clients should use a synchronous transport, and async clients should use an asynchronous transport.
