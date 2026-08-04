@@ -1,7 +1,6 @@
 name: API Reference
 
 on:
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -40,4 +39,3 @@ jobs:
           name: polymarket-client-api-reference-${{ github.sha }}
           path: build/api-reference/polymarket-client-sphinx.zip
           if-no-files-found: error
-          retention-days: 14

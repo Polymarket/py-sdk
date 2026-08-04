@@ -9,9 +9,9 @@ Run `make api-reference` to create
 models, types, and values from their signatures and docstrings. Warnings fail
 the build.
 
-The `API Reference` GitHub Actions workflow runs for pull requests and can also
-be dispatched manually. These runs upload a short-lived artifact identified by
-the commit SHA for review. They do not publish a package or create a release.
+The `API Reference` GitHub Actions workflow can be dispatched manually. It
+uploads an artifact identified by the commit SHA for review without publishing
+a package or creating a release.
 
 After a successful PyPI publication, the release workflow uploads an immutable
 artifact named `polymarket-client-<version>-sphinx.zip` to the corresponding
