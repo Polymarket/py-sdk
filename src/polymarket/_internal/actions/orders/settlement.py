@@ -6,22 +6,16 @@ from typing import cast
 
 from polymarket._internal.actions.account import (
     build_list_account_trades_request,
-    build_list_open_orders_request,
     parse_account_trades_page,
-    parse_open_orders_page,
 )
 from polymarket.clients._transport import AsyncTransport, SyncTransport
 from polymarket.errors import TimeoutError, TransactionFailedError
-from polymarket.models.clob.account import ClobTrade, OpenOrder
+from polymarket.models.clob.account import ClobTrade
 from polymarket.models.clob.order_response import AcceptedOrder
-from polymarket.models.types import OrderId
 from polymarket.types import TransactionHash
 
 DEFAULT_SETTLEMENT_TIMEOUT_S = 30.0
 _SETTLEMENT_POLL_DELAY_S = 0.25
-_DELAYED_ORDER_NO_FILL_STATUSES = frozenset(
-    {"LIVE", "INVALID", "CANCELED", "CANCELED_MARKET_RESOLVED"}
-)
 
 
 def _is_trade_settled(trade: ClobTrade) -> bool:
@@ -73,53 +67,6 @@ def _collect_settlement_hashes(
     return tuple(cast(TransactionHash, tx_hash) for tx_hash in hashes)
 
 
-def _raise_delayed_order_timeout(order_id: OrderId) -> None:
-    raise TimeoutError(f"Timed out waiting for delayed order {order_id} to match")
-
-
-def _delayed_order_trade_ids(order: OpenOrder | None) -> tuple[str, ...] | None:
-    if order is None:
-        return None
-    trade_ids = tuple(dict.fromkeys(order.associate_trades))
-    if trade_ids:
-        return trade_ids
-    if order.status in _DELAYED_ORDER_NO_FILL_STATUSES:
-        return ()
-    return None
-
-
-def _discover_delayed_order_trade_ids_sync(
-    secure_clob: SyncTransport,
-    order_id: OrderId,
-    deadline: float,
-) -> tuple[str, ...]:
-    while True:
-        path, params = build_list_open_orders_request(id=order_id)
-        page = parse_open_orders_page(secure_clob.get_json(path, params=params))
-        trade_ids = _delayed_order_trade_ids(page.items[0] if page.items else None)
-        if trade_ids is not None:
-            return trade_ids
-        if time.monotonic() >= deadline:
-            _raise_delayed_order_timeout(order_id)
-        time.sleep(_SETTLEMENT_POLL_DELAY_S)
-
-
-async def _discover_delayed_order_trade_ids(
-    secure_clob: AsyncTransport,
-    order_id: OrderId,
-    deadline: float,
-) -> tuple[str, ...]:
-    while True:
-        path, params = build_list_open_orders_request(id=order_id)
-        page = parse_open_orders_page(await secure_clob.get_json(path, params=params))
-        trade_ids = _delayed_order_trade_ids(page.items[0] if page.items else None)
-        if trade_ids is not None:
-            return trade_ids
-        if time.monotonic() >= deadline:
-            _raise_delayed_order_timeout(order_id)
-        await asyncio.sleep(_SETTLEMENT_POLL_DELAY_S)
-
-
 def wait_for_order_fill_settlement_sync(
     secure_clob: SyncTransport,
     order: AcceptedOrder,
@@ -127,13 +74,11 @@ def wait_for_order_fill_settlement_sync(
     timeout_s: float = DEFAULT_SETTLEMENT_TIMEOUT_S,
 ) -> tuple[TransactionHash, ...]:
     trade_ids = tuple(dict.fromkeys(order.trade_ids))
-    deadline = time.monotonic() + timeout_s
     if not trade_ids:
-        if order.status != "delayed":
-            return tuple(order.transactions_hashes)
-        trade_ids = _discover_delayed_order_trade_ids_sync(secure_clob, order.order_id, deadline)
+        return tuple(order.transactions_hashes)
 
     settled: dict[str, ClobTrade] = {}
+    deadline = time.monotonic() + timeout_s
 
     while True:
         for trade_id in _pending_trade_ids(trade_ids, settled):
@@ -157,13 +102,11 @@ async def wait_for_order_fill_settlement(
     timeout_s: float = DEFAULT_SETTLEMENT_TIMEOUT_S,
 ) -> tuple[TransactionHash, ...]:
     trade_ids = tuple(dict.fromkeys(order.trade_ids))
-    deadline = time.monotonic() + timeout_s
     if not trade_ids:
-        if order.status != "delayed":
-            return tuple(order.transactions_hashes)
-        trade_ids = await _discover_delayed_order_trade_ids(secure_clob, order.order_id, deadline)
+        return tuple(order.transactions_hashes)
 
     settled: dict[str, ClobTrade] = {}
+    deadline = time.monotonic() + timeout_s
 
     while True:
         for trade_id in _pending_trade_ids(trade_ids, settled):
