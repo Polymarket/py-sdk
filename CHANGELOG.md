@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.3.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.3.0-b2...polymarket-client-v0.3.0) (2026-08-04)
+
+
+### Features
+
+* prepare Python SDK for stable 0.3.0 ([12c59aa](https://github.com/Polymarket/py-sdk/commit/12c59aa9ca2af4a1147beb9749694f3714e98f6b))
+* prepare Python SDK for stable 0.3.0 ([1f67eeb](https://github.com/Polymarket/py-sdk/commit/1f67eeb11a1880250e46338ae5185ee3fa605106))
+
+
+### Bug Fixes
+
+* include deposits and withdrawals in list_activity by default ([25a556b](https://github.com/Polymarket/py-sdk/commit/25a556bcc3cce5f5889aea80cedaa975b6ba9712))
+* include deposits and withdrawals in list_activity by default ([581c9ac](https://github.com/Polymarket/py-sdk/commit/581c9ac88eebc503272ed4ba0b7fadd875e89a2c))
+
+
+### Documentation
+
+* clarify async-only WebSocket features ([d6b96ad](https://github.com/Polymarket/py-sdk/commit/d6b96adb2b4bdfbeb4739ee023b5606fd08dc05f))
+* clarify async-only WebSocket features ([c9d8f38](https://github.com/Polymarket/py-sdk/commit/c9d8f386effb0bacb81e22110dcef28b187a6263))
+
 ## [0.3.0-b2](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.3.0-b1...polymarket-client-v0.3.0-b2) (2026-07-31)
 
 
