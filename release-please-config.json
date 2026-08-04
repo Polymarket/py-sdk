@@ -5,7 +5,7 @@
       "package-name": "polymarket-client",
       "changelog-path": "CHANGELOG.md",
       "versioning": "prerelease",
-      "prerelease": true,
+      "prerelease": false,
       "prerelease-type": "b"
     }
   }
