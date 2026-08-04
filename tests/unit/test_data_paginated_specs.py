@@ -210,7 +210,15 @@ def test_list_activity_spec_disables_deposit_withdrawal_exclusion(
     }
 
 
-def test_list_activity_spec_keeps_exclusion_default_for_other_types() -> None:
+def test_list_activity_spec_disables_exclusion_by_default() -> None:
+    spec = data_actions.list_activity_spec(user="0xWALLET")
+    assert spec.base_params == {
+        "user": "0xWALLET",
+        "excludeDepositsWithdrawals": False,
+    }
+
+
+def test_list_activity_spec_disables_exclusion_for_other_types() -> None:
     spec = data_actions.list_activity_spec(
         user="0xWALLET",
         activity_types=["TAKER_REBATE", "MAKER_REBATE"],
@@ -218,6 +226,7 @@ def test_list_activity_spec_keeps_exclusion_default_for_other_types() -> None:
     assert spec.base_params == {
         "user": "0xWALLET",
         "type": "TAKER_REBATE,MAKER_REBATE",
+        "excludeDepositsWithdrawals": False,
     }
 
 
@@ -241,6 +250,7 @@ def test_list_activity_spec_serializes_filters() -> None:
     assert spec.base_params == {
         "user": "0xWALLET",
         "type": "TRADE,REWARD",
+        "excludeDepositsWithdrawals": False,
         "sortBy": "TIMESTAMP",
         "sortDirection": "DESC",
     }
