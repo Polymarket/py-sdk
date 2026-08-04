@@ -19,7 +19,6 @@ jobs:
       releases_created: ${{ steps.release.outputs.releases_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
       prs_created: ${{ steps.release.outputs.prs_created }}
-      pr_branch: ${{ fromJSON(steps.release.outputs.pr || '{}').headBranchName }}
     steps:
       - name: Create release PR
         id: release
@@ -39,7 +38,8 @@ jobs:
       - name: Checkout release PR branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.release-please.outputs.pr_branch }}
+          # release-please--branches--{target-branch}--components--{package-name}
+          ref: release-please--branches--main--components--polymarket-client
 
       - name: Install uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
