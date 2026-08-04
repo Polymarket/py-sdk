@@ -1861,18 +1861,18 @@ class SecureClient:
     ) -> tuple[TransactionHash, ...]:
         """Wait until every fill listed in an order response settles.
 
-        Settlement covers the fills listed in this order response, identified
-        by the order's ``trade_ids``. These are the fills that happened
-        immediately when the order was accepted. This method does not wait for
-        later fills of any remaining quantity resting on the book. Fills that
-        fail execution contribute no hash.
+        Settlement normally covers the fills listed in this order response,
+        identified by the order's ``trade_ids``. When the response is
+        ``delayed``, the SDK first waits for the order's associated fills to
+        become available. This method does not wait for later fills of any
+        remaining quantity resting on the book. Fills that fail execution
+        contribute no hash.
 
         Returns:
             The settlement transaction hashes of the order's fills.
 
         Raises:
-            TimeoutError: If fills are still settling when the timeout elapses.
-                The order placement itself is unaffected.
+            TimeoutError: If matching or settlement exceeds the timeout.
             TransactionFailedError: If every fill failed execution.
         """
         return _settlement_actions.wait_for_order_fill_settlement_sync(

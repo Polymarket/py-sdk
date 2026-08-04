@@ -9,6 +9,7 @@ from polymarket.models.base import BaseModel
 from polymarket.models.clob._validators import (
     _DecimalFromString,  # pyright: ignore[reportPrivateUsage]
 )
+from polymarket.models.types import OrderId
 from polymarket.types import TransactionHash
 
 OrderPostStatus: TypeAlias = Literal["live", "matched", "delayed"]
@@ -70,7 +71,7 @@ class AcceptedOrder(BaseModel):
     """
 
     ok: Literal[True] = True
-    order_id: str
+    order_id: OrderId
     status: OrderPostStatus
     making_amount: Decimal
     taking_amount: Decimal
@@ -119,7 +120,7 @@ OrderResponse: TypeAlias = AcceptedOrder | RejectedOrder
 def normalize_order_response(raw: RawOrderResponse) -> OrderResponse:
     if _is_accepted(raw):
         return AcceptedOrder(
-            order_id=raw.order_id,
+            order_id=OrderId(raw.order_id),
             status=raw.status,  # type: ignore[arg-type]
             making_amount=raw.making_amount,
             taking_amount=raw.taking_amount,
