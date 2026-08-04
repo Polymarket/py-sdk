@@ -61,7 +61,7 @@ def _trade_payload(
     }
 
 
-def _open_order_payload(*, associate_trades: list[str]) -> dict[str, Any]:
+def _open_order_payload(*, associate_trades: list[str], status: str = "MATCHED") -> dict[str, Any]:
     return {
         "asset_id": "123",
         "associate_trades": associate_trades,
@@ -77,7 +77,7 @@ def _open_order_payload(*, associate_trades: list[str]) -> dict[str, Any]:
         "price": "0.5",
         "side": "BUY",
         "size_matched": "100",
-        "status": "MATCHED",
+        "status": status,
     }
 
 
@@ -176,6 +176,21 @@ def test_delayed_order_discovery_uses_the_settlement_timeout() -> None:
 
     with pytest.raises(TimeoutError, match="delayed order 0xorder to match"):
         client.wait_for_order_fill_settlement(_accepted_order(status="delayed"), timeout_s=0)
+
+
+@pytest.mark.parametrize("status", ["LIVE", "INVALID", "CANCELED", "CANCELED_MARKET_RESOLVED"])
+def test_delayed_order_without_fills_returns_empty(status: str) -> None:
+    client = _make_client()
+    captured = _install_trades_handler(
+        client,
+        {},
+        open_orders_pages=[[_open_order_payload(associate_trades=[], status=status)]],
+    )
+
+    hashes = client.wait_for_order_fill_settlement(_accepted_order(status="delayed"))
+
+    assert hashes == ()
+    assert [request.url.path for request in captured] == ["/data/orders"]
 
 
 def test_async_waiter_discovers_delayed_order_trades() -> None:

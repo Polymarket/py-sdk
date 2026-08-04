@@ -1864,9 +1864,9 @@ class SecureClient:
         Settlement normally covers the fills listed in this order response,
         identified by the order's ``trade_ids``. When the response is
         ``delayed``, the SDK first waits for the order's associated fills to
-        become available. This method does not wait for later fills of any
-        remaining quantity resting on the book. Fills that fail execution
-        contribute no hash.
+        become available, or for matching to finish without fills. This method
+        does not wait for later fills of any remaining quantity resting on the
+        book. Fills that fail execution contribute no hash.
 
         Returns:
             The settlement transaction hashes of the order's fills.

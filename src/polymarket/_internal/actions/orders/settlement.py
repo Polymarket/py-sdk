@@ -12,13 +12,16 @@ from polymarket._internal.actions.account import (
 )
 from polymarket.clients._transport import AsyncTransport, SyncTransport
 from polymarket.errors import TimeoutError, TransactionFailedError
-from polymarket.models.clob.account import ClobTrade
+from polymarket.models.clob.account import ClobTrade, OpenOrder
 from polymarket.models.clob.order_response import AcceptedOrder
 from polymarket.models.types import OrderId
 from polymarket.types import TransactionHash
 
 DEFAULT_SETTLEMENT_TIMEOUT_S = 30.0
 _SETTLEMENT_POLL_DELAY_S = 0.25
+_DELAYED_ORDER_NO_FILL_STATUSES = frozenset(
+    {"LIVE", "INVALID", "CANCELED", "CANCELED_MARKET_RESOLVED"}
+)
 
 
 def _is_trade_settled(trade: ClobTrade) -> bool:
@@ -74,6 +77,17 @@ def _raise_delayed_order_timeout(order_id: OrderId) -> None:
     raise TimeoutError(f"Timed out waiting for delayed order {order_id} to match")
 
 
+def _delayed_order_trade_ids(order: OpenOrder | None) -> tuple[str, ...] | None:
+    if order is None:
+        return None
+    trade_ids = tuple(dict.fromkeys(order.associate_trades))
+    if trade_ids:
+        return trade_ids
+    if order.status in _DELAYED_ORDER_NO_FILL_STATUSES:
+        return ()
+    return None
+
+
 def _discover_delayed_order_trade_ids_sync(
     secure_clob: SyncTransport,
     order_id: OrderId,
@@ -82,8 +96,8 @@ def _discover_delayed_order_trade_ids_sync(
     while True:
         path, params = build_list_open_orders_request(id=order_id)
         page = parse_open_orders_page(secure_clob.get_json(path, params=params))
-        trade_ids = tuple(dict.fromkeys(page.items[0].associate_trades)) if page.items else ()
-        if trade_ids:
+        trade_ids = _delayed_order_trade_ids(page.items[0] if page.items else None)
+        if trade_ids is not None:
             return trade_ids
         if time.monotonic() >= deadline:
             _raise_delayed_order_timeout(order_id)
@@ -98,8 +112,8 @@ async def _discover_delayed_order_trade_ids(
     while True:
         path, params = build_list_open_orders_request(id=order_id)
         page = parse_open_orders_page(await secure_clob.get_json(path, params=params))
-        trade_ids = tuple(dict.fromkeys(page.items[0].associate_trades)) if page.items else ()
-        if trade_ids:
+        trade_ids = _delayed_order_trade_ids(page.items[0] if page.items else None)
+        if trade_ids is not None:
             return trade_ids
         if time.monotonic() >= deadline:
             _raise_delayed_order_timeout(order_id)
