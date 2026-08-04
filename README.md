@@ -125,6 +125,17 @@ Build package artifacts:
 make build
 ```
 
+Build the Mintlify-compatible Sphinx JSON API-reference artifact:
+
+```bash
+make api-reference
+```
+
+The ZIP is written to `build/api-reference/polymarket-client-sphinx.zip`. The
+`API Reference` GitHub Actions workflow can also generate it manually for a
+selected branch or commit. Successful package releases attach a versioned copy
+to the corresponding GitHub Release.
+
 The `Makefile` is a thin convenience wrapper around `uv`. Running the underlying commands directly is also fine.
 
 ## Testing
