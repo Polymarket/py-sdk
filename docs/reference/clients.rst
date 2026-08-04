@@ -1,5 +1,5 @@
 Clients
-=======
+#######
 
 The synchronous clients are the default interface for request and response
 workflows. Async clients provide equivalent async methods and the realtime

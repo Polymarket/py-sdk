@@ -1,5 +1,5 @@
 Representative Models
-=====================
+#####################
 
 These models exercise Pydantic models, typed dataclasses, and enums in the
 generated reference output.
