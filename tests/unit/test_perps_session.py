@@ -608,6 +608,28 @@ def test_notification_sequence_gaps_do_not_emit_local_resync() -> None:
     asyncio.run(asyncio.wait_for(run(), timeout=10.0))
 
 
+def test_malformed_notification_decimal_is_dropped_without_disrupting_dispatch() -> None:
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        malformed = _notification_update(10, "5f4a3c2b-1d0e-49f8-a7b6-c5d4e3f2a1b0")
+        malformed["data"]["size"] = True
+        await ws.send(json.dumps(malformed))
+        await ws.send(json.dumps(_order_update(1, sequence=1)))
+        with contextlib.suppress(Exception):
+            async for _ in ws:
+                pass
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            event = await asyncio.wait_for(session.__anext__(), timeout=5.0)
+            assert isinstance(event, PerpsOrderEvent)
+            assert event.payload.id == 1
+            with pytest.raises(TimeoutError):
+                await asyncio.wait_for(session.__anext__(), timeout=0.1)
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+
+
 def test_server_notifications_resync_frame_emits_server_resync_event() -> None:
     async def handler(ws: ServerConnection) -> None:
         await _handshake(ws)
