@@ -65,6 +65,9 @@ dev = [
   "pandas>=2,<3",
   "polars>=1,<2",
 ]
+docs = [
+  "sphinx>=8,<10",
+]
 
 [tool.hatch.build]
 exclude = [
