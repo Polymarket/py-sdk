@@ -37,6 +37,10 @@
 - Do not rename existing variables, functions, or classes unless the operator explicitly asks for it in the prompt. Keep PRs lean; if a name looks wrong, propose the rename as a separate change instead of bundling it.
 - Avoid reuse that does not carry semantic or domain-specific value. Do not add boolean mode flags or generic helpers that hide distinct behavior behind one function; prefer separate explicit helpers whose names describe the behavior they implement.
 
+## Platform Invariants
+
+- A market's minimum tick size may become finer, such as `0.01` to `0.001`, but it cannot become coarser, such as `0.001` to `0.01`. SDK caching and recovery logic may rely on this monotonic behavior and should not add defensive handling for tick-size coarsening.
+
 ## Client Sync/Async Design
 
 - For request/response workflows supported by both client modes, the default public clients should be synchronous: use `PublicClient` and `SecureClient` for normal imports, docs, examples, notebooks, scripts, and basic bot usage.
