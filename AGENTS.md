@@ -4,6 +4,20 @@
 
 - Use `uv` for dependency management, testing, and builds.
 
+## Review Method
+
+- Review from the developer workflow inward. Start by understanding what the consumer is trying to accomplish and inspect realistic usage examples.
+- Build a complete mental model before judging the implementation. Clarify terminology, lifecycle, ownership, and failure behavior.
+- Review the public contract first: naming, symmetry, defaults, state representation, validation, errors, and call-site ergonomics.
+- Separate SDK behavior, integrator behavior, documentation examples, and backend behavior. Attach findings to the layer that owns them.
+- Compare questionable code with established repository patterns before requesting a change.
+- Evaluate findings by practical impact. Downgrade or discard concerns when the risk is bounded and the proposed complexity is not justified.
+- Prefer tests that prove meaningful boundaries. Favor one live integration workflow over multiple mocks when a safe test environment exists.
+- Use mocks for conditions that cannot reasonably be produced through integration testing.
+- Distinguish demonstrated bugs, contract problems, missing regression coverage, and optional hardening.
+- Revisit initial findings as understanding improves rather than defending the first interpretation.
+- Keep review comments short, human, line-specific, and actionable.
+
 ## SDK Design
 
 - Keep the PyPI distribution name as `polymarket-client` and the import package as `polymarket` unless explicitly changed.
