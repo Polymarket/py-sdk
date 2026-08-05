@@ -5,10 +5,8 @@ from typing import Literal, TypeAlias
 
 from pydantic import Field, field_validator
 
+from polymarket.models._validators import parse_decimal_string
 from polymarket.models.base import BaseModel
-from polymarket.models.clob._validators import (
-    _DecimalFromString,  # pyright: ignore[reportPrivateUsage]
-)
 from polymarket.models.types import OrderId
 from polymarket.types import TransactionHash
 
@@ -45,18 +43,18 @@ _ERROR_MSG_TO_CODE: dict[str, OrderResponseErrorCode] = {
 
 class RawOrderResponse(BaseModel):
     error_msg: str = Field(validation_alias="errorMsg")
-    making_amount: _DecimalFromString = Field(validation_alias="makingAmount")
+    making_amount: Decimal = Field(validation_alias="makingAmount")
     order_id: str = Field(validation_alias="orderID")
     status: str
     success: bool
-    taking_amount: _DecimalFromString = Field(validation_alias="takingAmount")
+    taking_amount: Decimal = Field(validation_alias="takingAmount")
     trade_ids: tuple[str, ...] = Field(default=(), validation_alias="tradeIDs")
     transactions_hashes: tuple[str, ...] = Field(default=(), validation_alias="transactionsHashes")
 
     @field_validator("making_amount", "taking_amount", mode="before")
     @classmethod
-    def _empty_string_to_zero(cls, value: object) -> object:
-        return "0" if value == "" else value
+    def _parse_amounts(cls, value: object) -> object:
+        return parse_decimal_string("0" if value == "" else value)
 
 
 class AcceptedOrder(BaseModel):
