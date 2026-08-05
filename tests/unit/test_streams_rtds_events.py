@@ -4,6 +4,7 @@ from decimal import Decimal
 from typing import Any, get_type_hints
 
 import pytest
+from pydantic import ValidationError
 
 from polymarket.models.rtds_events import (
     CommentCreatedEvent,
@@ -379,6 +380,20 @@ def test_crypto_chainlink_twap_validates_display_value_before_full_accuracy_valu
 
     with pytest.raises(ValueError, match="expected decimal-ish value, got object"):
         parse_rtds_event({**_CRYPTO_CHAINLINK_TWAP, "payload": payload})
+
+
+def test_crypto_chainlink_twap_preserves_invalid_display_value_error_input() -> None:
+    display_value = object()
+    payload = {
+        **_CRYPTO_CHAINLINK_TWAP["payload"],
+        "value": display_value,
+        "full_accuracy_value": "invalid",
+    }
+
+    with pytest.raises(ValidationError) as captured:
+        CryptoPricesChainlinkTwapPayload.model_validate(payload)
+
+    assert captured.value.errors()[0]["input"] is display_value
 
 
 def test_crypto_chainlink_twap_payload_round_trips_public_shape() -> None:

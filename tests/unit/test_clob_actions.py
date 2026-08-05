@@ -3,6 +3,7 @@ from types import MappingProxyType
 from typing import assert_type
 
 import pytest
+from pydantic import ValidationError
 
 from polymarket._internal.actions.clob import (
     build_last_trade_price_request,
@@ -149,6 +150,19 @@ def test_parse_midpoints_rejects_numeric_value_in_generic_mapping() -> None:
         parse_midpoints(MappingProxyType({"1": 0.5}))
 
 
+def test_parse_midpoints_accepts_string_value_in_generic_mapping() -> None:
+    assert parse_midpoints(MappingProxyType({"1": "0.5"})) == {TokenId("1"): Decimal("0.5")}
+
+
+def test_parse_midpoints_preserves_element_validation_errors() -> None:
+    with pytest.raises(UnexpectedResponseError) as captured:
+        parse_midpoints({"1": 0.5, "2": True})
+
+    cause = captured.value.__cause__
+    assert isinstance(cause, ValidationError)
+    assert [error["loc"] for error in cause.errors()] == [("1",), ("2",)]
+
+
 def test_parse_midpoints_accepts_existing_decimal_value() -> None:
     assert parse_midpoints({"1": Decimal("0.5")}) == {TokenId("1"): Decimal("0.5")}
 
@@ -252,6 +266,18 @@ def test_parse_prices_rejects_numeric_value_in_nested_generic_mapping() -> None:
     prices = MappingProxyType({"BUY": 0.52})
     with pytest.raises(UnexpectedResponseError):
         parse_prices(MappingProxyType({"1": prices}))
+
+
+def test_parse_prices_preserves_nested_element_validation_errors() -> None:
+    with pytest.raises(UnexpectedResponseError) as captured:
+        parse_prices({"1": {"BUY": 0.52, "SELL": True}})
+
+    cause = captured.value.__cause__
+    assert isinstance(cause, ValidationError)
+    assert [error["loc"] for error in cause.errors()] == [
+        ("1", "BUY"),
+        ("1", "SELL"),
+    ]
 
 
 def test_parse_prices_accepts_existing_decimal_value() -> None:

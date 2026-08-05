@@ -1,9 +1,9 @@
 import re
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Literal, cast
+from typing import Annotated, Any, Literal, cast
 
-from pydantic import Field, TypeAdapter, field_validator, model_validator
+from pydantic import BeforeValidator, Field, TypeAdapter, field_validator, model_validator
 
 from polymarket.models.base import BaseModel
 from polymarket.models.clob._validators import (
@@ -41,7 +41,9 @@ _TWAP_WINDOW_BY_WIRE_TOPIC: dict[str, Literal[30, 60]] = {
 
 _CHAINLINK_PRICE_SCALE = 10**18
 _SIGNED_INTEGER_PATTERN = re.compile(r"-?[0-9]+")
-_DECIMALISH_ADAPTER = TypeAdapter(Decimal)
+_DECIMALISH_ADAPTER: TypeAdapter[Decimal] = TypeAdapter(
+    Annotated[Decimal, BeforeValidator(_coerce_decimalish)]
+)
 
 
 def wire_topic_to_api(wire: str) -> str | None:
@@ -198,7 +200,7 @@ class CryptoPricesChainlinkTwapPayload(BaseModel):
                 return data
             msg = "full_accuracy_value is required"
             raise ValueError(msg)
-        _DECIMALISH_ADAPTER.validate_python(_coerce_decimalish(data.get("value")))
+        _DECIMALISH_ADAPTER.validate_python(data.get("value"))
         data["value"] = _chainlink_e18_to_decimal(data.pop("full_accuracy_value"))
         return data
 

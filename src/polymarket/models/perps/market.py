@@ -1,11 +1,11 @@
 """Perps market data models."""
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Sequence
 from datetime import datetime
 from decimal import Decimal
 from typing import Literal, cast
 
-from pydantic import AliasChoices, Field, model_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 
 from polymarket.models.base import BaseModel
 from polymarket.models.perps._validators import (
@@ -22,49 +22,16 @@ from polymarket.models.perps.types import (
 )
 
 
-def _normalize_field(
-    data: dict[str, object],
-    aliases: tuple[str, ...],
-    parser: Callable[[object], object],
-) -> None:
-    for alias in aliases:
-        if alias in data:
-            data[alias] = parser(data[alias])
-            return
-
-
-def _normalize_market_data(
-    data: object,
-    *,
-    decimals: tuple[tuple[str, ...], ...] = (),
-    timestamps: tuple[tuple[str, ...], ...] = (),
-    optional_timestamps: tuple[tuple[str, ...], ...] = (),
-    optional_hashes: tuple[tuple[str, ...], ...] = (),
-) -> object:
-    if not isinstance(data, Mapping):
-        return data
-    normalized = dict(cast("Mapping[str, object]", data))
-    for aliases in decimals:
-        _normalize_field(normalized, aliases, _coerce_decimalish)
-    for aliases in timestamps:
-        _normalize_field(normalized, aliases, _require_epoch_ms)
-    for aliases in optional_timestamps:
-        _normalize_field(normalized, aliases, _parse_epoch_ms)
-    for aliases in optional_hashes:
-        _normalize_field(normalized, aliases, _parse_tx_hash)
-    return normalized
-
-
 class PerpsRiskTier(BaseModel):
     """One leverage risk tier for a Perps instrument."""
 
     lower_bound: Decimal
     max_leverage: int
 
-    @model_validator(mode="before")
+    @field_validator("lower_bound", mode="before")
     @classmethod
-    def _normalize(cls, data: object) -> object:
-        return _normalize_market_data(data, decimals=(("lower_bound",),))
+    def _parse_decimal(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
 
 class PerpsInstrument(BaseModel):
@@ -88,19 +55,17 @@ class PerpsInstrument(BaseModel):
     isolated_only: bool
     risk_tiers: tuple[PerpsRiskTier, ...]
 
-    @model_validator(mode="before")
+    @field_validator(
+        "price_bounds",
+        "liquidation_fee",
+        "min_notional",
+        "max_market_notional",
+        "max_limit_notional",
+        mode="before",
+    )
     @classmethod
-    def _normalize(cls, data: object) -> object:
-        return _normalize_market_data(
-            data,
-            decimals=(
-                ("price_bounds",),
-                ("liquidation_fee",),
-                ("min_notional",),
-                ("max_market_notional",),
-                ("max_limit_notional",),
-            ),
-        )
+    def _parse_decimals(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
 
 class PerpsTicker(BaseModel):
@@ -119,24 +84,30 @@ class PerpsTicker(BaseModel):
     open_price: Decimal | None = None
     volume_24h: Decimal | None = None
 
-    @model_validator(mode="before")
+    @field_validator(
+        "index_price",
+        "mark_price",
+        "last_price",
+        "mid_price",
+        "open_interest",
+        "funding_rate",
+        "open_price",
+        "volume_24h",
+        mode="before",
+    )
     @classmethod
-    def _normalize(cls, data: object) -> object:
-        return _normalize_market_data(
-            data,
-            decimals=(
-                ("index_price",),
-                ("mark_price",),
-                ("last_price",),
-                ("mid_price",),
-                ("open_interest",),
-                ("funding_rate",),
-                ("open_price",),
-                ("volume_24h",),
-            ),
-            timestamps=(("next_funding",),),
-            optional_timestamps=(("timestamp",),),
-        )
+    def _parse_decimals(cls, value: object) -> object:
+        return _coerce_decimalish(value)
+
+    @field_validator("next_funding", mode="before")
+    @classmethod
+    def _parse_next_funding(cls, value: object) -> object:
+        return _require_epoch_ms(value)
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def _parse_timestamp(cls, value: object) -> object:
+        return _parse_epoch_ms(value)
 
 
 class PerpsTickerUpdate(BaseModel):
@@ -151,21 +122,23 @@ class PerpsTickerUpdate(BaseModel):
     funding_rate: Decimal = Field(validation_alias="fr")
     next_funding: datetime = Field(validation_alias="nxf")
 
-    @model_validator(mode="before")
+    @field_validator(
+        "index_price",
+        "mark_price",
+        "last_price",
+        "mid_price",
+        "open_interest",
+        "funding_rate",
+        mode="before",
+    )
     @classmethod
-    def _normalize(cls, data: object) -> object:
-        return _normalize_market_data(
-            data,
-            decimals=(
-                ("idx", "index_price"),
-                ("mark", "mark_price"),
-                ("last", "last_price"),
-                ("mid", "mid_price"),
-                ("oi", "open_interest"),
-                ("fr", "funding_rate"),
-            ),
-            timestamps=(("nxf", "next_funding"),),
-        )
+    def _parse_decimals(cls, value: object) -> object:
+        return _coerce_decimalish(value)
+
+    @field_validator("next_funding", mode="before")
+    @classmethod
+    def _parse_next_funding(cls, value: object) -> object:
+        return _require_epoch_ms(value)
 
 
 def _candle_from_tuple(value: object) -> object:
@@ -199,11 +172,17 @@ class PerpsCandle(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _normalize(cls, data: object) -> object:
-        return _normalize_market_data(
-            _candle_from_tuple(data),
-            decimals=(("open",), ("high",), ("low",), ("close",), ("volume",)),
-            timestamps=(("timestamp",),),
-        )
+        return _candle_from_tuple(data)
+
+    @field_validator("open", "high", "low", "close", "volume", mode="before")
+    @classmethod
+    def _parse_decimals(cls, value: object) -> object:
+        return _coerce_decimalish(value)
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def _parse_timestamp(cls, value: object) -> object:
+        return _require_epoch_ms(value)
 
 
 class PerpsStatistic(BaseModel):
@@ -215,13 +194,10 @@ class PerpsStatistic(BaseModel):
     open_price: Decimal = Field(validation_alias=AliasChoices("open_price", "open"))
     klines: tuple[PerpsCandle, ...]
 
-    @model_validator(mode="before")
+    @field_validator("volume", "open_price", mode="before")
     @classmethod
-    def _normalize(cls, data: object) -> object:
-        return _normalize_market_data(
-            data,
-            decimals=(("volume", "vol"), ("open_price", "open")),
-        )
+    def _parse_decimals(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
 
 def _level_from_tuple(value: object) -> object:
@@ -242,10 +218,12 @@ class PerpsBookLevel(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _normalize(cls, data: object) -> object:
-        return _normalize_market_data(
-            _level_from_tuple(data),
-            decimals=(("price",), ("quantity",)),
-        )
+        return _level_from_tuple(data)
+
+    @field_validator("price", "quantity", mode="before")
+    @classmethod
+    def _parse_decimals(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
 
 class PerpsBook(BaseModel):
@@ -257,10 +235,10 @@ class PerpsBook(BaseModel):
     timestamp: datetime
     sequence: int
 
-    @model_validator(mode="before")
+    @field_validator("timestamp", mode="before")
     @classmethod
-    def _normalize(cls, data: object) -> object:
-        return _normalize_market_data(data, timestamps=(("timestamp",),))
+    def _parse_timestamp(cls, value: object) -> object:
+        return _require_epoch_ms(value)
 
 
 class PerpsBookUpdate(BaseModel):
@@ -281,19 +259,15 @@ class PerpsBbo(BaseModel):
     ask_quantity: Decimal = Field(validation_alias=AliasChoices("ask_quantity", "aq"))
     timestamp: datetime | None = None
 
-    @model_validator(mode="before")
+    @field_validator("bid_price", "bid_quantity", "ask_price", "ask_quantity", mode="before")
     @classmethod
-    def _normalize(cls, data: object) -> object:
-        return _normalize_market_data(
-            data,
-            decimals=(
-                ("bid_price", "bp"),
-                ("bid_quantity", "bq"),
-                ("ask_price", "ap"),
-                ("ask_quantity", "aq"),
-            ),
-            optional_timestamps=(("timestamp",),),
-        )
+    def _parse_decimals(cls, value: object) -> object:
+        return _coerce_decimalish(value)
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def _parse_timestamp(cls, value: object) -> object:
+        return _parse_epoch_ms(value)
 
 
 class PerpsTrade(BaseModel):
@@ -307,15 +281,20 @@ class PerpsTrade(BaseModel):
     timestamp: datetime = Field(validation_alias=AliasChoices("timestamp", "ts"))
     hash: str | None = None
 
-    @model_validator(mode="before")
+    @field_validator("price", "quantity", mode="before")
     @classmethod
-    def _normalize(cls, data: object) -> object:
-        return _normalize_market_data(
-            data,
-            decimals=(("price", "p"), ("quantity", "qty")),
-            timestamps=(("timestamp", "ts"),),
-            optional_hashes=(("hash",),),
-        )
+    def _parse_decimals(cls, value: object) -> object:
+        return _coerce_decimalish(value)
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def _parse_timestamp(cls, value: object) -> object:
+        return _require_epoch_ms(value)
+
+    @field_validator("hash", mode="before")
+    @classmethod
+    def _parse_hash(cls, value: object) -> object:
+        return _parse_tx_hash(value)
 
 
 class PerpsFundingRate(BaseModel):
@@ -324,14 +303,15 @@ class PerpsFundingRate(BaseModel):
     funding_rate: Decimal
     timestamp: datetime
 
-    @model_validator(mode="before")
+    @field_validator("funding_rate", mode="before")
     @classmethod
-    def _normalize(cls, data: object) -> object:
-        return _normalize_market_data(
-            data,
-            decimals=(("funding_rate",),),
-            timestamps=(("timestamp",),),
-        )
+    def _parse_decimal(cls, value: object) -> object:
+        return _coerce_decimalish(value)
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def _parse_timestamp(cls, value: object) -> object:
+        return _require_epoch_ms(value)
 
 
 class PerpsFeeTier(BaseModel):
@@ -341,13 +321,10 @@ class PerpsFeeTier(BaseModel):
     taker_fee_rate: Decimal
     maker_fee_rate: Decimal
 
-    @model_validator(mode="before")
+    @field_validator("min_volume_30d", "taker_fee_rate", "maker_fee_rate", mode="before")
     @classmethod
-    def _normalize(cls, data: object) -> object:
-        return _normalize_market_data(
-            data,
-            decimals=(("min_volume_30d",), ("taker_fee_rate",), ("maker_fee_rate",)),
-        )
+    def _parse_decimals(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
 
 class PerpsFeeScheduleEntry(BaseModel):
@@ -358,13 +335,10 @@ class PerpsFeeScheduleEntry(BaseModel):
     maker_fee_rate: Decimal
     tiers: tuple[PerpsFeeTier, ...]
 
-    @model_validator(mode="before")
+    @field_validator("taker_fee_rate", "maker_fee_rate", mode="before")
     @classmethod
-    def _normalize(cls, data: object) -> object:
-        return _normalize_market_data(
-            data,
-            decimals=(("taker_fee_rate",), ("maker_fee_rate",)),
-        )
+    def _parse_decimals(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
 
 class PerpsCandleBatch(BaseModel):

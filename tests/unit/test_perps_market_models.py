@@ -160,6 +160,46 @@ def test_decimal_fields_reject_bool(value: bool) -> None:
         PerpsBookLevel.model_validate([value, "1"])
 
 
+def test_market_fields_preserve_multiple_validation_errors() -> None:
+    with pytest.raises(ValidationError) as captured:
+        PerpsTickerUpdate.model_validate(
+            {
+                "iid": 4,
+                "idx": True,
+                "mark": [],
+                "last": "100.2",
+                "mid": "100.15",
+                "oi": "5000",
+                "fr": "0.0001",
+                "nxf": "1751500000000",
+            }
+        )
+
+    assert [error["loc"] for error in captured.value.errors()] == [
+        ("idx",),
+        ("mark",),
+        ("nxf",),
+    ]
+
+
+def test_tuple_models_preserve_nested_field_error_locations() -> None:
+    with pytest.raises(ValidationError) as captured:
+        PerpsBook.model_validate(
+            {
+                "instrument_id": 4,
+                "bids": [[True, []]],
+                "asks": [],
+                "timestamp": _EPOCH_MS,
+                "sequence": 1,
+            }
+        )
+
+    assert [error["loc"] for error in captured.value.errors()] == [
+        ("bids", 0, "price"),
+        ("bids", 0, "quantity"),
+    ]
+
+
 @pytest.mark.parametrize("value", [1.5, "1751500000000", True, None])
 def test_required_timestamp_preserves_strict_epoch_ms_input(value: object) -> None:
     with pytest.raises(ValidationError, match="epoch-ms"):
