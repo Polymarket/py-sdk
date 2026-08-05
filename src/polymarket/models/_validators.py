@@ -32,8 +32,3 @@ def parse_e6_decimal_string(value: object) -> object:
         msg = f"invalid base-unit integer string: {value!r}"
         raise ValueError(msg)
     return Decimal(value).scaleb(-6)
-
-
-def serialize_e6_decimal_string(value: Decimal) -> str:
-    """Serialize a scaled amount back to the base-unit integer string the wire carries."""
-    return str(int(value.scaleb(6)))
