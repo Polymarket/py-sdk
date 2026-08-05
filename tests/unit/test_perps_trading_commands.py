@@ -1,5 +1,6 @@
 """Perps trading command construction tests."""
 
+from decimal import Decimal
 from typing import Any, cast
 
 import pytest
@@ -14,6 +15,7 @@ from polymarket._internal.actions.perps.trading import (
     to_raw_order,
     to_raw_tp_sl_order,
     update_leverage_op,
+    update_margin_op,
 )
 from polymarket.errors import UserInputError
 from polymarket.models.perps.requests import (
@@ -147,6 +149,24 @@ def test_cancel_and_leverage_ops() -> None:
     assert to_command_body_op(
         update_leverage_op(instrument_id=3, leverage=20, cross_margin=True)
     ) == {"type": "updateLeverage", "args": {"cross": True, "iid": 3, "lev": 20}}
+
+
+@pytest.mark.parametrize(
+    ("amount", "wire_amount"),
+    [
+        (Decimal("100.000000000000000001"), "100.000000000000000001"),
+        ("-25.000000000000000001", "-25.000000000000000001"),
+    ],
+)
+def test_update_margin_op_preserves_signed_decimal_amount(
+    amount: Decimal | str, wire_amount: str
+) -> None:
+    op = update_margin_op(instrument_id=3, amount=amount)
+    assert op == ["updateMargin", [3, wire_amount]]
+    assert to_command_body_op(op) == {
+        "type": "updateMargin",
+        "args": {"amt": wire_amount, "iid": 3},
+    }
 
 
 def test_gtc_order_requires_price() -> None:

@@ -28,6 +28,7 @@ from polymarket._internal.actions.perps.trading import (
     to_raw_order,
     to_raw_tp_sl_order,
     update_leverage_op,
+    update_margin_op,
 )
 from polymarket._internal.streams.perps.heartbeat import PerpsWebSocketHeartbeat
 from polymarket._internal.streams.reconnect import ReconnectScheduler
@@ -549,6 +550,18 @@ class PerpsSession:
             op,
             parse=PerpsUpdateLeverageResult.parse_response,
             timeout_message="Perps update leverage response timed out.",
+        )
+
+    async def update_margin(self, *, instrument_id: int, amount: DecimalInput) -> None:
+        """Adjust isolated margin for an instrument position.
+
+        Positive amounts add margin; negative amounts remove it.
+        """
+        op = update_margin_op(instrument_id=instrument_id, amount=amount)
+        await self._send_signed_command(
+            op,
+            parse=_parse_session_ack,
+            timeout_message="Perps update margin response timed out.",
         )
 
     async def fetch_balances(self) -> tuple[PerpsBalance, ...]:

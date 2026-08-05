@@ -7,6 +7,7 @@ import json
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 
 import httpx
@@ -15,7 +16,7 @@ from websockets.asyncio.server import ServerConnection, serve
 
 from polymarket._internal.perps_session import PerpsSession
 from polymarket.clients._transport import AsyncTransport
-from polymarket.errors import RequestRejectedError, TransportError
+from polymarket.errors import RequestRejectedError, TransportError, UserInputError
 from polymarket.models.perps.credentials import PerpsCredentials
 from polymarket.models.perps.events import (
     PerpsFillEvent,
@@ -459,6 +460,83 @@ def test_cancel_all_orders_uses_signed_rest_endpoint() -> None:
     unscoped_body = json.loads(captured[1].content)
     assert unscoped_body["op"] == {"type": "cancelAll", "args": {}}
     assert "exp" not in unscoped_body
+
+
+def test_update_margin_sends_signed_command_and_completes() -> None:
+    commands: list[dict[str, Any]] = []
+
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        async for raw in ws:
+            message = json.loads(raw)
+            if _is_ping(message):
+                continue
+            commands.append(message)
+            await ws.send(json.dumps({"id": message["id"], "data": {"status": "ok"}}))
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            result = await session.update_margin(
+                instrument_id=3, amount=Decimal("100.000000000000000001")
+            )
+            assert result is None
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+    assert commands[0]["op"] == {
+        "type": "updateMargin",
+        "args": {"amt": "100.000000000000000001", "iid": 3},
+    }
+    assert commands[0]["req"] == "post"
+    assert commands[0]["sig"].startswith("0x") and len(commands[0]["sig"]) == 132
+
+
+def test_update_margin_rejection_surfaces_request_rejected_error() -> None:
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        async for raw in ws:
+            message = json.loads(raw)
+            if _is_ping(message):
+                continue
+            assert message["op"] == {
+                "type": "updateMargin",
+                "args": {"amt": "-25.00", "iid": 3},
+            }
+            await ws.send(
+                json.dumps(
+                    {
+                        "id": message["id"],
+                        "data": {"status": "err", "error": "margin_below_required_initial"},
+                    }
+                )
+            )
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            with pytest.raises(RequestRejectedError, match="margin_below_required_initial"):
+                await session.update_margin(instrument_id=3, amount="-25.00")
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+
+
+def test_update_margin_validates_public_inputs_before_sending() -> None:
+    async def run() -> None:
+        session = PerpsSession(
+            chain_id=137,
+            credentials=_CREDENTIALS,
+            rest_url="http://127.0.0.1:9",
+            ws_url="ws://127.0.0.1:9",
+        )
+        try:
+            with pytest.raises(UserInputError, match="non-negative"):
+                await session.update_margin(instrument_id=-1, amount="1")
+            with pytest.raises(UserInputError, match="amount must be a valid decimal"):
+                await session.update_margin(instrument_id=1, amount="not-a-decimal")
+            with pytest.raises(UserInputError, match="amount must be finite"):
+                await session.update_margin(instrument_id=1, amount="NaN")
+        finally:
+            await session.close()
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
 
 
 def test_sequence_gap_emits_resync_event_before_update() -> None:

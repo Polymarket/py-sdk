@@ -10,6 +10,7 @@ from typing import Any
 
 from polymarket.errors import UserInputError
 from polymarket.models.perps.requests import (
+    DecimalInput,
     PerpsOrderRequest,
     PerpsPositionTpSlTrigger,
     PerpsTpSlTrigger,
@@ -110,6 +111,14 @@ def update_leverage_op(*, instrument_id: int, leverage: int, cross_margin: bool)
     return ["updateLeverage", [instrument_id, leverage, cross_margin]]
 
 
+def update_margin_op(*, instrument_id: int, amount: DecimalInput) -> list[Any]:
+    if isinstance(instrument_id, bool) or not isinstance(instrument_id, int):  # pyright: ignore[reportUnnecessaryIsInstance]
+        raise UserInputError("instrument_id must be an int")
+    if instrument_id < 0:
+        raise UserInputError("instrument_id must be non-negative")
+    return ["updateMargin", [instrument_id, to_decimal_string("amount", amount)]]
+
+
 def to_command_body_op(op: Sequence[Any]) -> dict[str, Any]:
     """Convert a signed positional op into the keyed frame body op."""
     op_type = op[0]
@@ -136,6 +145,9 @@ def to_command_body_op(op: Sequence[Any]) -> dict[str, Any]:
             "type": op_type,
             "args": {"cross": cross_margin, "iid": instrument_id, "lev": leverage},
         }
+    if op_type == "updateMargin":
+        instrument_id, amount = op[1]
+        return {"type": op_type, "args": {"amt": amount, "iid": instrument_id}}
     raise RuntimeError(f"Unsupported Perps command: {op_type!r}")
 
 
@@ -171,4 +183,5 @@ __all__ = [
     "to_raw_order",
     "to_raw_tp_sl_order",
     "update_leverage_op",
+    "update_margin_op",
 ]
