@@ -1,6 +1,7 @@
+import inspect
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, get_type_hints
 
 import pytest
 
@@ -13,6 +14,7 @@ from polymarket.models.rtds_events import (
     CryptoPricesChainlinkTwapPayload,
     EquityPricesSubscribeEvent,
     EquityPricesUpdateEvent,
+    PriceUpdatePayload,
     ReactionCreatedEvent,
     api_topic_to_wire,
     parse_rtds_event,
@@ -186,6 +188,48 @@ def test_crypto_chainlink_wire_topic_remapped_to_api_topic() -> None:
     assert event.payload.symbol == "ETH/USD"
 
 
+def test_rtds_fields_expose_canonical_annotations() -> None:
+    price_hints = get_type_hints(PriceUpdatePayload, include_extras=True)
+    event_hints = get_type_hints(CommentCreatedEvent, include_extras=True)
+
+    assert price_hints["value"] is Decimal
+    assert event_hints["timestamp"] == (datetime | None)
+    assert inspect.signature(PriceUpdatePayload).parameters["value"].annotation is Decimal
+    assert inspect.signature(CommentCreatedEvent).parameters["timestamp"].annotation == (
+        datetime | None
+    )
+
+
+@pytest.mark.parametrize("value", [b"1.5", True, None, object()])
+def test_decimalish_fields_do_not_accept_broader_decimal_inputs(value: object) -> None:
+    with pytest.raises(ValueError):
+        PriceUpdatePayload.model_validate({"symbol": "BTC", "timestamp": 0, "value": value})
+
+
+@pytest.mark.parametrize(
+    ("timestamp", "expected"),
+    [
+        (1710000000000, datetime.fromtimestamp(1710000000, tz=UTC)),
+        ("1710000000000", datetime.fromtimestamp(1710000000, tz=UTC)),
+        ("2024-03-09T12:00:00+00:00", datetime(2024, 3, 9, 12, tzinfo=UTC)),
+        (None, None),
+        ("", None),
+    ],
+)
+def test_rtds_timestamp_preserves_accepted_inputs(
+    timestamp: object, expected: datetime | None
+) -> None:
+    event = parse_rtds_event({**_CRYPTO_BINANCE, "timestamp": timestamp})
+
+    assert event.timestamp == expected
+
+
+@pytest.mark.parametrize("timestamp", [True, 1710000000000.0, b"1710000000000", "+1", "-1"])
+def test_rtds_timestamp_preserves_rejected_inputs(timestamp: object) -> None:
+    with pytest.raises(ValueError):
+        parse_rtds_event({**_CRYPTO_BINANCE, "timestamp": timestamp})
+
+
 @pytest.mark.parametrize(
     ("wire_topic", "window_seconds"),
     [
@@ -323,6 +367,17 @@ def test_crypto_chainlink_twap_still_validates_display_value(display_value: obje
         payload["value"] = display_value
 
     with pytest.raises(ValueError):
+        parse_rtds_event({**_CRYPTO_CHAINLINK_TWAP, "payload": payload})
+
+
+def test_crypto_chainlink_twap_validates_display_value_before_full_accuracy_value() -> None:
+    payload = {
+        **_CRYPTO_CHAINLINK_TWAP["payload"],
+        "value": object(),
+        "full_accuracy_value": "invalid",
+    }
+
+    with pytest.raises(ValueError, match="expected decimal-ish value, got object"):
         parse_rtds_event({**_CRYPTO_CHAINLINK_TWAP, "payload": payload})
 
 
