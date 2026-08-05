@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated, Any, Literal, TypeAlias, cast
+from typing import Any, Literal, TypeAlias, cast
 
-from pydantic import BeforeValidator, Field, field_validator
+from pydantic import Field, field_validator
 
 from polymarket.models._validators import parse_decimal_string
 from polymarket.models.base import BaseModel
@@ -39,9 +39,6 @@ def _normalize_trade_status(value: object) -> object:
     if isinstance(value, str) and value.startswith("TRADE_STATUS_"):
         return value[len("TRADE_STATUS_") :]
     return value
-
-
-TradeStatusField = Annotated[TradeStatus, BeforeValidator(_normalize_trade_status)]
 
 
 class OpenOrder(BaseModel):
