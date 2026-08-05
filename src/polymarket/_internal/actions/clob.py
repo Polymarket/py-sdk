@@ -1,12 +1,13 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from decimal import Decimal
 from typing import cast
 
-from pydantic import TypeAdapter, ValidationError
+from pydantic import TypeAdapter, ValidationError, field_validator
 
 from polymarket._internal.request import QueryParamValue
 from polymarket._internal.validation import require_nonempty
 from polymarket.errors import UnexpectedResponseError, UserInputError
+from polymarket.models._validators import parse_decimal_string
 from polymarket.models.base import BaseModel
 from polymarket.models.clob import (
     LastTradePrice,
@@ -16,33 +17,69 @@ from polymarket.models.clob import (
     PriceHistoryPoint,
     PriceRequest,
 )
-from polymarket.models.clob._validators import (
-    _DecimalFromString,  # pyright: ignore[reportPrivateUsage]
-)
 from polymarket.models.types import OrderSide, TokenId
 
 
 class _MidpointResponse(BaseModel):
-    mid: _DecimalFromString
+    mid: Decimal
+
+    @field_validator("mid", mode="before")
+    @classmethod
+    def _parse_mid(cls, value: object) -> object:
+        return parse_decimal_string(value)
 
 
 class _PriceResponse(BaseModel):
-    price: _DecimalFromString
+    price: Decimal
+
+    @field_validator("price", mode="before")
+    @classmethod
+    def _parse_price(cls, value: object) -> object:
+        return parse_decimal_string(value)
 
 
 class _SpreadResponse(BaseModel):
-    spread: _DecimalFromString
+    spread: Decimal
+
+    @field_validator("spread", mode="before")
+    @classmethod
+    def _parse_spread(cls, value: object) -> object:
+        return parse_decimal_string(value)
 
 
 _PRICE_HISTORY_INTERVALS: frozenset[str] = frozenset({"max", "1w", "1d", "6h", "1h"})
 _VALID_ORDER_SIDES: frozenset[str] = frozenset({"BUY", "SELL"})
 
-_MidpointsAdapter = TypeAdapter(dict[TokenId, _DecimalFromString])
-_SpreadsAdapter = TypeAdapter(dict[TokenId, _DecimalFromString])
-_PricesAdapter = TypeAdapter(dict[TokenId, dict[OrderSide, _DecimalFromString]])
+_MidpointsAdapter = TypeAdapter(dict[TokenId, Decimal])
+_SpreadsAdapter = TypeAdapter(dict[TokenId, Decimal])
+_PricesAdapter = TypeAdapter(dict[TokenId, dict[OrderSide, Decimal]])
 _OrderBookListAdapter = TypeAdapter(tuple[OrderBook, ...])
 _LastTradePriceListAdapter = TypeAdapter(tuple[LastTradePriceForToken, ...])
 _PriceHistoryListAdapter = TypeAdapter(tuple[PriceHistoryPoint, ...])
+
+
+def _parse_decimal_mapping(data: object) -> object:
+    if not isinstance(data, Mapping):
+        return data
+    return {
+        key: parse_decimal_string(value)
+        for key, value in cast(Mapping[object, object], data).items()
+    }
+
+
+def _parse_prices_mapping(data: object) -> object:
+    if not isinstance(data, Mapping):
+        return data
+    parsed: dict[object, object] = {}
+    for token_id, prices in cast(Mapping[object, object], data).items():
+        if not isinstance(prices, Mapping):
+            parsed[token_id] = prices
+            continue
+        parsed[token_id] = {
+            side: parse_decimal_string(value)
+            for side, value in cast(Mapping[object, object], prices).items()
+        }
+    return parsed
 
 
 def _require_string_token_id(token_id: object) -> str:
@@ -112,8 +149,8 @@ def build_midpoints_request(*, token_ids: Sequence[str]) -> tuple[str, list[dict
 
 def parse_midpoints(data: object) -> dict[TokenId, Decimal]:
     try:
-        return _MidpointsAdapter.validate_python(data)
-    except ValidationError as error:
+        return _MidpointsAdapter.validate_python(_parse_decimal_mapping(data))
+    except (ValidationError, ValueError) as error:
         raise UnexpectedResponseError("midpoints response did not match expected shape") from error
 
 
@@ -134,8 +171,8 @@ def build_prices_request(*, requests: Sequence[PriceRequest]) -> tuple[str, list
 
 def parse_prices(data: object) -> dict[TokenId, dict[OrderSide, Decimal]]:
     try:
-        return _PricesAdapter.validate_python(data)
-    except ValidationError as error:
+        return _PricesAdapter.validate_python(_parse_prices_mapping(data))
+    except (ValidationError, ValueError) as error:
         raise UnexpectedResponseError("prices response did not match expected shape") from error
 
 
@@ -176,8 +213,8 @@ def build_spreads_request(*, token_ids: Sequence[str]) -> tuple[str, list[dict[s
 
 def parse_spreads(data: object) -> dict[TokenId, Decimal]:
     try:
-        return _SpreadsAdapter.validate_python(data)
-    except ValidationError as error:
+        return _SpreadsAdapter.validate_python(_parse_decimal_mapping(data))
+    except (ValidationError, ValueError) as error:
         raise UnexpectedResponseError("spreads response did not match expected shape") from error
 
 
