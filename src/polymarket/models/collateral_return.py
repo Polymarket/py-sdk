@@ -3,12 +3,11 @@ from __future__ import annotations
 from decimal import Decimal
 from enum import StrEnum
 
-from pydantic import Field, field_serializer, field_validator
+from pydantic import Field, field_validator
 
 from polymarket.models._validators import (
     parse_decimal_string,
     parse_e6_decimal_string,
-    serialize_e6_decimal_string,
 )
 from polymarket.models.base import BaseModel
 from polymarket.models.types import (
@@ -55,7 +54,6 @@ class CollateralReturnOperation(BaseModel):
     amount: Decimal
 
     _parse_amount = field_validator("amount", mode="before")(parse_e6_decimal_string)
-    _serialize_amount = field_serializer("amount", when_used="json")(serialize_e6_decimal_string)
 
     @field_validator("kind", mode="before")
     @classmethod
@@ -80,7 +78,6 @@ class CollateralReturnPositionAmount(BaseModel):
     amount: Decimal
 
     _parse_amount = field_validator("amount", mode="before")(parse_e6_decimal_string)
-    _serialize_amount = field_serializer("amount", when_used="json")(serialize_e6_decimal_string)
 
 
 class CollateralReturnPositionSummary(BaseModel):

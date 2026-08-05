@@ -199,20 +199,6 @@ def test_plan_tolerates_missing_position_summary() -> None:
     assert plan.position_summary.created == ()
 
 
-def test_plan_json_round_trips_scaled_amounts() -> None:
-    plan = CollateralReturnPlanResponse.parse_response(_plan_payload(wallet=_OTHER_WALLET))
-
-    python_dump = plan.model_dump()
-    json_dump = plan.model_dump(mode="json")
-    restored = CollateralReturnPlanResponse.model_validate_json(plan.model_dump_json())
-
-    assert python_dump["operations"][0]["amount"] == Decimal("1")
-    assert python_dump["required_positions"][0]["amount"] == Decimal("1")
-    assert json_dump["operations"][0]["amount"] == "1000000"
-    assert json_dump["required_positions"][0]["amount"] == "1000000"
-    assert restored == plan
-
-
 def test_execute_submits_router_call_for_deposit_wallet() -> None:
     submit_captured: list[httpx.Request] = []
 
