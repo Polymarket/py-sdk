@@ -1,9 +1,12 @@
+from datetime import datetime
 from typing import Any, Literal, cast
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from polymarket.models.base import BaseModel
-from polymarket.models.clob._validators import EpochMsOrIsoTimestamp
+from polymarket.models.clob._validators import (
+    _parse_epoch_ms_or_iso_timestamp,  # pyright: ignore[reportPrivateUsage]
+)
 
 
 class SportsGameResult(BaseModel):
@@ -19,7 +22,7 @@ class SportsGameResult(BaseModel):
     score: str
     period: str | None = None
     elapsed: str | None = None
-    finished_at: EpochMsOrIsoTimestamp = Field(default=None, validation_alias="finishedTimestamp")
+    finished_at: datetime | None = Field(default=None, validation_alias="finishedTimestamp")
     turn: str | None = None
 
     @model_validator(mode="before")
@@ -37,6 +40,11 @@ class SportsGameResult(BaseModel):
         if camel in (None, "") and snake not in (None, ""):
             wire["finishedTimestamp"] = snake
         return wire
+
+    @field_validator("finished_at", mode="before")
+    @classmethod
+    def _parse_finished_at(cls, value: object) -> object:
+        return _parse_epoch_ms_or_iso_timestamp(value)
 
 
 class SportsResultEvent(BaseModel):
