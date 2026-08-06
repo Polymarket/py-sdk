@@ -147,23 +147,21 @@ def _parse_tick_size(data: object) -> Decimal:
     if not isinstance(data, dict):
         raise UnexpectedResponseError("tick-size response did not match expected shape")
     raw = cast(dict[str, object], data).get("minimum_tick_size")
+    return _parse_tick_size_value(raw, "tick-size 'minimum_tick_size'")
+
+
+def _parse_tick_size_value(raw: object, field: str) -> Decimal:
     if isinstance(raw, bool):
-        raise UnexpectedResponseError(
-            f"tick-size 'minimum_tick_size' must be numeric, got bool {raw!r}"
-        )
+        raise UnexpectedResponseError(f"{field} must be numeric, got bool {raw!r}")
     if isinstance(raw, int | float):
         value = Decimal(str(raw))
     elif isinstance(raw, str):
         try:
             value = Decimal(raw)
         except (ValueError, ArithmeticError) as error:
-            raise UnexpectedResponseError(
-                f"tick-size 'minimum_tick_size' is not a valid number: {raw!r}"
-            ) from error
+            raise UnexpectedResponseError(f"{field} is not a valid number: {raw!r}") from error
     else:
-        raise UnexpectedResponseError(
-            f"tick-size 'minimum_tick_size' must be numeric, got {type(raw).__name__}"
-        )
+        raise UnexpectedResponseError(f"{field} must be numeric, got {type(raw).__name__}")
     if value not in _ALLOWED_TICK_SIZES:
         raise UnexpectedResponseError(f"Unsupported tick size received: {value}")
     return value
@@ -237,7 +235,7 @@ def _parse_market_info(data: object) -> MarketInfo:
     return MarketInfo(
         fee_info=_parse_platform_fee_info(payload),
         neg_risk=raw_neg_risk,
-        tick_size=_parse_tick_size({"minimum_tick_size": payload.get("mts")}),
+        tick_size=_parse_tick_size_value(payload.get("mts"), "clob-markets 'mts'"),
         token_ids=frozenset(token_ids),
     )
 

@@ -122,6 +122,7 @@ def prepare_market_order_draft_sync(
 async def _prepare_protected_market_order_draft(
     ctx: AsyncSecureClientContext, params: PrepareMarketOrderParams
 ) -> OrderDraft:
+    notional = _resolve_market_order_notional(params)
     if params.side == "BUY" and params.max_spend is not None:
         metadata, builder_taker_fee_rate = await asyncio.gather(
             ctx.order_metadata.resolve_market(ctx, token_id=params.token_id),
@@ -137,18 +138,22 @@ async def _prepare_protected_market_order_draft(
     except UserInputError:
         metadata = await ctx.order_metadata.fetch_current_market(ctx, token_id=params.token_id)
         price = _resolve_protected_market_order_price(params, metadata.tick_size)
+    resolved_amount = notional
+    if params.side == "BUY" and params.max_spend is not None:
+        resolved_amount = _resolve_buy_amount_for_fees(
+            amount=notional,
+            max_spend=params.max_spend,
+            price=price,
+            metadata=metadata,
+            builder_taker_fee_rate=builder_taker_fee_rate,
+        )
     return _build_market_order_draft(
         ctx,
         params,
         price=price,
         tick_size=metadata.tick_size,
         neg_risk=metadata.neg_risk,
-        resolved_amount=_resolve_buy_amount_for_fees(
-            params,
-            price=price,
-            metadata=metadata,
-            builder_taker_fee_rate=builder_taker_fee_rate,
-        ),
+        resolved_amount=resolved_amount,
         protect_price=True,
     )
 
@@ -156,6 +161,7 @@ async def _prepare_protected_market_order_draft(
 def _prepare_protected_market_order_draft_sync(
     ctx: SyncSecureClientContext, params: PrepareMarketOrderParams
 ) -> OrderDraft:
+    notional = _resolve_market_order_notional(params)
     metadata = ctx.order_metadata.resolve_market(ctx, token_id=params.token_id)
     builder_taker_fee_rate = (
         ctx.order_metadata.resolve_builder_taker_fee_rate(ctx, builder_code=params.builder_code)
@@ -167,18 +173,22 @@ def _prepare_protected_market_order_draft_sync(
     except UserInputError:
         metadata = ctx.order_metadata.fetch_current_market(ctx, token_id=params.token_id)
         price = _resolve_protected_market_order_price(params, metadata.tick_size)
+    resolved_amount = notional
+    if params.side == "BUY" and params.max_spend is not None:
+        resolved_amount = _resolve_buy_amount_for_fees(
+            amount=notional,
+            max_spend=params.max_spend,
+            price=price,
+            metadata=metadata,
+            builder_taker_fee_rate=builder_taker_fee_rate,
+        )
     return _build_market_order_draft(
         ctx,
         params,
         price=price,
         tick_size=metadata.tick_size,
         neg_risk=metadata.neg_risk,
-        resolved_amount=_resolve_buy_amount_for_fees(
-            params,
-            price=price,
-            metadata=metadata,
-            builder_taker_fee_rate=builder_taker_fee_rate,
-        ),
+        resolved_amount=resolved_amount,
         protect_price=True,
     )
 
@@ -202,7 +212,8 @@ async def _prepare_unprotected_market_order_draft(
             ),
         )
         resolved_amount = _resolve_buy_amount_for_fees(
-            params,
+            amount=notional,
+            max_spend=params.max_spend,
             price=price_context.price,
             metadata=metadata,
             builder_taker_fee_rate=builder_taker_fee_rate,
@@ -238,7 +249,8 @@ def _prepare_unprotected_market_order_draft_sync(
             ctx, builder_code=params.builder_code
         )
         resolved_amount = _resolve_buy_amount_for_fees(
-            params,
+            amount=notional,
+            max_spend=params.max_spend,
             price=price_context.price,
             metadata=metadata,
             builder_taker_fee_rate=builder_taker_fee_rate,
@@ -347,18 +359,17 @@ def _compute_market_order_amounts(
 
 
 def _resolve_buy_amount_for_fees(
-    params: PrepareMarketOrderParams,
     *,
+    amount: Decimal,
+    max_spend: Decimal,
     price: Decimal,
     metadata: MarketInfo,
     builder_taker_fee_rate: Decimal,
 ) -> Decimal:
-    if params.side != "BUY" or params.max_spend is None or params.amount is None:
-        return params.amount if params.amount is not None else params.shares  # type: ignore[return-value]
     return adjust_buy_amount_for_fees(
-        amount=params.amount,
+        amount=amount,
         price=price,
-        max_spend=params.max_spend,
+        max_spend=max_spend,
         fee=metadata.fee_info,
         builder_taker_fee_rate=builder_taker_fee_rate,
     )

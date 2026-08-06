@@ -225,3 +225,27 @@ def test_fetch_market_info_parses_order_metadata_and_tokens() -> None:
     assert neg_risk is True
     assert tick_size == Decimal("0.001")
     assert token_ids == frozenset((TokenId("8501497"), TokenId("8501498")))
+
+
+def test_fetch_market_info_names_mts_in_tick_size_errors() -> None:
+    async def run() -> None:
+        client = await _make_client()
+        try:
+            _install_public_clob(
+                client,
+                _capture(
+                    [],
+                    200,
+                    {
+                        "mts": "invalid",
+                        "nr": False,
+                        "t": [{"t": "8501497", "o": "Yes"}],
+                    },
+                ),
+            )
+            await fetch_market_info(client._ctx, condition_id=CtfConditionId(_CONDITION_ID))
+        finally:
+            await client.close()
+
+    with pytest.raises(UnexpectedResponseError, match="clob-markets 'mts'"):
+        asyncio.run(run())
