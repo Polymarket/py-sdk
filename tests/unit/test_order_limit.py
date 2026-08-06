@@ -20,6 +20,19 @@ from polymarket.errors import UserInputError
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 SIGNER_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 FAKE_CREDS = ApiKeyCreds(key="test-key", passphrase="test-passphrase", secret="dGVzdA==")
+_CONDITION_ID = "0x5c19f205507ce03ff5f3be08a8090a5969ea6870cc07b902a4ca2e61dfe48fdd"
+
+
+def _market_routes(*, tick_size: float = 0.01, neg_risk: bool = False) -> dict[str, Any]:
+    return {
+        "/markets-by-token/8501497": {"condition_id": _CONDITION_ID},
+        f"/clob-markets/{_CONDITION_ID}": {
+            "fd": {"r": 0, "e": 0},
+            "mts": tick_size,
+            "nr": neg_risk,
+            "t": [{"t": "8501497", "o": "Yes"}],
+        },
+    }
 
 
 def _multi_route_handler(routes: dict[str, dict[str, Any]]) -> httpx.MockTransport:
@@ -206,10 +219,7 @@ def test_validate_limit_order_params_accepts_far_expiration() -> None:
 
 
 def test_prepare_limit_order_draft_buy_computes_offered_requested() -> None:
-    routes = {
-        "/tick-size": {"minimum_tick_size": 0.01},
-        "/neg-risk": {"neg_risk": False},
-    }
+    routes = _market_routes()
 
     async def run() -> tuple[int, int, str, str]:
         client = await _make_client()
@@ -236,10 +246,7 @@ def test_prepare_limit_order_draft_buy_computes_offered_requested() -> None:
 
 
 def test_prepare_limit_order_draft_sell_swaps_amounts() -> None:
-    routes = {
-        "/tick-size": {"minimum_tick_size": 0.01},
-        "/neg-risk": {"neg_risk": True},
-    }
+    routes = _market_routes(neg_risk=True)
 
     async def run() -> tuple[int, int, str]:
         client = await _make_client()
@@ -260,10 +267,7 @@ def test_prepare_limit_order_draft_sell_swaps_amounts() -> None:
 
 
 def test_prepare_limit_order_draft_sets_gtd_when_expiration_given() -> None:
-    routes = {
-        "/tick-size": {"minimum_tick_size": 0.01},
-        "/neg-risk": {"neg_risk": False},
-    }
+    routes = _market_routes()
 
     async def run() -> tuple[str, int]:
         client = await _make_client()
@@ -287,10 +291,7 @@ def test_prepare_limit_order_draft_sets_gtd_when_expiration_given() -> None:
 
 
 def test_prepare_limit_order_draft_rejects_off_tick_price() -> None:
-    routes = {
-        "/tick-size": {"minimum_tick_size": 0.01},
-        "/neg-risk": {"neg_risk": False},
-    }
+    routes = _market_routes()
 
     async def run() -> None:
         client = await _make_client()
@@ -308,10 +309,7 @@ def test_prepare_limit_order_draft_rejects_off_tick_price() -> None:
 
 
 def test_prepare_limit_order_draft_rejects_price_outside_unit_range() -> None:
-    routes = {
-        "/tick-size": {"minimum_tick_size": 0.01},
-        "/neg-risk": {"neg_risk": False},
-    }
+    routes = _market_routes()
 
     async def run() -> None:
         client = await _make_client()

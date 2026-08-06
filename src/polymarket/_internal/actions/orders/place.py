@@ -9,10 +9,6 @@ from polymarket._internal.actions.orders.allowance import (
     fetch_current_order_allowance_sync,
 )
 from polymarket._internal.actions.orders.context import resolve_exchange_address
-from polymarket._internal.actions.orders.market_data import (
-    fetch_neg_risk,
-    fetch_neg_risk_sync,
-)
 from polymarket._internal.wallet import signature_type_for
 from polymarket.errors import RequestRejectedError
 from polymarket.models.clob import AssetType
@@ -83,8 +79,8 @@ async def _approve_order_if_under_allowance(
 ) -> bool:
     ctx = client._ctx  # pyright: ignore[reportPrivateUsage]
     env = ctx.environment
-    neg_risk = await fetch_neg_risk(ctx, token_id=signed_order.token_id)
-    spender = resolve_exchange_address(env, neg_risk)
+    metadata = await ctx.order_metadata.resolve_market(ctx, token_id=signed_order.token_id)
+    spender = resolve_exchange_address(env, metadata.neg_risk)
     current = await fetch_current_order_allowance(
         ctx, side=signed_order.side, token_id=signed_order.token_id, spender=spender
     )
@@ -111,8 +107,8 @@ async def _approve_order_if_under_allowance(
 def _approve_order_if_under_allowance_sync(client: SecureClient, signed_order: SignedOrder) -> bool:
     ctx = client._ctx  # pyright: ignore[reportPrivateUsage]
     env = ctx.environment
-    neg_risk = fetch_neg_risk_sync(ctx, token_id=signed_order.token_id)
-    spender = resolve_exchange_address(env, neg_risk)
+    metadata = ctx.order_metadata.resolve_market(ctx, token_id=signed_order.token_id)
+    spender = resolve_exchange_address(env, metadata.neg_risk)
     current = fetch_current_order_allowance_sync(
         ctx, side=signed_order.side, token_id=signed_order.token_id, spender=spender
     )

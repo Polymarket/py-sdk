@@ -44,6 +44,7 @@ from polymarket._internal.actions.gamma import (
 from polymarket._internal.actions.orders import cancel as _cancel_actions
 from polymarket._internal.actions.orders import post as _post_actions
 from polymarket._internal.actions.orders import settlement as _settlement_actions
+from polymarket._internal.actions.orders.cache import SyncOrderMetadataCache
 from polymarket._internal.actions.orders.estimate import (
     estimate_market_price_sync as _estimate_market_price_sync,
 )
@@ -418,6 +419,7 @@ class SecureClient:
             combos=combos,
             api_key=api_key,
             rpc=rpc,
+            order_metadata=SyncOrderMetadataCache(),
         )
         return cls(ctx=ctx, _create_token=_CREATE_TOKEN, logger=logger)
 
@@ -1449,7 +1451,7 @@ class SecureClient:
         shares: Decimal | int | float | str | None = None,
         order_type: MarketOrderType = "FOK",
     ) -> Decimal:
-        """Estimate the average execution price for a market order.
+        """Estimate the limiting price level for a market order.
 
         BUY orders use ``amount`` as the spend amount. SELL orders use ``shares``
         as the number of shares to sell.
@@ -1716,6 +1718,10 @@ class SecureClient:
         ``max_spend`` and ``max_price``. SELL orders use ``shares`` as the
         number of shares to sell and may include ``min_price``.
 
+        ``max_spend`` is an estimated all-in spend target based on recently
+        resolved platform and builder fee rates. Actual fees may change before
+        execution.
+
         Raises:
             UserInputError: If side-specific order parameters are invalid.
             InsufficientLiquidityError: If available liquidity cannot fill the order.
@@ -1808,6 +1814,10 @@ class SecureClient:
         BUY orders use ``amount`` as the spend amount and may include
         ``max_spend`` and ``max_price``. SELL orders use ``shares`` as the
         number of shares to sell and may include ``min_price``.
+
+        ``max_spend`` is an estimated all-in spend target based on recently
+        resolved platform and builder fee rates. Actual fees may change before
+        execution.
 
         Raises:
             UserInputError: If side-specific order parameters are invalid.

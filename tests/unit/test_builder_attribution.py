@@ -207,7 +207,15 @@ def test_create_limit_order_propagates_builder_code_to_signed_order() -> None:
                 client,
                 _mock_transport(
                     [],
-                    {"/tick-size": {"minimum_tick_size": 0.01}, "/neg-risk": {"neg_risk": False}},
+                    {
+                        "/markets-by-token": {"condition_id": _CONDITION_ID},
+                        "/clob-markets": {
+                            "fd": {"r": 0, "e": 0},
+                            "mts": 0.01,
+                            "nr": False,
+                            "t": [{"t": "8501497", "o": "Yes"}],
+                        },
+                    },
                 ),
             )
             _install_secure_clob(
@@ -247,7 +255,15 @@ def test_create_limit_order_without_builder_code_signs_zero_bytes32() -> None:
                 client,
                 _mock_transport(
                     [],
-                    {"/tick-size": {"minimum_tick_size": 0.01}, "/neg-risk": {"neg_risk": False}},
+                    {
+                        "/markets-by-token": {"condition_id": _CONDITION_ID},
+                        "/clob-markets": {
+                            "fd": {"r": 0, "e": 0},
+                            "mts": 0.01,
+                            "nr": False,
+                            "t": [{"t": "8501497", "o": "Yes"}],
+                        },
+                    },
                 ),
             )
             _install_secure_clob(
@@ -362,10 +378,13 @@ def test_get_builder_fee_rates_rejects_zero_builder_code_before_request() -> Non
 
 def _market_buy_public_routes() -> dict[str, Any]:
     return {
-        "/tick-size": {"minimum_tick_size": 0.01},
-        "/neg-risk": {"neg_risk": False},
         "/markets-by-token": {"condition_id": _CONDITION_ID},
-        "/clob-markets": {"fd": {"r": "0", "e": "0"}},
+        "/clob-markets": {
+            "fd": {"r": "0", "e": "0"},
+            "mts": 0.01,
+            "nr": False,
+            "t": [{"t": "8501497", "o": "Yes"}],
+        },
         "/book": {
             "asset_id": "8501497",
             "market": "0xMARKET",
@@ -424,6 +443,32 @@ def test_create_market_buy_with_builder_and_max_spend_fetches_fee_and_signs_buil
     ]
     assert len(fee_calls) == 1, "fee endpoint must be hit exactly once"
     assert maker_amount < 50_000_000
+
+
+def test_repeated_max_spend_orders_reuse_market_and_builder_fees() -> None:
+    public_captured: list[httpx.Request] = []
+
+    async def run() -> None:
+        client = await _make_client()
+        try:
+            _install_clob(client, _mock_transport(public_captured, _market_buy_public_routes()))
+            for _ in range(2):
+                await client.create_market_order(
+                    token_id="8501497",
+                    side="BUY",
+                    amount=Decimal("50"),
+                    max_spend=Decimal("50"),
+                    builder_code=_VALID_BUILDER,
+                )
+        finally:
+            await client.close()
+
+    asyncio.run(run())
+    paths = [urlparse(str(request.url)).path for request in public_captured]
+    assert paths.count("/markets-by-token/8501497") == 1
+    assert paths.count(f"/clob-markets/{_CONDITION_ID}") == 1
+    assert paths.count(f"/fees/builder-fees/{_VALID_BUILDER}") == 1
+    assert paths.count("/book") == 2
 
 
 def test_create_market_buy_with_zero_builder_and_max_spend_skips_fee_fetch() -> None:

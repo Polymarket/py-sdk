@@ -54,6 +54,7 @@ from polymarket._internal.actions.gamma import (
 from polymarket._internal.actions.orders import cancel as _cancel_actions
 from polymarket._internal.actions.orders import post as _post_actions
 from polymarket._internal.actions.orders import settlement as _settlement_actions
+from polymarket._internal.actions.orders.cache import AsyncOrderMetadataCache
 from polymarket._internal.actions.orders.estimate import (
     estimate_market_price as _estimate_market_price,
 )
@@ -491,6 +492,7 @@ class AsyncSecureClient:
             combos=combos,
             api_key=api_key,
             rpc=rpc,
+            order_metadata=AsyncOrderMetadataCache(),
         )
         return cls(ctx=ctx, _create_token=_CREATE_TOKEN, logger=logger)
 
@@ -905,6 +907,7 @@ class AsyncSecureClient:
         """Close the underlying network transports and any open streams."""
         ctx = self._ctx_inner
         await _close_all(
+            ctx.order_metadata,
             self._market_manager,
             self._sports_manager,
             self._rtds_manager,
@@ -2065,7 +2068,7 @@ class AsyncSecureClient:
         shares: Decimal | int | float | str | None = None,
         order_type: MarketOrderType = "FOK",
     ) -> Decimal:
-        """Estimate the average execution price for a market order.
+        """Estimate the limiting price level for a market order.
 
         BUY orders use ``amount`` as the spend amount. SELL orders use ``shares``
         as the number of shares to sell.
@@ -2152,6 +2155,10 @@ class AsyncSecureClient:
         BUY orders use ``amount`` as the spend amount and may include
         ``max_spend`` and ``max_price``. SELL orders use ``shares`` as the
         number of shares to sell and may include ``min_price``.
+
+        ``max_spend`` is an estimated all-in spend target based on recently
+        resolved platform and builder fee rates. Actual fees may change before
+        execution.
         """
         return await self._prepare_and_sign_market_order(
             token_id=token_id,
@@ -2261,6 +2268,10 @@ class AsyncSecureClient:
         BUY orders use ``amount`` as the spend amount and may include
         ``max_spend`` and ``max_price``. SELL orders use ``shares`` as the
         number of shares to sell and may include ``min_price``.
+
+        ``max_spend`` is an estimated all-in spend target based on recently
+        resolved platform and builder fee rates. Actual fees may change before
+        execution.
         """
         signed = await self._prepare_and_sign_market_order(
             token_id=token_id,
