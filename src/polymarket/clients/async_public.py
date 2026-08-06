@@ -1335,7 +1335,7 @@ class AsyncPublicClient:
         shares: Decimal | int | float | str | None = None,
         order_type: MarketOrderType = "FOK",
     ) -> Decimal:
-        """Estimate the average execution price for a market order.
+        """Estimate the limiting price level for a market order.
 
         BUY orders use ``amount`` as the spend amount. SELL orders use ``shares``
         as the number of shares to sell.

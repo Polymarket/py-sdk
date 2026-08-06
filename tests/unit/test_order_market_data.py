@@ -10,6 +10,7 @@ import pytest
 
 from polymarket import ApiKeyCreds, AsyncSecureClient
 from polymarket._internal.actions.orders.market_data import (
+    fetch_market_info,
     fetch_neg_risk,
     fetch_platform_fee_info,
     fetch_tick_size,
@@ -192,3 +193,35 @@ def test_fetch_platform_fee_info_parses_rate_and_exponent() -> None:
     rate, exponent = asyncio.run(run())
     assert rate == Decimal("0.0005")
     assert exponent == Decimal(1)
+
+
+def test_fetch_market_info_parses_order_metadata_and_tokens() -> None:
+    async def run() -> tuple[Decimal, bool, Decimal, frozenset[TokenId]]:
+        client = await _make_client()
+        try:
+            _install_public_clob(
+                client,
+                _capture(
+                    [],
+                    200,
+                    {
+                        "fd": {"r": 0.0005, "e": 1},
+                        "mts": 0.001,
+                        "nr": True,
+                        "t": [
+                            {"t": "8501497", "o": "Yes"},
+                            {"t": "8501498", "o": "No"},
+                        ],
+                    },
+                ),
+            )
+            info = await fetch_market_info(client._ctx, condition_id=CtfConditionId(_CONDITION_ID))
+            return info.fee_info.rate, info.neg_risk, info.tick_size, info.token_ids
+        finally:
+            await client.close()
+
+    rate, neg_risk, tick_size, token_ids = asyncio.run(run())
+    assert rate == Decimal("0.0005")
+    assert neg_risk is True
+    assert tick_size == Decimal("0.001")
+    assert token_ids == frozenset((TokenId("8501497"), TokenId("8501498")))

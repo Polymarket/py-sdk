@@ -1,13 +1,17 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from polymarket._internal.actions.orders.types import BYTES32_ZERO
-from polymarket._internal.context import AsyncClientContext, SyncClientContext
 from polymarket._internal.validation import require_nonempty, validate_builder_code
 from polymarket.errors import RequestRejectedError, UnexpectedResponseError, UserInputError
 from polymarket.models.clob.builder import BuilderFeeRates
 from polymarket.models.types import CtfConditionId, TokenId, validate_ctf_condition_id
+
+if TYPE_CHECKING:
+    from polymarket._internal.context import AsyncClientContext, SyncClientContext
 
 _ALLOWED_TICK_SIZES: frozenset[Decimal] = frozenset(
     {
@@ -25,6 +29,14 @@ _ALLOWED_TICK_SIZES: frozenset[Decimal] = frozenset(
 class PlatformFeeInfo:
     rate: Decimal
     exponent: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class MarketInfo:
+    fee_info: PlatformFeeInfo
+    neg_risk: bool
+    tick_size: Decimal
+    token_ids: frozenset[TokenId]
 
 
 async def fetch_tick_size(ctx: AsyncClientContext, *, token_id: str) -> Decimal:
@@ -87,6 +99,18 @@ def fetch_platform_fee_info_sync(
         raise UserInputError(str(error)) from error
     data = ctx.clob.get_json(f"/clob-markets/{validated}")
     return _parse_platform_fee_info(data)
+
+
+async def fetch_market_info(ctx: AsyncClientContext, *, condition_id: CtfConditionId) -> MarketInfo:
+    validated = _validate_condition_id(condition_id)
+    data = await ctx.clob.get_json(f"/clob-markets/{validated}")
+    return _parse_market_info(data)
+
+
+def fetch_market_info_sync(ctx: SyncClientContext, *, condition_id: CtfConditionId) -> MarketInfo:
+    validated = _validate_condition_id(condition_id)
+    data = ctx.clob.get_json(f"/clob-markets/{validated}")
+    return _parse_market_info(data)
 
 
 async def fetch_builder_fee_rates(ctx: AsyncClientContext, *, builder_code: str) -> BuilderFeeRates:
@@ -188,6 +212,44 @@ def _parse_platform_fee_info(data: object) -> PlatformFeeInfo:
     )
 
 
+def _parse_market_info(data: object) -> MarketInfo:
+    if not isinstance(data, dict):
+        raise UnexpectedResponseError("clob-markets response did not match expected shape")
+    payload = cast(dict[str, object], data)
+    raw_neg_risk = payload.get("nr", False)
+    if not isinstance(raw_neg_risk, bool):
+        raise UnexpectedResponseError(
+            f"clob-markets 'nr' must be a bool, got {type(raw_neg_risk).__name__}"
+        )
+    raw_tokens = payload.get("t")
+    if not isinstance(raw_tokens, list):
+        raise UnexpectedResponseError(
+            f"clob-markets 't' must be an array, got {type(raw_tokens).__name__}"
+        )
+    token_ids: set[TokenId] = set()
+    for index, raw_token in enumerate(cast(list[object], raw_tokens)):
+        if not isinstance(raw_token, dict):
+            raise UnexpectedResponseError(f"clob-markets 't[{index}]' must be an object")
+        raw_token_id = cast(dict[str, object], raw_token).get("t")
+        if not isinstance(raw_token_id, str) or not raw_token_id:
+            raise UnexpectedResponseError(f"clob-markets 't[{index}].t' must be a non-empty string")
+        token_ids.add(TokenId(raw_token_id))
+    return MarketInfo(
+        fee_info=_parse_platform_fee_info(payload),
+        neg_risk=raw_neg_risk,
+        tick_size=_parse_tick_size({"minimum_tick_size": payload.get("mts")}),
+        token_ids=frozenset(token_ids),
+    )
+
+
+def _validate_condition_id(condition_id: CtfConditionId) -> CtfConditionId:
+    validated = require_nonempty("condition_id", condition_id)
+    try:
+        return validate_ctf_condition_id(validated)
+    except ValueError as error:
+        raise UserInputError(str(error)) from error
+
+
 def _coerce_decimal(value: object, field: str) -> Decimal:
     if value is None:
         return Decimal(0)
@@ -204,11 +266,14 @@ def _coerce_decimal(value: object, field: str) -> Decimal:
 
 
 __all__ = [
+    "MarketInfo",
     "PlatformFeeInfo",
     "fetch_builder_fee_rates",
     "fetch_builder_fee_rates_sync",
     "fetch_neg_risk",
     "fetch_neg_risk_sync",
+    "fetch_market_info",
+    "fetch_market_info_sync",
     "fetch_platform_fee_info",
     "fetch_platform_fee_info_sync",
     "fetch_tick_size",

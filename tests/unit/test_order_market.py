@@ -20,6 +20,7 @@ from polymarket.errors import UserInputError
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 SIGNER_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 FAKE_CREDS = ApiKeyCreds(key="test-key", passphrase="test-passphrase", secret="dGVzdA==")
+_CONDITION_ID = "0x5c19f205507ce03ff5f3be08a8090a5969ea6870cc07b902a4ca2e61dfe48fdd"
 
 
 def _book_payload(*, bids: list[dict[str, str]], asks: list[dict[str, str]]) -> dict[str, Any]:
@@ -33,6 +34,18 @@ def _book_payload(*, bids: list[dict[str, str]], asks: list[dict[str, str]]) -> 
         "neg_risk": False,
         "hash": "0xhash",
         "timestamp": "1700000000",
+    }
+
+
+def _market_routes(*, neg_risk: bool = False) -> dict[str, dict[str, Any]]:
+    return {
+        "/markets-by-token/8501497": {"condition_id": _CONDITION_ID},
+        f"/clob-markets/{_CONDITION_ID}": {
+            "fd": {"r": 0, "e": 0},
+            "mts": 0.01,
+            "nr": neg_risk,
+            "t": [{"t": "8501497", "o": "Yes"}],
+        },
     }
 
 
@@ -163,9 +176,8 @@ def test_adjust_buy_amount_for_fees_passes_through_when_rate_zero() -> None:
 
 
 def test_prepare_market_order_draft_buy_uses_book_and_tick() -> None:
+    captured: list[str] = []
     routes = {
-        "/tick-size": {"minimum_tick_size": 0.01},
-        "/neg-risk": {"neg_risk": False},
         "/book": _book_payload(
             bids=[{"price": "0.40", "size": "5"}],
             asks=[
@@ -178,7 +190,7 @@ def test_prepare_market_order_draft_buy_uses_book_and_tick() -> None:
     async def run() -> tuple[int, int]:
         client = await _make_client()
         try:
-            _install_public_clob(client, _multi_route_handler(routes))
+            _install_public_clob(client, _tracked_route_handler(routes, captured))
             params = validate_market_order_params(
                 token_id="8501497", side="BUY", amount=Decimal("2"), order_type="FAK"
             )
@@ -190,12 +202,11 @@ def test_prepare_market_order_draft_buy_uses_book_and_tick() -> None:
     offered, requested = asyncio.run(run())
     assert offered == 2_000_000  # 2 USDC
     assert requested == 4_000_000  # 2 / 0.5 = 4 shares
+    assert captured == ["/book"]
 
 
 def test_prepare_market_order_draft_sell_swaps_amounts() -> None:
     routes = {
-        "/tick-size": {"minimum_tick_size": 0.01},
-        "/neg-risk": {"neg_risk": False},
         "/book": _book_payload(
             bids=[
                 {"price": "0.45", "size": "5"},
@@ -224,10 +235,7 @@ def test_prepare_market_order_draft_sell_swaps_amounts() -> None:
 
 def test_prepare_market_order_draft_buy_uses_max_price_without_book() -> None:
     captured: list[str] = []
-    routes = {
-        "/tick-size": {"minimum_tick_size": 0.01},
-        "/neg-risk": {"neg_risk": False},
-    }
+    routes = _market_routes()
 
     async def run() -> tuple[int, int]:
         client = await _make_client()
@@ -253,10 +261,7 @@ def test_prepare_market_order_draft_buy_uses_max_price_without_book() -> None:
 
 def test_prepare_market_order_draft_sell_uses_min_price_without_book() -> None:
     captured: list[str] = []
-    routes = {
-        "/tick-size": {"minimum_tick_size": 0.01},
-        "/neg-risk": {"neg_risk": False},
-    }
+    routes = _market_routes()
 
     async def run() -> tuple[int, int]:
         client = await _make_client()

@@ -1,15 +1,22 @@
 from collections.abc import Sequence
+from dataclasses import dataclass
 from decimal import Decimal
 
 from polymarket._internal.actions import clob as _clob_actions
 from polymarket._internal.actions.orders._numeric import coerce_positive_decimal
-from polymarket._internal.actions.orders.market_data import fetch_tick_size, fetch_tick_size_sync
 from polymarket._internal.actions.orders.types import MarketOrderType
 from polymarket._internal.context import AsyncClientContext, SyncClientContext
 from polymarket._internal.validation import require_nonempty
 from polymarket.errors import InsufficientLiquidityError, UnexpectedResponseError, UserInputError
-from polymarket.models.clob.order_book import OrderBookLevel
+from polymarket.models.clob.order_book import OrderBook, OrderBookLevel
 from polymarket.models.types import OrderSide, TokenId
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedMarketPrice:
+    price: Decimal
+    tick_size: Decimal
+    neg_risk: bool
 
 
 def _validate_estimate_inputs(
@@ -52,14 +59,12 @@ async def estimate_market_price(
     validated_token, notional = _validate_estimate_inputs(
         token_id=token_id, side=side, amount=amount, shares=shares, order_type=order_type
     )
-    tick_size = await fetch_tick_size(ctx, token_id=validated_token)
     return await resolve_estimated_market_price(
         ctx,
         token_id=validated_token,
         side=side,
         notional=notional,
         order_type=order_type,
-        tick_size=tick_size,
     )
 
 
@@ -75,14 +80,12 @@ def estimate_market_price_sync(
     validated_token, notional = _validate_estimate_inputs(
         token_id=token_id, side=side, amount=amount, shares=shares, order_type=order_type
     )
-    tick_size = fetch_tick_size_sync(ctx, token_id=validated_token)
     return resolve_estimated_market_price_sync(
         ctx,
         token_id=validated_token,
         side=side,
         notional=notional,
         order_type=order_type,
-        tick_size=tick_size,
     )
 
 
@@ -93,19 +96,31 @@ async def resolve_estimated_market_price(
     side: OrderSide,
     notional: Decimal,
     order_type: MarketOrderType,
-    tick_size: Decimal,
 ) -> Decimal:
+    return (
+        await resolve_market_price_context(
+            ctx,
+            token_id=token_id,
+            side=side,
+            notional=notional,
+            order_type=order_type,
+        )
+    ).price
+
+
+async def resolve_market_price_context(
+    ctx: AsyncClientContext,
+    *,
+    token_id: TokenId,
+    side: OrderSide,
+    notional: Decimal,
+    order_type: MarketOrderType,
+) -> ResolvedMarketPrice:
     path, params = _clob_actions.build_order_book_request(token_id=token_id)
     book = _clob_actions.parse_order_book(await ctx.clob.get_json(path, params=params))
-    if side == "BUY":
-        price = _calculate_buy_market_price(book.asks, notional, order_type)
-    else:
-        price = _calculate_sell_market_price(book.bids, notional, order_type)
-    if price < tick_size or price > Decimal(1) - tick_size:
-        raise UnexpectedResponseError(
-            f"Resolved market price {price} fell outside the valid range for tick size {tick_size}."
-        )
-    return price
+    return _resolve_market_price_context(
+        book, token_id=token_id, side=side, notional=notional, order_type=order_type
+    )
 
 
 def resolve_estimated_market_price_sync(
@@ -115,19 +130,57 @@ def resolve_estimated_market_price_sync(
     side: OrderSide,
     notional: Decimal,
     order_type: MarketOrderType,
-    tick_size: Decimal,
 ) -> Decimal:
+    return resolve_market_price_context_sync(
+        ctx,
+        token_id=token_id,
+        side=side,
+        notional=notional,
+        order_type=order_type,
+    ).price
+
+
+def resolve_market_price_context_sync(
+    ctx: SyncClientContext,
+    *,
+    token_id: TokenId,
+    side: OrderSide,
+    notional: Decimal,
+    order_type: MarketOrderType,
+) -> ResolvedMarketPrice:
     path, params = _clob_actions.build_order_book_request(token_id=token_id)
     book = _clob_actions.parse_order_book(ctx.clob.get_json(path, params=params))
+    return _resolve_market_price_context(
+        book, token_id=token_id, side=side, notional=notional, order_type=order_type
+    )
+
+
+def _resolve_market_price_context(
+    book: OrderBook,
+    *,
+    token_id: TokenId,
+    side: OrderSide,
+    notional: Decimal,
+    order_type: MarketOrderType,
+) -> ResolvedMarketPrice:
+    if book.token_id != token_id:
+        raise UnexpectedResponseError(
+            f"Order book returned token {book.token_id} for requested token {token_id}."
+        )
     if side == "BUY":
         price = _calculate_buy_market_price(book.asks, notional, order_type)
     else:
         price = _calculate_sell_market_price(book.bids, notional, order_type)
-    if price < tick_size or price > Decimal(1) - tick_size:
+    if price < book.tick_size or price > Decimal(1) - book.tick_size:
         raise UnexpectedResponseError(
-            f"Resolved market price {price} fell outside the valid range for tick size {tick_size}."
+            f"Resolved market price {price} fell outside the valid range for tick size "
+            f"{book.tick_size}."
         )
-    return price
+    return ResolvedMarketPrice(
+        price=price,
+        tick_size=book.tick_size,
+        neg_risk=book.neg_risk,
+    )
 
 
 def _calculate_buy_market_price(
@@ -161,8 +214,11 @@ def _calculate_sell_market_price(
 
 
 __all__ = [
+    "ResolvedMarketPrice",
     "estimate_market_price",
     "estimate_market_price_sync",
     "resolve_estimated_market_price",
     "resolve_estimated_market_price_sync",
+    "resolve_market_price_context",
+    "resolve_market_price_context_sync",
 ]

@@ -20,6 +20,7 @@ from polymarket.errors import RequestRejectedError
 _PRIVATE_KEY = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 _CREDS = ApiKeyCreds(key="k", passphrase="p", secret="dGVzdA==")
 _STANDARD_EXCHANGE = PRODUCTION.standard_exchange
+_CONDITION_ID = "0x5c19f205507ce03ff5f3be08a8090a5969ea6870cc07b902a4ca2e61dfe48fdd"
 
 
 def _builder_auth() -> Any:
@@ -82,8 +83,13 @@ def _accepted_order_payload() -> dict[str, Any]:
 
 
 _LIMIT_PUBLIC_ROUTES: dict[str, Any] = {
-    "/tick-size": {"minimum_tick_size": 0.01},
-    "/neg-risk": {"neg_risk": False},
+    "/markets-by-token/8501497": {"condition_id": _CONDITION_ID},
+    f"/clob-markets/{_CONDITION_ID}": {
+        "fd": {"r": 0, "e": 0},
+        "mts": 0.01,
+        "nr": False,
+        "t": [{"t": "8501497", "o": "Yes"}],
+    },
 }
 
 

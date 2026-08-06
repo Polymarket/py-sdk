@@ -1,5 +1,7 @@
 # pyright: reportPrivateUsage=false
 import dataclasses
+import time
+from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 from typing import Any
 from urllib.parse import urlparse
@@ -9,18 +11,25 @@ import pytest
 
 from polymarket import ApiKeyCreds, SecureClient
 from polymarket.clients._transport import SyncTransport
-from polymarket.errors import UserInputError
+from polymarket.errors import RequestRejectedError, UserInputError
 from polymarket.models.clob.order_response import AcceptedOrder
+from polymarket.models.types import TokenId
 
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 SIGNER_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 FAKE_CREDS = ApiKeyCreds(key="test-key", passphrase="test-passphrase", secret="dGVzdA==")
+_CONDITION_ID = "0x5c19f205507ce03ff5f3be08a8090a5969ea6870cc07b902a4ca2e61dfe48fdd"
 
 
 def _public_routes() -> dict[str, Any]:
     return {
-        "/tick-size": {"minimum_tick_size": 0.01},
-        "/neg-risk": {"neg_risk": False},
+        "/markets-by-token/8501497": {"condition_id": _CONDITION_ID},
+        f"/clob-markets/{_CONDITION_ID}": {
+            "fd": {"r": 0, "e": 0},
+            "mts": 0.01,
+            "nr": False,
+            "t": [{"t": "8501497", "o": "Yes"}, {"t": "8501498", "o": "No"}],
+        },
     }
 
 
@@ -121,6 +130,128 @@ def test_create_limit_order_signs_and_returns_signed_order() -> None:
     assert signed.taker_amount == 10_000_000
     assert signed.order_type == "GTC"
     assert signed.post_only is False
+
+
+def test_limit_and_protected_market_orders_reuse_cached_metadata() -> None:
+    public_captured: list[httpx.Request] = []
+
+    with _make_client() as client:
+        _install_clob(client, _routed_handler(public_captured, _public_routes()))
+        client.create_limit_order(token_id="8501497", price="0.5", size="10", side="BUY")
+        client.create_market_order(token_id="8501497", side="BUY", amount="5", max_price="0.5")
+
+    paths = [urlparse(str(request.url)).path for request in public_captured]
+    assert paths.count("/markets-by-token/8501497") == 1
+    assert paths.count(f"/clob-markets/{_CONDITION_ID}") == 1
+    assert "/book" not in paths
+
+
+def test_concurrent_metadata_reads_are_coalesced() -> None:
+    public_captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = urlparse(str(request.url)).path
+        public_captured.append(request)
+        if path == f"/clob-markets/{_CONDITION_ID}":
+            time.sleep(0.02)
+        payload = _public_routes().get(path)
+        if payload is None:
+            return httpx.Response(404, json={"error": "not mocked"}, request=request)
+        return httpx.Response(200, json=payload, request=request)
+
+    with _make_client() as client:
+        _install_clob(client, httpx.MockTransport(handler))
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = tuple(
+                executor.submit(
+                    client._ctx.order_metadata.resolve_market,
+                    client._ctx,
+                    token_id=TokenId("8501497"),
+                )
+                for _ in range(3)
+            )
+            results = tuple(future.result() for future in futures)
+
+    assert all(result.tick_size == Decimal("0.01") for result in results)
+    paths = [urlparse(str(request.url)).path for request in public_captured]
+    assert paths.count("/markets-by-token/8501497") == 1
+    assert paths.count(f"/clob-markets/{_CONDITION_ID}") == 1
+
+
+def test_failed_market_metadata_request_is_retried() -> None:
+    public_captured: list[httpx.Request] = []
+    market_requests = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal market_requests
+        public_captured.append(request)
+        path = urlparse(str(request.url)).path
+        if path == "/markets-by-token/8501497":
+            return httpx.Response(200, json={"condition_id": _CONDITION_ID}, request=request)
+        if path == f"/clob-markets/{_CONDITION_ID}":
+            market_requests += 1
+            if market_requests == 1:
+                return httpx.Response(500, json={"error": "try again"}, request=request)
+            return httpx.Response(200, json=_public_routes()[path], request=request)
+        return httpx.Response(404, json={"error": "not mocked"}, request=request)
+
+    with _make_client() as client:
+        _install_clob(client, httpx.MockTransport(handler))
+        with pytest.raises(RequestRejectedError, match="try again"):
+            client.create_limit_order(token_id="8501497", price="0.5", size="10", side="BUY")
+        client.create_limit_order(token_id="8501497", price="0.5", size="10", side="BUY")
+
+    paths = [urlparse(str(request.url)).path for request in public_captured]
+    assert paths.count("/markets-by-token/8501497") == 1
+    assert paths.count(f"/clob-markets/{_CONDITION_ID}") == 2
+
+
+def test_protected_max_spend_refreshes_tick_and_fee_metadata_together() -> None:
+    public_captured: list[httpx.Request] = []
+    market_requests = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal market_requests
+        public_captured.append(request)
+        path = urlparse(str(request.url)).path
+        if path == "/markets-by-token/8501497":
+            return httpx.Response(200, json={"condition_id": _CONDITION_ID}, request=request)
+        if path == f"/clob-markets/{_CONDITION_ID}":
+            market_requests += 1
+            return httpx.Response(
+                200,
+                json={
+                    "fd": {"r": 0 if market_requests == 1 else 0.1, "e": 0},
+                    "mts": 0.01 if market_requests == 1 else 0.001,
+                    "nr": False,
+                    "t": [{"t": "8501497", "o": "Yes"}],
+                },
+                request=request,
+            )
+        return httpx.Response(404, json={"error": "not mocked"}, request=request)
+
+    with _make_client() as client:
+        _install_clob(client, httpx.MockTransport(handler))
+        first = client.create_market_order(
+            token_id="8501497",
+            side="BUY",
+            amount="10",
+            max_spend="10",
+            max_price="0.5",
+        )
+        second = client.create_market_order(
+            token_id="8501497",
+            side="BUY",
+            amount="10",
+            max_spend="10",
+            max_price="0.555",
+        )
+
+    assert first.maker_amount == 10_000_000
+    assert second.maker_amount < first.maker_amount
+    paths = [urlparse(str(request.url)).path for request in public_captured]
+    assert paths.count("/markets-by-token/8501497") == 1
+    assert paths.count(f"/clob-markets/{_CONDITION_ID}") == 2
 
 
 def test_create_limit_order_does_not_preflight_allowance() -> None:
