@@ -14,6 +14,7 @@ from polymarket.models.perps.events import (
     PerpsBookEvent,
     PerpsCandleEvent,
     PerpsDepositEvent,
+    PerpsFundingEvent,
     PerpsMarketEvent,
     PerpsNotificationEvent,
     PerpsOrderEvent,
@@ -156,6 +157,29 @@ def test_order_model_normalizes_reduce_only_response_field() -> None:
     )
 
     assert order.reduce_only is True
+
+
+def test_session_funding_event_parses_compact_payload() -> None:
+    event = parse_perps_session_event(
+        {
+            "ch": "funding",
+            "ts": 1751500000000,
+            "sq": 4,
+            "data": {
+                "id": 3055723280187747,
+                "iid": 7,
+                "sz": "10",
+                "fr": "0.0001",
+                "fua": "USDC",
+                "fund": "0.5",
+                "ts": 1751500000000,
+            },
+        }
+    )
+    assert isinstance(event, PerpsFundingEvent)
+    assert event.payload.id == 3055723280187747
+    assert event.payload.instrument_id == 7
+    assert event.payload.funding == Decimal("0.5")
 
 
 def test_session_tpsl_event_parses_lifecycle_update() -> None:

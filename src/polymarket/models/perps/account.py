@@ -13,7 +13,11 @@ from polymarket.models.perps._validators import (
     _parse_auto_cancel_deadline,  # pyright: ignore[reportPrivateUsage]
     _require_epoch_ms,  # pyright: ignore[reportPrivateUsage]
 )
-from polymarket.models.perps.types import PerpsEntityId, PerpsInstrumentId
+from polymarket.models.perps.types import (
+    PerpsEntityId,
+    PerpsFundingPaymentId,
+    PerpsInstrumentId,
+)
 
 # Proxy key expiries above this magnitude are nanoseconds; convert to ms.
 _MAX_EPOCH_MS = 2**53 - 1
@@ -158,6 +162,7 @@ class PerpsPortfolio(BaseModel):
 class PerpsFundingPayment(BaseModel):
     """One funding payment applied to a position."""
 
+    id: PerpsFundingPaymentId
     instrument_id: PerpsInstrumentId = Field(validation_alias=AliasChoices("instrument_id", "iid"))
     size: Decimal = Field(validation_alias=AliasChoices("size", "sz"))
     funding_rate: Decimal = Field(validation_alias=AliasChoices("funding_rate", "fr"))

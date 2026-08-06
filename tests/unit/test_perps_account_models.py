@@ -162,9 +162,18 @@ def test_required_timestamps_pass_datetime_instances_through() -> None:
 
 def test_funding_payment_preserves_compact_aliases() -> None:
     payment = PerpsFundingPayment.parse_response(
-        {"iid": 7, "sz": "2", "fr": "0.001", "fua": "USDC", "fund": "0.25", "ts": _EPOCH_MS}
+        {
+            "id": 3055723280187747,
+            "iid": 7,
+            "sz": "2",
+            "fr": "0.001",
+            "fua": "USDC",
+            "fund": "0.25",
+            "ts": _EPOCH_MS,
+        }
     )
 
+    assert payment.id == 3055723280187747
     assert payment.instrument_id == 7
     assert payment.size == Decimal("2")
     assert payment.funding_rate == Decimal("0.001")
