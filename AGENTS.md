@@ -37,6 +37,14 @@
 - Do not rename existing variables, functions, or classes unless the operator explicitly asks for it in the prompt. Keep PRs lean; if a name looks wrong, propose the rename as a separate change instead of bundling it.
 - Avoid reuse that does not carry semantic or domain-specific value. Do not add boolean mode flags or generic helpers that hide distinct behavior behind one function; prefer separate explicit helpers whose names describe the behavior they implement.
 
+## Public Model Types
+
+- Public model fields and generated constructor signatures must expose canonical Python value types such as `Decimal`, `datetime`, and domain enums, not wire-format names or validation-only `Annotated` aliases.
+- Do not use `TYPE_CHECKING` branches to give static tooling a different type definition from the one available at runtime. Keep static annotations, runtime introspection, and generated documentation consistent.
+- Normalize incoming wire values at the response boundary with field validators or explicit response parsing. Keep format-specific behavior, such as decimal strings, E6 integer strings, and distinct timestamp encodings, in clearly named parsers rather than broad shared aliases.
+- Construct outgoing request payloads explicitly at the request boundary, including unit scaling and string conversion. Do not rely on response-model serializers to satisfy request protocols, and only add a model serializer when JSON serialization is itself part of the model's documented public contract.
+- Preserve `Annotated` metadata that expresses real type semantics, such as discriminators or constraints. The restriction is on validation-only metadata leaking into the public type surface, not on `Annotated` itself.
+
 ## Platform Invariants
 
 - A market's minimum tick size may become finer, such as `0.01` to `0.001`, but it cannot become coarser, such as `0.001` to `0.01`. SDK caching and recovery logic may rely on this monotonic behavior and should not add defensive handling for tick-size coarsening.
