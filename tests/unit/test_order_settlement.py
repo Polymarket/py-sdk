@@ -11,6 +11,7 @@ from polymarket import ApiKeyCreds, SecureClient
 from polymarket.clients._transport import SyncTransport
 from polymarket.errors import TimeoutError, TransactionFailedError
 from polymarket.models.clob.order_response import AcceptedOrder
+from polymarket.models.types import OrderId
 from polymarket.types import TransactionHash
 
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
@@ -89,7 +90,7 @@ def _accepted_order(
     transactions_hashes: tuple[str, ...] = (),
 ) -> AcceptedOrder:
     return AcceptedOrder(
-        order_id="0xorder",
+        order_id=OrderId("0xorder"),
         status=cast(Any, status),
         making_amount=Decimal("50"),
         taking_amount=Decimal("100"),

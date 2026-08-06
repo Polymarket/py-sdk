@@ -17,6 +17,7 @@ from polymarket.models.clob.price_history import PriceHistoryPoint
 from polymarket.models.data.activity import TradeActivity, UnknownActivity
 from polymarket.models.data.portfolio import Position
 from polymarket.models.gamma import Event, Market
+from polymarket.models.types import OrderId
 from polymarket.pagination import AsyncPaginator, Page, Paginator
 
 _CONDITION_ID = "0x" + "11" * 32
@@ -262,7 +263,7 @@ def test_price_history_point_repr_html_formats_timestamp() -> None:
 
 def test_accepted_order_repr_html() -> None:
     o = AcceptedOrder(
-        order_id="order-abc123def456",
+        order_id=OrderId("order-abc123def456"),
         status="live",
         making_amount=Decimal("100"),
         taking_amount=Decimal("200"),

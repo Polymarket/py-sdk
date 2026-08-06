@@ -136,6 +136,17 @@ _OP_VECTORS: list[dict[str, Any]] = [
         ),
     },
     {
+        "name": "updateMargin",
+        "op": ["updateMargin", [3, "-25.000000000000000001"]],
+        "salt": 8,
+        "timestamp": 1751500000006,
+        "data": "0x1bceee4cd50ae288f5ae7e993deeea51fe9dd41b5eff27840455ed72e72d4f4c",
+        "signature": (
+            "0xfd6ec2ee47423b3f87adfc64eadd9764180e05102efadb112403016a446d072d"
+            "497ec201b2df1e7944f465c9c734d3698b80dbe51a42eb8167a7a54e4249dfc81b"
+        ),
+    },
+    {
         "name": "deleteProxy",
         "op": ["deleteProxy", ["0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc"]],
         "salt": 55,

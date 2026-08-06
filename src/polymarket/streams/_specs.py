@@ -12,6 +12,7 @@ _PARENT_ENTITY_TYPES: frozenset[str] = frozenset({"Event", "Market"})
 _CRYPTO_PRICES_TOPICS: frozenset[str] = frozenset(
     {"prices.crypto.binance", "prices.crypto.chainlink"}
 )
+_CRYPTO_PRICES_CHAINLINK_TWAP_WINDOWS: frozenset[int] = frozenset({30, 60})
 _EQUITY_EVENT_TYPES: frozenset[str] = frozenset({"update", "subscribe"})
 _PERPS_CANDLE_INTERVALS: frozenset[str] = frozenset({"1m", "5m", "15m", "1h", "4h", "1d", "1w"})
 
@@ -30,7 +31,25 @@ CommentsEventType = Literal[
 ]
 ParentEntityType = Literal["Event", "Market"]
 CryptoPricesTopic = Literal["prices.crypto.binance", "prices.crypto.chainlink"]
+CryptoPricesChainlinkTwapWindowSeconds = Literal[30, 60]
 EquityPricesEventType = Literal["update", "subscribe"]
+
+
+def _normalize_crypto_symbols(symbols: Sequence[str] | None) -> tuple[str, ...] | None:
+    if symbols is None:
+        return None
+    if isinstance(symbols, str | bytes):
+        raise UserInputError("symbols must be a sequence of symbols, not a single string")
+    normalized: list[str] = []
+    for symbol in symbols:
+        if not isinstance(symbol, str):
+            raise UserInputError(f"symbol must be a string, got {type(symbol).__name__}")
+        if not symbol:
+            raise UserInputError("symbol must be non-empty")
+        normalized.append(symbol)
+    if not normalized:
+        raise UserInputError("symbols must be non-empty when provided")
+    return tuple(normalized)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -129,19 +148,32 @@ class CryptoPricesSpec:
             raise UserInputError(
                 f"topic must be one of {sorted(_CRYPTO_PRICES_TOPICS)}, got {self.topic!r}"
             )
-        if self.symbols is not None:
-            if isinstance(self.symbols, str | bytes):
-                raise UserInputError("symbols must be a sequence of symbols, not a single string")
-            normalized: list[str] = []
-            for s in self.symbols:
-                if not isinstance(s, str):
-                    raise UserInputError(f"symbol must be a string, got {type(s).__name__}")
-                if not s:
-                    raise UserInputError("symbol must be non-empty")
-                normalized.append(s)
-            if not normalized:
-                raise UserInputError("symbols must be non-empty when provided")
-            object.__setattr__(self, "symbols", tuple(normalized))
+        object.__setattr__(self, "symbols", _normalize_crypto_symbols(self.symbols))
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class CryptoPricesChainlinkTwapSpec:
+    """Subscribe to Chainlink TWAP price updates.
+
+    ``window_seconds`` selects the 30-second or 60-second averaging window.
+    Symbols are lowercase slash-delimited pairs such as ``btc/usd``. When
+    ``symbols`` is omitted, the subscription receives every symbol.
+    """
+
+    window_seconds: CryptoPricesChainlinkTwapWindowSeconds
+    symbols: Sequence[str] | None = None
+    topic: Literal["prices.crypto.chainlink.twap"] = field(
+        default="prices.crypto.chainlink.twap", init=False
+    )
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.window_seconds, bool)
+            or not isinstance(self.window_seconds, int)
+            or self.window_seconds not in _CRYPTO_PRICES_CHAINLINK_TWAP_WINDOWS
+        ):
+            raise UserInputError(f"window_seconds must be 30 or 60, got {self.window_seconds!r}")
+        object.__setattr__(self, "symbols", _normalize_crypto_symbols(self.symbols))
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -295,7 +327,7 @@ class PerpsStatisticsSpec:
         _validate_perps_instrument_id(self.instrument_id, optional=True)
 
 
-RtdsSpec = CommentsSpec | CryptoPricesSpec | EquityPricesSpec
+RtdsSpec = CommentsSpec | CryptoPricesSpec | CryptoPricesChainlinkTwapSpec | EquityPricesSpec
 PerpsSpec = (
     PerpsTradesSpec
     | PerpsBboSpec
@@ -314,6 +346,7 @@ _SPEC_TYPES: tuple[type[Subscription], ...] = (
     SportsSpec,
     CommentsSpec,
     CryptoPricesSpec,
+    CryptoPricesChainlinkTwapSpec,
     EquityPricesSpec,
     PerpsTradesSpec,
     PerpsBboSpec,
@@ -348,6 +381,8 @@ __all__ = [
     "SecureSubscription",
     "CommentsEventType",
     "CommentsSpec",
+    "CryptoPricesChainlinkTwapSpec",
+    "CryptoPricesChainlinkTwapWindowSeconds",
     "CryptoPricesSpec",
     "CryptoPricesTopic",
     "EquityPricesEventType",

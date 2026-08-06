@@ -111,6 +111,7 @@ from polymarket.models.perps import (
 )
 from polymarket.models.rtds_events import (
     CommentsEvent,
+    CryptoPricesChainlinkTwapEvent,
     CryptoPricesEvent,
     EquityPricesEvent,
     RtdsEvent,
@@ -120,6 +121,7 @@ from polymarket.models.types import CtfConditionId, TokenId
 from polymarket.pagination import AsyncPaginator, Page
 from polymarket.streams._specs import (
     CommentsSpec,
+    CryptoPricesChainlinkTwapSpec,
     CryptoPricesSpec,
     EquityPricesSpec,
     MarketSpec,
@@ -181,6 +183,10 @@ class AsyncPublicClient:
     ) -> SubscriptionHandle[CryptoPricesEvent]: ...
     @overload
     async def subscribe(
+        self, specs: CryptoPricesChainlinkTwapSpec, /
+    ) -> SubscriptionHandle[CryptoPricesChainlinkTwapEvent]: ...
+    @overload
+    async def subscribe(
         self, specs: EquityPricesSpec, /
     ) -> SubscriptionHandle[EquityPricesEvent]: ...
     @overload
@@ -201,6 +207,10 @@ class AsyncPublicClient:
     async def subscribe(
         self, specs: Sequence[CryptoPricesSpec], /
     ) -> SubscriptionHandle[CryptoPricesEvent]: ...
+    @overload
+    async def subscribe(
+        self, specs: Sequence[CryptoPricesChainlinkTwapSpec], /
+    ) -> SubscriptionHandle[CryptoPricesChainlinkTwapEvent]: ...
     @overload
     async def subscribe(
         self, specs: Sequence[EquityPricesSpec], /
@@ -244,7 +254,13 @@ class AsyncPublicClient:
                     handles.append(await self._get_sports_manager().subscribe())
                 elif isinstance(spec, PerpsSpec):
                     handles.append(await self._get_perps_manager().subscribe(spec))
-                elif isinstance(spec, CommentsSpec | CryptoPricesSpec | EquityPricesSpec):  # pyright: ignore[reportUnnecessaryIsInstance]
+                elif isinstance(
+                    spec,
+                    CommentsSpec
+                    | CryptoPricesSpec
+                    | CryptoPricesChainlinkTwapSpec
+                    | EquityPricesSpec,
+                ):  # pyright: ignore[reportUnnecessaryIsInstance]
                     handles.append(await self._get_rtds_manager().subscribe(spec))
                 else:
                     assert_never(spec)

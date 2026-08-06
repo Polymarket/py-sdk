@@ -51,10 +51,20 @@ def is_retryable_submit_error(error: BaseException) -> bool:
     return submitted < on_chain
 
 
+def onchain_nonce_from_submit_error(error: BaseException) -> str | None:
+    if not isinstance(error, RequestRejectedError) or error.status != 400:
+        return None
+    match = _NONCE_MISMATCH_RE.search(str(error))
+    if match is None:
+        return None
+    return match.group(2)
+
+
 __all__ = [
     "GASLESS_SUBMIT_RETRY_ATTEMPTS",
     "RelayerEnvelope",
     "is_retryable_submit_error",
+    "onchain_nonce_from_submit_error",
     "submit_gasless",
     "submit_gasless_sync",
 ]

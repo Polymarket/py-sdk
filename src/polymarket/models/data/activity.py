@@ -80,7 +80,10 @@ ActivityType = Literal[
     "REDEEM",
     "REWARD",
     "CONVERSION",
+    "DEPOSIT",
+    "WITHDRAWAL",
     "MAKER_REBATE",
+    "TAKER_REBATE",
     "REFERRAL_REWARD",
     "YIELD",
 ]
@@ -221,8 +224,20 @@ class RewardActivity(_AccountCreditActivity):
     type: Literal["REWARD"]
 
 
+class DepositActivity(_AccountCreditActivity):
+    type: Literal["DEPOSIT"]
+
+
+class WithdrawalActivity(_AccountCreditActivity):
+    type: Literal["WITHDRAWAL"]
+
+
 class MakerRebateActivity(_AccountCreditActivity):
     type: Literal["MAKER_REBATE"]
+
+
+class TakerRebateActivity(_AccountCreditActivity):
+    type: Literal["TAKER_REBATE"]
 
 
 class ReferralRewardActivity(_AccountCreditActivity):
@@ -279,7 +294,10 @@ Activity = (
     | RedeemActivity
     | ConversionActivity
     | RewardActivity
+    | DepositActivity
+    | WithdrawalActivity
     | MakerRebateActivity
+    | TakerRebateActivity
     | ReferralRewardActivity
     | YieldActivity
     | UnknownActivity
@@ -370,7 +388,10 @@ _KNOWN_ACTIVITY_TYPES: dict[str, type[_KnownActivityBase]] = {
     "REDEEM": RedeemActivity,
     "CONVERSION": ConversionActivity,
     "REWARD": RewardActivity,
+    "DEPOSIT": DepositActivity,
+    "WITHDRAWAL": WithdrawalActivity,
     "MAKER_REBATE": MakerRebateActivity,
+    "TAKER_REBATE": TakerRebateActivity,
     "REFERRAL_REWARD": ReferralRewardActivity,
     "YIELD": YieldActivity,
 }
@@ -457,15 +478,18 @@ __all__ = [
     "ComboUnwrapActivity",
     "ComboWrapActivity",
     "ConversionActivity",
+    "DepositActivity",
     "MakerRebateActivity",
     "MergeActivity",
     "RedeemActivity",
     "ReferralRewardActivity",
     "RewardActivity",
     "SplitActivity",
+    "TakerRebateActivity",
     "Trade",
     "TradeActivity",
     "UnknownActivity",
+    "WithdrawalActivity",
     "YieldActivity",
     "parse_activities",
     "parse_activity",

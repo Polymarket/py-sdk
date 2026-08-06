@@ -4,14 +4,17 @@ import httpx
 
 from polymarket._internal.actions.relayer.calls import TransactionCall
 from polymarket._internal.actions.relayer.gasless import (
+    build_signed_deposit_wallet_payload,
+    build_signed_deposit_wallet_payload_sync,
     build_signed_payload_for_wallet_type,
     build_signed_payload_for_wallet_type_sync,
     submit_gasless_with_retry,
     submit_gasless_with_retry_sync,
 )
+from polymarket._internal.actions.relayer.submit import onchain_nonce_from_submit_error
 from polymarket._internal.context import AsyncSecureClientContext, SyncSecureClientContext
 from polymarket._internal.wallet import WalletType
-from polymarket.errors import UserInputError
+from polymarket.errors import RequestRejectedError, UserInputError
 from polymarket.models.clob.relayer import RelayerExecuteResponse
 from polymarket.models.collateral_return import CollateralReturnPlanResponse
 from polymarket.transactions import GaslessTransactionHandle, SyncGaslessTransactionHandle
@@ -100,11 +103,24 @@ async def _submit_plan(
     ctx: AsyncSecureClientContext, *, plan_hash: str, call: TransactionCall
 ) -> RelayerExecuteResponse:
     envelope = await build_signed_payload_for_wallet_type(ctx, calls=[call], metadata=_METADATA)
-    data = await ctx.combos.post_json(
-        _SUBMIT_PATH,
-        json={"plan_hash": plan_hash, "envelope": envelope},
-        timeout=_REQUEST_TIMEOUT,
-    )
+    try:
+        data = await ctx.combos.post_json(
+            _SUBMIT_PATH,
+            json={"plan_hash": plan_hash, "envelope": envelope},
+            timeout=_REQUEST_TIMEOUT,
+        )
+    except RequestRejectedError as error:
+        nonce = onchain_nonce_from_submit_error(error)
+        if nonce is None or ctx.wallet_type != "DEPOSIT_WALLET":
+            raise
+        envelope = await build_signed_deposit_wallet_payload(
+            ctx, calls=[call], metadata=_METADATA, nonce=nonce
+        )
+        data = await ctx.combos.post_json(
+            _SUBMIT_PATH,
+            json={"plan_hash": plan_hash, "envelope": envelope},
+            timeout=_REQUEST_TIMEOUT,
+        )
     return RelayerExecuteResponse.parse_response(data)
 
 
@@ -112,11 +128,24 @@ def _submit_plan_sync(
     ctx: SyncSecureClientContext, *, plan_hash: str, call: TransactionCall
 ) -> RelayerExecuteResponse:
     envelope = build_signed_payload_for_wallet_type_sync(ctx, calls=[call], metadata=_METADATA)
-    data = ctx.combos.post_json(
-        _SUBMIT_PATH,
-        json={"plan_hash": plan_hash, "envelope": envelope},
-        timeout=_REQUEST_TIMEOUT,
-    )
+    try:
+        data = ctx.combos.post_json(
+            _SUBMIT_PATH,
+            json={"plan_hash": plan_hash, "envelope": envelope},
+            timeout=_REQUEST_TIMEOUT,
+        )
+    except RequestRejectedError as error:
+        nonce = onchain_nonce_from_submit_error(error)
+        if nonce is None or ctx.wallet_type != "DEPOSIT_WALLET":
+            raise
+        envelope = build_signed_deposit_wallet_payload_sync(
+            ctx, calls=[call], metadata=_METADATA, nonce=nonce
+        )
+        data = ctx.combos.post_json(
+            _SUBMIT_PATH,
+            json={"plan_hash": plan_hash, "envelope": envelope},
+            timeout=_REQUEST_TIMEOUT,
+        )
     return RelayerExecuteResponse.parse_response(data)
 
 
