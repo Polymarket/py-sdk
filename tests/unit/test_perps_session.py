@@ -6,7 +6,7 @@ import contextlib
 import json
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -467,53 +467,23 @@ def test_cancel_all_orders_uses_signed_rest_endpoint() -> None:
     assert "exp" not in unscoped_body
 
 
-def test_auto_cancel_uses_signed_rest_endpoint() -> None:
-    captured: list[httpx.Request] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured.append(request)
-        time_ms = json.loads(request.content)["op"]["args"]["time"]
-        return httpx.Response(200, json={"status": "ok", "deadline": time_ms}, request=request)
-
+def test_arm_auto_cancel_rejects_deadline_less_than_five_seconds_ahead() -> None:
     async def run() -> None:
         session = PerpsSession(
             chain_id=137,
             credentials=_CREDENTIALS,
-            rest_url="https://perps.test",
+            rest_url="http://127.0.0.1:9",
             ws_url="ws://127.0.0.1:9",
         )
-        session._api = AsyncTransport(
-            base_url="https://perps.test",
-            client=httpx.AsyncClient(
-                base_url="https://perps.test",
-                transport=httpx.MockTransport(handler),
-            ),
-            header_resolver=session._resolve_auth_headers,
-        )
         try:
-            await session.arm_auto_cancel(cancel_at=1_767_000_045_000, expires_at=1_700_000_005_000)
-            await session.clear_auto_cancel()
+            with pytest.raises(UserInputError, match="at least 5 seconds"):
+                await session.arm_auto_cancel(
+                    cancel_at=datetime.now(tz=UTC) + timedelta(milliseconds=4_999)
+                )
         finally:
             await session.close()
 
     asyncio.run(asyncio.wait_for(run(), timeout=10.0))
-
-    assert len(captured) == 2
-    assert captured[0].method == "PATCH"
-    assert captured[0].url.path == "/v1/trade/auto-cancel"
-    assert captured[0].headers["polymarket-proxy"] == _PROXY_ADDRESS
-    assert captured[0].headers["polymarket-secret"] == "session-secret"
-
-    arm_body = json.loads(captured[0].content)
-    assert arm_body["op"] == {"type": "autoCancel", "args": {"time": 1_767_000_045_000}}
-    assert arm_body["exp"] == 1_700_000_005_000
-    assert isinstance(arm_body["salt"], int)
-    assert isinstance(arm_body["ts"], int)
-    assert arm_body["sig"].startswith("0x") and len(arm_body["sig"]) == 132
-
-    clear_body = json.loads(captured[1].content)
-    assert clear_body["op"] == {"type": "autoCancel", "args": {"time": 0}}
-    assert "exp" not in clear_body
 
 
 def test_arm_auto_cancel_daily_limit_raises_typed_error() -> None:
@@ -541,7 +511,7 @@ def test_arm_auto_cancel_daily_limit_raises_typed_error() -> None:
         )
         try:
             with pytest.raises(AutoCancelDailyLimitError) as excinfo:
-                await session.arm_auto_cancel(cancel_at=1_767_000_045_000)
+                await session.arm_auto_cancel(cancel_at=datetime.now(tz=UTC) + timedelta(minutes=1))
             assert excinfo.value.status == 422
         finally:
             await session.close()

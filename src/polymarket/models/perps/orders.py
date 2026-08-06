@@ -7,6 +7,7 @@ from pydantic import AliasChoices, Field, model_validator
 from polymarket.models.base import BaseModel
 from polymarket.models.perps._validators import (
     OptionalTxHash,
+    PerpsAutoCancelDeadline,
     PerpsTimestamp,
     _Decimal,
 )
@@ -157,12 +158,12 @@ class PerpsCancelAllOrdersResponse(BaseModel):
 class PerpsAutoCancelResponse(BaseModel):
     """Accepted response for a Perps auto-cancel update.
 
-    ``deadline`` echoes the armed cancellation time in epoch milliseconds, or
-    ``0`` when the schedule was cleared.
+    ``deadline`` echoes the armed cancellation time, or ``None`` when the
+    schedule was disarmed.
     """
 
     status: Literal["ok"]
-    deadline: int
+    deadline: PerpsAutoCancelDeadline
 
 
 class PerpsUpdateLeverageResult(BaseModel):

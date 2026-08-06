@@ -100,6 +100,7 @@ from polymarket.pagination import AsyncPaginator
 
 _AUTH_TIMEOUT_S = 30.0
 _ACK_TIMEOUT_S = 30.0
+_MIN_AUTO_CANCEL_BUFFER_MS = 5_000
 # Purposefully generous: backend order updates are expected in the ~100ms range.
 _ORDER_PLACEMENT_UPDATE_TIMEOUT_S = 2.0
 _QUEUE_SIZE = 1024
@@ -558,8 +559,8 @@ class PerpsSession:
         again replaces the previous schedule, and ``cancel_at`` must be at
         least five seconds in the future. Accounts may only trigger
         auto-cancel a limited number of times per UTC day; use
-        :meth:`fetch_auto_cancel` to inspect the limit, today's trigger count,
-        and when the counter resets.
+        :meth:`fetch_auto_cancel_status` to inspect the limit, today's
+        trigger count, and when the counter resets.
 
         Keep a 60-second dead man's switch alive by re-arming every 20
         seconds::
@@ -569,14 +570,14 @@ class PerpsSession:
                     cancel_at=datetime.now(timezone.utc) + timedelta(seconds=60)
                 )
                 await asyncio.sleep(20)
-            await session.clear_auto_cancel()
+            await session.disarm_auto_cancel()
 
         Raises :class:`polymarket.AutoCancelDailyLimitError` when the daily
         trigger limit has been reached.
         """
         cancel_at_ms = to_epoch_ms("cancel_at", cancel_at)
-        if not cancel_at_ms:
-            raise UserInputError("cancel_at must be non-zero; use clear_auto_cancel() to clear")
+        if cancel_at_ms is None or cancel_at_ms < now_ms() + _MIN_AUTO_CANCEL_BUFFER_MS:
+            raise UserInputError("cancel_at must be at least 5 seconds in the future.")
         op = auto_cancel_op(time_ms=cancel_at_ms)
         try:
             response = await self._api.patch_json(
@@ -596,10 +597,10 @@ class PerpsSession:
             raise
         PerpsAutoCancelResponse.parse_response(response)
 
-    async def clear_auto_cancel(self, *, expires_at: datetime | int | None = None) -> None:
-        """Clear the auto-cancel schedule without triggering it.
+    async def disarm_auto_cancel(self, *, expires_at: datetime | int | None = None) -> None:
+        """Disarm the auto-cancel schedule without triggering it.
 
-        Clearing is always allowed, even when the daily trigger limit has
+        Disarming is always allowed, even when the daily trigger limit has
         been reached.
         """
         op = auto_cancel_op(time_ms=0)
@@ -655,13 +656,13 @@ class PerpsSession:
         """Fetch Perps account configuration, optionally filtered by instrument."""
         return await _account.fetch_account_config(self._api, instrument_id=instrument_id)
 
-    async def fetch_auto_cancel(self) -> PerpsAutoCancelStatus:
+    async def fetch_auto_cancel_status(self) -> PerpsAutoCancelStatus:
         """Fetch the auto-cancel status for the session account.
 
         Includes the armed deadline, today's trigger count, the daily trigger
         limit, and when the daily counter resets.
         """
-        return await _account.fetch_auto_cancel(self._api)
+        return await _account.fetch_auto_cancel_status(self._api)
 
     async def fetch_open_orders(
         self, *, instrument_id: int | None = None

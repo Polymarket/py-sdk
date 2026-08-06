@@ -70,7 +70,7 @@ async def fetch_stats(api: AsyncTransport) -> PerpsAccountStats:
     return PerpsAccountStats.parse_response(await api.get_json("/v1/account/stats"))
 
 
-async def fetch_auto_cancel(api: AsyncTransport) -> PerpsAutoCancelStatus:
+async def fetch_auto_cancel_status(api: AsyncTransport) -> PerpsAutoCancelStatus:
     return PerpsAutoCancelStatus.parse_response(await api.get_json("/v1/account/auto-cancel"))
 
 
@@ -495,7 +495,7 @@ def _point_timestamp(item: object) -> int | None:
 
 __all__ = [
     "fetch_account_config",
-    "fetch_auto_cancel",
+    "fetch_auto_cancel_status",
     "fetch_balances",
     "fetch_open_orders",
     "fetch_orders",

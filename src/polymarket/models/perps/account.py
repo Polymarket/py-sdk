@@ -6,7 +6,11 @@ from typing import Annotated, cast
 from pydantic import AliasChoices, BeforeValidator, Field, model_validator
 
 from polymarket.models.base import BaseModel
-from polymarket.models.perps._validators import PerpsTimestamp, _Decimal
+from polymarket.models.perps._validators import (
+    PerpsAutoCancelDeadline,
+    PerpsTimestamp,
+    _Decimal,
+)
 from polymarket.models.perps.types import PerpsEntityId, PerpsInstrumentId
 
 # Proxy key expiries above this magnitude are nanoseconds; convert to ms.
@@ -24,16 +28,16 @@ class PerpsBalance(BaseModel):
 class PerpsAutoCancelStatus(BaseModel):
     """Current auto-cancel state for the account.
 
-    ``deadline`` is the armed cancellation time in epoch milliseconds, or
-    ``0`` when no schedule is armed. ``triggered`` counts today's fires,
-    ``daily_limit`` is the maximum triggers allowed per UTC day, and
-    ``next_reset`` is the epoch-ms time when the daily counter resets.
+    ``deadline`` is the armed cancellation time, or ``None`` when no schedule
+    is armed. ``triggered`` counts today's fires, ``daily_limit`` is the
+    maximum triggers allowed per UTC day, and ``next_reset`` is when the
+    daily counter resets.
     """
 
-    deadline: int
+    deadline: PerpsAutoCancelDeadline
     triggered: int
     daily_limit: int
-    next_reset: int
+    next_reset: PerpsTimestamp
 
 
 class PerpsAccountStats(BaseModel):

@@ -40,6 +40,13 @@ def _require_epoch_ms(value: object) -> object:
     return parsed
 
 
+# The API reports an unarmed auto-cancel schedule as a `0` deadline.
+def _parse_auto_cancel_deadline(value: object) -> object:
+    if isinstance(value, int) and not isinstance(value, bool) and value == 0:
+        return None
+    return _parse_epoch_ms(value)
+
+
 def _parse_tx_hash(value: object) -> object:
     if value in ("", "0x"):
         return None
@@ -53,12 +60,14 @@ else:
 
 PerpsTimestamp = Annotated[datetime, BeforeValidator(_require_epoch_ms)]
 OptionalPerpsTimestamp = Annotated[datetime | None, BeforeValidator(_parse_epoch_ms)]
+PerpsAutoCancelDeadline = Annotated[datetime | None, BeforeValidator(_parse_auto_cancel_deadline)]
 OptionalTxHash = Annotated[str | None, BeforeValidator(_parse_tx_hash)]
 
 
 __all__ = [
     "OptionalPerpsTimestamp",
     "OptionalTxHash",
+    "PerpsAutoCancelDeadline",
     "PerpsTimestamp",
     "_Decimal",
 ]
