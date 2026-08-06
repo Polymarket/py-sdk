@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.4.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.3.0...polymarket-client-v0.4.0) (2026-08-05)
+
+
+### Features
+
+* support isolated margin adjustments ([0fc001d](https://github.com/Polymarket/py-sdk/commit/0fc001d7ab21f64e01a937df9b2e6996564fdccc))
+* support isolated margin adjustments ([7155918](https://github.com/Polymarket/py-sdk/commit/7155918966e59d1eb0dee777f977a5a8a57f27a1))
+
+
+### Bug Fixes
+
+* avoid delayed markets in order tests ([a231997](https://github.com/Polymarket/py-sdk/commit/a231997f65ecc2bd7329f0acf83fd0abe35f5907))
+
+
+### Documentation
+
+* add Python API reference artifact pipeline ([f6611c7](https://github.com/Polymarket/py-sdk/commit/f6611c74cb8a4b6fa683f463722ca1c3ce54423f))
+* add Python API reference artifact pipeline ([049fe0d](https://github.com/Polymarket/py-sdk/commit/049fe0d8006265fb260ab59722428bc1f93e5c12))
+* avoid conflict-like reference headings ([a5ca9e9](https://github.com/Polymarket/py-sdk/commit/a5ca9e9b14009509ba753164a500f700eac05038))
+* **repo:** add review method guidance ([ef31dff](https://github.com/Polymarket/py-sdk/commit/ef31dff308148e62701fffa52d4b7979d77bb54c))
+* **repo:** add review method guidance ([7bb0940](https://github.com/Polymarket/py-sdk/commit/7bb094035a7bdaf09ce9ad94b85e33531a89741f))
+* **repo:** document tick-size invariant ([6021381](https://github.com/Polymarket/py-sdk/commit/6021381ec2731414e9350b255954ea2b25c5b2f6))
+* **repo:** document tick-size platform invariant ([df01e80](https://github.com/Polymarket/py-sdk/commit/df01e80ac39d0599dd8a52f1867620d9168b02ef))
+
 ## [0.3.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.3.0-b2...polymarket-client-v0.3.0) (2026-08-04)
 
 
