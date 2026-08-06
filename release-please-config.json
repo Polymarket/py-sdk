@@ -11,7 +11,7 @@
         {
           "type": "toml",
           "path": "uv.lock",
-          "jsonpath": "$.package[?(@.name=='polymarket-client')].version"
+          "jsonpath": "$.package[?(@.name.value=='polymarket-client')].version"
         }
       ]
     }
