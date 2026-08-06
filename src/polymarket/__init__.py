@@ -3,6 +3,7 @@ from polymarket.calls import TransactionCall
 from polymarket.clients import AsyncPublicClient, AsyncSecureClient, PublicClient, SecureClient
 from polymarket.environments import PRODUCTION, Environment
 from polymarket.errors import (
+    AutoCancelDailyLimitError,
     CancelledSigningError,
     ConnectionLostError,
     InsufficientAllowanceError,
@@ -224,6 +225,7 @@ __all__ = [
     "AsyncPaginator",
     "AsyncPublicClient",
     "AsyncSecureClient",
+    "AutoCancelDailyLimitError",
     "BalanceAllowance",
     "BuilderApiKey",
     "BuilderApiKeyInfo",

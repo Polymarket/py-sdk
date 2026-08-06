@@ -7,6 +7,7 @@ patch releases.
 from polymarket.models.perps.account import (
     PerpsAccountConfig,
     PerpsAccountStats,
+    PerpsAutoCancelStatus,
     PerpsBalance,
     PerpsCredentialsInfo,
     PerpsEquityPoint,
@@ -122,6 +123,7 @@ from polymarket.models.perps.types import (
 __all__ = [
     "PerpsAccountConfig",
     "PerpsAccountStats",
+    "PerpsAutoCancelStatus",
     "PerpsBalance",
     "PerpsBalanceEvent",
     "PerpsBbo",

@@ -114,6 +114,28 @@ _OP_VECTORS: list[dict[str, Any]] = [
         ),
     },
     {
+        "name": "autoCancel arm",
+        "op": ["autoCancel", [1767000045000]],
+        "salt": 12345,
+        "timestamp": 1751500000000,
+        "data": "0x8d16f1dbf6be71cea6ad70c5b09f028dd1b451cebb2c7dd20c82dbf1022440ba",
+        "signature": (
+            "0x9019fb6edfc125e19635ac74d50efc1c863bc26e4d395ee76a8e26d7df001144"
+            "24d5a338540f9b7ecb46fb3825ad662da852856257829c3664ce84d02bfcdda81c"
+        ),
+    },
+    {
+        "name": "autoCancel clear",
+        "op": ["autoCancel", [0]],
+        "salt": 12345,
+        "timestamp": 1751500000000,
+        "data": "0x569d0f5365d9bb75e7f2218717986828ea553b937a4c901528c70fa173fa539e",
+        "signature": (
+            "0x188bebb866e6f11dd439ea12e2869eb9308fb6a9c6c9da09ece8a74467d7c4ac"
+            "582c4a9929094af1d994467e40c81143de007b6b1499286b265512fdde82b29a1c"
+        ),
+    },
+    {
         "name": "updateMargin",
         "op": ["updateMargin", [3, "-25.000000000000000001"]],
         "salt": 8,

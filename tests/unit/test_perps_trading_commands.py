@@ -7,6 +7,7 @@ import pytest
 
 from polymarket._internal.actions.perps.signing import build_perps_op_typed_data
 from polymarket._internal.actions.perps.trading import (
+    auto_cancel_op,
     cancel_all_orders_op,
     cancel_orders_by_client_id_op,
     cancel_orders_op,
@@ -149,6 +150,25 @@ def test_cancel_and_leverage_ops() -> None:
     assert to_command_body_op(
         update_leverage_op(instrument_id=3, leverage=20, cross_margin=True)
     ) == {"type": "updateLeverage", "args": {"cross": True, "iid": 3, "lev": 20}}
+
+
+def test_auto_cancel_op() -> None:
+    assert auto_cancel_op(time_ms=1_767_000_045_000) == ["autoCancel", [1_767_000_045_000]]
+    assert to_command_body_op(auto_cancel_op(time_ms=1_767_000_045_000)) == {
+        "type": "autoCancel",
+        "args": {"time": 1_767_000_045_000},
+    }
+    assert to_command_body_op(auto_cancel_op(time_ms=0)) == {
+        "type": "autoCancel",
+        "args": {"time": 0},
+    }
+
+
+def test_invalid_auto_cancel_time_rejected() -> None:
+    with pytest.raises(UserInputError, match="time_ms must be an int"):
+        auto_cancel_op(time_ms=True)  # type: ignore[arg-type]
+    with pytest.raises(UserInputError, match="non-negative"):
+        auto_cancel_op(time_ms=-1)
 
 
 @pytest.mark.parametrize(

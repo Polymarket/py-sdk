@@ -121,6 +121,7 @@ from polymarket.models.gamma import (
 from polymarket.models.perps import (
     PerpsAccountConfig,
     PerpsAccountStats,
+    PerpsAutoCancelStatus,
     PerpsBalance,
     PerpsBbo,
     PerpsBook,
@@ -309,6 +310,7 @@ __all__ = [
     "OrderId",
     "PerpsAccountConfig",
     "PerpsAccountStats",
+    "PerpsAutoCancelStatus",
     "PerpsBalance",
     "PerpsBbo",
     "PerpsBook",

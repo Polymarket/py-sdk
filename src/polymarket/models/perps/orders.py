@@ -9,6 +9,7 @@ from pydantic import AliasChoices, Field, field_validator, model_validator
 from polymarket.models.base import BaseModel
 from polymarket.models.perps._validators import (
     _coerce_decimalish,  # pyright: ignore[reportPrivateUsage]
+    _parse_auto_cancel_deadline,  # pyright: ignore[reportPrivateUsage]
     _parse_tx_hash,  # pyright: ignore[reportPrivateUsage]
     _require_epoch_ms,  # pyright: ignore[reportPrivateUsage]
 )
@@ -194,6 +195,22 @@ class PerpsCancelAllOrdersResponse(BaseModel):
     status: Literal["ok"]
 
 
+class PerpsAutoCancelResponse(BaseModel):
+    """Accepted response for a Perps auto-cancel update.
+
+    ``deadline`` echoes the armed cancellation time, or ``None`` when the
+    schedule was disarmed.
+    """
+
+    status: Literal["ok"]
+    deadline: datetime | None
+
+    @field_validator("deadline", mode="before")
+    @classmethod
+    def _parse_deadline(cls, value: object) -> object:
+        return _parse_auto_cancel_deadline(value)
+
+
 class PerpsUpdateLeverageResult(BaseModel):
     """Result of a Perps leverage update."""
 
@@ -204,6 +221,7 @@ class PerpsUpdateLeverageResult(BaseModel):
 
 
 __all__ = [
+    "PerpsAutoCancelResponse",
     "PerpsCancelAllOrdersResponse",
     "PerpsCancelOrderResult",
     "PerpsFill",

@@ -45,6 +45,15 @@ class RequestRejectedError(PolymarketError):
         self.retry_after = retry_after
 
 
+class AutoCancelDailyLimitError(RequestRejectedError):
+    """Error raised when arming auto-cancel is rejected because the account
+    reached its daily auto-cancel trigger limit.
+
+    Arming is rejected until the daily counter resets at the next UTC
+    midnight; clearing an existing schedule is always allowed.
+    """
+
+
 class RateLimitError(PolymarketError):
     """Error raised when a request is rejected because of rate limits."""
 

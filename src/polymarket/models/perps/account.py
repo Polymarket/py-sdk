@@ -10,6 +10,7 @@ from pydantic import AliasChoices, Field, field_validator, model_validator
 from polymarket.models.base import BaseModel
 from polymarket.models.perps._validators import (
     _coerce_decimalish,  # pyright: ignore[reportPrivateUsage]
+    _parse_auto_cancel_deadline,  # pyright: ignore[reportPrivateUsage]
     _require_epoch_ms,  # pyright: ignore[reportPrivateUsage]
 )
 from polymarket.models.perps.types import PerpsEntityId, PerpsInstrumentId
@@ -29,6 +30,31 @@ class PerpsBalance(BaseModel):
     @classmethod
     def _parse_decimal(cls, value: object) -> object:
         return _coerce_decimalish(value)
+
+
+class PerpsAutoCancelStatus(BaseModel):
+    """Current auto-cancel state for the account.
+
+    ``deadline`` is the armed cancellation time, or ``None`` when no schedule
+    is armed. ``triggered`` counts today's fires, ``daily_limit`` is the
+    maximum triggers allowed per UTC day, and ``next_reset`` is when the
+    daily counter resets.
+    """
+
+    deadline: datetime | None
+    triggered: int
+    daily_limit: int
+    next_reset: datetime
+
+    @field_validator("deadline", mode="before")
+    @classmethod
+    def _parse_deadline(cls, value: object) -> object:
+        return _parse_auto_cancel_deadline(value)
+
+    @field_validator("next_reset", mode="before")
+    @classmethod
+    def _parse_timestamp(cls, value: object) -> object:
+        return _require_epoch_ms(value)
 
 
 class PerpsAccountStats(BaseModel):
@@ -243,6 +269,7 @@ class PerpsCredentialsInfo(BaseModel):
 __all__ = [
     "PerpsAccountConfig",
     "PerpsAccountStats",
+    "PerpsAutoCancelStatus",
     "PerpsBalance",
     "PerpsCredentialsInfo",
     "PerpsEquityPoint",

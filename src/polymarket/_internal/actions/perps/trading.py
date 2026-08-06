@@ -101,6 +101,15 @@ def cancel_all_orders_op(*, instrument_id: int | None = None) -> list[Any]:
     return ["cancelAll", [instrument_id]]
 
 
+def auto_cancel_op(*, time_ms: int) -> list[Any]:
+    """Build the auto-cancel op: ``time_ms`` arms the switch, ``0`` clears it."""
+    if isinstance(time_ms, bool) or not isinstance(time_ms, int):  # pyright: ignore[reportUnnecessaryIsInstance]
+        raise UserInputError("time_ms must be an int")
+    if time_ms < 0:
+        raise UserInputError("time_ms must be non-negative")
+    return ["autoCancel", [time_ms]]
+
+
 def update_leverage_op(*, instrument_id: int, leverage: int, cross_margin: bool) -> list[Any]:
     if isinstance(instrument_id, bool) or not isinstance(instrument_id, int):  # pyright: ignore[reportUnnecessaryIsInstance]
         raise UserInputError("instrument_id must be an int")
@@ -139,6 +148,9 @@ def to_command_body_op(op: Sequence[Any]) -> dict[str, Any]:
             "type": op_type,
             "args": {} if instrument_id is None else {"iid": instrument_id},
         }
+    if op_type == "autoCancel":
+        (time_ms,) = op[1]
+        return {"type": op_type, "args": {"time": time_ms}}
     if op_type == "updateLeverage":
         instrument_id, leverage, cross_margin = op[1]
         return {
@@ -175,6 +187,7 @@ def _to_trigger_body(trigger: list[Any]) -> dict[str, Any]:
 
 __all__ = [
     "RawPerpsOrder",
+    "auto_cancel_op",
     "cancel_all_orders_op",
     "cancel_orders_by_client_id_op",
     "cancel_orders_op",

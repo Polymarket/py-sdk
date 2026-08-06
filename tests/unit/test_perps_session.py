@@ -6,7 +6,7 @@ import contextlib
 import json
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -16,7 +16,12 @@ from websockets.asyncio.server import ServerConnection, serve
 
 from polymarket._internal.perps_session import PerpsSession
 from polymarket.clients._transport import AsyncTransport
-from polymarket.errors import RequestRejectedError, TransportError, UserInputError
+from polymarket.errors import (
+    AutoCancelDailyLimitError,
+    RequestRejectedError,
+    TransportError,
+    UserInputError,
+)
 from polymarket.models.perps.credentials import PerpsCredentials
 from polymarket.models.perps.events import (
     PerpsFillEvent,
@@ -460,6 +465,58 @@ def test_cancel_all_orders_uses_signed_rest_endpoint() -> None:
     unscoped_body = json.loads(captured[1].content)
     assert unscoped_body["op"] == {"type": "cancelAll", "args": {}}
     assert "exp" not in unscoped_body
+
+
+def test_arm_auto_cancel_rejects_deadline_less_than_five_seconds_ahead() -> None:
+    async def run() -> None:
+        session = PerpsSession(
+            chain_id=137,
+            credentials=_CREDENTIALS,
+            rest_url="http://127.0.0.1:9",
+            ws_url="ws://127.0.0.1:9",
+        )
+        try:
+            with pytest.raises(UserInputError, match="at least 5 seconds"):
+                await session.arm_auto_cancel(
+                    cancel_at=datetime.now(tz=UTC) + timedelta(milliseconds=4_999)
+                )
+        finally:
+            await session.close()
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+
+
+def test_arm_auto_cancel_daily_limit_raises_typed_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            422,
+            json={"status": "err", "error": "auto_cancel_daily_limit_reached"},
+            request=request,
+        )
+
+    async def run() -> None:
+        session = PerpsSession(
+            chain_id=137,
+            credentials=_CREDENTIALS,
+            rest_url="https://perps.test",
+            ws_url="ws://127.0.0.1:9",
+        )
+        session._api = AsyncTransport(
+            base_url="https://perps.test",
+            client=httpx.AsyncClient(
+                base_url="https://perps.test",
+                transport=httpx.MockTransport(handler),
+            ),
+            header_resolver=session._resolve_auth_headers,
+        )
+        try:
+            with pytest.raises(AutoCancelDailyLimitError) as excinfo:
+                await session.arm_auto_cancel(cancel_at=datetime.now(tz=UTC) + timedelta(minutes=1))
+            assert excinfo.value.status == 422
+        finally:
+            await session.close()
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
 
 
 def test_update_margin_sends_signed_command_and_completes() -> None:
