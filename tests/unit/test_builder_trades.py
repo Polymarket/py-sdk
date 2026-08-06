@@ -1,8 +1,9 @@
 # pyright: reportPrivateUsage=false
 import asyncio
+import inspect
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, get_type_hints
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -49,6 +50,19 @@ _WIRE_TRADE: dict[str, Any] = {
 
 
 class TestBuilderTradeModel:
+    def test_annotations_and_signature_expose_canonical_types(self) -> None:
+        hints = get_type_hints(BuilderTrade, include_extras=True)
+        for field in ("size", "size_usdc", "price", "fee", "fee_usdc"):
+            assert hints[field] is Decimal
+        assert hints["matched_at"] is datetime
+        assert hints["created_at"] == (datetime | None)
+        assert hints["updated_at"] == (datetime | None)
+
+        parameters = inspect.signature(BuilderTrade).parameters
+        assert parameters["size"].annotation is Decimal
+        assert parameters["matchTime"].annotation is datetime
+        assert parameters["createdAt"].annotation == (datetime | None)
+
     def test_parses_required_fields_with_alias_mapping(self) -> None:
         trade = BuilderTrade.parse_response(_WIRE_TRADE)
         assert trade.id == "trade-1"
@@ -114,6 +128,12 @@ class TestBuilderTradeModel:
     def test_parses_match_time_from_epoch_seconds_int(self) -> None:
         trade = BuilderTrade.parse_response({**_WIRE_TRADE, "matchTime": 1777040544})
         assert trade.matched_at == datetime(2026, 4, 24, 14, 22, 24, tzinfo=UTC)
+
+    def test_parses_match_time_from_iso_string(self) -> None:
+        trade = BuilderTrade.parse_response(
+            {**_WIRE_TRADE, "matchTime": "2026-04-24T14:22:24.198666Z"}
+        )
+        assert trade.matched_at == datetime(2026, 4, 24, 14, 22, 24, 198666, tzinfo=UTC)
 
     def test_parses_created_and_updated_at_from_iso_strings(self) -> None:
         trade = BuilderTrade.parse_response(

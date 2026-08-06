@@ -1,16 +1,24 @@
-from typing import Any
+import inspect
+from datetime import datetime
+from decimal import Decimal
+from typing import Annotated, Any, Literal, get_args, get_origin, get_type_hints
 
 import pytest
 from pydantic import ValidationError
 
 from polymarket.models.clob.market_events import (
     MarketBestBidAskEvent,
+    MarketBestBidAskPayload,
     MarketBookEvent,
+    MarketBookPayload,
+    MarketEvent,
     MarketLastTradePriceEvent,
+    MarketLastTradePricePayload,
     MarketPriceChangeEvent,
     MarketResolvedEvent,
     MarketTickSizeChangeEvent,
     NewMarketEvent,
+    PriceChange,
     parse_market_event,
 )
 
@@ -296,3 +304,47 @@ def test_empty_string_required_decimal_rejected() -> None:
     payload = dict(_LAST_TRADE) | {"price": ""}
     with pytest.raises(ValidationError):
         parse_market_event(payload)
+
+
+def test_market_payload_annotations_expose_canonical_types() -> None:
+    price_change_hints = get_type_hints(PriceChange, include_extras=True)
+    assert price_change_hints["price"] is Decimal
+    assert price_change_hints["best_bid"] == (Decimal | None)
+    assert price_change_hints["side"] == Literal["BUY", "SELL"]
+
+    book_hints = get_type_hints(MarketBookPayload, include_extras=True)
+    assert book_hints["timestamp"] == (datetime | None)
+    assert book_hints["tick_size"] == (Decimal | None)
+
+
+def test_market_payload_constructor_signatures_expose_canonical_types() -> None:
+    price_change_parameters = inspect.signature(PriceChange).parameters
+    assert price_change_parameters["price"].annotation is Decimal
+    assert price_change_parameters["best_bid"].annotation == (Decimal | None)
+    assert price_change_parameters["side"].annotation == Literal["BUY", "SELL"]
+
+    last_trade_parameters = inspect.signature(MarketLastTradePricePayload).parameters
+    assert last_trade_parameters["timestamp"].annotation == (datetime | None)
+    assert last_trade_parameters["fee_rate_bps"].annotation == (Decimal | None)
+
+
+def test_market_event_keeps_discriminated_union_metadata() -> None:
+    assert get_origin(MarketEvent) is Annotated
+    event_union, metadata = get_args(MarketEvent)
+    assert get_args(event_union) == (
+        MarketBookEvent,
+        MarketPriceChangeEvent,
+        MarketLastTradePriceEvent,
+        MarketTickSizeChangeEvent,
+        MarketBestBidAskEvent,
+        NewMarketEvent,
+        MarketResolvedEvent,
+    )
+    assert metadata.discriminator == "type"
+
+
+def test_optional_market_decimal_annotations_are_consistent() -> None:
+    hints = get_type_hints(MarketBestBidAskPayload, include_extras=True)
+    assert hints["best_bid"] == (Decimal | None)
+    assert hints["best_ask"] == (Decimal | None)
+    assert hints["spread"] == (Decimal | None)

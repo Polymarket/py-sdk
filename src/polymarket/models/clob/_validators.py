@@ -1,13 +1,5 @@
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Annotated
-
-from pydantic import BeforeValidator
-
-# Re-exported under the historical private name for the CLOB model modules.
-from polymarket.models._validators import (  # noqa: F401
-    DecimalFromString as _DecimalFromString,  # pyright: ignore[reportUnusedImport]
-)
 
 
 def _coerce_decimalish(value: object) -> object:
@@ -195,37 +187,14 @@ def _parse_expiration_timestamp(value: object) -> object:
     return _parse_epoch_seconds_timestamp(value)
 
 
-if TYPE_CHECKING:
-    _DecimalFromNumberOrString = Decimal
-    _OptionalDecimalFromNumberOrString = Decimal | None
-else:
-    _DecimalFromNumberOrString = Annotated[Decimal, BeforeValidator(_coerce_decimalish)]
-    # The validator must wrap the whole optional annotation: on a
-    # ``Decimal | None`` union, a BeforeValidator attached only to the Decimal
-    # member cannot map "" to None (the None branch still sees the original "").
-    _OptionalDecimalFromNumberOrString = Annotated[
-        Decimal | None, BeforeValidator(_coerce_optional_decimalish)
-    ]
-
-EpochMsTimestamp = Annotated[datetime | None, BeforeValidator(_parse_epoch_ms_timestamp)]
-EpochMsOrIsoTimestamp = Annotated[
-    datetime | None, BeforeValidator(_parse_epoch_ms_or_iso_timestamp)
-]
-EpochOrIsoTimestamp = Annotated[datetime | None, BeforeValidator(_parse_epoch_or_iso_timestamp)]
-RequiredEpochOrIsoTimestamp = Annotated[datetime, BeforeValidator(_require_epoch_or_iso_timestamp)]
-EpochSecondsTimestamp = Annotated[datetime | None, BeforeValidator(_parse_epoch_seconds_timestamp)]
-EpochSecondsOrMsTimestamp = Annotated[
-    datetime | None, BeforeValidator(_parse_epoch_seconds_or_ms_timestamp)
-]
-ExpirationTimestamp = Annotated[datetime | None, BeforeValidator(_parse_expiration_timestamp)]
-
-
 __all__ = [
-    "EpochMsOrIsoTimestamp",
-    "EpochMsTimestamp",
-    "EpochOrIsoTimestamp",
-    "EpochSecondsOrMsTimestamp",
-    "EpochSecondsTimestamp",
-    "ExpirationTimestamp",
-    "RequiredEpochOrIsoTimestamp",
+    "_coerce_decimalish",
+    "_coerce_optional_decimalish",
+    "_parse_epoch_ms_or_iso_timestamp",
+    "_parse_epoch_ms_timestamp",
+    "_parse_epoch_or_iso_timestamp",
+    "_parse_epoch_seconds_or_ms_timestamp",
+    "_parse_epoch_seconds_timestamp",
+    "_parse_expiration_timestamp",
+    "_require_epoch_or_iso_timestamp",
 ]

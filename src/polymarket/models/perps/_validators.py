@@ -1,8 +1,5 @@
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Annotated
-
-from pydantic import BeforeValidator
 
 
 def _coerce_decimalish(value: object) -> object:
@@ -53,21 +50,10 @@ def _parse_tx_hash(value: object) -> object:
     return value
 
 
-if TYPE_CHECKING:
-    _Decimal = Decimal
-else:
-    _Decimal = Annotated[Decimal, BeforeValidator(_coerce_decimalish)]
-
-PerpsTimestamp = Annotated[datetime, BeforeValidator(_require_epoch_ms)]
-OptionalPerpsTimestamp = Annotated[datetime | None, BeforeValidator(_parse_epoch_ms)]
-PerpsAutoCancelDeadline = Annotated[datetime | None, BeforeValidator(_parse_auto_cancel_deadline)]
-OptionalTxHash = Annotated[str | None, BeforeValidator(_parse_tx_hash)]
-
-
 __all__ = [
-    "OptionalPerpsTimestamp",
-    "OptionalTxHash",
-    "PerpsAutoCancelDeadline",
-    "PerpsTimestamp",
-    "_Decimal",
+    "_coerce_decimalish",
+    "_parse_auto_cancel_deadline",
+    "_parse_epoch_ms",
+    "_parse_tx_hash",
+    "_require_epoch_ms",
 ]

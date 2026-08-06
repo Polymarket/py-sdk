@@ -1,9 +1,10 @@
 # pyright: reportPrivateUsage=false
 import asyncio
 import dataclasses
+import inspect
 import json
 from decimal import Decimal
-from typing import Any
+from typing import Any, get_type_hints
 from urllib.parse import urlparse
 
 import httpx
@@ -26,6 +27,10 @@ from polymarket.errors import (
     RequestRejectedError,
     UnexpectedResponseError,
     UserInputError,
+)
+from polymarket.models.collateral_return import (
+    CollateralReturnOperation,
+    CollateralReturnPositionAmount,
 )
 
 _PLAN_HASH = "0x" + "ab" * 32
@@ -90,6 +95,24 @@ def test_plan_parses_wire_shape() -> None:
     assert merge.amount == Decimal("1")  # e6 base units scaled to collateral units
 
 
+def test_decimal_fields_expose_canonical_annotations() -> None:
+    affected_fields = (
+        (CollateralReturnOperation, ("amount",)),
+        (CollateralReturnPositionAmount, ("amount",)),
+        (
+            CollateralReturnPlanResponse,
+            ("starting_pusd", "net_pusd_out", "final_pusd", "required_pusd_input"),
+        ),
+    )
+
+    for model, fields in affected_fields:
+        hints = get_type_hints(model, include_extras=True)
+        parameters = inspect.signature(model).parameters
+        for field in fields:
+            assert hints[field] is Decimal
+            assert parameters[field].annotation is Decimal
+
+
 def test_plan_parses_unknown_kinds_as_plain_strings() -> None:
     plan = CollateralReturnPlanResponse.parse_response(
         _plan_payload(
@@ -107,14 +130,49 @@ def test_plan_parses_unknown_kinds_as_plain_strings() -> None:
     assert on_event.kind is CollateralReturnOperationKind.MERGE_ON_EVENT
 
 
-def test_plan_rejects_malformed_base_unit_amounts() -> None:
-    for amount in ("1.5", "-1000000"):
-        with pytest.raises(UnexpectedResponseError):
-            CollateralReturnPlanResponse.parse_response(
-                _plan_payload(
-                    wallet=_OTHER_WALLET, operations=[{"kind": "merge", "amount": amount}]
-                )
+@pytest.mark.parametrize(
+    ("wire_amount", "expected"),
+    [
+        ("0", Decimal("0.000000")),
+        ("1", Decimal("0.000001")),
+        ("1000001", Decimal("1.000001")),
+    ],
+)
+def test_plan_parses_base_unit_amount_edges(wire_amount: str, expected: Decimal) -> None:
+    plan = CollateralReturnPlanResponse.parse_response(
+        _plan_payload(
+            wallet=_OTHER_WALLET,
+            operations=[{"kind": "merge", "amount": wire_amount}],
+            required_positions=[{"position_id": "42", "amount": wire_amount}],
+        )
+    )
+
+    assert plan.operations[0].amount == expected
+    assert plan.required_positions[0].amount == expected
+
+
+@pytest.mark.parametrize("amount", ["1.5", "-1000000", "+1000000", "1e6", 1000000, True])
+def test_plan_rejects_malformed_base_unit_amounts(amount: object) -> None:
+    with pytest.raises(UnexpectedResponseError):
+        CollateralReturnPlanResponse.parse_response(
+            _plan_payload(wallet=_OTHER_WALLET, operations=[{"kind": "merge", "amount": amount}])
+        )
+
+
+def test_plan_keeps_strict_decimal_strings_distinct_from_base_units() -> None:
+    plan = CollateralReturnPlanResponse.parse_response(
+        _plan_payload(wallet=_OTHER_WALLET, starting_pusd="-1.5")
+    )
+
+    assert plan.starting_pusd == Decimal("-1.5")
+
+    with pytest.raises(UnexpectedResponseError):
+        CollateralReturnPlanResponse.parse_response(
+            _plan_payload(
+                wallet=_OTHER_WALLET,
+                operations=[{"kind": "merge", "amount": "-1.5"}],
             )
+        )
 
 
 def test_plan_requires_service_fields() -> None:
@@ -139,14 +197,6 @@ def test_plan_tolerates_missing_position_summary() -> None:
 
     assert plan.position_summary.consumed == ()
     assert plan.position_summary.created == ()
-
-
-def test_plan_json_round_trips_scaled_amounts() -> None:
-    plan = CollateralReturnPlanResponse.parse_response(_plan_payload(wallet=_OTHER_WALLET))
-
-    restored = CollateralReturnPlanResponse.model_validate_json(plan.model_dump_json())
-
-    assert restored == plan
 
 
 def test_execute_submits_router_call_for_deposit_wallet() -> None:

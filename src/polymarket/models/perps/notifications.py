@@ -4,15 +4,17 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
+from datetime import datetime
+from decimal import Decimal
 from typing import Annotated, Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from polymarket.models.base import BaseModel
 from polymarket.models.perps._validators import (
-    OptionalPerpsTimestamp,
-    PerpsTimestamp,
-    _Decimal,
+    _coerce_decimalish,  # pyright: ignore[reportPrivateUsage]
+    _parse_epoch_ms,  # pyright: ignore[reportPrivateUsage]
+    _require_epoch_ms,  # pyright: ignore[reportPrivateUsage]
 )
 from polymarket.models.perps.types import (
     PerpsInstrumentId,
@@ -37,10 +39,15 @@ class PerpsPositionChangeNotification(BaseModel):
     type: Literal["position_opened", "position_increased", "position_reduced"]
     instrument_id: PerpsInstrumentId
     side: PerpsSide
-    size: _Decimal
-    avg_price: _Decimal
+    size: Decimal
+    avg_price: Decimal
     leverage: int
     order_type: PerpsNotificationOrderType | None = None
+
+    @field_validator("size", "avg_price", mode="before")
+    @classmethod
+    def _validate_decimals(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
 
 class PerpsPositionClosedNotification(BaseModel):
@@ -50,10 +57,15 @@ class PerpsPositionClosedNotification(BaseModel):
     type: Literal["position_closed"]
     instrument_id: PerpsInstrumentId
     side: PerpsSide
-    size: _Decimal
-    avg_price: _Decimal
-    pnl: _Decimal
+    size: Decimal
+    avg_price: Decimal
+    pnl: Decimal
     order_type: PerpsNotificationOrderType | None = None
+
+    @field_validator("size", "avg_price", "pnl", mode="before")
+    @classmethod
+    def _validate_decimals(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
 
 class PerpsLimitOrderCanceledNotification(BaseModel):
@@ -63,8 +75,13 @@ class PerpsLimitOrderCanceledNotification(BaseModel):
     type: Literal["limit_order_canceled"]
     instrument_id: PerpsInstrumentId
     side: PerpsSide
-    size: _Decimal
-    price: _Decimal
+    size: Decimal
+    price: Decimal
+
+    @field_validator("size", "price", mode="before")
+    @classmethod
+    def _validate_decimals(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
 
 class PerpsIsolatedLiquidationWarningNotification(BaseModel):
@@ -74,8 +91,13 @@ class PerpsIsolatedLiquidationWarningNotification(BaseModel):
     type: Literal["liquidation_warning"]
     margin_type: Literal["isolated"]
     instrument_id: PerpsInstrumentId
-    mark_price: _Decimal
-    liquidation_price: _Decimal = Field(validation_alias="liq_price")
+    mark_price: Decimal
+    liquidation_price: Decimal = Field(validation_alias="liq_price")
+
+    @field_validator("mark_price", "liquidation_price", mode="before")
+    @classmethod
+    def _validate_decimals(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
 
 class PerpsCrossLiquidationWarningNotification(BaseModel):
@@ -84,8 +106,13 @@ class PerpsCrossLiquidationWarningNotification(BaseModel):
     id: PerpsNotificationId
     type: Literal["liquidation_warning"]
     margin_type: Literal["cross"]
-    mark_price: _Decimal
+    mark_price: Decimal
     affected_instruments: tuple[PerpsInstrumentId, ...]
+
+    @field_validator("mark_price", mode="before")
+    @classmethod
+    def _validate_decimals(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
 
 PerpsLiquidationWarningNotification = Annotated[
@@ -101,10 +128,15 @@ class PerpsPositionLiquidatedNotification(BaseModel):
     type: Literal["position_liquidated"]
     instrument_id: PerpsInstrumentId
     side: PerpsSide
-    size_closed: _Decimal
-    pnl: _Decimal | None
+    size_closed: Decimal
+    pnl: Decimal | None
     margin_type: PerpsMarginType
     via_backstop: bool
+
+    @field_validator("size_closed", "pnl", mode="before")
+    @classmethod
+    def _validate_decimals(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
 
 PerpsNotification = Annotated[
@@ -121,8 +153,18 @@ class PerpsNotificationEntry(BaseModel):
     """One notification with its account-scoped read state."""
 
     notification: PerpsNotification
-    read_at: OptionalPerpsTimestamp = None
-    timestamp: PerpsTimestamp = Field(validation_alias="ts")
+    read_at: datetime | None = None
+    timestamp: datetime = Field(validation_alias="ts")
+
+    @field_validator("read_at", mode="before")
+    @classmethod
+    def _validate_read_at(cls, value: object) -> object:
+        return _parse_epoch_ms(value)
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def _validate_timestamp(cls, value: object) -> object:
+        return _require_epoch_ms(value)
 
 
 @dataclass(frozen=True, slots=True)

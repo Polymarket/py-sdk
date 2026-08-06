@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from enum import StrEnum
 
 from pydantic import Field, field_validator
 
-from polymarket.models._validators import DecimalFromE6String, DecimalFromString
+from polymarket.models._validators import (
+    parse_decimal_string,
+    parse_e6_decimal_string,
+)
 from polymarket.models.base import BaseModel
 from polymarket.models.types import (
     ComboConditionId,
@@ -47,7 +51,9 @@ class CollateralReturnOperation(BaseModel):
     event_id: EventId | None = None
     position_id: PositionId | None = None
     condition_index: int = 0
-    amount: DecimalFromE6String
+    amount: Decimal
+
+    _parse_amount = field_validator("amount", mode="before")(parse_e6_decimal_string)
 
     @field_validator("kind", mode="before")
     @classmethod
@@ -69,7 +75,9 @@ class CollateralReturnPositionAmount(BaseModel):
     """A position and the amount of it a plan touches."""
 
     position_id: PositionId
-    amount: DecimalFromE6String
+    amount: Decimal
+
+    _parse_amount = field_validator("amount", mode="before")(parse_e6_decimal_string)
 
 
 class CollateralReturnPositionSummary(BaseModel):
@@ -103,14 +111,14 @@ class CollateralReturnPlanResponse(BaseModel):
     chain_id: int
     wallet: EvmAddress
     block_number: int
-    starting_pusd: DecimalFromString
-    net_pusd_out: DecimalFromString
-    final_pusd: DecimalFromString
+    starting_pusd: Decimal
+    net_pusd_out: Decimal
+    final_pusd: Decimal
     operations: tuple[CollateralReturnOperation, ...]
     operation_count: int
     truncated: bool
     estimated_cost: float
-    required_pusd_input: DecimalFromString
+    required_pusd_input: Decimal
     required_positions: tuple[CollateralReturnPositionAmount, ...]
     # Tolerate older service builds that predate the summary field.
     position_summary: CollateralReturnPositionSummary = Field(
@@ -118,6 +126,14 @@ class CollateralReturnPlanResponse(BaseModel):
     )
     candidate_position_ids: tuple[PositionId, ...]
     router_call: CollateralReturnRouterCall
+
+    _parse_decimal_fields = field_validator(
+        "starting_pusd",
+        "net_pusd_out",
+        "final_pusd",
+        "required_pusd_input",
+        mode="before",
+    )(parse_decimal_string)
 
 
 __all__ = [

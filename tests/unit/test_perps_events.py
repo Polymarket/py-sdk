@@ -1,19 +1,27 @@
 """Perps realtime event parsing tests."""
 
+import inspect
+from collections import UserDict
+from datetime import UTC, datetime
 from decimal import Decimal
+from typing import get_args, get_type_hints
 
 import pytest
 from pydantic import ValidationError
+from pydantic.fields import FieldInfo
 
 from polymarket.models.perps.events import (
     PerpsBookEvent,
     PerpsCandleEvent,
     PerpsDepositEvent,
+    PerpsMarketEvent,
     PerpsNotificationEvent,
     PerpsOrderEvent,
     PerpsResyncEvent,
     PerpsTickerEvent,
     PerpsTpSlEvent,
+    PerpsTradeEvent,
+    _SessionUpdateEvent,  # pyright: ignore[reportPrivateUsage]
     parse_perps_market_event,
     parse_perps_market_events,
     parse_perps_session_event,
@@ -21,6 +29,9 @@ from polymarket.models.perps.events import (
 from polymarket.models.perps.notifications import (
     PerpsCrossLiquidationWarningNotification,
     PerpsIsolatedLiquidationWarningNotification,
+    PerpsLiquidationWarningNotification,
+    PerpsNotification,
+    PerpsNotificationEntry,
     PerpsPositionChangeNotification,
     PerpsPositionClosedNotification,
     PerpsPositionLiquidatedNotification,
@@ -191,20 +202,23 @@ def _notification_frame(notification: dict[str, object]) -> dict[str, object]:
     return {"ch": "notifications", "ts": 1751500000000, "sq": 42, "data": notification}
 
 
+def _position_change_notification(**overrides: object) -> dict[str, object]:
+    notification: dict[str, object] = {
+        "id": "5f4a3c2b-1d0e-49f8-a7b6-c5d4e3f2a1b0",
+        "type": "position_increased",
+        "instrument_id": 3,
+        "side": "short",
+        "size": "1.5",
+        "avg_price": "99.5",
+        "leverage": 4,
+    }
+    notification.update(overrides)
+    return notification
+
+
 def test_session_notification_event_parses_position_change() -> None:
     event = parse_perps_session_event(
-        _notification_frame(
-            {
-                "id": "5f4a3c2b-1d0e-49f8-a7b6-c5d4e3f2a1b0",
-                "type": "position_increased",
-                "instrument_id": 3,
-                "side": "short",
-                "size": "1.5",
-                "avg_price": "99.5",
-                "leverage": 4,
-                "order_type": "stop_loss",
-            }
-        )
+        _notification_frame(_position_change_notification(order_type="stop_loss"))
     )
     assert isinstance(event, PerpsNotificationEvent)
     assert event.sequence == 42
@@ -296,6 +310,159 @@ def test_session_notification_with_unknown_type_fails_validation() -> None:
                 {"id": "5f4a3c2b-1d0e-49f8-a7b6-c5d4e3f2a1b0", "type": "new_notification_kind"}
             )
         )
+
+
+@pytest.mark.parametrize("value", [True, [], object()])
+def test_notification_decimal_fields_keep_exact_perps_validation(value: object) -> None:
+    with pytest.raises(ValidationError, match="expected decimal-ish value"):
+        parse_perps_session_event(_notification_frame(_position_change_notification(size=value)))
+
+
+def test_notification_decimal_fields_accept_numbers_via_exact_string_conversion() -> None:
+    event = parse_perps_session_event(
+        _notification_frame(_position_change_notification(size=2, avg_price=99.25))
+    )
+    assert isinstance(event, PerpsNotificationEvent)
+    assert isinstance(event.payload, PerpsPositionChangeNotification)
+    assert event.payload.size == Decimal("2")
+    assert event.payload.avg_price == Decimal("99.25")
+
+
+@pytest.mark.parametrize("timestamp", [None, True, 1751500000000.0, "1751500000000"])
+def test_required_event_timestamp_keeps_exact_epoch_ms_validation(timestamp: object) -> None:
+    frame = _notification_frame(_position_change_notification())
+    frame["ts"] = timestamp
+    with pytest.raises(ValidationError, match="epoch-ms timestamp"):
+        parse_perps_session_event(frame)
+
+
+def test_required_event_timestamp_rejects_invalid_value_in_generic_mapping() -> None:
+    with pytest.raises(ValidationError, match="epoch-ms timestamp"):
+        PerpsNotificationEvent.model_validate(
+            UserDict(
+                {
+                    "type": "notification",
+                    "channel": "notifications",
+                    "timestamp": "1751500000000",
+                    "sequence": 42,
+                    "payload": _position_change_notification(),
+                }
+            )
+        )
+
+
+def test_resync_optional_timestamp_preserves_missing_none_and_epoch_ms_semantics() -> None:
+    missing = PerpsResyncEvent.model_validate({"reason": "reconnect"})
+    explicit_none = PerpsResyncEvent.model_validate({"reason": "reconnect", "timestamp": None})
+    epoch = PerpsResyncEvent.model_validate({"reason": "sequence_gap", "timestamp": 1751500000000})
+
+    assert missing.timestamp is None
+    assert explicit_none.timestamp is None
+    assert epoch.timestamp == datetime.fromtimestamp(1751500000, tz=UTC)
+
+
+@pytest.mark.parametrize("timestamp", [True, 1751500000000.0, "1751500000000"])
+def test_resync_optional_timestamp_rejects_non_epoch_ms_values(timestamp: object) -> None:
+    with pytest.raises(ValidationError, match="epoch-ms timestamp"):
+        PerpsResyncEvent.model_validate({"reason": "reconnect", "timestamp": timestamp})
+
+
+def test_resync_timestamp_rejects_invalid_value_in_generic_mapping() -> None:
+    with pytest.raises(ValidationError, match="epoch-ms timestamp"):
+        PerpsResyncEvent.model_validate(
+            UserDict({"reason": "reconnect", "timestamp": "1751500000000"})
+        )
+
+
+def test_notification_entry_timestamp_aliases_keep_optional_read_semantics() -> None:
+    entry = PerpsNotificationEntry.model_validate(
+        {
+            "notification": _position_change_notification(),
+            "read_at": None,
+            "ts": 1751500000000,
+        }
+    )
+    named = PerpsNotificationEntry.model_validate(
+        {
+            "notification": _position_change_notification(),
+            "timestamp": 1751500000000,
+        }
+    )
+
+    assert entry.read_at is None
+    assert entry.timestamp == datetime.fromtimestamp(1751500000, tz=UTC)
+    assert named.timestamp == entry.timestamp
+
+
+@pytest.mark.parametrize("field", ["read_at", "ts"])
+def test_notification_entry_timestamp_aliases_reject_bool(field: str) -> None:
+    data: dict[str, object] = {
+        "notification": _position_change_notification(),
+        "ts": 1751500000000,
+    }
+    data[field] = True
+    with pytest.raises(ValidationError, match="epoch-ms timestamp"):
+        PerpsNotificationEntry.model_validate(data)
+
+
+def test_notification_entry_rejects_invalid_timestamp_in_generic_mapping() -> None:
+    with pytest.raises(ValidationError, match="epoch-ms timestamp"):
+        PerpsNotificationEntry.model_validate(
+            UserDict(
+                {
+                    "notification": _position_change_notification(),
+                    "ts": "1751500000000",
+                }
+            )
+        )
+
+
+def test_perps_notification_and_event_annotations_expose_canonical_types() -> None:
+    position_hints = get_type_hints(PerpsPositionChangeNotification, include_extras=True)
+    liquidated_hints = get_type_hints(PerpsPositionLiquidatedNotification, include_extras=True)
+    entry_hints = get_type_hints(PerpsNotificationEntry, include_extras=True)
+    trade_hints = get_type_hints(PerpsTradeEvent, include_extras=True)
+    resync_hints = get_type_hints(PerpsResyncEvent, include_extras=True)
+
+    assert position_hints["size"] is Decimal
+    assert position_hints["avg_price"] is Decimal
+    assert liquidated_hints["pnl"] == Decimal | None
+    assert entry_hints["read_at"] == datetime | None
+    assert entry_hints["timestamp"] is datetime
+    assert trade_hints["timestamp"] is datetime
+    assert resync_hints["timestamp"] == datetime | None
+
+
+def test_discriminated_union_metadata_survives_annotation_migration() -> None:
+    aliases = (
+        (PerpsLiquidationWarningNotification, "margin_type"),
+        (PerpsNotification, "type"),
+        (PerpsMarketEvent, "type"),
+        (_SessionUpdateEvent, "type"),
+    )
+    for annotation, discriminator in aliases:
+        metadata = get_args(annotation)[1:]
+        assert any(
+            isinstance(item, FieldInfo) and item.discriminator == discriminator for item in metadata
+        )
+
+    notification_hints = get_type_hints(PerpsNotificationEvent, include_extras=True)
+    assert notification_hints["payload"] == PerpsNotification
+
+
+def test_model_signatures_expose_canonical_types_and_timestamp_alias() -> None:
+    notification_params = inspect.signature(PerpsPositionChangeNotification).parameters
+    entry_params = inspect.signature(PerpsNotificationEntry).parameters
+    trade_params = inspect.signature(PerpsTradeEvent).parameters
+    resync_params = inspect.signature(PerpsResyncEvent).parameters
+
+    assert notification_params["size"].annotation is Decimal
+    assert notification_params["avg_price"].annotation is Decimal
+    assert entry_params["read_at"].annotation == datetime | None
+    assert entry_params["ts"].annotation is datetime
+    assert "timestamp" not in entry_params
+    assert trade_params["timestamp"].annotation is datetime
+    assert resync_params["timestamp"].annotation == datetime | None
 
 
 def test_notifications_resync_frame_parses_as_server_resync_event() -> None:
