@@ -7,8 +7,7 @@ from contextlib import asynccontextmanager
 import pytest
 
 from polymarket import ApiKeyCreds, AsyncSecureClient, BuilderApiKey, GaslessTransaction
-from polymarket._internal.environment import get_environment_config
-from polymarket.environments import PRODUCTION
+from polymarket._internal.environment import PRODUCTION_CONFIG
 
 
 def _builder_auth(require_env: Callable[[str], str]) -> BuilderApiKey:
@@ -102,8 +101,8 @@ def test_approve_erc20_live_against_relayer(
     async def run() -> GaslessTransaction:
         async with _secure_client(require_env) as client:
             handle = await client.approve_erc20(
-                token_address=get_environment_config(PRODUCTION).collateral_token,
-                spender_address=get_environment_config(PRODUCTION).standard_exchange,
+                token_address=PRODUCTION_CONFIG.collateral_token,
+                spender_address=PRODUCTION_CONFIG.standard_exchange,
                 amount=1,
                 metadata="py-sdk integration test: approve_erc20",
             )
@@ -122,8 +121,8 @@ def test_approve_erc1155_for_all_live(require_env: Callable[[str], str]) -> None
     async def run() -> None:
         async with _secure_client(require_env) as client:
             handle = await client.approve_erc1155_for_all(
-                token_address=get_environment_config(PRODUCTION).conditional_tokens,
-                operator_address=get_environment_config(PRODUCTION).standard_exchange,
+                token_address=PRODUCTION_CONFIG.conditional_tokens,
+                operator_address=PRODUCTION_CONFIG.standard_exchange,
                 metadata="py-sdk integration test: approve_erc1155_for_all",
             )
             await handle.wait()
@@ -159,7 +158,7 @@ def test_transfer_erc20_live(require_env: Callable[[str], str]) -> None:
     async def run() -> None:
         async with _secure_client(require_env) as client:
             handle = await client.transfer_erc20(
-                token_address=get_environment_config(PRODUCTION).collateral_token,
+                token_address=PRODUCTION_CONFIG.collateral_token,
                 recipient_address=str(client.wallet),
                 amount=1,
                 metadata="py-sdk integration test: self-transfer",

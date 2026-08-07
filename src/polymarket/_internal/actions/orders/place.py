@@ -9,7 +9,6 @@ from polymarket._internal.actions.orders.allowance import (
     fetch_current_order_allowance_sync,
 )
 from polymarket._internal.actions.orders.context import resolve_exchange_address
-from polymarket._internal.environment import get_environment_config
 from polymarket._internal.wallet import signature_type_for
 from polymarket.errors import RequestRejectedError
 from polymarket.models.clob import AssetType
@@ -79,9 +78,8 @@ async def _approve_order_if_under_allowance(
     client: AsyncSecureClient, signed_order: SignedOrder
 ) -> bool:
     ctx = client._ctx  # pyright: ignore[reportPrivateUsage]
-    env = ctx.environment
     metadata = await ctx.order_metadata.resolve_market(ctx, token_id=signed_order.token_id)
-    spender = resolve_exchange_address(env, metadata.neg_risk)
+    spender = resolve_exchange_address(ctx.environment_config, metadata.neg_risk)
     current = await fetch_current_order_allowance(
         ctx, side=signed_order.side, token_id=signed_order.token_id, spender=spender
     )
@@ -91,13 +89,13 @@ async def _approve_order_if_under_allowance(
 
     if signed_order.side == "BUY":
         handle = await client.approve_erc20(
-            token_address=get_environment_config(env).collateral_token,
+            token_address=ctx.environment_config.collateral_token,
             spender_address=str(spender),
             amount="max",
         )
     else:
         handle = await client.approve_erc1155_for_all(
-            token_address=get_environment_config(env).conditional_tokens,
+            token_address=ctx.environment_config.conditional_tokens,
             operator_address=str(spender),
         )
     await handle.wait()
@@ -107,9 +105,8 @@ async def _approve_order_if_under_allowance(
 
 def _approve_order_if_under_allowance_sync(client: SecureClient, signed_order: SignedOrder) -> bool:
     ctx = client._ctx  # pyright: ignore[reportPrivateUsage]
-    env = ctx.environment
     metadata = ctx.order_metadata.resolve_market(ctx, token_id=signed_order.token_id)
-    spender = resolve_exchange_address(env, metadata.neg_risk)
+    spender = resolve_exchange_address(ctx.environment_config, metadata.neg_risk)
     current = fetch_current_order_allowance_sync(
         ctx, side=signed_order.side, token_id=signed_order.token_id, spender=spender
     )
@@ -119,13 +116,13 @@ def _approve_order_if_under_allowance_sync(client: SecureClient, signed_order: S
 
     if signed_order.side == "BUY":
         handle = client.approve_erc20(
-            token_address=get_environment_config(env).collateral_token,
+            token_address=ctx.environment_config.collateral_token,
             spender_address=str(spender),
             amount="max",
         )
     else:
         handle = client.approve_erc1155_for_all(
-            token_address=get_environment_config(env).conditional_tokens,
+            token_address=ctx.environment_config.conditional_tokens,
             operator_address=str(spender),
         )
     handle.wait()

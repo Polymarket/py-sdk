@@ -8,7 +8,7 @@ import httpx
 import pytest
 
 from polymarket import ApiKeyCreds, AsyncSecureClient, SecureClient
-from polymarket._internal.environment import get_environment_config
+from polymarket._internal.environment import PRODUCTION_CONFIG
 from polymarket.clients._transport import AsyncTransport, SyncTransport
 
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
@@ -281,11 +281,8 @@ def test_async_secure_list_positions_respects_explicit_user() -> None:
 
 def test_async_secure_list_positions_defaults_to_wallet_when_proxy() -> None:
     from polymarket._internal.wallet import derive_proxy_wallet_address
-    from polymarket.environments import PRODUCTION
 
-    proxy_wallet = derive_proxy_wallet_address(
-        SIGNER_ADDRESS, get_environment_config(PRODUCTION).wallet_derivation
-    )
+    proxy_wallet = derive_proxy_wallet_address(SIGNER_ADDRESS, PRODUCTION_CONFIG.wallet_derivation)
     captured: list[httpx.Request] = []
 
     async def run() -> None:

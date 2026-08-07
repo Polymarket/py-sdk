@@ -109,18 +109,14 @@ class PublicClient:
         *,
         logger: logging.Logger | None = None,
     ) -> None:
+        config = get_environment_config(environment)
         self._ctx = SyncClientContext(
             environment=environment,
-            gamma=SyncTransport(
-                base_url=get_environment_config(environment).gamma_url, logger=logger
-            ),
-            data=SyncTransport(
-                base_url=get_environment_config(environment).data_url, logger=logger
-            ),
-            rfq=SyncTransport(base_url=get_environment_config(environment).rfq_url, logger=logger),
-            clob=SyncTransport(
-                base_url=get_environment_config(environment).clob_url, logger=logger
-            ),
+            _resolved_environment_config=config,
+            gamma=SyncTransport(base_url=config.gamma_url, logger=logger),
+            data=SyncTransport(base_url=config.data_url, logger=logger),
+            rfq=SyncTransport(base_url=config.rfq_url, logger=logger),
+            clob=SyncTransport(base_url=config.clob_url, logger=logger),
         )
 
     @property

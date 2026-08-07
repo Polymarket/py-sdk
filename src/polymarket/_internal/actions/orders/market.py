@@ -22,7 +22,6 @@ from polymarket._internal.actions.orders.math import (
 )
 from polymarket._internal.actions.orders.types import MarketOrderType, OrderDraft
 from polymarket._internal.context import AsyncSecureClientContext, SyncSecureClientContext
-from polymarket._internal.environment import get_environment_config
 from polymarket._internal.validation import require_nonempty, validate_builder_code
 from polymarket.errors import UserInputError
 from polymarket.models.types import OrderSide, TokenId
@@ -299,8 +298,8 @@ def _build_market_order_draft(
         tick_size=tick_size,
     )
     return OrderDraft(
-        chain_id=get_environment_config(ctx.environment).chain_id,
-        exchange_address=resolve_exchange_address(ctx.environment, neg_risk),
+        chain_id=ctx.environment_config.chain_id,
+        exchange_address=resolve_exchange_address(ctx.environment_config, neg_risk),
         expiration=0,
         funder_address=ctx.wallet,
         offered_amount=offered,

@@ -8,7 +8,7 @@ import httpx
 import pytest
 
 from polymarket import ApiKeyCreds, SecureClient
-from polymarket._internal.environment import get_environment_config
+from polymarket._internal.environment import PRODUCTION_CONFIG
 from polymarket.clients._transport import SyncTransport
 from polymarket.clients.secure import _make_l2_header_resolver_sync
 from polymarket.errors import RequestRejectedError, UserInputError
@@ -174,11 +174,10 @@ def test_create_defaults_wallet_to_current_deposit_wallet() -> None:
     from eth_account import Account
 
     from polymarket._internal.wallet import derive_uups_deposit_wallet_address
-    from polymarket.environments import PRODUCTION
 
     signer = Account.from_key(PRIVATE_KEY)
     expected = derive_uups_deposit_wallet_address(
-        signer.address, get_environment_config(PRODUCTION).wallet_derivation
+        signer.address, PRODUCTION_CONFIG.wallet_derivation
     )
 
     with SecureClient._create(

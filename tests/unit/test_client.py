@@ -13,7 +13,7 @@ from polymarket import (
     SecureClient,
 )
 from polymarket._internal.context import AsyncSecureClientContext
-from polymarket._internal.environment import get_environment_config
+from polymarket._internal.environment import PRODUCTION_CONFIG
 from polymarket.errors import UserInputError
 
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
@@ -158,15 +158,14 @@ def test_secure_client_wallet_defaults_to_beacon_deposit_wallet_when_omitted(
         derive_beacon_deposit_wallet_address,
         derive_uups_deposit_wallet_address,
     )
-    from polymarket.environments import PRODUCTION
     from polymarket.models.clob.relayer import RelayerTransactionType
 
     signer = Account.from_key(PRIVATE_KEY)
     legacy_wallet = derive_uups_deposit_wallet_address(
-        signer.address, get_environment_config(PRODUCTION).wallet_derivation
+        signer.address, PRODUCTION_CONFIG.wallet_derivation
     )
     expected = derive_beacon_deposit_wallet_address(
-        signer.address, get_environment_config(PRODUCTION).wallet_derivation
+        signer.address, PRODUCTION_CONFIG.wallet_derivation
     )
 
     def fake_fetch_deployed_sync(
@@ -194,12 +193,11 @@ def test_secure_client_wallet_defaults_to_existing_legacy_deposit_wallet_when_om
 
     import polymarket.clients.secure as secure_module
     from polymarket._internal.wallet import derive_uups_deposit_wallet_address
-    from polymarket.environments import PRODUCTION
     from polymarket.models.clob.relayer import RelayerTransactionType
 
     signer = Account.from_key(PRIVATE_KEY)
     expected = derive_uups_deposit_wallet_address(
-        signer.address, get_environment_config(PRODUCTION).wallet_derivation
+        signer.address, PRODUCTION_CONFIG.wallet_derivation
     )
 
     def fake_fetch_deployed_sync(
@@ -238,15 +236,14 @@ def test_async_secure_client_wallet_defaults_to_beacon_deposit_wallet_when_omitt
         derive_beacon_deposit_wallet_address,
         derive_uups_deposit_wallet_address,
     )
-    from polymarket.environments import PRODUCTION
     from polymarket.models.clob.relayer import RelayerTransactionType
 
     signer = Account.from_key(PRIVATE_KEY)
     legacy_wallet = derive_uups_deposit_wallet_address(
-        signer.address, get_environment_config(PRODUCTION).wallet_derivation
+        signer.address, PRODUCTION_CONFIG.wallet_derivation
     )
     expected = derive_beacon_deposit_wallet_address(
-        signer.address, get_environment_config(PRODUCTION).wallet_derivation
+        signer.address, PRODUCTION_CONFIG.wallet_derivation
     )
 
     async def fake_fetch_deployed(
@@ -280,12 +277,11 @@ def test_async_secure_client_wallet_defaults_to_existing_legacy_deposit_wallet_w
 
     import polymarket.clients.async_secure as async_secure_module
     from polymarket._internal.wallet import derive_uups_deposit_wallet_address
-    from polymarket.environments import PRODUCTION
     from polymarket.models.clob.relayer import RelayerTransactionType
 
     signer = Account.from_key(PRIVATE_KEY)
     expected = derive_uups_deposit_wallet_address(
-        signer.address, get_environment_config(PRODUCTION).wallet_derivation
+        signer.address, PRODUCTION_CONFIG.wallet_derivation
     )
 
     async def fake_fetch_deployed(

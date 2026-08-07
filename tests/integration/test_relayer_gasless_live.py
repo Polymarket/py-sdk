@@ -1,8 +1,7 @@
 import pytest
 
 from polymarket import AsyncSecureClient, BuilderApiKey, SecureClient
-from polymarket._internal.environment import get_environment_config
-from polymarket.environments import PRODUCTION
+from polymarket._internal.environment import PRODUCTION_CONFIG
 
 pytestmark = pytest.mark.anyio
 
@@ -23,8 +22,8 @@ async def test_async_secure_client_executes_gasless_transaction_for_proxy_wallet
     async with client:
         assert client.wallet_type == "POLY_PROXY"
         handle = await client.approve_erc20(
-            token_address=get_environment_config(PRODUCTION).collateral_token,
-            spender_address=get_environment_config(PRODUCTION).standard_exchange,
+            token_address=PRODUCTION_CONFIG.collateral_token,
+            spender_address=PRODUCTION_CONFIG.standard_exchange,
             amount=1,
             metadata="Test legacy Proxy wallet gasless execution",
         )
@@ -47,8 +46,8 @@ async def test_async_secure_client_executes_gasless_transaction_for_safe_wallet(
     async with client:
         assert client.wallet_type == "GNOSIS_SAFE"
         handle = await client.approve_erc20(
-            token_address=get_environment_config(PRODUCTION).collateral_token,
-            spender_address=get_environment_config(PRODUCTION).standard_exchange,
+            token_address=PRODUCTION_CONFIG.collateral_token,
+            spender_address=PRODUCTION_CONFIG.standard_exchange,
             amount=1,
             metadata="Test legacy Safe wallet gasless execution",
         )
@@ -70,8 +69,8 @@ def test_sync_secure_client_executes_gasless_transaction_for_proxy_wallet(
     ) as client:
         assert client.wallet_type == "POLY_PROXY"
         handle = client.approve_erc20(
-            token_address=get_environment_config(PRODUCTION).collateral_token,
-            spender_address=get_environment_config(PRODUCTION).standard_exchange,
+            token_address=PRODUCTION_CONFIG.collateral_token,
+            spender_address=PRODUCTION_CONFIG.standard_exchange,
             amount=1,
             metadata="Test legacy Proxy wallet sync gasless execution",
         )
@@ -93,8 +92,8 @@ def test_sync_secure_client_executes_gasless_transaction_for_safe_wallet(
     ) as client:
         assert client.wallet_type == "GNOSIS_SAFE"
         handle = client.approve_erc20(
-            token_address=get_environment_config(PRODUCTION).collateral_token,
-            spender_address=get_environment_config(PRODUCTION).standard_exchange,
+            token_address=PRODUCTION_CONFIG.collateral_token,
+            spender_address=PRODUCTION_CONFIG.standard_exchange,
             amount=1,
             metadata="Test legacy Safe wallet sync gasless execution",
         )

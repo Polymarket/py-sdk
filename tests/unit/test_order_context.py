@@ -8,8 +8,7 @@ from polymarket._internal.actions.orders.context import (
     validate_price_on_tick_grid,
 )
 from polymarket._internal.actions.orders.math import decimal_places
-from polymarket._internal.environment import get_environment_config
-from polymarket.environments import PRODUCTION
+from polymarket._internal.environment import PRODUCTION_CONFIG
 from polymarket.errors import UnexpectedResponseError, UserInputError
 
 
@@ -35,15 +34,15 @@ def test_resolve_rounding_config_rejects_unsupported_tick_size() -> None:
 
 def test_resolve_exchange_address_selects_neg_risk_when_true() -> None:
     assert (
-        resolve_exchange_address(PRODUCTION, neg_risk=True)
-        == get_environment_config(PRODUCTION).neg_risk_exchange
+        resolve_exchange_address(PRODUCTION_CONFIG, neg_risk=True)
+        == PRODUCTION_CONFIG.neg_risk_exchange
     )
 
 
 def test_resolve_exchange_address_selects_standard_when_false() -> None:
     assert (
-        resolve_exchange_address(PRODUCTION, neg_risk=False)
-        == get_environment_config(PRODUCTION).standard_exchange
+        resolve_exchange_address(PRODUCTION_CONFIG, neg_risk=False)
+        == PRODUCTION_CONFIG.standard_exchange
     )
 
 

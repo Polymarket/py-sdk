@@ -13,9 +13,8 @@ from polymarket._internal.actions.orders.limit import (
     prepare_limit_order_draft,
     validate_limit_order_params,
 )
-from polymarket._internal.environment import get_environment_config
+from polymarket._internal.environment import PRODUCTION_CONFIG
 from polymarket.clients._transport import AsyncTransport
-from polymarket.environments import PRODUCTION
 from polymarket.errors import UserInputError
 
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
@@ -243,7 +242,7 @@ def test_prepare_limit_order_draft_buy_computes_offered_requested() -> None:
     assert offered == 5_000_000  # 10 * 0.5 USDC base units
     assert requested == 10_000_000  # 10 shares base units
     assert order_type == "GTC"
-    assert exchange == get_environment_config(PRODUCTION).standard_exchange
+    assert exchange == PRODUCTION_CONFIG.standard_exchange
 
 
 def test_prepare_limit_order_draft_sell_swaps_amounts() -> None:
@@ -264,7 +263,7 @@ def test_prepare_limit_order_draft_sell_swaps_amounts() -> None:
     offered, requested, exchange = asyncio.run(run())
     assert offered == 10_000_000  # 10 shares
     assert requested == 5_000_000  # 5 USDC
-    assert exchange == get_environment_config(PRODUCTION).neg_risk_exchange
+    assert exchange == PRODUCTION_CONFIG.neg_risk_exchange
 
 
 def test_prepare_limit_order_draft_sets_gtd_when_expiration_given() -> None:

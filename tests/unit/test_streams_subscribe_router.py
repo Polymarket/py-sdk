@@ -9,8 +9,11 @@ import pytest
 from websockets.asyncio.server import ServerConnection, serve
 
 from polymarket import AsyncPublicClient
-from polymarket._internal.environment import create_environment, get_environment_config
-from polymarket.environments import PRODUCTION, Environment
+from polymarket._internal.environment import (
+    PRODUCTION_CONFIG,
+    create_environment,
+)
+from polymarket.environments import Environment
 from polymarket.errors import UserInputError
 from polymarket.models.clob.market_events import MarketBookEvent
 from polymarket.streams import MarketSpec
@@ -55,15 +58,15 @@ def _env_with_perps_ws(url: str) -> Environment:
 
 def _env_with(
     *,
-    clob_market_ws_url: str = get_environment_config(PRODUCTION).clob_market_ws_url,
-    sports_ws_url: str = get_environment_config(PRODUCTION).sports_ws_url,
-    rtds_ws_url: str = get_environment_config(PRODUCTION).rtds_ws_url,
-    perps_ws_url: str = get_environment_config(PRODUCTION).perps_ws_url,
+    clob_market_ws_url: str = PRODUCTION_CONFIG.clob_market_ws_url,
+    sports_ws_url: str = PRODUCTION_CONFIG.sports_ws_url,
+    rtds_ws_url: str = PRODUCTION_CONFIG.rtds_ws_url,
+    perps_ws_url: str = PRODUCTION_CONFIG.perps_ws_url,
 ) -> Environment:
     return create_environment(
         name="test",
         config=replace(
-            get_environment_config(PRODUCTION),
+            PRODUCTION_CONFIG,
             clob_market_ws_url=clob_market_ws_url,
             sports_ws_url=sports_ws_url,
             rtds_ws_url=rtds_ws_url,

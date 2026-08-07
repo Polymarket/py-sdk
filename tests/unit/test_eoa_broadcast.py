@@ -11,7 +11,7 @@ from _relayer_helpers import (
 )
 
 from polymarket import TransactionCall
-from polymarket._internal.environment import get_environment_config, with_environment_config
+from polymarket._internal.environment import with_environment_config
 from polymarket.errors import TimeoutError, TransactionFailedError, UserInputError
 from polymarket.transactions import DeprecatedTransactionHandle, EoaTransactionHandle
 from polymarket.types import EvmAddress
@@ -56,7 +56,7 @@ def test_eoa_wait_returns_outcome_on_success_receipt() -> None:
             environment=with_environment_config(
                 client._ctx.environment,
                 config=dataclasses.replace(
-                    get_environment_config(client._ctx.environment), relayer_poll_frequency_ms=1
+                    client._ctx.environment_config, relayer_poll_frequency_ms=1
                 ),
             ),
         )
@@ -84,7 +84,7 @@ def test_eoa_wait_raises_on_reverted_receipt() -> None:
             environment=with_environment_config(
                 client._ctx.environment,
                 config=dataclasses.replace(
-                    get_environment_config(client._ctx.environment), relayer_poll_frequency_ms=1
+                    client._ctx.environment_config, relayer_poll_frequency_ms=1
                 ),
             ),
         )
@@ -113,7 +113,7 @@ def test_eoa_wait_times_out_when_receipt_never_appears() -> None:
             environment=with_environment_config(
                 client._ctx.environment,
                 config=dataclasses.replace(
-                    get_environment_config(client._ctx.environment),
+                    client._ctx.environment_config,
                     relayer_poll_frequency_ms=1,
                     relayer_max_polls=3,
                 ),
@@ -212,7 +212,7 @@ def test_eoa_setup_trading_approvals_submits_and_waits_for_required_calls_sequen
             environment=with_environment_config(
                 client._ctx.environment,
                 config=dataclasses.replace(
-                    get_environment_config(client._ctx.environment), relayer_poll_frequency_ms=1
+                    client._ctx.environment_config, relayer_poll_frequency_ms=1
                 ),
             ),
         )

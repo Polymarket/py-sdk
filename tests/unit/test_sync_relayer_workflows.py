@@ -22,9 +22,11 @@ from eth_abi.abi import decode as abi_decode
 from eth_abi.abi import encode as abi_encode
 
 from polymarket import SecureClient
-from polymarket._internal.environment import get_environment_config, with_environment_config
+from polymarket._internal.environment import (
+    PRODUCTION_CONFIG,
+    with_environment_config,
+)
 from polymarket.calls import merge_v2_call
-from polymarket.environments import PRODUCTION
 from polymarket.errors import (
     TimeoutError as PolyTimeoutError,
 )
@@ -151,7 +153,7 @@ def test_split_position_routes_through_collateral_adapter() -> None:
     submit = [r for r in captured if urlparse(str(r.url)).path == "/submit"][0]
     body = request_json(submit)
     inner = body["depositWalletParams"]["calls"][0]
-    assert inner["target"].lower() == get_environment_config(PRODUCTION).collateral_adapter.lower()
+    assert inner["target"].lower() == PRODUCTION_CONFIG.collateral_adapter.lower()
 
 
 def test_setup_trading_approvals_bundles_required_calls_for_deposit_wallet() -> None:
@@ -329,12 +331,12 @@ def test_setup_trading_approvals_safe_uses_multisend_delegatecall() -> None:
     body = request_json(submit)
     assert body["type"] == "SAFE"
     assert body["signatureParams"]["operation"] == "1"
-    assert body["to"].lower() == get_environment_config(PRODUCTION).safe_multisend.lower()
+    assert body["to"].lower() == PRODUCTION_CONFIG.safe_multisend.lower()
 
 
 def test_execute_transaction_batches_custom_calls() -> None:
     captured: list[httpx.Request] = []
-    router = EvmAddress(get_environment_config(PRODUCTION).protocol_v2_router)
+    router = EvmAddress(PRODUCTION_CONFIG.protocol_v2_router)
 
     with make_sync_deposit_client() as client:
         install_sync_relayer_handler(client, _deposit_relayer_handler(captured))
@@ -386,7 +388,7 @@ def test_merge_multiple_positions_batches_combo_merges() -> None:
     assert len(inner_calls) == 3
     assert body["metadata"] == "Merge selected combo positions"
     assert {call["target"].lower() for call in inner_calls} == {
-        get_environment_config(PRODUCTION).protocol_v2_router.lower()
+        PRODUCTION_CONFIG.protocol_v2_router.lower()
     }
     assert [call["data"][-64:] for call in inner_calls] == [
         f"{1:064x}",
@@ -434,7 +436,7 @@ def test_merge_multiple_positions_batches_market_merges() -> None:
     assert len(inner_calls) == 2
     assert body["metadata"] == "Merge selected market positions"
     assert {call["target"].lower() for call in inner_calls} == {
-        get_environment_config(PRODUCTION).collateral_adapter.lower()
+        PRODUCTION_CONFIG.collateral_adapter.lower()
     }
     assert [_decode_merge_positions_amount(call["data"]) for call in inner_calls] == [
         1_000_000,
@@ -549,7 +551,7 @@ def test_merge_positions_routes_through_collateral_adapter() -> None:
     submit = [r for r in captured if urlparse(str(r.url)).path == "/submit"][0]
     body = request_json(submit)
     inner = body["depositWalletParams"]["calls"][0]
-    assert inner["target"].lower() == get_environment_config(PRODUCTION).collateral_adapter.lower()
+    assert inner["target"].lower() == PRODUCTION_CONFIG.collateral_adapter.lower()
 
 
 def test_redeem_positions_routes_through_neg_risk_collateral_adapter() -> None:
@@ -571,10 +573,7 @@ def test_redeem_positions_routes_through_neg_risk_collateral_adapter() -> None:
     submit = [r for r in captured if urlparse(str(r.url)).path == "/submit"][0]
     body = request_json(submit)
     inner = body["depositWalletParams"]["calls"][0]
-    assert (
-        inner["target"].lower()
-        == get_environment_config(PRODUCTION).neg_risk_collateral_adapter.lower()
-    )
+    assert inner["target"].lower() == PRODUCTION_CONFIG.neg_risk_collateral_adapter.lower()
 
 
 def test_redeem_positions_market_id_resolves_condition_before_fetching_positions() -> None:
@@ -595,10 +594,7 @@ def test_redeem_positions_market_id_resolves_condition_before_fetching_positions
     submit = [r for r in captured if urlparse(str(r.url)).path == "/submit"][0]
     body = request_json(submit)
     inner = body["depositWalletParams"]["calls"][0]
-    assert (
-        inner["target"].lower()
-        == get_environment_config(PRODUCTION).neg_risk_collateral_adapter.lower()
-    )
+    assert inner["target"].lower() == PRODUCTION_CONFIG.neg_risk_collateral_adapter.lower()
 
 
 def test_redeem_positions_market_id_rejects_non_integer() -> None:
@@ -701,7 +697,7 @@ def test_gasless_wait_returns_outcome_on_terminal_success() -> None:
             environment=with_environment_config(
                 client._ctx.environment,
                 config=dataclasses.replace(
-                    get_environment_config(client._ctx.environment), relayer_poll_frequency_ms=1
+                    client._ctx.environment_config, relayer_poll_frequency_ms=1
                 ),
             ),
         )
@@ -720,7 +716,7 @@ def test_gasless_wait_raises_transaction_failed_on_terminal_failure() -> None:
             environment=with_environment_config(
                 client._ctx.environment,
                 config=dataclasses.replace(
-                    get_environment_config(client._ctx.environment), relayer_poll_frequency_ms=1
+                    client._ctx.environment_config, relayer_poll_frequency_ms=1
                 ),
             ),
         )
@@ -739,7 +735,7 @@ def test_gasless_wait_times_out_when_terminal_state_never_reached() -> None:
             environment=with_environment_config(
                 client._ctx.environment,
                 config=dataclasses.replace(
-                    get_environment_config(client._ctx.environment),
+                    client._ctx.environment_config,
                     relayer_poll_frequency_ms=1,
                     relayer_max_polls=3,
                 ),
@@ -785,7 +781,7 @@ def test_gasless_submit_retries_on_retryable_400_then_succeeds() -> None:
             environment=with_environment_config(
                 client._ctx.environment,
                 config=dataclasses.replace(
-                    get_environment_config(client._ctx.environment), relayer_poll_frequency_ms=1
+                    client._ctx.environment_config, relayer_poll_frequency_ms=1
                 ),
             ),
         )
