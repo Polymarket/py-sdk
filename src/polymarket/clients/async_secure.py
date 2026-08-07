@@ -1880,7 +1880,11 @@ class AsyncSecureClient:
     async def get_last_trade_prices(
         self, *, token_ids: Sequence[str]
     ) -> tuple[LastTradePriceForToken, ...]:
-        """Get the most recent trade prices for multiple tokens."""
+        """Get the most recent trade prices for multiple tokens.
+
+        Tokens without trades are omitted. Match returned entries by ``token_id``;
+        the result is not positionally aligned with ``token_ids``.
+        """
         path, body = _clob_actions.build_last_trade_prices_request(token_ids=token_ids)
         return _clob_actions.parse_last_trade_prices(
             await self._ctx.clob.post_json(path, json=body)
