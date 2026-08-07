@@ -1868,7 +1868,11 @@ class AsyncSecureClient:
         return _clob_actions.parse_spreads(await self._ctx.clob.post_json(path, json=body))
 
     async def get_last_trade_price(self, *, token_id: str) -> LastTradePrice:
-        """Get the most recent trade price for a token."""
+        """Get the most recent trade price for a token.
+
+        For a token without trades, ``side`` is ``None`` and ``price`` is the
+        ``Decimal("0.5")`` placeholder.
+        """
         path, params = _clob_actions.build_last_trade_price_request(token_id=token_id)
         return _clob_actions.parse_last_trade_price(
             await self._ctx.clob.get_json(path, params=params)

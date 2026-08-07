@@ -11,12 +11,17 @@ from polymarket.models.types import OrderSide, TokenId
 
 class LastTradePrice(BaseModel):
     price: Decimal
-    side: OrderSide
+    side: OrderSide | None
 
     @field_validator("price", mode="before")
     @classmethod
     def _parse_price(cls, value: object) -> object:
         return parse_decimal_string(value)
+
+    @field_validator("side", mode="before")
+    @classmethod
+    def _empty_side_to_none(cls, value: object) -> object:
+        return None if value == "" else value
 
 
 class LastTradePriceForToken(BaseModel):

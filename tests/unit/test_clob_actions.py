@@ -500,6 +500,14 @@ def test_parse_last_trade_price_returns_model() -> None:
     assert result.side == "BUY"
 
 
+def test_parse_last_trade_price_normalizes_empty_side() -> None:
+    result = parse_last_trade_price({"price": "0.5", "side": ""})
+
+    assert result.price == Decimal("0.5")
+    assert_type(result.side, OrderSide | None)
+    assert result.side is None
+
+
 def test_parse_last_trade_price_rejects_numeric_price() -> None:
     with pytest.raises(UnexpectedResponseError):
         parse_last_trade_price({"price": 0.53, "side": "BUY"})
