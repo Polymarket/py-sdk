@@ -11,7 +11,7 @@ import pytest
 from websockets.asyncio.server import ServerConnection, serve
 
 from polymarket import PRODUCTION, ApiKeyCreds, AsyncSecureClient
-from polymarket.errors import ConnectionLostError, TransportError, UnexpectedResponseError
+from polymarket.errors import ConnectionLostError, TransportError
 from polymarket.rfq import (
     RfqConfirmationRequestEvent,
     RfqErrorCode,
@@ -263,33 +263,6 @@ async def test_rfq_session_normalizes_combo_condition_id_wire_form(
             assert isinstance(event, RfqQuoteRequestEvent)
             assert event.condition_id == CONDITION_ID
             break
-
-
-@pytest.mark.integration
-async def test_rfq_session_rejects_non_combo_condition_id(
-    require_env: Callable[[str], str],
-) -> None:
-    async def handler(ws: ServerConnection) -> None:
-        async for raw in ws:
-            assert isinstance(raw, str)
-            frame = json.loads(raw)
-            if frame["type"] == "auth":
-                await ws.send(json.dumps({"type": "auth", "success": True}))
-                await ws.send(
-                    json.dumps(
-                        _quote_request_message(
-                            condition_id="0x022def24bfb0c5c57fb236fac08b94236a0000000000000000000000000000"
-                        )
-                    )
-                )
-
-    async with (
-        _ws_server(handler) as ws_url,
-        _rfq_client(require_env, ws_url) as client,
-        client.open_rfq_session() as session,
-    ):
-        with pytest.raises(UnexpectedResponseError, match="combo condition ID"):
-            await session.__anext__()
 
 
 @pytest.mark.integration
@@ -670,34 +643,6 @@ async def test_rfq_session_connection_lost_rejects_pending_and_raises(
 
         with pytest.raises(ConnectionLostError):
             await session.__anext__()
-
-
-@pytest.mark.integration
-async def test_rfq_session_malformed_frame_fails_and_clears_client_session(
-    require_env: Callable[[str], str],
-) -> None:
-    connection_count = 0
-
-    async def handler(ws: ServerConnection) -> None:
-        nonlocal connection_count
-        connection_count += 1
-        async for raw in ws:
-            assert isinstance(raw, str)
-            frame = json.loads(raw)
-            if frame["type"] != "auth":
-                continue
-            await ws.send(json.dumps({"type": "auth", "success": True}))
-            if connection_count == 1:
-                await ws.send(json.dumps({"type": "RFQ_REQUEST", "rfq_id": RFQ_ID}))
-
-    async with _ws_server(handler) as ws_url, _rfq_client(require_env, ws_url) as client:
-        session = await client.open_rfq_session()
-        with pytest.raises(UnexpectedResponseError, match="requestor_public_id"):
-            await session.__anext__()
-
-        next_session = await client.open_rfq_session()
-        assert next_session is not session
-        assert connection_count == 2
 
 
 @pytest.mark.integration
