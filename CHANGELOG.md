@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.5.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.4.0...polymarket-client-v0.5.0) (2026-08-07)
+
+
+### Features
+
+* **client:** cache order market metadata ([9e8fd4d](https://github.com/Polymarket/py-sdk/commit/9e8fd4d14adb95248fa0500dc1a544a2f4684c2f))
+* **perps:** add auto-cancel support ([c5c97b0](https://github.com/Polymarket/py-sdk/commit/c5c97b0ea50a224465ca2c2468beab89de87ab64))
+* **perps:** add id to funding payment records ([3187d48](https://github.com/Polymarket/py-sdk/commit/3187d4839b3c51609b5bf1ef23195ccc780fbc1d))
+* **perps:** add id to funding payment records ([bf2f0d3](https://github.com/Polymarket/py-sdk/commit/bf2f0d3e1c00527a4b3fa1c35fee708f00001c84))
+
+
+### Bug Fixes
+
+* match tagged TOML package name ([c0ba4c2](https://github.com/Polymarket/py-sdk/commit/c0ba4c2cbbd7643126b86a22b65386e8afe816a3))
+* **perps:** prevent order update race ([1060794](https://github.com/Polymarket/py-sdk/commit/10607940d38ef67d1f0b7dcae47709bdd3140801))
+* **perps:** prevent order update race ([f4afcc9](https://github.com/Polymarket/py-sdk/commit/f4afcc91f4a7fc7cfd94dc3daf01b8886629ad09))
+
 ## [0.4.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.3.0...polymarket-client-v0.4.0) (2026-08-05)
 
 
