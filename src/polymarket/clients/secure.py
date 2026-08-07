@@ -1393,11 +1393,10 @@ class SecureClient:
         path, body = _clob_actions.build_spreads_request(token_ids=token_ids)
         return _clob_actions.parse_spreads(self._ctx.clob.post_json(path, json=body))
 
-    def get_last_trade_price(self, *, token_id: str) -> LastTradePrice:
+    def get_last_trade_price(self, *, token_id: str) -> LastTradePrice | None:
         """Get the most recent trade price for a token.
 
-        For a token without trades, ``side`` is ``None`` and ``price`` is the
-        ``Decimal("0.5")`` placeholder.
+        Returns ``None`` when the token has not traded.
         """
         path, params = _clob_actions.build_last_trade_price_request(token_id=token_id)
         return _clob_actions.parse_last_trade_price(self._ctx.clob.get_json(path, params=params))

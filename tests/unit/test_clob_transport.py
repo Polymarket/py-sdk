@@ -230,13 +230,14 @@ def test_async_get_spreads_posts_token_ids() -> None:
 def test_async_get_last_trade_price_returns_model() -> None:
     captured: list[httpx.Request] = []
 
-    async def run() -> LastTradePrice:
+    async def run() -> LastTradePrice | None:
         async with AsyncPublicClient() as client:
             _install_async_clob(client, _clob_handler(captured, {"price": "0.53", "side": "BUY"}))
             return await client.get_last_trade_price(token_id="123")
 
     result = asyncio.run(run())
 
+    assert result is not None
     assert result.price == Decimal("0.53")
     assert result.side == "BUY"
     assert urlparse(str(captured[0].url)).path == "/last-trade-price"
