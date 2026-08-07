@@ -22,6 +22,10 @@ from _relayer_helpers import (
 )
 
 from polymarket import AsyncSecureClient
+from polymarket._internal.environment import (
+    PRODUCTION_CONFIG,
+    with_environment_config,
+)
 from polymarket.errors import UserInputError
 from polymarket.transactions import TransactionHandle
 
@@ -30,11 +34,12 @@ def test_approve_erc20_rejects_when_no_api_key() -> None:
     from eth_account import Account
 
     from polymarket._internal.wallet import derive_uups_deposit_wallet_address
-    from polymarket.environments import PRODUCTION
 
     async def run() -> None:
         signer = Account.from_key(PK_DEPLOY_WALLET)
-        wallet = derive_uups_deposit_wallet_address(signer.address, PRODUCTION.wallet_derivation)
+        wallet = derive_uups_deposit_wallet_address(
+            signer.address, PRODUCTION_CONFIG.wallet_derivation
+        )
         client = await AsyncSecureClient._create(
             private_key=PK_DEPLOY_WALLET,
             wallet=wallet,
@@ -338,7 +343,12 @@ def test_approve_erc20_retries_with_fresh_nonce_on_nonce_mismatch() -> None:
         install_relayer_handler(client, handler)
         client._ctx = dataclasses.replace(
             client._ctx,
-            environment=dataclasses.replace(client._ctx.environment, relayer_poll_frequency_ms=1),
+            environment=with_environment_config(
+                client._ctx.environment,
+                config=dataclasses.replace(
+                    client._ctx.environment_config, relayer_poll_frequency_ms=1
+                ),
+            ),
         )
         try:
             await client.approve_erc20(token_address=TOKEN, spender_address=SPENDER, amount=1)
@@ -451,7 +461,12 @@ def test_wait_polls_until_confirmed() -> None:
         install_relayer_handler(client, handler)
         client._ctx = dataclasses.replace(
             client._ctx,
-            environment=dataclasses.replace(client._ctx.environment, relayer_poll_frequency_ms=10),
+            environment=with_environment_config(
+                client._ctx.environment,
+                config=dataclasses.replace(
+                    client._ctx.environment_config, relayer_poll_frequency_ms=10
+                ),
+            ),
         )
         try:
             handle = await client.approve_erc20(
@@ -471,13 +486,14 @@ def test_approve_erc20_works_with_relayer_api_key() -> None:
 
     from polymarket import RelayerApiKey
     from polymarket._internal.wallet import derive_uups_deposit_wallet_address
-    from polymarket.environments import PRODUCTION
 
     captured: list[httpx.Request] = []
 
     async def run() -> None:
         signer = Account.from_key(PK_DEPLOY_WALLET)
-        wallet = derive_uups_deposit_wallet_address(signer.address, PRODUCTION.wallet_derivation)
+        wallet = derive_uups_deposit_wallet_address(
+            signer.address, PRODUCTION_CONFIG.wallet_derivation
+        )
         client = await AsyncSecureClient._create(
             private_key=PK_DEPLOY_WALLET,
             wallet=wallet,

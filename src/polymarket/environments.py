@@ -1,10 +1,10 @@
 """Polymarket environment configuration."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class WalletDerivation:
+class _WalletDerivation:
     proxy_factory: str
     proxy_implementation: str
     safe_factory: str
@@ -15,10 +15,9 @@ class WalletDerivation:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class Environment:
-    name: str
+class _EnvironmentConfig:
     chain_id: int
-    wallet_derivation: WalletDerivation
+    wallet_derivation: _WalletDerivation
     collateral_token: str
     conditional_tokens: str
     neg_risk_adapter: str
@@ -53,38 +52,58 @@ class Environment:
     relayer_poll_frequency_ms: int = 2000
 
 
-PRODUCTION = Environment(
+@dataclass(frozen=True, slots=True, init=False)
+class Environment:
+    """An SDK environment identified by its public name."""
+
+    name: str
+    _config: _EnvironmentConfig = field(repr=False)
+
+    def __init__(self) -> None:
+        raise TypeError("Environment instances are provided by the SDK")
+
+
+def _create_environment(*, name: str, config: _EnvironmentConfig) -> Environment:
+    environment = object.__new__(Environment)
+    object.__setattr__(environment, "name", name)
+    object.__setattr__(environment, "_config", config)
+    return environment
+
+
+PRODUCTION = _create_environment(
     name="production",
-    chain_id=137,
-    wallet_derivation=WalletDerivation(
-        proxy_factory="0xaB45c5A4B0c941a2F231C04C3f49182e1A254052",
-        proxy_implementation="0x44e999d5c2F66Ef0861317f9A4805AC2e90aEB4f",
-        safe_factory="0xaacFeEa03eb1561C4e67d661e40682Bd20E3541b",
-        safe_init_code_hash="0x2bce2127ff07fb632d16c8347c4ebf501f4841168bed00d9e6ef715ddb6fcecf",
-        deposit_wallet_factory="0x00000000000Fb5C9ADea0298D729A0CB3823Cc07",
-        deposit_wallet_implementation="0x58CA52ebe0DadfdF531Cde7062e76746de4Db1eB",
-        deposit_wallet_beacon="0x7A18EDfe055488A3128f01F563e5B479D92ffc3a",
+    config=_EnvironmentConfig(
+        chain_id=137,
+        wallet_derivation=_WalletDerivation(
+            proxy_factory="0xaB45c5A4B0c941a2F231C04C3f49182e1A254052",
+            proxy_implementation="0x44e999d5c2F66Ef0861317f9A4805AC2e90aEB4f",
+            safe_factory="0xaacFeEa03eb1561C4e67d661e40682Bd20E3541b",
+            safe_init_code_hash="0x2bce2127ff07fb632d16c8347c4ebf501f4841168bed00d9e6ef715ddb6fcecf",
+            deposit_wallet_factory="0x00000000000Fb5C9ADea0298D729A0CB3823Cc07",
+            deposit_wallet_implementation="0x58CA52ebe0DadfdF531Cde7062e76746de4Db1eB",
+            deposit_wallet_beacon="0x7A18EDfe055488A3128f01F563e5B479D92ffc3a",
+        ),
+        collateral_token="0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB",
+        conditional_tokens="0x4D97DCd97eC945f40cF65F87097ACe5EA0476045",
+        neg_risk_adapter="0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296",
+        collateral_adapter="0xAdA100Db00Ca00073811820692005400218FcE1f",
+        neg_risk_collateral_adapter="0xadA2005600Dec949baf300f4C6120000bDB6eAab",
+        standard_exchange="0xE111180000d2663C0091e4f400237545B87B996B",
+        neg_risk_exchange="0xe2222d279d744050d28e00520010520000310F59",
+        auto_redeem_operator="0xa1200000d0002264C9a1698e001292D00E1b00af",
+        safe_multisend="0xA238CBeb142c10Ef7Ad8442C6D1f9E89e07e7761",
+        relay_hub="0xD216153c06E857cD7f72665E0aF1d7D82172F494",
+        clob_url="https://clob.polymarket.com",
+        clob_market_ws_url="wss://ws-subscriptions-clob.polymarket.com/ws/market",
+        clob_user_ws_url="wss://ws-subscriptions-clob.polymarket.com/ws/user",
+        relayer_url="https://relayer-v2.polymarket.com",
+        gamma_url="https://gamma-api.polymarket.com",
+        data_url="https://data-api.polymarket.com",
+        rfq_url="https://combos-rfq-api.polymarket.com",
+        rtds_ws_url="wss://ws-live-data.polymarket.com",
+        sports_ws_url="wss://sports-api.polymarket.com/ws",
+        rpc_url="https://polygon.drpc.org",
     ),
-    collateral_token="0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB",
-    conditional_tokens="0x4D97DCd97eC945f40cF65F87097ACe5EA0476045",
-    neg_risk_adapter="0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296",
-    collateral_adapter="0xAdA100Db00Ca00073811820692005400218FcE1f",
-    neg_risk_collateral_adapter="0xadA2005600Dec949baf300f4C6120000bDB6eAab",
-    standard_exchange="0xE111180000d2663C0091e4f400237545B87B996B",
-    neg_risk_exchange="0xe2222d279d744050d28e00520010520000310F59",
-    auto_redeem_operator="0xa1200000d0002264C9a1698e001292D00E1b00af",
-    safe_multisend="0xA238CBeb142c10Ef7Ad8442C6D1f9E89e07e7761",
-    relay_hub="0xD216153c06E857cD7f72665E0aF1d7D82172F494",
-    clob_url="https://clob.polymarket.com",
-    clob_market_ws_url="wss://ws-subscriptions-clob.polymarket.com/ws/market",
-    clob_user_ws_url="wss://ws-subscriptions-clob.polymarket.com/ws/user",
-    relayer_url="https://relayer-v2.polymarket.com",
-    gamma_url="https://gamma-api.polymarket.com",
-    data_url="https://data-api.polymarket.com",
-    rfq_url="https://combos-rfq-api.polymarket.com",
-    rtds_ws_url="wss://ws-live-data.polymarket.com",
-    sports_ws_url="wss://sports-api.polymarket.com/ws",
-    rpc_url="https://polygon.drpc.org",
 )
 
-__all__ = ["Environment", "PRODUCTION", "WalletDerivation"]
+__all__ = ["Environment", "PRODUCTION"]

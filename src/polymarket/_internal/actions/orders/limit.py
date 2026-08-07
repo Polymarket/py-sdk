@@ -113,8 +113,8 @@ def _build_limit_order_draft(
         tick_size=metadata.tick_size,
     )
     return OrderDraft(
-        chain_id=ctx.environment.chain_id,
-        exchange_address=resolve_exchange_address(ctx.environment, metadata.neg_risk),
+        chain_id=ctx.environment_config.chain_id,
+        exchange_address=resolve_exchange_address(ctx.environment_config, metadata.neg_risk),
         expiration=params.expiration if params.expiration is not None else 0,
         funder_address=ctx.wallet,
         offered_amount=offered,

@@ -15,8 +15,8 @@ from polymarket._internal.actions.builders import (
     build_list_builder_trades_request,
     parse_builder_trades_page,
 )
+from polymarket._internal.environment import PRODUCTION_CONFIG
 from polymarket.clients._transport import AsyncTransport, SyncTransport
-from polymarket.environments import PRODUCTION
 from polymarket.errors import UnexpectedResponseError, UserInputError
 from polymarket.models.clob.builder import BuilderTrade
 
@@ -279,8 +279,8 @@ class TestPublicClientListBuilderTrades:
                 data=client._ctx.data,
                 rfq=client._ctx.rfq,
                 clob=SyncTransport(
-                    base_url=PRODUCTION.clob_url,
-                    client=httpx.Client(base_url=PRODUCTION.clob_url, transport=handler),
+                    base_url=PRODUCTION_CONFIG.clob_url,
+                    client=httpx.Client(base_url=PRODUCTION_CONFIG.clob_url, transport=handler),
                 ),
             )
 
@@ -329,9 +329,10 @@ class TestAsyncPublicClientListBuilderTrades:
                     data=client._ctx.data,
                     rfq=client._ctx.rfq,
                     clob=AsyncTransport(
-                        base_url=PRODUCTION.clob_url,
+                        base_url=PRODUCTION_CONFIG.clob_url,
                         client=httpx.AsyncClient(
-                            base_url=PRODUCTION.clob_url, transport=httpx.MockTransport(handler)
+                            base_url=PRODUCTION_CONFIG.clob_url,
+                            transport=httpx.MockTransport(handler),
                         ),
                     ),
                     perps=client._ctx.perps,
@@ -377,9 +378,10 @@ class TestAsyncSecureClientListBuilderTrades:
                 client._ctx = dataclasses.replace(
                     client._ctx,
                     clob=AsyncTransport(
-                        base_url=PRODUCTION.clob_url,
+                        base_url=PRODUCTION_CONFIG.clob_url,
                         client=httpx.AsyncClient(
-                            base_url=PRODUCTION.clob_url, transport=httpx.MockTransport(handler)
+                            base_url=PRODUCTION_CONFIG.clob_url,
+                            transport=httpx.MockTransport(handler),
                         ),
                     ),
                 )

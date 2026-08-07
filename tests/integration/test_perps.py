@@ -29,6 +29,7 @@ from polymarket import (
     PerpsTpSlTrigger,
     RequestRejectedError,
 )
+from polymarket._internal.environment import get_environment_config
 from polymarket.errors import UnexpectedResponseError
 from polymarket.perps import PerpsSession
 from polymarket.streams import PerpsBookSpec
@@ -134,8 +135,8 @@ async def test_deposits_and_withdraws_the_same_perps_amount(
     client = relayer_enabled_deposit_wallet_client
     approval = await client.approve_erc20(
         amount="max",
-        spender_address=client.environment.perps_deposit_contract,
-        token_address=client.environment.collateral_token,
+        spender_address=get_environment_config(client.environment).perps_deposit_contract,
+        token_address=get_environment_config(client.environment).collateral_token,
     )
     await approval.wait()
 

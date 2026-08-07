@@ -298,8 +298,8 @@ def _build_market_order_draft(
         tick_size=tick_size,
     )
     return OrderDraft(
-        chain_id=ctx.environment.chain_id,
-        exchange_address=resolve_exchange_address(ctx.environment, neg_risk),
+        chain_id=ctx.environment_config.chain_id,
+        exchange_address=resolve_exchange_address(ctx.environment_config, neg_risk),
         expiration=0,
         funder_address=ctx.wallet,
         offered_amount=offered,

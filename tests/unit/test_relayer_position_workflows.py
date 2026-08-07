@@ -19,8 +19,8 @@ from eth_abi.abi import encode as abi_encode
 from eth_utils.crypto import keccak
 
 from polymarket import AsyncSecureClient
+from polymarket._internal.environment import PRODUCTION_CONFIG
 from polymarket.calls import merge_v2_call
-from polymarket.environments import PRODUCTION
 from polymarket.errors import UnexpectedResponseError, UserInputError
 from polymarket.transactions import GaslessTransactionHandle
 from polymarket.types import EvmAddress
@@ -43,8 +43,8 @@ def test_split_position_with_combo_legs_bundles_prepare_and_split() -> None:
     asyncio.run(run())
     body = _submit_body(captured)
     calls = _deposit_wallet_calls(body)
-    assert calls[0]["target"].lower() == PRODUCTION.combinatorial_module.lower()
-    assert calls[1]["target"].lower() == PRODUCTION.protocol_v2_router.lower()
+    assert calls[0]["target"].lower() == PRODUCTION_CONFIG.combinatorial_module.lower()
+    assert calls[1]["target"].lower() == PRODUCTION_CONFIG.protocol_v2_router.lower()
     assert calls[0]["data"].startswith("0x" + keccak(b"prepareCondition(uint256[])")[:4].hex())
     assert calls[1]["data"].startswith("0x" + keccak(b"split(bytes31,uint256)")[:4].hex())
     assert body["metadata"] == f"Split 5 combo positions for condition {_COMBO_CONDITION_ID}"
@@ -68,8 +68,8 @@ def test_merge_positions_with_combo_legs_uses_onchain_balances() -> None:
     body = _submit_body(captured)
     calls = _deposit_wallet_calls(body)
     assert len(calls) == 2
-    assert calls[0]["target"].lower() == PRODUCTION.combinatorial_module.lower()
-    assert calls[1]["target"].lower() == PRODUCTION.protocol_v2_router.lower()
+    assert calls[0]["target"].lower() == PRODUCTION_CONFIG.combinatorial_module.lower()
+    assert calls[1]["target"].lower() == PRODUCTION_CONFIG.protocol_v2_router.lower()
     assert calls[1]["data"].startswith("0x" + keccak(b"merge(bytes31,uint256)")[:4].hex())
     assert body["metadata"] == f"Merge 60 combo positions for condition {_COMBO_CONDITION_ID}"
 
@@ -91,14 +91,14 @@ def test_redeem_positions_with_combo_position_id_uses_onchain_balance() -> None:
     body = _submit_body(captured)
     calls = _deposit_wallet_calls(body)
     assert len(calls) == 1
-    assert calls[0]["target"].lower() == PRODUCTION.protocol_v2_router.lower()
+    assert calls[0]["target"].lower() == PRODUCTION_CONFIG.protocol_v2_router.lower()
     assert calls[0]["data"].startswith("0x" + keccak(b"redeem(bytes31,uint256,uint256)")[:4].hex())
     assert body["metadata"] == f"Redeem combo position {position_id}"
 
 
 def test_execute_transaction_async_batches_custom_calls() -> None:
     captured: list[httpx.Request] = []
-    router = EvmAddress(PRODUCTION.protocol_v2_router)
+    router = EvmAddress(PRODUCTION_CONFIG.protocol_v2_router)
 
     async def run() -> object:
         client = await make_deposit_client()
@@ -151,7 +151,9 @@ def test_merge_multiple_positions_async_batches_combo_merges() -> None:
     calls = _deposit_wallet_calls(body)
     assert len(calls) == 3
     assert body["metadata"] == "Merge selected combo positions"
-    assert {call["target"].lower() for call in calls} == {PRODUCTION.protocol_v2_router.lower()}
+    assert {call["target"].lower() for call in calls} == {
+        PRODUCTION_CONFIG.protocol_v2_router.lower()
+    }
     assert [call["data"][-64:] for call in calls] == [
         f"{1:064x}",
         f"{60:064x}",
@@ -204,7 +206,7 @@ def test_merge_multiple_positions_async_batches_market_merges() -> None:
     assert len(calls) == 2
     assert body["metadata"] == "Merge selected market positions"
     assert {call["target"].lower() for call in calls} == {
-        PRODUCTION.neg_risk_collateral_adapter.lower()
+        PRODUCTION_CONFIG.neg_risk_collateral_adapter.lower()
     }
     assert [_decode_merge_positions_amount(call["data"]) for call in calls] == [
         1_000_000,
@@ -250,7 +252,7 @@ def test_redeem_positions_market_id_resolves_condition_before_fetching_positions
     assert market_calls == [{"ids": [123], "closed": True, "page_size": 1}]
     body = _submit_body(captured)
     calls = _deposit_wallet_calls(body)
-    assert calls[0]["target"].lower() == PRODUCTION.neg_risk_collateral_adapter.lower()
+    assert calls[0]["target"].lower() == PRODUCTION_CONFIG.neg_risk_collateral_adapter.lower()
 
 
 def test_redeem_positions_market_id_rejects_non_integer() -> None:
