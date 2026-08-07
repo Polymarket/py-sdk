@@ -13,6 +13,7 @@ from polymarket._internal.actions.relayer.calls import (
     erc1155_is_approved_for_all_call,
     erc1155_set_approval_for_all_call,
 )
+from polymarket._internal.environment import get_environment_config
 from polymarket._internal.eoa.rpc import JsonRpcClient, SyncJsonRpcClient
 from polymarket.environments import Environment
 from polymarket.types import EvmAddress
@@ -136,78 +137,90 @@ def resolve_missing_trading_approval_calls_sync(
 def _required_trading_approvals(
     environment: Environment,
 ) -> tuple[list[_Erc20TradingApproval], list[_Erc1155TradingApproval]]:
-    collateral = cast(EvmAddress, environment.collateral_token)
-    conditional = cast(EvmAddress, environment.conditional_tokens)
+    collateral = cast(EvmAddress, get_environment_config(environment).collateral_token)
+    conditional = cast(EvmAddress, get_environment_config(environment).conditional_tokens)
     return (
         [
             _Erc20TradingApproval(
                 token_address=collateral,
-                spender=cast(EvmAddress, environment.standard_exchange),
+                spender=cast(EvmAddress, get_environment_config(environment).standard_exchange),
                 amount=MAX_UINT256,
             ),
             _Erc20TradingApproval(
                 token_address=collateral,
-                spender=cast(EvmAddress, environment.neg_risk_exchange),
+                spender=cast(EvmAddress, get_environment_config(environment).neg_risk_exchange),
                 amount=MAX_UINT256,
             ),
             _Erc20TradingApproval(
                 token_address=collateral,
-                spender=cast(EvmAddress, environment.collateral_adapter),
+                spender=cast(EvmAddress, get_environment_config(environment).collateral_adapter),
                 amount=MAX_UINT256,
             ),
             _Erc20TradingApproval(
                 token_address=collateral,
-                spender=cast(EvmAddress, environment.neg_risk_collateral_adapter),
+                spender=cast(
+                    EvmAddress, get_environment_config(environment).neg_risk_collateral_adapter
+                ),
                 amount=MAX_UINT256,
             ),
             _Erc20TradingApproval(
                 token_address=collateral,
-                spender=cast(EvmAddress, environment.protocol_v2_router),
+                spender=cast(EvmAddress, get_environment_config(environment).protocol_v2_router),
                 amount=MAX_UINT256,
             ),
             _Erc20TradingApproval(
                 token_address=collateral,
-                spender=cast(EvmAddress, environment.exchange_v3),
+                spender=cast(EvmAddress, get_environment_config(environment).exchange_v3),
                 amount=MAX_UINT256,
             ),
             _Erc20TradingApproval(
                 token_address=collateral,
-                spender=cast(EvmAddress, environment.perps_deposit_contract),
+                spender=cast(
+                    EvmAddress, get_environment_config(environment).perps_deposit_contract
+                ),
                 amount=MAX_UINT256,
             ),
         ],
         [
             _Erc1155TradingApproval(
                 token_address=conditional,
-                operator=cast(EvmAddress, environment.standard_exchange),
+                operator=cast(EvmAddress, get_environment_config(environment).standard_exchange),
             ),
             _Erc1155TradingApproval(
                 token_address=conditional,
-                operator=cast(EvmAddress, environment.neg_risk_exchange),
+                operator=cast(EvmAddress, get_environment_config(environment).neg_risk_exchange),
             ),
             _Erc1155TradingApproval(
                 token_address=conditional,
-                operator=cast(EvmAddress, environment.collateral_adapter),
+                operator=cast(EvmAddress, get_environment_config(environment).collateral_adapter),
             ),
             _Erc1155TradingApproval(
                 token_address=conditional,
-                operator=cast(EvmAddress, environment.neg_risk_collateral_adapter),
+                operator=cast(
+                    EvmAddress, get_environment_config(environment).neg_risk_collateral_adapter
+                ),
             ),
             _Erc1155TradingApproval(
                 token_address=conditional,
-                operator=cast(EvmAddress, environment.auto_redeem_operator),
+                operator=cast(EvmAddress, get_environment_config(environment).auto_redeem_operator),
             ),
             _Erc1155TradingApproval(
-                token_address=cast(EvmAddress, environment.position_manager),
-                operator=cast(EvmAddress, environment.protocol_v2_router),
+                token_address=cast(
+                    EvmAddress, get_environment_config(environment).position_manager
+                ),
+                operator=cast(EvmAddress, get_environment_config(environment).protocol_v2_router),
             ),
             _Erc1155TradingApproval(
-                token_address=cast(EvmAddress, environment.position_manager),
-                operator=cast(EvmAddress, environment.exchange_v3),
+                token_address=cast(
+                    EvmAddress, get_environment_config(environment).position_manager
+                ),
+                operator=cast(EvmAddress, get_environment_config(environment).exchange_v3),
             ),
             _Erc1155TradingApproval(
-                token_address=cast(EvmAddress, environment.position_manager),
-                operator=cast(EvmAddress, environment.auto_redeem_operator),
+                token_address=cast(
+                    EvmAddress, get_environment_config(environment).position_manager
+                ),
+                operator=cast(EvmAddress, get_environment_config(environment).auto_redeem_operator),
             ),
         ],
     )

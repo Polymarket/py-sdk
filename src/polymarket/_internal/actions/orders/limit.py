@@ -17,6 +17,7 @@ from polymarket._internal.actions.orders.math import (
 )
 from polymarket._internal.actions.orders.types import OrderDraft
 from polymarket._internal.context import AsyncSecureClientContext, SyncSecureClientContext
+from polymarket._internal.environment import get_environment_config
 from polymarket._internal.validation import require_nonempty, validate_builder_code
 from polymarket.errors import UserInputError
 from polymarket.models.types import OrderSide, TokenId
@@ -113,7 +114,7 @@ def _build_limit_order_draft(
         tick_size=metadata.tick_size,
     )
     return OrderDraft(
-        chain_id=ctx.environment.chain_id,
+        chain_id=get_environment_config(ctx.environment).chain_id,
         exchange_address=resolve_exchange_address(ctx.environment, metadata.neg_risk),
         expiration=params.expiration if params.expiration is not None else 0,
         funder_address=ctx.wallet,

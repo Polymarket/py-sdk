@@ -18,6 +18,7 @@ from _relayer_helpers import (
 from polymarket._internal.actions.relayer.signing.proxy import (
     build_proxy_transaction_hash,
 )
+from polymarket._internal.environment import get_environment_config
 from polymarket._internal.eoa.rpc import JsonRpcClient
 from polymarket.clients._transport import AsyncTransport
 from polymarket.environments import PRODUCTION
@@ -207,7 +208,7 @@ def test_proxy_signed_hash_binds_relay_and_gas_limit() -> None:
         gas_price=body["signatureParams"]["gasPrice"],
         gas_limit=body["signatureParams"]["gasLimit"],
         nonce=body["nonce"],
-        relay_hub=cast(EvmAddress, PRODUCTION.relay_hub),
+        relay_hub=cast(EvmAddress, get_environment_config(PRODUCTION).relay_hub),
         relay=cast(EvmAddress, body["signatureParams"]["relay"]),
     )
     with_zero_relay = build_proxy_transaction_hash(
@@ -218,7 +219,7 @@ def test_proxy_signed_hash_binds_relay_and_gas_limit() -> None:
         gas_price=body["signatureParams"]["gasPrice"],
         gas_limit=body["signatureParams"]["gasLimit"],
         nonce=body["nonce"],
-        relay_hub=cast(EvmAddress, PRODUCTION.relay_hub),
+        relay_hub=cast(EvmAddress, get_environment_config(PRODUCTION).relay_hub),
         relay=cast(EvmAddress, "0x" + "00" * 20),
     )
     with_legacy_gas = build_proxy_transaction_hash(
@@ -229,7 +230,7 @@ def test_proxy_signed_hash_binds_relay_and_gas_limit() -> None:
         gas_price=body["signatureParams"]["gasPrice"],
         gas_limit="10000000",
         nonce=body["nonce"],
-        relay_hub=cast(EvmAddress, PRODUCTION.relay_hub),
+        relay_hub=cast(EvmAddress, get_environment_config(PRODUCTION).relay_hub),
         relay=cast(EvmAddress, body["signatureParams"]["relay"]),
     )
 

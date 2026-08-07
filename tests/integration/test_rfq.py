@@ -11,6 +11,7 @@ import pytest
 from websockets.asyncio.server import ServerConnection, serve
 
 from polymarket import PRODUCTION, ApiKeyCreds, AsyncSecureClient
+from polymarket._internal.environment import get_environment_config, with_environment_config
 from polymarket.errors import ConnectionLostError, TransportError
 from polymarket.rfq import (
     RfqConfirmationRequestEvent,
@@ -66,7 +67,10 @@ async def _rfq_client(
         private_key=require_env("POLYMARKET_PRIVATE_KEY"),
         wallet=require_env("POLYMARKET_DEPOSIT_WALLET"),
         credentials=_existing_credentials(),
-        environment=replace(PRODUCTION, rfq_quoter_ws_url=ws_url),
+        environment=with_environment_config(
+            PRODUCTION,
+            config=replace(get_environment_config(PRODUCTION), rfq_quoter_ws_url=ws_url),
+        ),
     )
     try:
         yield client

@@ -13,6 +13,7 @@ from _relayer_helpers import (
 )
 from eth_utils.crypto import keccak
 
+from polymarket._internal.environment import get_environment_config
 from polymarket.environments import PRODUCTION
 
 
@@ -65,44 +66,53 @@ def test_setup_trading_approvals_bundles_required_calls_for_deposit_wallet() -> 
     # neg_risk_collateral_adapter, protocol_v2_router, exchange_v3, perps_deposit_contract
     for index, spender in enumerate(
         [
-            PRODUCTION.standard_exchange,
-            PRODUCTION.neg_risk_exchange,
-            PRODUCTION.collateral_adapter,
-            PRODUCTION.neg_risk_collateral_adapter,
-            PRODUCTION.protocol_v2_router,
-            PRODUCTION.exchange_v3,
-            PRODUCTION.perps_deposit_contract,
+            get_environment_config(PRODUCTION).standard_exchange,
+            get_environment_config(PRODUCTION).neg_risk_exchange,
+            get_environment_config(PRODUCTION).collateral_adapter,
+            get_environment_config(PRODUCTION).neg_risk_collateral_adapter,
+            get_environment_config(PRODUCTION).protocol_v2_router,
+            get_environment_config(PRODUCTION).exchange_v3,
+            get_environment_config(PRODUCTION).perps_deposit_contract,
         ]
     ):
-        assert inner[index]["target"].lower() == PRODUCTION.collateral_token.lower()
+        assert (
+            inner[index]["target"].lower()
+            == get_environment_config(PRODUCTION).collateral_token.lower()
+        )
         assert inner[index]["data"].startswith(erc20_sel)
         assert spender[2:].lower() in inner[index]["data"].lower()
     # ERC1155 conditional-token approvals: standard_exchange, neg_risk_exchange,
     # collateral_adapter, neg_risk_collateral_adapter, auto_redeem_operator
     for offset, operator in enumerate(
         [
-            PRODUCTION.standard_exchange,
-            PRODUCTION.neg_risk_exchange,
-            PRODUCTION.collateral_adapter,
-            PRODUCTION.neg_risk_collateral_adapter,
-            PRODUCTION.auto_redeem_operator,
+            get_environment_config(PRODUCTION).standard_exchange,
+            get_environment_config(PRODUCTION).neg_risk_exchange,
+            get_environment_config(PRODUCTION).collateral_adapter,
+            get_environment_config(PRODUCTION).neg_risk_collateral_adapter,
+            get_environment_config(PRODUCTION).auto_redeem_operator,
         ]
     ):
         index = 7 + offset
-        assert inner[index]["target"].lower() == PRODUCTION.conditional_tokens.lower()
+        assert (
+            inner[index]["target"].lower()
+            == get_environment_config(PRODUCTION).conditional_tokens.lower()
+        )
         assert inner[index]["data"].startswith(erc1155_sel)
         assert operator[2:].lower() in inner[index]["data"].lower()
 
     # ERC1155 position-manager approvals: protocol_v2_router, exchange_v3, auto_redeem_operator
     for offset, operator in enumerate(
         [
-            PRODUCTION.protocol_v2_router,
-            PRODUCTION.exchange_v3,
-            PRODUCTION.auto_redeem_operator,
+            get_environment_config(PRODUCTION).protocol_v2_router,
+            get_environment_config(PRODUCTION).exchange_v3,
+            get_environment_config(PRODUCTION).auto_redeem_operator,
         ]
     ):
         index = 12 + offset
-        assert inner[index]["target"].lower() == PRODUCTION.position_manager.lower()
+        assert (
+            inner[index]["target"].lower()
+            == get_environment_config(PRODUCTION).position_manager.lower()
+        )
         assert inner[index]["data"].startswith(erc1155_sel)
         assert operator[2:].lower() in inner[index]["data"].lower()
     assert body["metadata"] == "Trading setup approvals"
@@ -164,6 +174,6 @@ def test_setup_trading_approvals_uses_safe_multisend_for_safe() -> None:
     submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
     body = request_json(submit_calls[0])
     assert body["type"] == "SAFE"
-    assert body["to"].lower() == PRODUCTION.safe_multisend.lower()
+    assert body["to"].lower() == get_environment_config(PRODUCTION).safe_multisend.lower()
     assert body["signatureParams"]["operation"] == "1"
     assert body["data"].startswith("0x8d80ff0a")

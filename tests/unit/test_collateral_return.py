@@ -22,6 +22,7 @@ from _relayer_helpers import (
 )
 
 from polymarket import CollateralReturnOperationKind, CollateralReturnPlanResponse
+from polymarket._internal.environment import get_environment_config, with_environment_config
 from polymarket.environments import PRODUCTION
 from polymarket.errors import (
     RequestRejectedError,
@@ -71,7 +72,10 @@ def _plan_payload(*, wallet: str, **overrides: object) -> dict[str, object]:
             "created": [],
         },
         "candidate_position_ids": ["42"],
-        "router_call": {"to": PRODUCTION.protocol_v2_router, "data": _ROUTER_DATA},
+        "router_call": {
+            "to": get_environment_config(PRODUCTION).protocol_v2_router,
+            "data": _ROUTER_DATA,
+        },
     }
     payload.update(overrides)
     return payload
@@ -218,7 +222,11 @@ def test_execute_submits_router_call_for_deposit_wallet() -> None:
     assert body["plan_hash"] == _PLAN_HASH
     assert body["envelope"]["type"] == "WALLET"
     assert body["envelope"]["depositWalletParams"]["calls"] == [
-        {"target": PRODUCTION.protocol_v2_router, "value": "0", "data": _ROUTER_DATA}
+        {
+            "target": get_environment_config(PRODUCTION).protocol_v2_router,
+            "value": "0",
+            "data": _ROUTER_DATA,
+        }
     ]
 
 
@@ -325,7 +333,12 @@ def test_execute_resubmits_with_fresh_nonce_on_transient_wallet_busy() -> None:
         client = await make_deposit_client()
         client._ctx = dataclasses.replace(
             client._ctx,
-            environment=dataclasses.replace(PRODUCTION, relayer_poll_frequency_ms=0),
+            environment=with_environment_config(
+                PRODUCTION,
+                config=dataclasses.replace(
+                    get_environment_config(PRODUCTION), relayer_poll_frequency_ms=0
+                ),
+            ),
         )
         install_relayer_routes(client, relayer_captured, _nonce_route(client, nonce="5"))
         install_combos_handler(client, handler)

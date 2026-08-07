@@ -2,13 +2,15 @@ import asyncio
 import json
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from typing import Any
 
 import pytest
 from websockets.asyncio.server import ServerConnection, serve
 
 from polymarket import AsyncPublicClient
-from polymarket.environments import PRODUCTION, Environment, WalletDerivation
+from polymarket._internal.environment import create_environment, get_environment_config
+from polymarket.environments import PRODUCTION, Environment
 from polymarket.errors import UserInputError
 from polymarket.models.clob.market_events import MarketBookEvent
 from polymarket.streams import MarketSpec
@@ -53,44 +55,20 @@ def _env_with_perps_ws(url: str) -> Environment:
 
 def _env_with(
     *,
-    clob_market_ws_url: str = PRODUCTION.clob_market_ws_url,
-    sports_ws_url: str = PRODUCTION.sports_ws_url,
-    rtds_ws_url: str = PRODUCTION.rtds_ws_url,
-    perps_ws_url: str = PRODUCTION.perps_ws_url,
+    clob_market_ws_url: str = get_environment_config(PRODUCTION).clob_market_ws_url,
+    sports_ws_url: str = get_environment_config(PRODUCTION).sports_ws_url,
+    rtds_ws_url: str = get_environment_config(PRODUCTION).rtds_ws_url,
+    perps_ws_url: str = get_environment_config(PRODUCTION).perps_ws_url,
 ) -> Environment:
-    return Environment(
+    return create_environment(
         name="test",
-        chain_id=PRODUCTION.chain_id,
-        wallet_derivation=WalletDerivation(
-            proxy_factory=PRODUCTION.wallet_derivation.proxy_factory,
-            proxy_implementation=PRODUCTION.wallet_derivation.proxy_implementation,
-            safe_factory=PRODUCTION.wallet_derivation.safe_factory,
-            safe_init_code_hash=PRODUCTION.wallet_derivation.safe_init_code_hash,
-            deposit_wallet_factory=PRODUCTION.wallet_derivation.deposit_wallet_factory,
-            deposit_wallet_implementation=PRODUCTION.wallet_derivation.deposit_wallet_implementation,
-            deposit_wallet_beacon=PRODUCTION.wallet_derivation.deposit_wallet_beacon,
+        config=replace(
+            get_environment_config(PRODUCTION),
+            clob_market_ws_url=clob_market_ws_url,
+            sports_ws_url=sports_ws_url,
+            rtds_ws_url=rtds_ws_url,
+            perps_ws_url=perps_ws_url,
         ),
-        collateral_token=PRODUCTION.collateral_token,
-        conditional_tokens=PRODUCTION.conditional_tokens,
-        neg_risk_adapter=PRODUCTION.neg_risk_adapter,
-        collateral_adapter=PRODUCTION.collateral_adapter,
-        neg_risk_collateral_adapter=PRODUCTION.neg_risk_collateral_adapter,
-        standard_exchange=PRODUCTION.standard_exchange,
-        neg_risk_exchange=PRODUCTION.neg_risk_exchange,
-        auto_redeem_operator=PRODUCTION.auto_redeem_operator,
-        safe_multisend=PRODUCTION.safe_multisend,
-        relay_hub=PRODUCTION.relay_hub,
-        clob_url=PRODUCTION.clob_url,
-        clob_market_ws_url=clob_market_ws_url,
-        clob_user_ws_url=PRODUCTION.clob_user_ws_url,
-        relayer_url=PRODUCTION.relayer_url,
-        gamma_url=PRODUCTION.gamma_url,
-        data_url=PRODUCTION.data_url,
-        rfq_url=PRODUCTION.rfq_url,
-        rtds_ws_url=rtds_ws_url,
-        sports_ws_url=sports_ws_url,
-        rpc_url=PRODUCTION.rpc_url,
-        perps_ws_url=perps_ws_url,
     )
 
 

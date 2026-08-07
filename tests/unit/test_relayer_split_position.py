@@ -12,6 +12,7 @@ from _relayer_helpers import (
     request_json,
 )
 
+from polymarket._internal.environment import get_environment_config
 from polymarket.environments import PRODUCTION
 from polymarket.errors import UnexpectedResponseError, UserInputError
 from polymarket.pagination import Page
@@ -71,7 +72,7 @@ def test_split_position_uses_collateral_adapter_when_neg_risk_false() -> None:
     submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
     body = request_json(submit_calls[0])
     inner = body["depositWalletParams"]["calls"][0]
-    assert inner["target"].lower() == PRODUCTION.collateral_adapter.lower()
+    assert inner["target"].lower() == get_environment_config(PRODUCTION).collateral_adapter.lower()
     assert body["metadata"] == f"Split 1000000 positions for condition {_CONDITION_ID}"
 
 
@@ -107,7 +108,10 @@ def test_split_position_uses_neg_risk_collateral_adapter_when_neg_risk_true() ->
     submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
     body = request_json(submit_calls[0])
     inner = body["depositWalletParams"]["calls"][0]
-    assert inner["target"].lower() == PRODUCTION.neg_risk_collateral_adapter.lower()
+    assert (
+        inner["target"].lower()
+        == get_environment_config(PRODUCTION).neg_risk_collateral_adapter.lower()
+    )
 
 
 def test_split_position_rejects_when_market_lookup_finds_nothing() -> None:

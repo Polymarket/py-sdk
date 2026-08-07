@@ -33,6 +33,7 @@ from polymarket._internal.actions.relayer.submit import (
     submit_gasless_sync,
 )
 from polymarket._internal.context import AsyncSecureClientContext, SyncSecureClientContext
+from polymarket._internal.environment import get_environment_config
 from polymarket.errors import RequestRejectedError, UserInputError
 from polymarket.models.clob.relayer import (
     RelayerExecuteResponse,
@@ -84,7 +85,7 @@ async def submit_gasless_with_retry(
 ) -> GaslessTransactionHandle:
     """Run a gasless submit, retrying transient relayer rejections."""
     env = ctx.environment
-    poll_delay_s = env.relayer_poll_frequency_ms / 1000
+    poll_delay_s = get_environment_config(env).relayer_poll_frequency_ms / 1000
     for attempt in range(GASLESS_SUBMIT_RETRY_ATTEMPTS + 1):
         try:
             response = await submit()
@@ -97,7 +98,7 @@ async def submit_gasless_with_retry(
                 transaction_id=response.transaction_id,
                 transaction_hash=response.transaction_hash,
                 _relayer=ctx.relayer,
-                _max_polls=env.relayer_max_polls,
+                _max_polls=get_environment_config(env).relayer_max_polls,
                 _poll_delay_s=poll_delay_s,
             )
     raise AssertionError("unreachable")
@@ -160,11 +161,13 @@ async def build_signed_deposit_wallet_payload(
         calls=calls,
         nonce=nonce,
         deadline=deadline,
-        chain_id=ctx.environment.chain_id,
+        chain_id=get_environment_config(ctx.environment).chain_id,
     )
     return build_deposit_wallet_payload(
         signer_address=ctx.signer.address,
-        deposit_wallet_factory=ctx.environment.wallet_derivation.deposit_wallet_factory,
+        deposit_wallet_factory=get_environment_config(
+            ctx.environment
+        ).wallet_derivation.deposit_wallet_factory,
         wallet=ctx.wallet,
         calls=calls,
         nonce=nonce,
@@ -213,7 +216,7 @@ async def build_signed_proxy_payload(
     params = await fetch_relay_payload(
         ctx.relayer, address=ctx.signer.address, type=RelayerTransactionType.PROXY
     )
-    to = ctx.environment.wallet_derivation.proxy_factory
+    to = get_environment_config(ctx.environment).wallet_derivation.proxy_factory
     data = encode_proxy_call(calls)
     relay = EvmAddress(params.address)
     gas_limit = await _estimate_proxy_gas_limit(
@@ -227,7 +230,7 @@ async def build_signed_proxy_payload(
         gas_price=_PROXY_GAS_PRICE,
         gas_limit=gas_limit,
         nonce=params.nonce,
-        relay_hub=EvmAddress(ctx.environment.relay_hub),
+        relay_hub=EvmAddress(get_environment_config(ctx.environment).relay_hub),
         relay=relay,
     )
     signature = sign_proxy_message(ctx.signer, hash_)
@@ -240,7 +243,7 @@ async def build_signed_proxy_payload(
         signature=signature,
         gas_limit=gas_limit,
         relay=relay,
-        relay_hub=ctx.environment.relay_hub,
+        relay_hub=get_environment_config(ctx.environment).relay_hub,
         metadata=metadata,
     )
 
@@ -302,7 +305,9 @@ async def build_signed_safe_payload(
     params = await fetch_execute_params(
         ctx.relayer, address=ctx.signer.address, type=RelayerTransactionType.SAFE
     )
-    target, data, value, operation = _resolve_safe_call(ctx.environment.safe_multisend, calls)
+    target, data, value, operation = _resolve_safe_call(
+        get_environment_config(ctx.environment).safe_multisend, calls
+    )
     signature = sign_safe_transaction(
         ctx.signer,
         safe_address=ctx.wallet,
@@ -311,7 +316,7 @@ async def build_signed_safe_payload(
         value=value,
         operation=operation,
         nonce=params.nonce,
-        chain_id=ctx.environment.chain_id,
+        chain_id=get_environment_config(ctx.environment).chain_id,
     )
     return build_safe_payload(
         signer_address=ctx.signer.address,
@@ -390,7 +395,7 @@ async def submit_deposit_wallet_create(
         {
             "type": RelayerTransactionType.WALLET_CREATE.value,
             "from": ctx.signer.address,
-            "to": ctx.environment.wallet_derivation.deposit_wallet_factory,
+            "to": get_environment_config(ctx.environment).wallet_derivation.deposit_wallet_factory,
             "metadata": metadata,
         }
     )
@@ -400,8 +405,8 @@ async def submit_deposit_wallet_create(
         transaction_id=response.transaction_id,
         transaction_hash=response.transaction_hash,
         _relayer=ctx.relayer,
-        _max_polls=env.relayer_max_polls,
-        _poll_delay_s=env.relayer_poll_frequency_ms / 1000,
+        _max_polls=get_environment_config(env).relayer_max_polls,
+        _poll_delay_s=get_environment_config(env).relayer_poll_frequency_ms / 1000,
     )
 
 
@@ -438,7 +443,7 @@ def submit_gasless_with_retry_sync(
 ) -> SyncGaslessTransactionHandle:
     """Run a gasless submit, retrying transient relayer rejections."""
     env = ctx.environment
-    poll_delay_s = env.relayer_poll_frequency_ms / 1000
+    poll_delay_s = get_environment_config(env).relayer_poll_frequency_ms / 1000
     for attempt in range(GASLESS_SUBMIT_RETRY_ATTEMPTS + 1):
         try:
             response = submit()
@@ -451,7 +456,7 @@ def submit_gasless_with_retry_sync(
                 transaction_id=response.transaction_id,
                 transaction_hash=response.transaction_hash,
                 _relayer=ctx.relayer,
-                _max_polls=env.relayer_max_polls,
+                _max_polls=get_environment_config(env).relayer_max_polls,
                 _poll_delay_s=poll_delay_s,
             )
     raise AssertionError("unreachable")
@@ -514,11 +519,13 @@ def build_signed_deposit_wallet_payload_sync(
         calls=calls,
         nonce=nonce,
         deadline=deadline,
-        chain_id=ctx.environment.chain_id,
+        chain_id=get_environment_config(ctx.environment).chain_id,
     )
     return build_deposit_wallet_payload(
         signer_address=ctx.signer.address,
-        deposit_wallet_factory=ctx.environment.wallet_derivation.deposit_wallet_factory,
+        deposit_wallet_factory=get_environment_config(
+            ctx.environment
+        ).wallet_derivation.deposit_wallet_factory,
         wallet=ctx.wallet,
         calls=calls,
         nonce=nonce,
@@ -537,7 +544,7 @@ def build_signed_proxy_payload_sync(
     params = fetch_relay_payload_sync(
         ctx.relayer, address=ctx.signer.address, type=RelayerTransactionType.PROXY
     )
-    to = ctx.environment.wallet_derivation.proxy_factory
+    to = get_environment_config(ctx.environment).wallet_derivation.proxy_factory
     data = encode_proxy_call(calls)
     relay = EvmAddress(params.address)
     gas_limit = _estimate_proxy_gas_limit_sync(
@@ -551,7 +558,7 @@ def build_signed_proxy_payload_sync(
         gas_price=_PROXY_GAS_PRICE,
         gas_limit=gas_limit,
         nonce=params.nonce,
-        relay_hub=EvmAddress(ctx.environment.relay_hub),
+        relay_hub=EvmAddress(get_environment_config(ctx.environment).relay_hub),
         relay=relay,
     )
     signature = sign_proxy_message(ctx.signer, hash_)
@@ -564,7 +571,7 @@ def build_signed_proxy_payload_sync(
         signature=signature,
         gas_limit=gas_limit,
         relay=relay,
-        relay_hub=ctx.environment.relay_hub,
+        relay_hub=get_environment_config(ctx.environment).relay_hub,
         metadata=metadata,
     )
 
@@ -592,7 +599,9 @@ def build_signed_safe_payload_sync(
     params = fetch_execute_params_sync(
         ctx.relayer, address=ctx.signer.address, type=RelayerTransactionType.SAFE
     )
-    target, data, value, operation = _resolve_safe_call(ctx.environment.safe_multisend, calls)
+    target, data, value, operation = _resolve_safe_call(
+        get_environment_config(ctx.environment).safe_multisend, calls
+    )
     signature = sign_safe_transaction(
         ctx.signer,
         safe_address=ctx.wallet,
@@ -601,7 +610,7 @@ def build_signed_safe_payload_sync(
         value=value,
         operation=operation,
         nonce=params.nonce,
-        chain_id=ctx.environment.chain_id,
+        chain_id=get_environment_config(ctx.environment).chain_id,
     )
     return build_safe_payload(
         signer_address=ctx.signer.address,
@@ -632,7 +641,7 @@ def submit_deposit_wallet_create_sync(
         {
             "type": RelayerTransactionType.WALLET_CREATE.value,
             "from": ctx.signer.address,
-            "to": ctx.environment.wallet_derivation.deposit_wallet_factory,
+            "to": get_environment_config(ctx.environment).wallet_derivation.deposit_wallet_factory,
             "metadata": metadata,
         }
     )
@@ -642,8 +651,8 @@ def submit_deposit_wallet_create_sync(
         transaction_id=response.transaction_id,
         transaction_hash=response.transaction_hash,
         _relayer=ctx.relayer,
-        _max_polls=env.relayer_max_polls,
-        _poll_delay_s=env.relayer_poll_frequency_ms / 1000,
+        _max_polls=get_environment_config(env).relayer_max_polls,
+        _poll_delay_s=get_environment_config(env).relayer_poll_frequency_ms / 1000,
     )
 
 

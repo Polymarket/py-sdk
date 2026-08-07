@@ -13,6 +13,7 @@ from _relayer_helpers import (
 )
 from eth_utils.crypto import keccak
 
+from polymarket._internal.environment import get_environment_config
 from polymarket.environments import PRODUCTION
 from polymarket.errors import UnexpectedResponseError, UserInputError
 from polymarket.pagination import Page
@@ -65,7 +66,7 @@ def test_redeem_positions_uses_collateral_adapter_when_neg_risk_false() -> None:
     submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
     body = request_json(submit_calls[0])
     inner = body["depositWalletParams"]["calls"][0]
-    assert inner["target"].lower() == PRODUCTION.collateral_adapter.lower()
+    assert inner["target"].lower() == get_environment_config(PRODUCTION).collateral_adapter.lower()
     ctf_selector = "0x" + keccak(b"redeemPositions(address,bytes32,bytes32,uint256[])")[:4].hex()
     assert inner["data"].startswith(ctf_selector)
 
@@ -93,7 +94,10 @@ def test_redeem_positions_uses_neg_risk_collateral_adapter_when_neg_risk_true() 
     submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
     body = request_json(submit_calls[0])
     inner = body["depositWalletParams"]["calls"][0]
-    assert inner["target"].lower() == PRODUCTION.neg_risk_collateral_adapter.lower()
+    assert (
+        inner["target"].lower()
+        == get_environment_config(PRODUCTION).neg_risk_collateral_adapter.lower()
+    )
     ctf_selector = "0x" + keccak(b"redeemPositions(address,bytes32,bytes32,uint256[])")[:4].hex()
     assert inner["data"].startswith(ctf_selector)
 

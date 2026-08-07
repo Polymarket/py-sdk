@@ -28,6 +28,7 @@ from polymarket import (
     TransactionHandle,
     UserInputError,
 )
+from polymarket._internal.environment import get_environment_config
 
 pytestmark = pytest.mark.anyio
 
@@ -86,9 +87,12 @@ async def test_plan_collateral_return_live(deposit_wallet_client: AsyncSecureCli
 
     assert plan.wallet.lower() == str(deposit_wallet_client.wallet).lower()
     _assert_plan_hash(plan)
-    assert plan.chain_id == environment.chain_id
+    assert plan.chain_id == get_environment_config(environment).chain_id
     assert plan.block_number > 0
-    assert plan.router_call.to.lower() == environment.protocol_v2_router.lower()
+    assert (
+        plan.router_call.to.lower()
+        == get_environment_config(environment).protocol_v2_router.lower()
+    )
     assert plan.router_call.data.startswith("0x")
 
 

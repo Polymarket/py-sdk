@@ -44,6 +44,7 @@ from polymarket._internal.dispatch import (
     sync_paginate_offset,
     sync_paginate_page_based,
 )
+from polymarket._internal.environment import get_environment_config
 from polymarket.clients._transport import SyncTransport
 from polymarket.environments import PRODUCTION, Environment
 from polymarket.errors import RequestRejectedError
@@ -110,10 +111,16 @@ class PublicClient:
     ) -> None:
         self._ctx = SyncClientContext(
             environment=environment,
-            gamma=SyncTransport(base_url=environment.gamma_url, logger=logger),
-            data=SyncTransport(base_url=environment.data_url, logger=logger),
-            rfq=SyncTransport(base_url=environment.rfq_url, logger=logger),
-            clob=SyncTransport(base_url=environment.clob_url, logger=logger),
+            gamma=SyncTransport(
+                base_url=get_environment_config(environment).gamma_url, logger=logger
+            ),
+            data=SyncTransport(
+                base_url=get_environment_config(environment).data_url, logger=logger
+            ),
+            rfq=SyncTransport(base_url=get_environment_config(environment).rfq_url, logger=logger),
+            clob=SyncTransport(
+                base_url=get_environment_config(environment).clob_url, logger=logger
+            ),
         )
 
     @property
