@@ -6,8 +6,17 @@ from contextlib import asynccontextmanager
 
 import pytest
 
-from polymarket import ApiKeyCreds, AsyncSecureClient, BuilderApiKey, GaslessTransaction
+from polymarket import (
+    ApiKeyCreds,
+    AsyncSecureClient,
+    BuilderApiKey,
+    GaslessTransaction,
+    PublicClient,
+    TradingApprovalsState,
+)
 from polymarket._internal.environment import PRODUCTION_CONFIG
+
+_READ_ONLY_UNAPPROVED_WALLET = "0x0000000000000000000000000000000000000000"
 
 
 def _builder_auth(require_env: Callable[[str], str]) -> BuilderApiKey:
@@ -84,6 +93,17 @@ def test_secure_client_create_defaults_to_deposit_wallet(
             await client.close()
 
     asyncio.run(asyncio.wait_for(run(), timeout=30.0))
+
+
+@pytest.mark.integration
+def test_public_client_reads_trading_approvals_without_a_signer() -> None:
+    with PublicClient() as client:
+        state = client.get_trading_approvals_state(wallet=_READ_ONLY_UNAPPROVED_WALLET)
+
+    assert isinstance(state, TradingApprovalsState)
+    assert len(state.missing.erc20) == 7
+    assert len(state.missing.erc1155) == 8
+    assert state.is_fully_approved is False
 
 
 _SKIP_REASON = (

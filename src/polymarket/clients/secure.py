@@ -70,7 +70,8 @@ from polymarket._internal.actions.orders.typed_data import (
 )
 from polymarket._internal.actions.orders.types import OrderDraft
 from polymarket._internal.actions.relayer.approvals import (
-    resolve_missing_trading_approval_calls_sync,
+    build_missing_trading_approval_calls,
+    get_trading_approvals_state_sync,
 )
 from polymarket._internal.actions.relayer.auth import make_relayer_header_resolver_sync
 from polymarket._internal.actions.relayer.calls import (
@@ -162,6 +163,7 @@ from polymarket.models import (
     Tag,
     TagReference,
     Team,
+    TradingApprovalsState,
 )
 from polymarket.models.clob import BuilderApiKeyInfo, BuilderTrade
 from polymarket.models.clob.cancel import CancelOrdersResponse
@@ -2161,6 +2163,14 @@ class SecureClient:
         )
         return self._dispatch_single_call(call, metadata=resolved_metadata)
 
+    def get_trading_approvals_state(self, *, wallet: str | None = None) -> TradingApprovalsState:
+        """Get missing trading approvals for a wallet or the authenticated wallet."""
+        return get_trading_approvals_state_sync(
+            self._ctx.rpc,
+            wallet=self._ctx.wallet if wallet is None else wallet,
+            config=self._ctx.environment_config,
+        )
+
     def setup_trading_approvals(self) -> SyncDeprecatedTransactionHandle:
         """Approve the standard set of trading allowances for the wallet.
 
@@ -2171,11 +2181,8 @@ class SecureClient:
         Returns:
             A deprecated compatibility handle whose ``wait()`` returns immediately.
         """
-        calls = resolve_missing_trading_approval_calls_sync(
-            self._ctx.rpc,
-            wallet=self._ctx.wallet,
-            config=self._ctx.environment_config,
-        )
+        state = self.get_trading_approvals_state()
+        calls = build_missing_trading_approval_calls(state.missing)
         if not calls:
             return SyncDeprecatedTransactionHandle()
         if self._ctx.wallet_type == "EOA":

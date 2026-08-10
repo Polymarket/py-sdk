@@ -189,6 +189,12 @@ from polymarket.models.perps.results import (
     PerpsPlacedTpSlOrders,
 )
 from polymarket.models.rfq import ComboMarket, ComboMarketOutcome, ComboMarketOutcomes
+from polymarket.models.trading import (
+    Erc20TradingApproval,
+    Erc1155TradingApproval,
+    MissingTradingApprovals,
+    TradingApprovalsState,
+)
 from polymarket.models.types import (
     ComboActivityId,
     ComboConditionId,
@@ -225,6 +231,8 @@ __all__ = [
     "CurrentReward",
     "CurrentRewardConfig",
     "EarningBreakdown",
+    "Erc20TradingApproval",
+    "Erc1155TradingApproval",
     "GaslessTransaction",
     "LastTradePrice",
     "LastTradePriceForToken",
@@ -307,6 +315,7 @@ __all__ = [
     "MergeActivity",
     "MetaHolder",
     "MetaMarketPosition",
+    "MissingTradingApprovals",
     "OpenInterest",
     "OrderId",
     "PerpsAccountConfig",
@@ -405,6 +414,7 @@ __all__ = [
     "TradeActivity",
     "TradedMarketCount",
     "TraderLeaderboardEntry",
+    "TradingApprovalsState",
     "UnknownActivity",
     "WithdrawalActivity",
     "YieldActivity",
