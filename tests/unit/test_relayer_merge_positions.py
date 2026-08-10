@@ -16,7 +16,7 @@ from _relayer_helpers import (
 )
 from eth_abi.abi import encode as abi_encode
 
-from polymarket.environments import PRODUCTION
+from polymarket._internal.environment import PRODUCTION_CONFIG
 from polymarket.errors import UnexpectedResponseError, UserInputError
 from polymarket.pagination import Page
 
@@ -72,9 +72,9 @@ def test_merge_positions_resolves_max_to_min_of_yes_no() -> None:
     submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
     body = request_json(submit_calls[0])
     inner = body["depositWalletParams"]["calls"][0]
-    assert inner["target"].lower() == PRODUCTION.collateral_adapter.lower()
+    assert inner["target"].lower() == PRODUCTION_CONFIG.collateral_adapter.lower()
     assert "Merge 60000000 positions" in body["metadata"]
-    assert rpc_calls[0]["params"][0]["to"].lower() == PRODUCTION.conditional_tokens.lower()
+    assert rpc_calls[0]["params"][0]["to"].lower() == PRODUCTION_CONFIG.conditional_tokens.lower()
 
 
 def test_merge_positions_rejects_amount_above_max() -> None:
@@ -117,8 +117,8 @@ def test_merge_positions_neg_risk_uses_neg_risk_collateral_adapter_target() -> N
     submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
     body = request_json(submit_calls[0])
     inner = body["depositWalletParams"]["calls"][0]
-    assert inner["target"].lower() == PRODUCTION.neg_risk_collateral_adapter.lower()
-    assert rpc_calls[0]["params"][0]["to"].lower() == PRODUCTION.neg_risk_adapter.lower()
+    assert inner["target"].lower() == PRODUCTION_CONFIG.neg_risk_collateral_adapter.lower()
+    assert rpc_calls[0]["params"][0]["to"].lower() == PRODUCTION_CONFIG.neg_risk_adapter.lower()
 
 
 def test_merge_positions_rejects_when_no_complementary_balance() -> None:

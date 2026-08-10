@@ -8,12 +8,7 @@ from polymarket._internal.actions.orders.context import (
     resolve_rounding_config,
     validate_price_on_tick_grid,
 )
-from polymarket._internal.actions.orders.market_data import (
-    fetch_neg_risk,
-    fetch_neg_risk_sync,
-    fetch_tick_size,
-    fetch_tick_size_sync,
-)
+from polymarket._internal.actions.orders.market_data import MarketInfo
 from polymarket._internal.actions.orders.math import (
     decimal_places,
     parse_amount,
@@ -83,39 +78,43 @@ def validate_limit_order_params(
 async def prepare_limit_order_draft(
     ctx: AsyncSecureClientContext, params: PrepareLimitOrderParams
 ) -> OrderDraft:
-    tick_size = await fetch_tick_size(ctx, token_id=params.token_id)
-    neg_risk = await fetch_neg_risk(ctx, token_id=params.token_id)
-    price = validate_price_on_tick_grid(params.price, tick_size, "price")
-    offered, requested = _compute_limit_order_amounts(
-        price=price, size=params.size, side=params.side, tick_size=tick_size
-    )
-    return OrderDraft(
-        chain_id=ctx.environment.chain_id,
-        exchange_address=resolve_exchange_address(ctx.environment, neg_risk),
-        expiration=params.expiration if params.expiration is not None else 0,
-        funder_address=ctx.wallet,
-        offered_amount=offered,
-        order_type="GTC" if params.expiration is None else "GTD",
-        side=params.side,
-        signer=EvmAddress(ctx.signer.address),
-        requested_amount=requested,
-        token_id=params.token_id,
-        builder_code=params.builder_code,
-    )
+    metadata = await ctx.order_metadata.resolve_market(ctx, token_id=params.token_id)
+    try:
+        price = validate_price_on_tick_grid(params.price, metadata.tick_size, "price")
+    except UserInputError:
+        metadata = await ctx.order_metadata.fetch_current_market(ctx, token_id=params.token_id)
+        price = validate_price_on_tick_grid(params.price, metadata.tick_size, "price")
+    return _build_limit_order_draft(ctx, params, price=price, metadata=metadata)
 
 
 def prepare_limit_order_draft_sync(
     ctx: SyncSecureClientContext, params: PrepareLimitOrderParams
 ) -> OrderDraft:
-    tick_size = fetch_tick_size_sync(ctx, token_id=params.token_id)
-    neg_risk = fetch_neg_risk_sync(ctx, token_id=params.token_id)
-    price = validate_price_on_tick_grid(params.price, tick_size, "price")
+    metadata = ctx.order_metadata.resolve_market(ctx, token_id=params.token_id)
+    try:
+        price = validate_price_on_tick_grid(params.price, metadata.tick_size, "price")
+    except UserInputError:
+        metadata = ctx.order_metadata.fetch_current_market(ctx, token_id=params.token_id)
+        price = validate_price_on_tick_grid(params.price, metadata.tick_size, "price")
+    return _build_limit_order_draft(ctx, params, price=price, metadata=metadata)
+
+
+def _build_limit_order_draft(
+    ctx: AsyncSecureClientContext | SyncSecureClientContext,
+    params: PrepareLimitOrderParams,
+    *,
+    price: Decimal,
+    metadata: MarketInfo,
+) -> OrderDraft:
     offered, requested = _compute_limit_order_amounts(
-        price=price, size=params.size, side=params.side, tick_size=tick_size
+        price=price,
+        size=params.size,
+        side=params.side,
+        tick_size=metadata.tick_size,
     )
     return OrderDraft(
-        chain_id=ctx.environment.chain_id,
-        exchange_address=resolve_exchange_address(ctx.environment, neg_risk),
+        chain_id=ctx.environment_config.chain_id,
+        exchange_address=resolve_exchange_address(ctx.environment_config, metadata.neg_risk),
         expiration=params.expiration if params.expiration is not None else 0,
         funder_address=ctx.wallet,
         offered_amount=offered,

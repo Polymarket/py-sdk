@@ -12,14 +12,18 @@ from polymarket._internal.actions.orders.place import (
     is_balance_or_allowance_rejection,
     post_order_with_allowance_recovery,
 )
+from polymarket._internal.environment import (
+    PRODUCTION_CONFIG,
+    with_environment_config,
+)
 from polymarket._internal.wallet import derive_uups_deposit_wallet_address
 from polymarket.clients._transport import AsyncTransport
-from polymarket.environments import PRODUCTION
 from polymarket.errors import RequestRejectedError
 
 _PRIVATE_KEY = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 _CREDS = ApiKeyCreds(key="k", passphrase="p", secret="dGVzdA==")
-_STANDARD_EXCHANGE = PRODUCTION.standard_exchange
+_STANDARD_EXCHANGE = PRODUCTION_CONFIG.standard_exchange
+_CONDITION_ID = "0x5c19f205507ce03ff5f3be08a8090a5969ea6870cc07b902a4ca2e61dfe48fdd"
 
 
 def _builder_auth() -> Any:
@@ -32,7 +36,7 @@ async def _make_deposit_client() -> AsyncSecureClient:
     from eth_account import Account
 
     signer = Account.from_key(_PRIVATE_KEY)
-    wallet = derive_uups_deposit_wallet_address(signer.address, PRODUCTION.wallet_derivation)
+    wallet = derive_uups_deposit_wallet_address(signer.address, PRODUCTION_CONFIG.wallet_derivation)
     return await AsyncSecureClient._create(
         private_key=_PRIVATE_KEY,
         wallet=wallet,
@@ -82,8 +86,13 @@ def _accepted_order_payload() -> dict[str, Any]:
 
 
 _LIMIT_PUBLIC_ROUTES: dict[str, Any] = {
-    "/tick-size": {"minimum_tick_size": 0.01},
-    "/neg-risk": {"neg_risk": False},
+    "/markets-by-token/8501497": {"condition_id": _CONDITION_ID},
+    f"/clob-markets/{_CONDITION_ID}": {
+        "fd": {"r": 0, "e": 0},
+        "mts": 0.01,
+        "nr": False,
+        "t": [{"t": "8501497", "o": "Yes"}],
+    },
 }
 
 
@@ -270,7 +279,12 @@ def test_place_limit_order_recovers_buy_with_approve_max_then_retries() -> None:
         client = await _make_deposit_client()
         client._ctx = dataclasses.replace(
             client._ctx,
-            environment=dataclasses.replace(client._ctx.environment, relayer_poll_frequency_ms=1),
+            environment=with_environment_config(
+                client._ctx.environment,
+                config=dataclasses.replace(
+                    client._ctx.environment_config, relayer_poll_frequency_ms=1
+                ),
+            ),
         )
         try:
             _install_clob(client, _public_handler(public_captured))
@@ -301,7 +315,7 @@ def test_place_limit_order_recovers_buy_with_approve_max_then_retries() -> None:
 
     body = _json.loads(approve_submit.content.decode("utf-8"))
     inner = body["depositWalletParams"]["calls"][0]
-    assert inner["target"].lower() == PRODUCTION.collateral_token.lower()
+    assert inner["target"].lower() == PRODUCTION_CONFIG.collateral_token.lower()
 
 
 def test_place_limit_order_recovers_sell_with_erc1155_approve_for_all_then_retries() -> None:
@@ -363,7 +377,12 @@ def test_place_limit_order_recovers_sell_with_erc1155_approve_for_all_then_retri
         client = await _make_deposit_client()
         client._ctx = dataclasses.replace(
             client._ctx,
-            environment=dataclasses.replace(client._ctx.environment, relayer_poll_frequency_ms=1),
+            environment=with_environment_config(
+                client._ctx.environment,
+                config=dataclasses.replace(
+                    client._ctx.environment_config, relayer_poll_frequency_ms=1
+                ),
+            ),
         )
         try:
             _install_clob(client, _public_handler(public_captured))
@@ -396,7 +415,7 @@ def test_place_limit_order_recovers_sell_with_erc1155_approve_for_all_then_retri
     body = _json.loads(approve_submit.content.decode("utf-8"))
     inner = body["depositWalletParams"]["calls"][0]
     set_approval_selector = "0xa22cb465"  # setApprovalForAll(address,bool)
-    assert inner["target"].lower() == PRODUCTION.conditional_tokens.lower()
+    assert inner["target"].lower() == PRODUCTION_CONFIG.conditional_tokens.lower()
     assert inner["data"].startswith(set_approval_selector)
 
 
@@ -459,7 +478,12 @@ def test_place_limit_order_retry_failure_surfaces_directly() -> None:
         client = await _make_deposit_client()
         client._ctx = dataclasses.replace(
             client._ctx,
-            environment=dataclasses.replace(client._ctx.environment, relayer_poll_frequency_ms=1),
+            environment=with_environment_config(
+                client._ctx.environment,
+                config=dataclasses.replace(
+                    client._ctx.environment_config, relayer_poll_frequency_ms=1
+                ),
+            ),
         )
         try:
             _install_clob(client, _public_handler(public_captured))

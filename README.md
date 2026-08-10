@@ -45,26 +45,6 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-Custom transaction calls:
-
-```python
-from polymarket.calls import merge_v2_call
-from polymarket.types import EvmAddress
-
-router = EvmAddress(client.environment.protocol_v2_router)
-
-handle = client.execute_transaction(
-    calls=[
-        merge_v2_call(router=router, condition_id="0x03...", amount=1_000_000),
-        merge_v2_call(router=router, condition_id="0x03...", amount=2_000_000),
-        merge_v2_call(router=router, condition_id="0x03...", amount=500_000),
-    ],
-    metadata="Merge 3 combo positions",
-)
-
-outcome = handle.wait()
-```
-
 Batch position merges:
 
 ```python
@@ -124,6 +104,17 @@ Build package artifacts:
 ```bash
 make build
 ```
+
+Build the Mintlify-compatible Sphinx JSON API-reference artifact:
+
+```bash
+make api-reference
+```
+
+The ZIP is written to `build/api-reference/polymarket-client-sphinx.zip`. The
+`API Reference` GitHub Actions workflow can also generate it manually for a
+selected branch or commit. Successful package releases attach a versioned copy
+to the corresponding GitHub Release.
 
 The `Makefile` is a thin convenience wrapper around `uv`. Running the underlying commands directly is also fine.
 

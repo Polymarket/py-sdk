@@ -44,6 +44,7 @@ from polymarket._internal.dispatch import (
     sync_paginate_offset,
     sync_paginate_page_based,
 )
+from polymarket._internal.environment import get_environment_config
 from polymarket.clients._transport import SyncTransport
 from polymarket.environments import PRODUCTION, Environment
 from polymarket.errors import RequestRejectedError
@@ -108,12 +109,14 @@ class PublicClient:
         *,
         logger: logging.Logger | None = None,
     ) -> None:
+        config = get_environment_config(environment)
         self._ctx = SyncClientContext(
             environment=environment,
-            gamma=SyncTransport(base_url=environment.gamma_url, logger=logger),
-            data=SyncTransport(base_url=environment.data_url, logger=logger),
-            rfq=SyncTransport(base_url=environment.rfq_url, logger=logger),
-            clob=SyncTransport(base_url=environment.clob_url, logger=logger),
+            _resolved_environment_config=config,
+            gamma=SyncTransport(base_url=config.gamma_url, logger=logger),
+            data=SyncTransport(base_url=config.data_url, logger=logger),
+            rfq=SyncTransport(base_url=config.rfq_url, logger=logger),
+            clob=SyncTransport(base_url=config.clob_url, logger=logger),
         )
 
     @property
@@ -1127,7 +1130,7 @@ class PublicClient:
         shares: Decimal | int | float | str | None = None,
         order_type: MarketOrderType = "FOK",
     ) -> Decimal:
-        """Estimate the average execution price for a market order.
+        """Estimate the limiting price level for a market order.
 
         BUY orders use ``amount`` as the spend amount. SELL orders use ``shares``
         as the number of shares to sell.

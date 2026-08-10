@@ -7,12 +7,12 @@ from eth_abi.packed import encode_packed
 from eth_utils.address import to_checksum_address
 from eth_utils.crypto import keccak
 
+from polymarket._internal.environment import WalletDerivationConfig
 from polymarket._internal.eoa.rpc import (
     JsonRpcClient,
     SyncJsonRpcClient,
     is_json_rpc_contract_revert,
 )
-from polymarket.environments import WalletDerivation
 from polymarket.errors import UserInputError
 
 WalletType: TypeAlias = Literal["EOA", "POLY_PROXY", "GNOSIS_SAFE", "DEPOSIT_WALLET"]
@@ -55,7 +55,7 @@ def signature_type_for(wallet_type: WalletType) -> int:
     return _SIGNATURE_TYPE_BY_WALLET[wallet_type]
 
 
-def derive_proxy_wallet_address(signer: str, config: WalletDerivation) -> str:
+def derive_proxy_wallet_address(signer: str, config: WalletDerivationConfig) -> str:
     bytecode = bytes.fromhex(
         _PROXY_BYTECODE_TEMPLATE.format(
             factory=_strip_0x(config.proxy_factory).lower(),
@@ -67,20 +67,20 @@ def derive_proxy_wallet_address(signer: str, config: WalletDerivation) -> str:
     return _create2(config.proxy_factory, salt, bytecode_hash)
 
 
-def derive_safe_wallet_address(signer: str, config: WalletDerivation) -> str:
+def derive_safe_wallet_address(signer: str, config: WalletDerivationConfig) -> str:
     bytecode_hash = bytes.fromhex(_strip_0x(config.safe_init_code_hash))
     salt = keccak(abi_encode(["address"], [signer]))
     return _create2(config.safe_factory, salt, bytecode_hash)
 
 
-def derive_uups_deposit_wallet_address(signer: str, config: WalletDerivation) -> str:
+def derive_uups_deposit_wallet_address(signer: str, config: WalletDerivationConfig) -> str:
     args = _deposit_wallet_args(signer, config)
     bytecode_hash = _uups_deposit_init_code_hash(config.deposit_wallet_implementation, args)
     salt = keccak(args)
     return _create2(config.deposit_wallet_factory, salt, bytecode_hash)
 
 
-def derive_beacon_deposit_wallet_address(signer: str, config: WalletDerivation) -> str:
+def derive_beacon_deposit_wallet_address(signer: str, config: WalletDerivationConfig) -> str:
     args = _deposit_wallet_args(signer, config)
     bytecode_hash = _beacon_deposit_init_code_hash(config.deposit_wallet_beacon, args)
     salt = keccak(args)
@@ -103,7 +103,7 @@ async def is_beacon_deposit_wallet_factory(rpc: JsonRpcClient, factory: str) -> 
 
 
 async def derive_current_deposit_wallet_address(
-    rpc: JsonRpcClient, signer: str, config: WalletDerivation
+    rpc: JsonRpcClient, signer: str, config: WalletDerivationConfig
 ) -> str:
     if await is_beacon_deposit_wallet_factory(rpc, config.deposit_wallet_factory):
         return derive_beacon_deposit_wallet_address(signer, config)
@@ -126,14 +126,14 @@ def is_beacon_deposit_wallet_factory_sync(rpc: SyncJsonRpcClient, factory: str) 
 
 
 def derive_current_deposit_wallet_address_sync(
-    rpc: SyncJsonRpcClient, signer: str, config: WalletDerivation
+    rpc: SyncJsonRpcClient, signer: str, config: WalletDerivationConfig
 ) -> str:
     if is_beacon_deposit_wallet_factory_sync(rpc, config.deposit_wallet_factory):
         return derive_beacon_deposit_wallet_address(signer, config)
     return derive_uups_deposit_wallet_address(signer, config)
 
 
-def classify_wallet_type(*, signer: str, wallet: str, config: WalletDerivation) -> WalletType:
+def classify_wallet_type(*, signer: str, wallet: str, config: WalletDerivationConfig) -> WalletType:
     try:
         signer_checksum = to_checksum_address(signer)
     except ValueError as error:
@@ -160,7 +160,7 @@ def classify_wallet_type(*, signer: str, wallet: str, config: WalletDerivation) 
     )
 
 
-def _deposit_wallet_args(signer: str, config: WalletDerivation) -> bytes:
+def _deposit_wallet_args(signer: str, config: WalletDerivationConfig) -> bytes:
     signer_bytes = bytes.fromhex(_strip_0x(signer))
     wallet_id = signer_bytes.rjust(32, b"\x00")
     return abi_encode(["address", "bytes32"], [config.deposit_wallet_factory, wallet_id])

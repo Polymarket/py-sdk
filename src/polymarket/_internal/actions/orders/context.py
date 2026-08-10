@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from polymarket._internal.actions.orders.math import decimal_places
-from polymarket.environments import Environment
+from polymarket._internal.environment import EnvironmentConfig
 from polymarket.errors import UnexpectedResponseError, UserInputError
 from polymarket.types import EvmAddress
 
@@ -57,8 +57,8 @@ def validate_price_on_tick_grid(price: Decimal, tick_size: Decimal, field: str) 
     return price
 
 
-def resolve_exchange_address(environment: Environment, neg_risk: bool) -> EvmAddress:
-    return EvmAddress(environment.neg_risk_exchange if neg_risk else environment.standard_exchange)
+def resolve_exchange_address(config: EnvironmentConfig, neg_risk: bool) -> EvmAddress:
+    return EvmAddress(config.neg_risk_exchange if neg_risk else config.standard_exchange)
 
 
 __all__ = [

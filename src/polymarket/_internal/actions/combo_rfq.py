@@ -339,8 +339,8 @@ def _sign_acceptance_order(
 ) -> dict[str, object]:
     unsigned = UnsignedOrder(
         builder=builder_code,
-        chain_id=ctx.environment.chain_id,
-        exchange_address=EvmAddress(ctx.environment.exchange_v3),
+        chain_id=ctx.environment_config.chain_id,
+        exchange_address=EvmAddress(ctx.environment_config.exchange_v3),
         expiration=0,
         maker=ctx.wallet,
         maker_amount=maker_amount_e6,

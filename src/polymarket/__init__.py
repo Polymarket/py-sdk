@@ -3,6 +3,7 @@ from polymarket.calls import TransactionCall
 from polymarket.clients import AsyncPublicClient, AsyncSecureClient, PublicClient, SecureClient
 from polymarket.environments import PRODUCTION, Environment
 from polymarket.errors import (
+    AutoCancelDailyLimitError,
     CancelledSigningError,
     ConnectionLostError,
     InsufficientAllowanceError,
@@ -66,6 +67,7 @@ from polymarket.models import (
     CtfConditionId,
     CurrentReward,
     CurrentRewardConfig,
+    DepositActivity,
     EarningBreakdown,
     Event,
     EventId,
@@ -152,6 +154,7 @@ from polymarket.models import (
     Tag,
     TagId,
     TagReference,
+    TakerRebateActivity,
     Team,
     TickSize,
     TokenId,
@@ -165,6 +168,7 @@ from polymarket.models import (
     UserEarning,
     UserRewardsConfig,
     UserRewardsEarning,
+    WithdrawalActivity,
     YieldActivity,
     to_combo_condition_id,
     to_ctf_condition_id,
@@ -232,6 +236,7 @@ __all__ = [
     "AsyncPaginator",
     "AsyncPublicClient",
     "AsyncSecureClient",
+    "AutoCancelDailyLimitError",
     "BalanceAllowance",
     "BuilderApiKey",
     "BuilderApiKeyInfo",
@@ -283,6 +288,7 @@ __all__ = [
     "ConversionActivity",
     "CurrentReward",
     "CurrentRewardConfig",
+    "DepositActivity",
     "EarningBreakdown",
     "EoaTransactionHandle",
     "Environment",
@@ -422,6 +428,7 @@ __all__ = [
     "Tag",
     "TagId",
     "TagReference",
+    "TakerRebateActivity",
     "Team",
     "TickSize",
     "TimeoutError",
@@ -445,6 +452,7 @@ __all__ = [
     "UserInputError",
     "UserRewardsConfig",
     "UserRewardsEarning",
+    "WithdrawalActivity",
     "YieldActivity",
     "__version__",
 ]

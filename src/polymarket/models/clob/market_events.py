@@ -1,12 +1,14 @@
+from datetime import datetime
+from decimal import Decimal
 from typing import Annotated, Any, Literal, cast
 
-from pydantic import BeforeValidator, Field, TypeAdapter, field_validator
+from pydantic import Field, TypeAdapter, field_validator
 
 from polymarket.models.base import BaseModel
 from polymarket.models.clob._validators import (
-    EpochMsTimestamp,
-    _DecimalFromNumberOrString,  # pyright: ignore[reportPrivateUsage]
-    _OptionalDecimalFromNumberOrString,  # pyright: ignore[reportPrivateUsage]
+    _coerce_decimalish,  # pyright: ignore[reportPrivateUsage]
+    _coerce_optional_decimalish,  # pyright: ignore[reportPrivateUsage]
+    _parse_epoch_ms_timestamp,  # pyright: ignore[reportPrivateUsage]
 )
 from polymarket.models.clob.order_book import OrderBookLevel
 from polymarket.models.types import CtfConditionId, TokenId, validate_optional_ctf_condition_id
@@ -14,9 +16,6 @@ from polymarket.models.types import CtfConditionId, TokenId, validate_optional_c
 
 def _uppercase_order_side(value: object) -> object:
     return value.upper() if isinstance(value, str) else value
-
-
-_OrderSide = Annotated[Literal["BUY", "SELL"], BeforeValidator(_uppercase_order_side)]
 
 
 class MarketEventMessage(BaseModel):
@@ -29,12 +28,27 @@ class MarketEventMessage(BaseModel):
 
 class PriceChange(BaseModel):
     token_id: TokenId = Field(validation_alias="asset_id")
-    price: _DecimalFromNumberOrString
-    size: _DecimalFromNumberOrString
-    side: _OrderSide
+    price: Decimal
+    size: Decimal
+    side: Literal["BUY", "SELL"]
     hash: str | None = None
-    best_bid: _OptionalDecimalFromNumberOrString = None
-    best_ask: _OptionalDecimalFromNumberOrString = None
+    best_bid: Decimal | None = None
+    best_ask: Decimal | None = None
+
+    @field_validator("price", "size", mode="before")
+    @classmethod
+    def _parse_decimal(cls, value: object) -> object:
+        return _coerce_decimalish(value)
+
+    @field_validator("best_bid", "best_ask", mode="before")
+    @classmethod
+    def _parse_optional_decimal(cls, value: object) -> object:
+        return _coerce_optional_decimalish(value)
+
+    @field_validator("side", mode="before")
+    @classmethod
+    def _normalize_side(cls, value: object) -> object:
+        return _uppercase_order_side(value)
 
 
 # --- Payloads (the variant-specific data; lifted out of the wire's top level) ---
@@ -46,45 +60,105 @@ class MarketBookPayload(BaseModel):
     bids: tuple[OrderBookLevel, ...]
     asks: tuple[OrderBookLevel, ...]
     hash: str | None = None
-    timestamp: EpochMsTimestamp = None
-    min_order_size: _OptionalDecimalFromNumberOrString = None
-    tick_size: _OptionalDecimalFromNumberOrString = None
+    timestamp: datetime | None = None
+    min_order_size: Decimal | None = None
+    tick_size: Decimal | None = None
     neg_risk: bool | None = None
-    last_trade_price: _OptionalDecimalFromNumberOrString = None
+    last_trade_price: Decimal | None = None
+
+    @field_validator("min_order_size", "tick_size", "last_trade_price", mode="before")
+    @classmethod
+    def _parse_optional_decimal(cls, value: object) -> object:
+        return _coerce_optional_decimalish(value)
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def _parse_timestamp(cls, value: object) -> object:
+        return _parse_epoch_ms_timestamp(value)
 
 
 class MarketPriceChangePayload(BaseModel):
     market: str
     price_changes: tuple[PriceChange, ...]
-    timestamp: EpochMsTimestamp = None
+    timestamp: datetime | None = None
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def _parse_timestamp(cls, value: object) -> object:
+        return _parse_epoch_ms_timestamp(value)
 
 
 class MarketLastTradePricePayload(BaseModel):
     market: str
     token_id: TokenId = Field(validation_alias="asset_id")
-    price: _DecimalFromNumberOrString
-    size: _OptionalDecimalFromNumberOrString = None
-    side: _OrderSide
-    fee_rate_bps: _OptionalDecimalFromNumberOrString = None
+    price: Decimal
+    size: Decimal | None = None
+    side: Literal["BUY", "SELL"]
+    fee_rate_bps: Decimal | None = None
     transaction_hash: str | None = None
-    timestamp: EpochMsTimestamp = None
+    timestamp: datetime | None = None
+
+    @field_validator("price", mode="before")
+    @classmethod
+    def _parse_decimal(cls, value: object) -> object:
+        return _coerce_decimalish(value)
+
+    @field_validator("size", "fee_rate_bps", mode="before")
+    @classmethod
+    def _parse_optional_decimal(cls, value: object) -> object:
+        return _coerce_optional_decimalish(value)
+
+    @field_validator("side", mode="before")
+    @classmethod
+    def _normalize_side(cls, value: object) -> object:
+        return _uppercase_order_side(value)
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def _parse_timestamp(cls, value: object) -> object:
+        return _parse_epoch_ms_timestamp(value)
 
 
 class MarketTickSizeChangePayload(BaseModel):
     market: str
     token_id: TokenId = Field(validation_alias="asset_id")
-    old_tick_size: _OptionalDecimalFromNumberOrString = None
-    new_tick_size: _DecimalFromNumberOrString
-    timestamp: EpochMsTimestamp = None
+    old_tick_size: Decimal | None = None
+    new_tick_size: Decimal
+    timestamp: datetime | None = None
+
+    @field_validator("new_tick_size", mode="before")
+    @classmethod
+    def _parse_decimal(cls, value: object) -> object:
+        return _coerce_decimalish(value)
+
+    @field_validator("old_tick_size", mode="before")
+    @classmethod
+    def _parse_optional_decimal(cls, value: object) -> object:
+        return _coerce_optional_decimalish(value)
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def _parse_timestamp(cls, value: object) -> object:
+        return _parse_epoch_ms_timestamp(value)
 
 
 class MarketBestBidAskPayload(BaseModel):
     market: str
     token_id: TokenId = Field(validation_alias="asset_id")
-    best_bid: _OptionalDecimalFromNumberOrString = None
-    best_ask: _OptionalDecimalFromNumberOrString = None
-    spread: _OptionalDecimalFromNumberOrString = None
-    timestamp: EpochMsTimestamp = None
+    best_bid: Decimal | None = None
+    best_ask: Decimal | None = None
+    spread: Decimal | None = None
+    timestamp: datetime | None = None
+
+    @field_validator("best_bid", "best_ask", "spread", mode="before")
+    @classmethod
+    def _parse_optional_decimal(cls, value: object) -> object:
+        return _coerce_optional_decimalish(value)
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def _parse_timestamp(cls, value: object) -> object:
+        return _parse_epoch_ms_timestamp(value)
 
 
 class NewMarketPayload(BaseModel):
@@ -96,17 +170,17 @@ class NewMarketPayload(BaseModel):
     token_ids: tuple[TokenId, ...] | None = Field(default=None, validation_alias="assets_ids")
     outcomes: tuple[str, ...] | None = None
     event_message: MarketEventMessage | None = None
-    timestamp: EpochMsTimestamp = None
+    timestamp: datetime | None = None
     tags: tuple[str, ...] | None = None
     condition_id: CtfConditionId | None = None
     active: bool | None = None
     clob_token_ids: tuple[str, ...] | None = None
     sports_market_type: str | None = None
-    line: _OptionalDecimalFromNumberOrString = None
-    game_start_time: EpochMsTimestamp = None
-    order_price_min_tick_size: _OptionalDecimalFromNumberOrString = None
+    line: Decimal | None = None
+    game_start_time: datetime | None = None
+    order_price_min_tick_size: Decimal | None = None
     group_item_title: str | None = None
-    taker_base_fee: _OptionalDecimalFromNumberOrString = None
+    taker_base_fee: Decimal | None = None
     fees_enabled: bool | None = None
     fee_schedule: object | None = None
 
@@ -114,6 +188,16 @@ class NewMarketPayload(BaseModel):
     @classmethod
     def _validate_condition_id(cls, value: object) -> CtfConditionId | None:
         return validate_optional_ctf_condition_id(value)
+
+    @field_validator("line", "order_price_min_tick_size", "taker_base_fee", mode="before")
+    @classmethod
+    def _parse_optional_decimal(cls, value: object) -> object:
+        return _coerce_optional_decimalish(value)
+
+    @field_validator("timestamp", "game_start_time", mode="before")
+    @classmethod
+    def _parse_timestamp(cls, value: object) -> object:
+        return _parse_epoch_ms_timestamp(value)
 
 
 class MarketResolvedPayload(BaseModel):
@@ -123,8 +207,13 @@ class MarketResolvedPayload(BaseModel):
     winning_token_id: TokenId | None = Field(default=None, validation_alias="winning_asset_id")
     winning_outcome: str | None = None
     event_message: MarketEventMessage | None = None
-    timestamp: EpochMsTimestamp = None
+    timestamp: datetime | None = None
     tags: tuple[str, ...] | None = None
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def _parse_timestamp(cls, value: object) -> object:
+        return _parse_epoch_ms_timestamp(value)
 
 
 # --- Envelope: every event is {topic, type, payload} ---

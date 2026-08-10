@@ -1,4 +1,4 @@
-.PHONY: sync lint format format-check typecheck test test-watch test-integration check build
+.PHONY: sync lint format format-check typecheck test test-watch test-integration check build api-reference
 
 sync:
 	uv sync --all-extras --all-groups
@@ -28,3 +28,10 @@ check: lint format-check typecheck test
 
 build:
 	uv build
+
+api-reference:
+	rm -rf build/api-reference
+	uv run python -m sphinx -W --keep-going -b json \
+		-d build/api-reference/doctrees docs/reference build/api-reference/json
+	cd build/api-reference/json && zip -q -r ../polymarket-client-sphinx.zip . \
+		-x environment.pickle last_build .buildinfo

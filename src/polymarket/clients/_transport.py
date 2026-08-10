@@ -217,6 +217,17 @@ class AsyncTransport:
         )
         return _read_json(response)
 
+    async def patch_json(
+        self,
+        path: str,
+        *,
+        json: object | None = None,
+        params: Mapping[str, QueryParamValue | None] | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> Any:
+        response = await self._request("PATCH", path, params=params, json=json, headers=headers)
+        return _read_json(response)
+
     async def delete_json(
         self,
         path: str,

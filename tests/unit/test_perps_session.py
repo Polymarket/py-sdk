@@ -6,7 +6,8 @@ import contextlib
 import json
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 
 import httpx
@@ -15,7 +16,13 @@ from websockets.asyncio.server import ServerConnection, serve
 
 from polymarket._internal.perps_session import PerpsSession
 from polymarket.clients._transport import AsyncTransport
-from polymarket.errors import RequestRejectedError, TransportError
+from polymarket.errors import (
+    AutoCancelDailyLimitError,
+    RequestRejectedError,
+    TransportError,
+    UserInputError,
+)
+from polymarket.errors import TimeoutError as SDKTimeoutError
 from polymarket.models.perps.credentials import PerpsCredentials
 from polymarket.models.perps.events import (
     PerpsFillEvent,
@@ -65,7 +72,11 @@ async def _handshake(ws: ServerConnection) -> list[dict[str, Any]]:
 
 
 def _order_update(
-    order_id: int, *, sequence: int = 1, reduce_only: bool | None = None
+    order_id: int,
+    *,
+    client_order_id: str | None = None,
+    sequence: int = 1,
+    reduce_only: bool | None = None,
 ) -> dict[str, Any]:
     update: dict[str, Any] = {
         "ch": "orders",
@@ -87,6 +98,8 @@ def _order_update(
             "uts": 1751500000001,
         },
     }
+    if client_order_id is not None:
+        update["data"]["coid"] = client_order_id
     return update
 
 
@@ -214,8 +227,17 @@ def test_place_order_signs_command_and_returns_order_update() -> None:
             if _is_ping(message):
                 continue
             commands.append(message)
+            client_order_id = message["op"]["args"][0]["c"]
+            await ws.send(
+                json.dumps(
+                    _order_update(
+                        77,
+                        client_order_id=client_order_id,
+                        reduce_only=True,
+                    )
+                )
+            )
             await ws.send(json.dumps({"id": message["id"], "data": [{"status": "ok", "oid": 77}]}))
-            await ws.send(json.dumps(_order_update(77, reduce_only=True)))
 
     async def run() -> None:
         async with ws_server(handler) as url, _open_session(url) as session:
@@ -228,12 +250,18 @@ def test_place_order_signs_command_and_returns_order_update() -> None:
                 time_in_force="gtc",
             )
             assert placement.order.id == 77
+            assert placement.order.client_order_id == commands[0]["op"]["args"][0]["c"]
             assert placement.order.reduce_only is True
             assert placement.order.status == "open"
             assert placement.tp_sl is None
+            assert session._event_waiters == []
 
     asyncio.run(asyncio.wait_for(run(), timeout=10.0))
     command = commands[0]
+    client_order_id = command["op"]["args"][0]["c"]
+    assert isinstance(client_order_id, str)
+    assert len(client_order_id) == 32
+    int(client_order_id, 16)
     assert command["op"]["type"] == "createOrders"
     assert command["op"]["args"] == [
         {
@@ -244,11 +272,111 @@ def test_place_order_signs_command_and_returns_order_update() -> None:
             "ro": True,
             "tif": "gtc",
             "p": "0.5",
+            "c": client_order_id,
         }
     ]
     assert isinstance(command["salt"], int)
     assert isinstance(command["ts"], int)
     assert command["sig"].startswith("0x") and len(command["sig"]) == 132
+
+
+def test_place_order_update_timeout_starts_after_ack(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from polymarket._internal.actions.perps import trading
+
+    monkeypatch.setattr(trading, "_ORDER_PLACEMENT_UPDATE_TIMEOUT_S", 0.5)
+
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        async for raw in ws:
+            message = json.loads(raw)
+            if _is_ping(message):
+                continue
+            client_order_id = message["op"]["args"][0]["c"]
+            await asyncio.sleep(0.6)
+            await ws.send(json.dumps({"id": message["id"], "data": [{"status": "ok", "oid": 77}]}))
+            await ws.send(
+                json.dumps(
+                    _order_update(
+                        77,
+                        client_order_id=client_order_id,
+                    )
+                )
+            )
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            placement = await session.place_order(
+                instrument_id=1,
+                side="BUY",
+                price="0.5",
+                quantity="10",
+                time_in_force="gtc",
+            )
+            assert placement.order.id == 77
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+
+
+def test_place_order_ack_timeout_cleans_waiter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from polymarket._internal import perps_session
+
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        with contextlib.suppress(Exception):
+            async for _ in ws:
+                pass
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            monkeypatch.setattr(perps_session, "_ACK_TIMEOUT_S", 0.01)
+            with pytest.raises(
+                TransportError,
+                match="post order acknowledgement timed out",
+            ):
+                await session.place_order(
+                    instrument_id=1,
+                    side="BUY",
+                    price="0.5",
+                    quantity="10",
+                    time_in_force="gtc",
+                )
+            assert session._event_waiters == []
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+
+
+def test_place_order_update_timeout_cleans_waiter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from polymarket._internal.actions.perps import trading
+
+    monkeypatch.setattr(trading, "_ORDER_PLACEMENT_UPDATE_TIMEOUT_S", 0.01)
+
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        async for raw in ws:
+            message = json.loads(raw)
+            if _is_ping(message):
+                continue
+            await ws.send(json.dumps({"id": message["id"], "data": [{"status": "ok", "oid": 77}]}))
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            with pytest.raises(SDKTimeoutError, match="event wait timed out"):
+                await session.place_order(
+                    instrument_id=1,
+                    side="BUY",
+                    price="0.5",
+                    quantity="10",
+                    time_in_force="gtc",
+                )
+            assert session._event_waiters == []
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
 
 
 def test_batched_session_updates_feed_queue_and_order_waiters() -> None:
@@ -258,8 +386,20 @@ def test_batched_session_updates_feed_queue_and_order_waiters() -> None:
             message = json.loads(raw)
             if _is_ping(message):
                 continue
+            client_order_id = message["op"]["args"][0]["c"]
             await ws.send(json.dumps({"id": message["id"], "data": [{"status": "ok", "oid": 77}]}))
-            await ws.send(json.dumps([_order_update(76), _order_update(77, sequence=2)]))
+            await ws.send(
+                json.dumps(
+                    [
+                        _order_update(76),
+                        _order_update(
+                            77,
+                            client_order_id=client_order_id,
+                            sequence=2,
+                        ),
+                    ]
+                )
+            )
 
     async def run() -> None:
         async with ws_server(handler) as url, _open_session(url) as session:
@@ -315,6 +455,15 @@ def test_place_order_with_tp_sl_groups_rows_and_returns_trigger_ids() -> None:
             if _is_ping(message):
                 continue
             commands.append(message)
+            client_order_id = message["op"]["args"][0]["c"]
+            await ws.send(
+                json.dumps(
+                    _order_update(
+                        100,
+                        client_order_id=client_order_id,
+                    )
+                )
+            )
             await ws.send(
                 json.dumps(
                     {
@@ -327,7 +476,6 @@ def test_place_order_with_tp_sl_groups_rows_and_returns_trigger_ids() -> None:
                     }
                 )
             )
-            await ws.send(json.dumps(_order_update(100)))
 
     async def run() -> None:
         async with ws_server(handler) as url, _open_session(url) as session:
@@ -341,6 +489,7 @@ def test_place_order_with_tp_sl_groups_rows_and_returns_trigger_ids() -> None:
                 stop_loss=PerpsTpSlTrigger(trigger_price="0.25"),
             )
             assert placement.order.id == 100
+            assert placement.order.client_order_id == commands[0]["op"]["args"][0]["c"]
             assert placement.tp_sl is not None
             assert placement.tp_sl.take_profit is not None
             assert placement.tp_sl.take_profit.order_id == 101
@@ -351,6 +500,9 @@ def test_place_order_with_tp_sl_groups_rows_and_returns_trigger_ids() -> None:
     op = commands[0]["op"]
     assert op["grp"] == "order"
     assert len(op["args"]) == 3
+    assert len(op["args"][0]["c"]) == 32
+    assert "c" not in op["args"][1]
+    assert "c" not in op["args"][2]
     assert op["args"][1]["tr"] == {"tpsl": "tp", "trp": "1", "market": True}
     assert op["args"][2]["tr"] == {"tpsl": "sl", "trp": "0.25", "market": True}
     # Trigger legs exit the position: entry BUY -> reduce-only SELL legs.
@@ -383,8 +535,64 @@ def test_place_order_rejection_raises_request_rejected() -> None:
                     quantity="10",
                     time_in_force="gtc",
                 )
+            assert session._event_waiters == []
 
     asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+
+
+def test_post_orders_preserves_low_level_client_ids_and_error_acks() -> None:
+    from polymarket.models.perps.requests import PerpsOrderRequest
+
+    commands: list[dict[str, Any]] = []
+    supplied_client_order_id = "aabbccddeeff00112233445566778899"
+
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        async for raw in ws:
+            message = json.loads(raw)
+            if _is_ping(message):
+                continue
+            commands.append(message)
+            await ws.send(
+                json.dumps(
+                    {
+                        "id": message["id"],
+                        "data": [
+                            {"status": "ok", "oid": 77},
+                            {"status": "err", "error": "insufficient margin"},
+                        ],
+                    }
+                )
+            )
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            acks = await session.post_orders(
+                [
+                    PerpsOrderRequest(
+                        instrument_id=1,
+                        side="BUY",
+                        price="0.5",
+                        quantity="10",
+                        time_in_force="gtc",
+                    ),
+                    PerpsOrderRequest(
+                        instrument_id=1,
+                        side="SELL",
+                        price="0.6",
+                        quantity="5",
+                        time_in_force="gtc",
+                        client_order_id=supplied_client_order_id,
+                    ),
+                ]
+            )
+            assert [ack.status for ack in acks] == ["ok", "err"]
+            assert acks[1].error == "insufficient margin"
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+    args = commands[0]["op"]["args"]
+    assert "c" not in args[0]
+    assert args[1]["c"] == supplied_client_order_id
 
 
 def test_cancel_order_returns_result_without_raising_on_err_status() -> None:
@@ -461,6 +669,135 @@ def test_cancel_all_orders_uses_signed_rest_endpoint() -> None:
     assert "exp" not in unscoped_body
 
 
+def test_arm_auto_cancel_rejects_deadline_less_than_five_seconds_ahead() -> None:
+    async def run() -> None:
+        session = PerpsSession(
+            chain_id=137,
+            credentials=_CREDENTIALS,
+            rest_url="http://127.0.0.1:9",
+            ws_url="ws://127.0.0.1:9",
+        )
+        try:
+            with pytest.raises(UserInputError, match="at least 5 seconds"):
+                await session.arm_auto_cancel(
+                    cancel_at=datetime.now(tz=UTC) + timedelta(milliseconds=4_999)
+                )
+        finally:
+            await session.close()
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+
+
+def test_arm_auto_cancel_daily_limit_raises_typed_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            422,
+            json={"status": "err", "error": "auto_cancel_daily_limit_reached"},
+            request=request,
+        )
+
+    async def run() -> None:
+        session = PerpsSession(
+            chain_id=137,
+            credentials=_CREDENTIALS,
+            rest_url="https://perps.test",
+            ws_url="ws://127.0.0.1:9",
+        )
+        session._api = AsyncTransport(
+            base_url="https://perps.test",
+            client=httpx.AsyncClient(
+                base_url="https://perps.test",
+                transport=httpx.MockTransport(handler),
+            ),
+            header_resolver=session._resolve_auth_headers,
+        )
+        try:
+            with pytest.raises(AutoCancelDailyLimitError) as excinfo:
+                await session.arm_auto_cancel(cancel_at=datetime.now(tz=UTC) + timedelta(minutes=1))
+            assert excinfo.value.status == 422
+        finally:
+            await session.close()
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+
+
+def test_update_margin_sends_signed_command_and_completes() -> None:
+    commands: list[dict[str, Any]] = []
+
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        async for raw in ws:
+            message = json.loads(raw)
+            if _is_ping(message):
+                continue
+            commands.append(message)
+            await ws.send(json.dumps({"id": message["id"], "data": {"status": "ok"}}))
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            result = await session.update_margin(
+                instrument_id=3, amount=Decimal("100.000000000000000001")
+            )
+            assert result is None
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+    assert commands[0]["op"] == {
+        "type": "updateMargin",
+        "args": {"amt": "100.000000000000000001", "iid": 3},
+    }
+    assert commands[0]["req"] == "post"
+    assert commands[0]["sig"].startswith("0x") and len(commands[0]["sig"]) == 132
+
+
+def test_update_margin_rejection_surfaces_request_rejected_error() -> None:
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        async for raw in ws:
+            message = json.loads(raw)
+            if _is_ping(message):
+                continue
+            assert message["op"] == {
+                "type": "updateMargin",
+                "args": {"amt": "-25.00", "iid": 3},
+            }
+            await ws.send(
+                json.dumps(
+                    {
+                        "id": message["id"],
+                        "data": {"status": "err", "error": "margin_below_required_initial"},
+                    }
+                )
+            )
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            with pytest.raises(RequestRejectedError, match="margin_below_required_initial"):
+                await session.update_margin(instrument_id=3, amount="-25.00")
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+
+
+def test_update_margin_validates_public_inputs_before_sending() -> None:
+    async def run() -> None:
+        session = PerpsSession(
+            chain_id=137,
+            credentials=_CREDENTIALS,
+            rest_url="http://127.0.0.1:9",
+            ws_url="ws://127.0.0.1:9",
+        )
+        try:
+            with pytest.raises(UserInputError, match="non-negative"):
+                await session.update_margin(instrument_id=-1, amount="1")
+            with pytest.raises(UserInputError, match="amount must be a valid decimal"):
+                await session.update_margin(instrument_id=1, amount="not-a-decimal")
+            with pytest.raises(UserInputError, match="amount must be finite"):
+                await session.update_margin(instrument_id=1, amount="NaN")
+        finally:
+            await session.close()
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+
+
 def test_sequence_gap_emits_resync_event_before_update() -> None:
     async def handler(ws: ServerConnection) -> None:
         await _handshake(ws)
@@ -526,6 +863,28 @@ def test_notification_sequence_gaps_do_not_emit_local_resync() -> None:
             assert isinstance(second, PerpsNotificationEvent)
             assert second.sequence == 50
             assert isinstance(third, PerpsOrderEvent)
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+
+
+def test_malformed_notification_decimal_is_dropped_without_disrupting_dispatch() -> None:
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        malformed = _notification_update(10, "5f4a3c2b-1d0e-49f8-a7b6-c5d4e3f2a1b0")
+        malformed["data"]["size"] = True
+        await ws.send(json.dumps(malformed))
+        await ws.send(json.dumps(_order_update(1, sequence=1)))
+        with contextlib.suppress(Exception):
+            async for _ in ws:
+                pass
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            event = await asyncio.wait_for(session.__anext__(), timeout=5.0)
+            assert isinstance(event, PerpsOrderEvent)
+            assert event.payload.id == 1
+            with pytest.raises(TimeoutError):
+                await asyncio.wait_for(session.__anext__(), timeout=0.1)
 
     asyncio.run(asyncio.wait_for(run(), timeout=10.0))
 

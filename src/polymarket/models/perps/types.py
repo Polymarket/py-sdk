@@ -6,6 +6,7 @@ PerpsInstrumentId = NewType("PerpsInstrumentId", int)
 PerpsOrderId = NewType("PerpsOrderId", int)
 PerpsClientOrderId = NewType("PerpsClientOrderId", str)
 PerpsNotificationId = NewType("PerpsNotificationId", str)
+PerpsFundingPaymentId = NewType("PerpsFundingPaymentId", int)
 PerpsTradeId = NewType("PerpsTradeId", int)
 PerpsWithdrawalId = NewType("PerpsWithdrawalId", int)
 PerpsEntityId = NewType("PerpsEntityId", int)
@@ -71,6 +72,7 @@ __all__ = [
     "PerpsClientOrderId",
     "PerpsDepositStatus",
     "PerpsEntityId",
+    "PerpsFundingPaymentId",
     "PerpsInstrumentCategory",
     "PerpsInstrumentId",
     "PerpsKlineInterval",

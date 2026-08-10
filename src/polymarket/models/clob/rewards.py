@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import TypeAlias
 
 from pydantic import Field, field_validator
 
 from polymarket.models.base import BaseModel
 from polymarket.models.clob._validators import (
-    _DecimalFromNumberOrString,  # pyright: ignore[reportPrivateUsage]
+    _coerce_decimalish,  # pyright: ignore[reportPrivateUsage]
 )
 from polymarket.models.types import CtfConditionId, TokenId, validate_ctf_condition_id
 
@@ -53,10 +54,13 @@ class CurrentRewardConfig(BaseModel):
     asset_address: str = Field(validation_alias="asset_address")
     start_date: datetime = Field(validation_alias="start_date")
     end_date: datetime | None = Field(default=None, validation_alias="end_date")
-    rate_per_day: _DecimalFromNumberOrString = Field(validation_alias="rate_per_day")
-    total_rewards: _DecimalFromNumberOrString | None = Field(
-        default=None, validation_alias="total_rewards"
-    )
+    rate_per_day: Decimal = Field(validation_alias="rate_per_day")
+    total_rewards: Decimal | None = Field(default=None, validation_alias="total_rewards")
+
+    @field_validator("rate_per_day", "total_rewards", mode="before")
+    @classmethod
+    def _parse_decimals(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
     @field_validator("start_date", mode="before")
     @classmethod
@@ -72,22 +76,27 @@ class CurrentRewardConfig(BaseModel):
 class CurrentReward(BaseModel):
     condition_id: CtfConditionId = Field(validation_alias="condition_id")
     rewards_max_spread: float | None = Field(default=None, validation_alias="rewards_max_spread")
-    rewards_min_size: _DecimalFromNumberOrString | None = Field(
-        default=None, validation_alias="rewards_min_size"
-    )
+    rewards_min_size: Decimal | None = Field(default=None, validation_alias="rewards_min_size")
     rewards_config: tuple[CurrentRewardConfig, ...] = Field(
         default=(), validation_alias="rewards_config"
     )
-    sponsored_daily_rate: _DecimalFromNumberOrString | None = Field(
+    sponsored_daily_rate: Decimal | None = Field(
         default=None, validation_alias="sponsored_daily_rate"
     )
     sponsors_count: int | None = Field(default=None, validation_alias="sponsors_count")
-    native_daily_rate: _DecimalFromNumberOrString | None = Field(
-        default=None, validation_alias="native_daily_rate"
+    native_daily_rate: Decimal | None = Field(default=None, validation_alias="native_daily_rate")
+    total_daily_rate: Decimal | None = Field(default=None, validation_alias="total_daily_rate")
+
+    @field_validator(
+        "rewards_min_size",
+        "sponsored_daily_rate",
+        "native_daily_rate",
+        "total_daily_rate",
+        mode="before",
     )
-    total_daily_rate: _DecimalFromNumberOrString | None = Field(
-        default=None, validation_alias="total_daily_rate"
-    )
+    @classmethod
+    def _parse_decimals(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
     @field_validator("condition_id", mode="before")
     @classmethod
@@ -99,10 +108,13 @@ class MarketRewardConfig(BaseModel):
     asset_address: str = Field(validation_alias="asset_address")
     start_date: datetime = Field(validation_alias="start_date")
     end_date: datetime | None = Field(default=None, validation_alias="end_date")
-    rate_per_day: _DecimalFromNumberOrString = Field(validation_alias="rate_per_day")
-    total_rewards: _DecimalFromNumberOrString | None = Field(
-        default=None, validation_alias="total_rewards"
-    )
+    rate_per_day: Decimal = Field(validation_alias="rate_per_day")
+    total_rewards: Decimal | None = Field(default=None, validation_alias="total_rewards")
+
+    @field_validator("rate_per_day", "total_rewards", mode="before")
+    @classmethod
+    def _parse_decimals(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
     @field_validator("start_date", mode="before")
     @classmethod
@@ -118,7 +130,12 @@ class MarketRewardConfig(BaseModel):
 class MarketRewardToken(BaseModel):
     token_id: TokenId = Field(validation_alias="token_id")
     outcome: str
-    price: _DecimalFromNumberOrString
+    price: Decimal
+
+    @field_validator("price", mode="before")
+    @classmethod
+    def _parse_price(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
 
 class MarketReward(BaseModel):
@@ -128,9 +145,7 @@ class MarketReward(BaseModel):
     event_slug: str | None = Field(default=None, validation_alias="event_slug")
     image: str | None = None
     rewards_max_spread: float | None = Field(default=None, validation_alias="rewards_max_spread")
-    rewards_min_size: _DecimalFromNumberOrString | None = Field(
-        default=None, validation_alias="rewards_min_size"
-    )
+    rewards_min_size: Decimal | None = Field(default=None, validation_alias="rewards_min_size")
     market_competitiveness: float | None = Field(
         default=None, validation_alias="market_competitiveness"
     )
@@ -138,6 +153,11 @@ class MarketReward(BaseModel):
     rewards_config: tuple[MarketRewardConfig, ...] = Field(
         default=(), validation_alias="rewards_config"
     )
+
+    @field_validator("rewards_min_size", mode="before")
+    @classmethod
+    def _parse_rewards_min_size(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
     @field_validator("condition_id", mode="before")
     @classmethod
@@ -147,11 +167,16 @@ class MarketReward(BaseModel):
 
 class UserEarning(BaseModel):
     asset_address: str = Field(validation_alias="asset_address")
-    asset_rate: _DecimalFromNumberOrString = Field(validation_alias="asset_rate")
+    asset_rate: Decimal = Field(validation_alias="asset_rate")
     condition_id: CtfConditionId = Field(validation_alias="condition_id")
     date: datetime
-    earnings: _DecimalFromNumberOrString
+    earnings: Decimal
     maker_address: str = Field(validation_alias="maker_address")
+
+    @field_validator("asset_rate", "earnings", mode="before")
+    @classmethod
+    def _parse_decimals(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
     @field_validator("date", mode="before")
     @classmethod
@@ -166,10 +191,15 @@ class UserEarning(BaseModel):
 
 class TotalUserEarning(BaseModel):
     asset_address: str = Field(validation_alias="asset_address")
-    asset_rate: _DecimalFromNumberOrString = Field(validation_alias="asset_rate")
+    asset_rate: Decimal = Field(validation_alias="asset_rate")
     date: datetime
-    earnings: _DecimalFromNumberOrString
+    earnings: Decimal
     maker_address: str = Field(validation_alias="maker_address")
+
+    @field_validator("asset_rate", "earnings", mode="before")
+    @classmethod
+    def _parse_decimals(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
     @field_validator("date", mode="before")
     @classmethod
@@ -180,9 +210,14 @@ class TotalUserEarning(BaseModel):
 class UserRewardsConfig(BaseModel):
     asset_address: str = Field(validation_alias="asset_address")
     end_date: datetime = Field(validation_alias="end_date")
-    rate_per_day: _DecimalFromNumberOrString = Field(validation_alias="rate_per_day")
+    rate_per_day: Decimal = Field(validation_alias="rate_per_day")
     start_date: datetime = Field(validation_alias="start_date")
-    total_rewards: _DecimalFromNumberOrString = Field(validation_alias="total_rewards")
+    total_rewards: Decimal = Field(validation_alias="total_rewards")
+
+    @field_validator("rate_per_day", "total_rewards", mode="before")
+    @classmethod
+    def _parse_decimals(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
     @field_validator("start_date", "end_date", mode="before")
     @classmethod
@@ -192,8 +227,13 @@ class UserRewardsConfig(BaseModel):
 
 class EarningBreakdown(BaseModel):
     asset_address: str = Field(validation_alias="asset_address")
-    asset_rate: _DecimalFromNumberOrString = Field(validation_alias="asset_rate")
-    earnings: _DecimalFromNumberOrString
+    asset_rate: Decimal = Field(validation_alias="asset_rate")
+    earnings: Decimal
+
+    @field_validator("asset_rate", "earnings", mode="before")
+    @classmethod
+    def _parse_decimals(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
 
 class UserRewardsEarning(BaseModel):
@@ -208,8 +248,13 @@ class UserRewardsEarning(BaseModel):
     question: str
     rewards_config: tuple[UserRewardsConfig, ...] = Field(validation_alias="rewards_config")
     rewards_max_spread: float = Field(validation_alias="rewards_max_spread")
-    rewards_min_size: _DecimalFromNumberOrString = Field(validation_alias="rewards_min_size")
+    rewards_min_size: Decimal = Field(validation_alias="rewards_min_size")
     tokens: tuple[MarketRewardToken, ...]
+
+    @field_validator("rewards_min_size", mode="before")
+    @classmethod
+    def _parse_rewards_min_size(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
     @field_validator("condition_id", mode="before")
     @classmethod

@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal, TypeAlias, cast
+from datetime import datetime
+from decimal import Decimal
+from typing import Any, Literal, TypeAlias, cast
 
-from pydantic import BeforeValidator, Field, field_validator
+from pydantic import Field, field_validator
 
+from polymarket.models._validators import parse_decimal_string
 from polymarket.models.base import BaseModel
 from polymarket.models.clob._validators import (
-    ExpirationTimestamp,
-    RequiredEpochOrIsoTimestamp,
-    _DecimalFromString,  # pyright: ignore[reportPrivateUsage]
+    _parse_expiration_timestamp,  # pyright: ignore[reportPrivateUsage]
+    _require_epoch_or_iso_timestamp,  # pyright: ignore[reportPrivateUsage]
 )
 from polymarket.models.types import CtfConditionId, OrderSide, TokenId
 
@@ -39,9 +41,6 @@ def _normalize_trade_status(value: object) -> object:
     return value
 
 
-TradeStatusField = Annotated[TradeStatus, BeforeValidator(_normalize_trade_status)]
-
-
 class OpenOrder(BaseModel):
     """Open order owned by an account."""
 
@@ -57,15 +56,23 @@ class OpenOrder(BaseModel):
     owner: str
     maker_address: str = Field(validation_alias="maker_address")
     side: OrderSide
-    price: _DecimalFromString
-    original_size: _DecimalFromString = Field(validation_alias="original_size")
-    size_matched: _DecimalFromString = Field(validation_alias="size_matched")
+    price: Decimal
+    original_size: Decimal = Field(validation_alias="original_size")
+    size_matched: Decimal = Field(validation_alias="size_matched")
     outcome: str
     order_type: str = Field(validation_alias="order_type")
     status: str
     associate_trades: tuple[str, ...] = Field(default=(), validation_alias="associate_trades")
-    created_at: RequiredEpochOrIsoTimestamp = Field(validation_alias="created_at")
-    expires_at: ExpirationTimestamp = Field(default=None, validation_alias="expiration")
+    created_at: datetime = Field(validation_alias="created_at")
+    expires_at: datetime | None = Field(default=None, validation_alias="expiration")
+
+    _validate_decimals = field_validator("price", "original_size", "size_matched", mode="before")(
+        parse_decimal_string
+    )
+    _validate_created_at = field_validator("created_at", mode="before")(
+        _require_epoch_or_iso_timestamp
+    )
+    _validate_expires_at = field_validator("expires_at", mode="before")(_parse_expiration_timestamp)
 
     def _repr_html_(self) -> str:
         from polymarket._jupyter import card, safe_html_repr, truncate_mid
@@ -93,10 +100,14 @@ class MakerOrder(BaseModel):
     maker_address: str = Field(validation_alias="maker_address")
     owner: str
     side: OrderSide
-    price: _DecimalFromString
-    matched_amount: _DecimalFromString = Field(validation_alias="matched_amount")
+    price: Decimal
+    matched_amount: Decimal = Field(validation_alias="matched_amount")
     outcome: str
-    fee_rate_bps: _DecimalFromString | None = Field(default=None, validation_alias="fee_rate_bps")
+    fee_rate_bps: Decimal | None = Field(default=None, validation_alias="fee_rate_bps")
+
+    _validate_decimals = field_validator("price", "matched_amount", "fee_rate_bps", mode="before")(
+        parse_decimal_string
+    )
 
     @field_validator("fee_rate_bps", mode="before")
     @classmethod
@@ -121,16 +132,24 @@ class ClobTrade(BaseModel):
     taker_order_id: str = Field(validation_alias="taker_order_id")
     side: OrderSide
     trader_side: Literal["TAKER", "MAKER"] = Field(validation_alias="trader_side")
-    price: _DecimalFromString
-    size: _DecimalFromString
+    price: Decimal
+    size: Decimal
     outcome: str
-    status: TradeStatusField
-    fee_rate_bps: _DecimalFromString = Field(validation_alias="fee_rate_bps")
+    status: TradeStatus
+    fee_rate_bps: Decimal = Field(validation_alias="fee_rate_bps")
     bucket_index: int = Field(validation_alias="bucket_index")
     transaction_hash: str = Field(validation_alias="transaction_hash")
     maker_orders: tuple[MakerOrder, ...] = Field(validation_alias="maker_orders")
-    matched_at: RequiredEpochOrIsoTimestamp = Field(validation_alias="match_time")
-    updated_at: RequiredEpochOrIsoTimestamp = Field(validation_alias="last_update")
+    matched_at: datetime = Field(validation_alias="match_time")
+    updated_at: datetime = Field(validation_alias="last_update")
+
+    _validate_decimals = field_validator("price", "size", "fee_rate_bps", mode="before")(
+        parse_decimal_string
+    )
+    _validate_status = field_validator("status", mode="before")(_normalize_trade_status)
+    _validate_timestamps = field_validator("matched_at", "updated_at", mode="before")(
+        _require_epoch_or_iso_timestamp
+    )
 
     def _repr_html_(self) -> str:
         from polymarket._jupyter import card, safe_html_repr, truncate_mid
@@ -156,7 +175,11 @@ class Notification(BaseModel):
     owner: str
     type: int
     payload: Any = None
-    timestamp: RequiredEpochOrIsoTimestamp
+    timestamp: datetime
+
+    _validate_timestamp = field_validator("timestamp", mode="before")(
+        _require_epoch_or_iso_timestamp
+    )
 
     @field_validator("id", mode="before")
     @classmethod

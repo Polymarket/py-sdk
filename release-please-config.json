@@ -5,9 +5,15 @@
       "package-name": "polymarket-client",
       "changelog-path": "CHANGELOG.md",
       "versioning": "prerelease",
-      "prerelease": true,
+      "prerelease": false,
       "prerelease-type": "b",
-      "release-as": "0.3.0-b1"
+      "extra-files": [
+        {
+          "type": "toml",
+          "path": "uv.lock",
+          "jsonpath": "$.package[?(@.name.value=='polymarket-client')].version"
+        }
+      ]
     }
   }
 }
