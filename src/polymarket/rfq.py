@@ -7,7 +7,8 @@ from enum import StrEnum
 from types import TracebackType
 from typing import Any, Literal, Protocol, TypeAlias, runtime_checkable
 
-from polymarket.errors import PolymarketError
+from polymarket.errors import PolymarketError, RequestRejectedError
+from polymarket.models.base import BaseModel
 from polymarket.models.types import ComboConditionId, PositionId
 from polymarket.types import EvmAddress, HexString, TransactionHash
 
@@ -68,12 +69,30 @@ class RfqRejectionCode(StrEnum):
     plain strings.
     """
 
+    INVALID_JSON = "INVALID_JSON"
+    INVALID_MESSAGE = "INVALID_MESSAGE"
+    INVALID_ROLE = "INVALID_ROLE"
+    UNAUTHORIZED_ROLE = "UNAUTHORIZED_ROLE"
+    UNAUTHENTICATED = "UNAUTHENTICATED"
+    ADDRESS_MISMATCH = "ADDRESS_MISMATCH"
     INVALID_RFQ = "INVALID_RFQ"
     CONTRADICTORY_LEGS = "CONTRADICTORY_LEGS"
     LEG_METADATA_UNAVAILABLE = "LEG_METADATA_UNAVAILABLE"
     INVALID_ACCEPTANCE = "INVALID_ACCEPTANCE"
     INVALID_QUOTE = "INVALID_QUOTE"
     INVALID_SIGNATURE = "INVALID_SIGNATURE"
+    INVALID_IDENTITY = "INVALID_IDENTITY"
+    UNKNOWN_RFQ = "UNKNOWN_RFQ"
+    EXPIRED_RFQ = "EXPIRED_RFQ"
+    INVALID_RFQ_STATE = "INVALID_RFQ_STATE"
+    QUOTE_MISMATCH = "QUOTE_MISMATCH"
+    SUBMISSION_WINDOW_CLOSED = "SUBMISSION_WINDOW_CLOSED"
+    SERVICE_UNAVAILABLE = "SERVICE_UNAVAILABLE"
+    PRE_EXECUTION_BALANCE_RESERVATION_FAILED = "PRE_EXECUTION_BALANCE_RESERVATION_FAILED"
+    BALANCE_VALIDATION_FAILED = "BALANCE_VALIDATION_FAILED"
+    ALLOWANCE_VALIDATION_FAILED = "ALLOWANCE_VALIDATION_FAILED"
+    TRADE_SUBMISSION_FAILED = "TRADE_SUBMISSION_FAILED"
+    REQUEST_FAILED = "REQUEST_FAILED"
 
 
 class ComboQuoteUnavailableReason(StrEnum):
@@ -194,18 +213,25 @@ class RfqErrorDetail:
     message: str
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class ComboQuote:
-    """The winning quote for a combo quote request.
+class ComboQuote(BaseModel):
+    """A self-contained winning combo quote.
 
     ``maker_amount`` and ``taker_amount`` are the amounts of the acceptance
     order: for a BUY, collateral spent and outcome tokens received; for a
     SELL, outcome tokens sold and collateral received. ``total_required`` is
     the total collateral (BUY) or position-share (SELL) balance required to
     accept. ``expires_at`` is the acceptance deadline in Unix milliseconds.
+
+    The model contains every input needed for acceptance. It can be persisted
+    with :meth:`model_dump_json` and restored with
+    :meth:`model_validate_json` before being passed to ``accept_combo_quote``.
     """
 
+    rfq_id: RfqId
     quote_id: RfqQuoteId
+    builder_code: HexString
+    direction: RfqDirection
+    position_id: PositionId
     blended_price: Decimal
     maker_amount: Decimal
     taker_amount: Decimal
@@ -218,18 +244,14 @@ class ComboQuoteResult:
     """Outcome of a combo quote request.
 
     ``quote`` is ``None`` when the request attracted no usable quotes; then
-    ``reason`` explains why. When a quote is present, ``position_id``,
-    ``condition_id``, and ``builder_code`` carry the combo position and
-    builder attribution the acceptance order trades with.
+    ``reason`` explains why. A winning ``quote`` is self-contained and can be
+    accepted by another client instance representing the same account and
+    builder identity.
     """
 
     rfq_id: RfqId
-    direction: RfqDirection
     quote: ComboQuote | None
     reason: ComboQuoteUnavailableReason | None = None
-    position_id: PositionId | None = None
-    condition_id: ComboConditionId | None = None
-    builder_code: HexString | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -364,7 +386,7 @@ RfqEvent = (
 )
 
 
-class RfqRequestRejectedError(PolymarketError):
+class RfqRequestRejectedError(RequestRejectedError):
     """Error raised when an RFQ request or acceptance is rejected.
 
     ``code`` distinguishes permanent input problems (``INVALID_RFQ``,
@@ -379,10 +401,9 @@ class RfqRequestRejectedError(PolymarketError):
         *,
         status: int,
         code: RfqRejectionCode | str | None = None,
+        retry_after: float | None = None,
     ) -> None:
-        super().__init__(message)
-        self.status = status
-        self.code = code
+        super().__init__(message, status=status, code=code, retry_after=retry_after)
 
 
 class RfqQuoteRejectedError(PolymarketError):

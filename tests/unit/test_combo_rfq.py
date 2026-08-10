@@ -22,7 +22,6 @@ from polymarket import (
     AsyncSecureClient,
     ComboAcceptFailureReason,
     ComboQuote,
-    ComboQuoteResult,
     ComboQuoteUnavailableReason,
     RfqDirection,
     RfqRejectionCode,
@@ -32,8 +31,14 @@ from polymarket import (
     UserInputError,
 )
 from polymarket.clients._transport import AsyncTransport, SyncTransport
-from polymarket.errors import TimeoutError as SdkTimeoutError
-from polymarket.models.types import PositionId, to_combo_condition_id
+from polymarket.errors import (
+    RequestRejectedError,
+    UnexpectedResponseError,
+)
+from polymarket.errors import (
+    TimeoutError as SdkTimeoutError,
+)
+from polymarket.models.types import PositionId
 from polymarket.types import HexString
 
 BUILDER_CODE = "0x" + "ab" * 32
@@ -66,20 +71,17 @@ QUOTE_READY: dict[str, Any] = {
     },
 }
 
-QUOTE_RESULT = ComboQuoteResult(
+QUOTE = ComboQuote(
     rfq_id="rfq-1",
-    direction=RfqDirection.BUY,
-    quote=ComboQuote(
-        quote_id="quote-1",
-        blended_price=Decimal("0.45"),
-        maker_amount=Decimal("0.966191"),
-        taker_amount=Decimal("1.932381"),
-        total_required=Decimal("1"),
-        expires_at=1_773_890_765_500,
-    ),
-    position_id=PositionId("789"),
-    condition_id=to_combo_condition_id(CONDITION_ID),
+    quote_id="quote-1",
     builder_code=HexString(BUILDER_CODE),
+    direction=RfqDirection.BUY,
+    position_id=PositionId("789"),
+    blended_price=Decimal("0.45"),
+    maker_amount=Decimal("0.966191"),
+    taker_amount=Decimal("1.932381"),
+    total_required=Decimal("1"),
+    expires_at=1_773_890_765_500,
 )
 
 
@@ -163,11 +165,11 @@ def test_request_combo_quote_builds_buy_request_and_parses_quote() -> None:
         assert request.headers["POLY_BUILDER_API_KEY"] == BUILDER_AUTH.key
 
         assert result.rfq_id == "rfq-1"
-        assert result.direction is RfqDirection.BUY
-        assert result.position_id == "789"
-        assert result.condition_id == CONDITION_ID
-        assert result.builder_code == BUILDER_CODE
         assert result.quote is not None
+        assert result.quote.rfq_id == "rfq-1"
+        assert result.quote.direction is RfqDirection.BUY
+        assert result.quote.position_id == "789"
+        assert result.quote.builder_code == BUILDER_CODE
         assert result.quote.blended_price == Decimal("0.45")
         assert result.quote.maker_amount == Decimal("0.966191")
         assert result.quote.taker_amount == Decimal("1.932381")
@@ -237,6 +239,7 @@ def test_request_combo_quote_validates_input_before_sending() -> None:
     invalid_calls = [
         {"leg_position_ids": ["123"], "direction": "BUY", "amount": 100},
         {"leg_position_ids": ["123", "123"], "direction": "BUY", "amount": 100},
+        {"leg_position_ids": ["123", "0123"], "direction": "BUY", "amount": 100},
         {"leg_position_ids": ["123", "0x2"], "direction": "BUY", "amount": 100},
         {"leg_position_ids": LEGS, "direction": "BUY", "amount": "0.0000001"},
         {"leg_position_ids": LEGS, "direction": "BUY", "amount": 0},
@@ -252,6 +255,22 @@ def test_request_combo_quote_validates_input_before_sending() -> None:
     for kwargs in invalid_calls:
         with pytest.raises(UserInputError):
             client.request_combo_quote(**kwargs)  # type: ignore[arg-type]
+
+
+def test_request_combo_quote_canonicalizes_numeric_leg_ids() -> None:
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json=QUOTE_READY, request=request)
+
+    client = make_sync_eoa_client()
+    install_sync_builder_gateway_handler(client, handler)
+
+    client.request_combo_quote(leg_position_ids=["000123", "0456"], direction="BUY", amount=100)
+
+    body = json.loads(captured[0].content.decode("utf-8"))
+    assert body["leg_position_ids"] == ["123", "456"]
 
 
 def test_request_combo_quote_requires_builder_api_key() -> None:
@@ -273,6 +292,11 @@ def test_request_combo_quote_classifies_rejections() -> None:
                 httpx.Response(
                     400, json={"error": "contradictory legs", "code": "CONTRADICTORY_LEGS"}
                 ),
+                httpx.Response(
+                    503,
+                    json={"error": "temporarily unavailable", "code": "SERVICE_UNAVAILABLE"},
+                    headers={"Retry-After": "2"},
+                ),
                 httpx.Response(400, json={"error": "something new", "code": "SOMETHING_NEW"}),
             ),
         )
@@ -281,6 +305,13 @@ def test_request_combo_quote_classifies_rejections() -> None:
             await client.request_combo_quote(leg_position_ids=LEGS, direction="BUY", amount=100)
         assert known.value.code is RfqRejectionCode.CONTRADICTORY_LEGS
         assert known.value.status == 400
+
+        with pytest.raises(RfqRequestRejectedError) as transient:
+            await client.request_combo_quote(leg_position_ids=LEGS, direction="BUY", amount=100)
+        assert transient.value.code is RfqRejectionCode.SERVICE_UNAVAILABLE
+        assert transient.value.status == 503
+        assert transient.value.retry_after == 2.0
+        assert isinstance(transient.value, RequestRejectedError)
 
         with pytest.raises(RfqRequestRejectedError) as unknown:
             await client.request_combo_quote(leg_position_ids=LEGS, direction="BUY", amount=100)
@@ -308,7 +339,7 @@ def test_accept_combo_quote_signs_and_submits_the_acceptance_order() -> None:
         client = await make_eoa_client()
         install_builder_gateway_handler(client, handler)
 
-        acceptance = await client.accept_combo_quote(QUOTE_RESULT)
+        acceptance = await client.accept_combo_quote(QUOTE)
 
         request = captured[0]
         assert request.url.path == "/v1/builder/rfq/requests/rfq-1/accept"
@@ -354,7 +385,7 @@ def test_accept_combo_quote_polls_until_the_outcome_lands() -> None:
         client = await make_eoa_client()
         install_builder_gateway_handler(client, handler)
 
-        acceptance = await client.accept_combo_quote(QUOTE_RESULT)
+        acceptance = await client.accept_combo_quote(QUOTE)
 
         assert acceptance.status == "executing"
         assert acceptance.taker_order_hash == TAKER_ORDER_HASH
@@ -380,7 +411,7 @@ def test_accept_combo_quote_reports_maker_decline_as_failed() -> None:
             ),
         )
 
-        acceptance = await client.accept_combo_quote(QUOTE_RESULT)
+        acceptance = await client.accept_combo_quote(QUOTE)
 
         assert acceptance.status == "failed"
         assert acceptance.reason is ComboAcceptFailureReason.MAKER_DECLINED
@@ -398,7 +429,7 @@ def test_accept_combo_quote_reports_expired_window_as_failed() -> None:
             json_handler(httpx.Response(409, json={"error": "expired rfq", "code": "EXPIRED_RFQ"})),
         )
 
-        acceptance = await client.accept_combo_quote(QUOTE_RESULT)
+        acceptance = await client.accept_combo_quote(QUOTE)
 
         assert acceptance.status == "failed"
         assert acceptance.reason is ComboAcceptFailureReason.ACCEPTANCE_WINDOW_EXPIRED
@@ -406,19 +437,90 @@ def test_accept_combo_quote_reports_expired_window_as_failed() -> None:
     asyncio.run(run())
 
 
-def test_accept_combo_quote_rejects_result_without_quote() -> None:
+def test_accept_combo_quote_rejects_invalid_portable_quote() -> None:
     async def run() -> None:
         client = await make_eoa_client()
+        portable = json.loads(QUOTE.model_dump_json())
+        portable["builder_code"] = "not-a-builder-code"
 
-        with pytest.raises(UserInputError, match="without a quote"):
-            await client.accept_combo_quote(
-                ComboQuoteResult(
-                    rfq_id="rfq-2",
-                    direction=RfqDirection.BUY,
-                    quote=None,
-                    reason=ComboQuoteUnavailableReason.NO_QUOTES,
-                )
+        with pytest.raises(UserInputError, match="builder_code"):
+            await client.accept_combo_quote(portable)
+
+    asyncio.run(run())
+
+
+def test_accept_combo_quote_retries_once_after_transport_drop() -> None:
+    async def run() -> None:
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            if len(captured) == 1:
+                raise httpx.ReadTimeout("connection dropped", request=request)
+            return httpx.Response(
+                200,
+                json={"rfq_id": "rfq-1", "status": "EXECUTING"},
+                request=request,
             )
+
+        client = await make_eoa_client()
+        install_builder_gateway_handler(client, handler)
+
+        acceptance = await client.accept_combo_quote(QUOTE)
+
+        assert len(captured) == 2
+        assert captured[0].content == captured[1].content
+        assert acceptance.status == "executing"
+        assert acceptance.taker_order_hash is None
+
+    asyncio.run(run())
+
+
+def test_sync_accept_combo_quote_retries_once_after_transport_drop() -> None:
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        if len(captured) == 1:
+            raise httpx.ReadTimeout("connection dropped", request=request)
+        return httpx.Response(
+            200,
+            json={"rfq_id": "rfq-1", "status": "EXECUTING"},
+            request=request,
+        )
+
+    client = make_sync_eoa_client()
+    install_sync_builder_gateway_handler(client, handler)
+
+    acceptance = client.accept_combo_quote(QUOTE)
+
+    assert len(captured) == 2
+    assert captured[0].content == captured[1].content
+    assert acceptance.status == "executing"
+
+
+def test_combo_quote_round_trips_as_json_between_clients() -> None:
+    async def run() -> None:
+        requesting_client = await make_eoa_client()
+        install_builder_gateway_handler(
+            requesting_client,
+            json_handler(httpx.Response(200, json=QUOTE_READY)),
+        )
+        result = await requesting_client.request_combo_quote(
+            leg_position_ids=LEGS, direction="BUY", amount=100
+        )
+        assert result.quote is not None
+
+        portable = json.loads(result.quote.model_dump_json())
+        accepting_client = await make_eoa_client()
+        install_builder_gateway_handler(
+            accepting_client,
+            json_handler(httpx.Response(200, json={"rfq_id": "rfq-1", "status": "EXECUTING"})),
+        )
+
+        acceptance = await accepting_client.accept_combo_quote(portable)
+
+        assert acceptance.status == "executing"
 
     asyncio.run(run())
 
@@ -480,6 +582,34 @@ def test_wait_for_combo_fill_times_out_while_non_terminal() -> None:
         client.wait_for_combo_fill(rfq_id="rfq-1", timeout=0.01, polling_interval=0.001)
 
 
+@pytest.mark.parametrize(
+    ("timeout", "polling_interval"),
+    [(float("nan"), 1.0), (1.0, float("nan")), (True, 1.0), (1.0, False)],
+)
+def test_wait_for_combo_fill_rejects_invalid_wait_params(
+    timeout: float, polling_interval: float
+) -> None:
+    client = make_sync_eoa_client()
+
+    with pytest.raises(UserInputError, match="finite number greater than 0"):
+        client.wait_for_combo_fill(
+            rfq_id="rfq-1", timeout=timeout, polling_interval=polling_interval
+        )
+
+
+def test_async_wait_for_combo_fill_rejects_nan_wait_params() -> None:
+    async def run() -> None:
+        client = await make_eoa_client()
+
+        with pytest.raises(UserInputError, match="finite number greater than 0"):
+            await client.wait_for_combo_fill(rfq_id="rfq-1", timeout=float("nan"))
+
+        with pytest.raises(UserInputError, match="finite number greater than 0"):
+            await client.wait_for_combo_fill(rfq_id="rfq-1", polling_interval=float("nan"))
+
+    asyncio.run(run())
+
+
 def test_fetch_rfq_status_maps_rejections() -> None:
     client = make_sync_eoa_client()
     install_sync_builder_gateway_handler(
@@ -494,6 +624,37 @@ def test_fetch_rfq_status_maps_rejections() -> None:
 
     assert rejected.value.status == 409
     assert rejected.value.code == "RFQ_NOT_ACCEPTED"
+
+
+def test_fetch_rfq_status_rejects_mismatched_response_id() -> None:
+    client = make_sync_eoa_client()
+    install_sync_builder_gateway_handler(
+        client,
+        json_handler(httpx.Response(200, json={"rfq_id": "rfq-2", "status": "EXECUTING"})),
+    )
+
+    with pytest.raises(UnexpectedResponseError, match="did not match requested ID"):
+        client.fetch_rfq_status(rfq_id="rfq-1")
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("taker_order_hash", 123), ("tx_hash", None)],
+)
+def test_fetch_rfq_status_rejects_malformed_optional_hashes(field: str, value: object) -> None:
+    client = make_sync_eoa_client()
+    install_sync_builder_gateway_handler(
+        client,
+        json_handler(
+            httpx.Response(
+                200,
+                json={"rfq_id": "rfq-1", "status": "EXECUTING", field: value},
+            )
+        ),
+    )
+
+    with pytest.raises(UnexpectedResponseError, match=field):
+        client.fetch_rfq_status(rfq_id="rfq-1")
 
 
 def test_sync_client_requests_and_accepts_a_combo_quote() -> None:
@@ -519,7 +680,7 @@ def test_sync_client_requests_and_accepts_a_combo_quote() -> None:
     result = client.request_combo_quote(leg_position_ids=LEGS, direction="BUY", amount=100)
     assert result.quote is not None
 
-    acceptance = client.accept_combo_quote(result)
+    acceptance = client.accept_combo_quote(result.quote)
 
     accept_request = captured[1]
     assert accept_request.url.path == "/v1/builder/rfq/requests/rfq-1/accept"
@@ -531,8 +692,6 @@ def test_sync_client_requests_and_accepts_a_combo_quote() -> None:
 
 
 def test_request_combo_quote_rejects_malformed_condition_id() -> None:
-    from polymarket.errors import UnexpectedResponseError
-
     malformed = copy.deepcopy(QUOTE_READY)
     malformed["request"]["condition_id"] = "0x04" + "0" * 60
     client = make_sync_eoa_client()
@@ -540,3 +699,45 @@ def test_request_combo_quote_rejects_malformed_condition_id() -> None:
 
     with pytest.raises(UnexpectedResponseError):
         client.request_combo_quote(leg_position_ids=LEGS, direction="BUY", amount=100)
+
+
+def test_request_combo_quote_rejects_quote_in_wrong_lifecycle_status() -> None:
+    malformed = copy.deepcopy(QUOTE_READY)
+    malformed["status"] = "EXECUTING"
+    client = make_sync_eoa_client()
+    install_sync_builder_gateway_handler(client, json_handler(httpx.Response(200, json=malformed)))
+
+    with pytest.raises(UnexpectedResponseError, match="included a quote"):
+        client.request_combo_quote(leg_position_ids=LEGS, direction="BUY", amount=100)
+
+
+def test_request_combo_quote_rejects_mismatched_nested_rfq_id() -> None:
+    malformed = copy.deepcopy(QUOTE_READY)
+    malformed["request"]["rfq_id"] = "rfq-2"
+    client = make_sync_eoa_client()
+    install_sync_builder_gateway_handler(client, json_handler(httpx.Response(200, json=malformed)))
+
+    with pytest.raises(UnexpectedResponseError, match="did not match requested ID"):
+        client.request_combo_quote(leg_position_ids=LEGS, direction="BUY", amount=100)
+
+
+def test_accept_combo_quote_rejects_mismatched_response_id() -> None:
+    client = make_sync_eoa_client()
+    install_sync_builder_gateway_handler(
+        client,
+        json_handler(httpx.Response(200, json={"rfq_id": "rfq-2", "status": "EXECUTING"})),
+    )
+
+    with pytest.raises(UnexpectedResponseError, match="did not match requested ID"):
+        client.accept_combo_quote(QUOTE)
+
+
+def test_wait_for_combo_fill_rejects_mismatched_response_id() -> None:
+    client = make_sync_eoa_client()
+    install_sync_builder_gateway_handler(
+        client,
+        json_handler(httpx.Response(200, json={"rfq_id": "rfq-2", "status": "EXECUTING"})),
+    )
+
+    with pytest.raises(UnexpectedResponseError, match="did not match requested ID"):
+        client.wait_for_combo_fill(rfq_id="rfq-1")

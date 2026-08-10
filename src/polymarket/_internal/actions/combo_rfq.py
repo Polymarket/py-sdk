@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import math
+import re
 import secrets
 import time
+from collections.abc import Mapping
 from decimal import Decimal, InvalidOperation
 from typing import Literal, cast
 from urllib.parse import quote as quote_path_segment
 
 import httpx
+from pydantic import ValidationError
 
 from polymarket._internal.actions.orders.typed_data import (
     build_order_signature,
@@ -23,6 +27,7 @@ from polymarket.errors import (
     RequestRejectedError,
     SigningError,
     TimeoutError,
+    TransportError,
     UnexpectedResponseError,
     UserInputError,
 )
@@ -124,23 +129,30 @@ def request_combo_quote_sync(
 
 
 async def accept_combo_quote(
-    ctx: AsyncSecureClientContext, quote: ComboQuoteResult
+    ctx: AsyncSecureClientContext, quote: ComboQuote | Mapping[str, object]
 ) -> ComboQuoteAcceptance:
+    quote = _parse_combo_quote_input(quote)
     _require_builder_api_key(ctx)
     body = _build_accept_request_body(ctx, quote)
+    path = f"{_REQUESTS_PATH}/{_encode_path_segment(quote.rfq_id)}/accept"
     try:
-        data = await ctx.builder_gateway.post_json(
-            f"{_REQUESTS_PATH}/{_encode_path_segment(quote.rfq_id)}/accept",
-            json=body,
-            timeout=_HELD_REQUEST_TIMEOUT,
-        )
+        try:
+            data = await ctx.builder_gateway.post_json(
+                path, json=body, timeout=_HELD_REQUEST_TIMEOUT
+            )
+        except TransportError:
+            # Acceptance is idempotent server-side. Retry the same signed order
+            # once when the connection drops during the maker last-look hold.
+            data = await ctx.builder_gateway.post_json(
+                path, json=body, timeout=_HELD_REQUEST_TIMEOUT
+            )
     except RequestRejectedError as error:
         expired = _to_expired_acceptance(quote.rfq_id, error)
         if expired is not None:
             return expired
         raise _to_rfq_request_rejected(error) from error
 
-    status = _parse_rfq_status(data)
+    status = _parse_rfq_status(data, expected_rfq_id=quote.rfq_id)
     # Only the accept response carries the taker order hash; status polls do
     # not, so capture it before entering the poll loop.
     taker_order_hash = status.taker_order_hash
@@ -156,23 +168,26 @@ async def accept_combo_quote(
 
 
 def accept_combo_quote_sync(
-    ctx: SyncSecureClientContext, quote: ComboQuoteResult
+    ctx: SyncSecureClientContext, quote: ComboQuote | Mapping[str, object]
 ) -> ComboQuoteAcceptance:
+    quote = _parse_combo_quote_input(quote)
     _require_builder_api_key(ctx)
     body = _build_accept_request_body(ctx, quote)
+    path = f"{_REQUESTS_PATH}/{_encode_path_segment(quote.rfq_id)}/accept"
     try:
-        data = ctx.builder_gateway.post_json(
-            f"{_REQUESTS_PATH}/{_encode_path_segment(quote.rfq_id)}/accept",
-            json=body,
-            timeout=_HELD_REQUEST_TIMEOUT,
-        )
+        try:
+            data = ctx.builder_gateway.post_json(path, json=body, timeout=_HELD_REQUEST_TIMEOUT)
+        except TransportError:
+            # Acceptance is idempotent server-side. Retry the same signed order
+            # once when the connection drops during the maker last-look hold.
+            data = ctx.builder_gateway.post_json(path, json=body, timeout=_HELD_REQUEST_TIMEOUT)
     except RequestRejectedError as error:
         expired = _to_expired_acceptance(quote.rfq_id, error)
         if expired is not None:
             return expired
         raise _to_rfq_request_rejected(error) from error
 
-    status = _parse_rfq_status(data)
+    status = _parse_rfq_status(data, expected_rfq_id=quote.rfq_id)
     # Only the accept response carries the taker order hash; status polls do
     # not, so capture it before entering the poll loop.
     taker_order_hash = status.taker_order_hash
@@ -237,7 +252,7 @@ async def fetch_rfq_status(ctx: AsyncSecureClientContext, *, rfq_id: str) -> Rfq
         )
     except RequestRejectedError as error:
         raise _to_rfq_request_rejected(error) from error
-    return _parse_rfq_status(data)
+    return _parse_rfq_status(data, expected_rfq_id=rfq_id)
 
 
 def fetch_rfq_status_sync(ctx: SyncSecureClientContext, *, rfq_id: str) -> RfqStatusResult:
@@ -246,7 +261,7 @@ def fetch_rfq_status_sync(ctx: SyncSecureClientContext, *, rfq_id: str) -> RfqSt
         data = ctx.builder_gateway.get_json(f"{_REQUESTS_PATH}/{_encode_path_segment(rfq_id)}")
     except RequestRejectedError as error:
         raise _to_rfq_request_rejected(error) from error
-    return _parse_rfq_status(data)
+    return _parse_rfq_status(data, expected_rfq_id=rfq_id)
 
 
 def build_combo_quote_request_body(
@@ -289,25 +304,26 @@ def build_combo_quote_request_body(
     return parsed_direction, body
 
 
-def _build_accept_request_body(ctx: _SecureContext, quote: ComboQuoteResult) -> dict[str, object]:
-    if quote.quote is None:
-        raise UserInputError("Cannot accept a combo quote result without a quote.")
-    if quote.position_id is None or quote.builder_code is None:
-        raise UserInputError(
-            "Cannot accept a combo quote result without its position and builder attribution."
-        )
+def _build_accept_request_body(ctx: _SecureContext, quote: ComboQuote) -> dict[str, object]:
     _require_rfq_id(quote.rfq_id)
+    if not quote.quote_id:
+        raise UserInputError("quote.quote_id must be a non-empty string.")
+    direction = _parse_direction(quote.direction)
+    position_id = _validate_position_id("quote.position_id", quote.position_id)
+    builder_code = _validate_builder_code(quote.builder_code)
+    if quote.expires_at < 0:
+        raise UserInputError("quote.expires_at must be non-negative.")
 
     signed_order = _sign_acceptance_order(
         ctx,
-        direction=quote.direction,
-        position_id=quote.position_id,
-        builder_code=quote.builder_code,
-        maker_amount_e6=_decimal_to_e6("quote.maker_amount", quote.quote.maker_amount),
-        taker_amount_e6=_decimal_to_e6("quote.taker_amount", quote.quote.taker_amount),
+        direction=direction,
+        position_id=position_id,
+        builder_code=builder_code,
+        maker_amount_e6=_decimal_to_e6("quote.maker_amount", quote.maker_amount),
+        taker_amount_e6=_decimal_to_e6("quote.taker_amount", quote.taker_amount),
     )
     return {
-        "quote_id": quote.quote.quote_id,
+        "quote_id": quote.quote_id,
         "signed_order": signed_order,
     }
 
@@ -380,11 +396,23 @@ def _require_rfq_id(rfq_id: str) -> None:
         raise UserInputError("rfq_id must be a non-empty string.")
 
 
+def _parse_combo_quote_input(quote: ComboQuote | Mapping[str, object]) -> ComboQuote:
+    try:
+        return ComboQuote.model_validate(quote)
+    except ValidationError as error:
+        raise UserInputError("quote must be a valid self-contained combo quote.") from error
+
+
 def _validate_wait_params(*, timeout: float, polling_interval: float) -> None:
-    if timeout <= 0:
-        raise UserInputError("timeout must be greater than 0.")
-    if polling_interval <= 0:
-        raise UserInputError("polling_interval must be greater than 0.")
+    _validate_positive_finite_number("timeout", timeout)
+    _validate_positive_finite_number("polling_interval", polling_interval)
+
+
+def _validate_positive_finite_number(name: str, value: object) -> None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise UserInputError(f"{name} must be a finite number greater than 0.")
+    if value <= 0:
+        raise UserInputError(f"{name} must be a finite number greater than 0.")
 
 
 def _parse_direction(direction: RfqDirection | str) -> RfqDirection:
@@ -402,16 +430,31 @@ def _parse_side(side: RfqSide | str) -> RfqSide:
 
 
 def _validate_legs(leg_position_ids: list[str] | tuple[str, ...]) -> list[str]:
-    legs = [str(leg) for leg in leg_position_ids]
-    if len(legs) < _MIN_LEGS or len(legs) > _MAX_LEGS:
+    raw_legs = [str(leg) for leg in leg_position_ids]
+    if len(raw_legs) < _MIN_LEGS or len(raw_legs) > _MAX_LEGS:
         raise UserInputError(
             f"leg_position_ids must include {_MIN_LEGS} to {_MAX_LEGS} position IDs."
         )
-    if any(not leg.isdecimal() for leg in legs):
+    if any(not leg.isdecimal() for leg in raw_legs):
         raise UserInputError("leg_position_ids must be numeric position ID strings.")
+    legs = [str(int(leg)) for leg in raw_legs]
     if len(set(legs)) != len(legs):
         raise UserInputError("leg_position_ids must not contain duplicates.")
     return legs
+
+
+def _validate_position_id(name: str, value: object) -> PositionId:
+    raw = str(value)
+    if not raw.isdecimal():
+        raise UserInputError(f"{name} must be a numeric position ID string.")
+    return PositionId(str(int(raw)))
+
+
+def _validate_builder_code(value: object) -> HexString:
+    raw = str(value)
+    if re.fullmatch(r"0x[0-9a-fA-F]{64}", raw) is None:
+        raise UserInputError("quote.builder_code must be a 32-byte hex string.")
+    return HexString(raw)
 
 
 def _decimal_to_e6(name: str, value: Decimal | int | float | str) -> int:
@@ -441,7 +484,10 @@ def _encode_path_segment(value: str) -> str:
 
 def _to_rfq_request_rejected(error: RequestRejectedError) -> RfqRequestRejectedError:
     return RfqRequestRejectedError(
-        str(error), status=error.status, code=_parse_rejection_code(error.code)
+        str(error),
+        status=error.status,
+        code=_parse_rejection_code(error.code),
+        retry_after=error.retry_after,
     )
 
 
@@ -526,10 +572,23 @@ def _parse_combo_quote_result(data: object, *, direction: RfqDirection) -> Combo
             f"RFQ {rfq_id} response reported status {status} without a quote."
         )
     if quote_payload is not None:
+        if status is not RfqStatus.AWAITING_REQUESTER_ACCEPTANCE:
+            raise UnexpectedResponseError(
+                f"RFQ {rfq_id} response included a quote while reporting status {status}."
+            )
         request_payload = _expect_object(payload.get("request"))
         quote_object = _expect_object(quote_payload)
+        _expect_matching_rfq_id(request_payload, expected_rfq_id=rfq_id)
+        _parse_condition_id(_expect_str(request_payload, "condition_id"))
+        _parse_response_position_id(_expect_str(request_payload, "no_position_id"))
         quote = ComboQuote(
+            rfq_id=rfq_id,
             quote_id=_expect_str(quote_object, "quote_id"),
+            builder_code=_parse_builder_code(_expect_str(payload, "builder_code")),
+            direction=direction,
+            position_id=_parse_response_position_id(
+                _expect_str(request_payload, "yes_position_id")
+            ),
             blended_price=_e6_to_decimal(quote_object.get("blended_price_e6")),
             maker_amount=_e6_to_decimal(quote_object.get("maker_amount_e6")),
             taker_amount=_e6_to_decimal(quote_object.get("taker_amount_e6")),
@@ -538,15 +597,11 @@ def _parse_combo_quote_result(data: object, *, direction: RfqDirection) -> Combo
         )
         return ComboQuoteResult(
             rfq_id=rfq_id,
-            direction=direction,
             quote=quote,
-            position_id=PositionId(_expect_str(request_payload, "yes_position_id")),
-            condition_id=_parse_condition_id(_expect_str(request_payload, "condition_id")),
-            builder_code=HexString(_expect_str(payload, "builder_code")),
         )
 
     reason = _parse_quote_unavailable_reason(payload)
-    return ComboQuoteResult(rfq_id=rfq_id, direction=direction, quote=None, reason=reason)
+    return ComboQuoteResult(rfq_id=rfq_id, quote=None, reason=reason)
 
 
 def _parse_quote_unavailable_reason(payload: dict[str, object]) -> ComboQuoteUnavailableReason:
@@ -565,8 +620,9 @@ def _parse_quote_unavailable_reason(payload: dict[str, object]) -> ComboQuoteUna
     )
 
 
-def _parse_rfq_status(data: object) -> RfqStatusResult:
+def _parse_rfq_status(data: object, *, expected_rfq_id: str) -> RfqStatusResult:
     payload = _expect_object(data)
+    rfq_id = _expect_matching_rfq_id(payload, expected_rfq_id=expected_rfq_id)
     error_payload = payload.get("error")
     error: RfqErrorDetail | None = None
     if error_payload is not None:
@@ -575,15 +631,30 @@ def _parse_rfq_status(data: object) -> RfqStatusResult:
             code=_parse_error_code(_expect_str(error_object, "code")),
             message=_expect_str(error_object, "message"),
         )
-    tx_hash = payload.get("tx_hash")
-    taker_order_hash = payload.get("taker_order_hash")
+    tx_hash = _expect_optional_str(payload, "tx_hash")
+    taker_order_hash = _expect_optional_str(payload, "taker_order_hash")
     return RfqStatusResult(
-        rfq_id=_expect_str(payload, "rfq_id"),
+        rfq_id=rfq_id,
         status=_parse_status(_expect_str(payload, "status")),
-        taker_order_hash=HexString(taker_order_hash) if isinstance(taker_order_hash, str) else None,
-        tx_hash=TransactionHash(tx_hash) if isinstance(tx_hash, str) else None,
+        taker_order_hash=HexString(taker_order_hash) if taker_order_hash is not None else None,
+        tx_hash=TransactionHash(tx_hash) if tx_hash is not None else None,
         error=error,
     )
+
+
+def _expect_matching_rfq_id(payload: dict[str, object], *, expected_rfq_id: str) -> str:
+    rfq_id = _expect_str(payload, "rfq_id")
+    if rfq_id != expected_rfq_id:
+        raise UnexpectedResponseError(
+            f"RFQ response ID {rfq_id!r} did not match requested ID {expected_rfq_id!r}."
+        )
+    return rfq_id
+
+
+def _expect_optional_str(payload: dict[str, object], key: str) -> str | None:
+    if key not in payload:
+        return None
+    return _expect_str(payload, key)
 
 
 def _parse_status(value: str) -> RfqStatus | RfqExecutionStatus:
@@ -611,6 +682,18 @@ def _parse_condition_id(value: str) -> ComboConditionId:
         return to_combo_condition_id(value)
     except TypeError as error:
         raise UnexpectedResponseError(f"Invalid combo condition ID: {value}") from error
+
+
+def _parse_response_position_id(value: str) -> PositionId:
+    if not value.isdecimal():
+        raise UnexpectedResponseError(f"Invalid combo position ID: {value}")
+    return PositionId(str(int(value)))
+
+
+def _parse_builder_code(value: str) -> HexString:
+    if re.fullmatch(r"0x[0-9a-fA-F]{64}", value) is None:
+        raise UnexpectedResponseError(f"Invalid combo builder code: {value}")
+    return HexString(value)
 
 
 def _expect_object(value: object) -> dict[str, object]:

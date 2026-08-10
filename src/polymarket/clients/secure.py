@@ -204,6 +204,7 @@ from polymarket.models.types import CtfConditionId, TokenId
 from polymarket.pagination import Page, Paginator
 from polymarket.rfq import (
     ComboFillResult,
+    ComboQuote,
     ComboQuoteAcceptance,
     ComboQuoteResult,
     RfqDirection,
@@ -2603,7 +2604,8 @@ class SecureClient:
         ``quote=None`` and a ``reason`` rather than raised.
 
         Returns:
-            The quote result. Pass it to :meth:`accept_combo_quote` to
+            The quote result. Pass ``result.quote`` to
+            :meth:`accept_combo_quote` to
             execute the winning quote before ``quote.expires_at``.
 
         Raises:
@@ -2622,8 +2624,8 @@ class SecureClient:
             side=side,
         )
 
-    def accept_combo_quote(self, quote: ComboQuoteResult) -> ComboQuoteAcceptance:
-        """Accept a combo quote, signing the acceptance order automatically.
+    def accept_combo_quote(self, quote: ComboQuote | Mapping[str, object]) -> ComboQuoteAcceptance:
+        """Accept a self-contained combo quote and sign its order automatically.
 
         The call resolves at the maker last-look outcome. A maker declining
         or the acceptance window expiring is a normal outcome returned with
@@ -2636,12 +2638,19 @@ class SecureClient:
         ``taker_order_hash`` is ``None`` because the retry's order was not
         the one recorded.
 
+        Quotes can be persisted with ``quote.model_dump_json()`` and restored
+        with ``ComboQuote.model_validate_json(...)``. A JSON-decoded mapping is
+        also accepted directly. The accepting client must represent the same
+        account and builder identity used to request the quote. Treat restored
+        quote fields as signing-sensitive data and do not accept values modified
+        by an untrusted client.
+
         Returns:
             The acceptance outcome.
 
         Raises:
-            UserInputError: If the quote result carries no quote or the
-                client has no Builder API Key.
+            UserInputError: If the quote is invalid or the client has no
+                Builder API Key.
             RfqRequestRejectedError: If the acceptance is rejected.
             TimeoutError: If the outcome is still pending after the wait
                 window; resume with :meth:`fetch_rfq_status`.
