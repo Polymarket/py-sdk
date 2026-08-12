@@ -56,14 +56,14 @@ class JsonRpcClient:
             if self._verified_chain_id != expected:
                 raise UserInputError(
                     f"RPC chain id {self._verified_chain_id} does not match "
-                    f"environment.chain_id {expected}. Configure rpc_url for the correct chain."
+                    f"environment chain id {expected}. Configure the client for the correct chain."
                 )
             return
         actual = await self.eth_chain_id()
         if actual != expected:
             raise UserInputError(
-                f"RPC chain id {actual} does not match environment.chain_id {expected}. "
-                "Configure rpc_url for the correct chain."
+                f"RPC chain id {actual} does not match environment chain id {expected}. "
+                "Configure the client for the correct chain."
             )
         self._verified_chain_id = actual
 
@@ -167,14 +167,14 @@ class SyncJsonRpcClient:
             if self._verified_chain_id != expected:
                 raise UserInputError(
                     f"RPC chain id {self._verified_chain_id} does not match "
-                    f"environment.chain_id {expected}. Configure rpc_url for the correct chain."
+                    f"environment chain id {expected}. Configure the client for the correct chain."
                 )
             return
         actual = self.eth_chain_id()
         if actual != expected:
             raise UserInputError(
-                f"RPC chain id {actual} does not match environment.chain_id {expected}. "
-                "Configure rpc_url for the correct chain."
+                f"RPC chain id {actual} does not match environment chain id {expected}. "
+                "Configure the client for the correct chain."
             )
         self._verified_chain_id = actual
 

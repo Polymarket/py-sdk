@@ -13,8 +13,8 @@ from polymarket._internal.actions.relayer.calls import (
     erc1155_is_approved_for_all_call,
     erc1155_set_approval_for_all_call,
 )
+from polymarket._internal.environment import EnvironmentConfig
 from polymarket._internal.eoa.rpc import JsonRpcClient, SyncJsonRpcClient
-from polymarket.environments import Environment
 from polymarket.types import EvmAddress
 
 
@@ -32,9 +32,9 @@ class _Erc1155TradingApproval:
 
 
 async def resolve_missing_trading_approval_calls(
-    rpc: JsonRpcClient, *, wallet: EvmAddress, environment: Environment
+    rpc: JsonRpcClient, *, wallet: EvmAddress, config: EnvironmentConfig
 ) -> list[TransactionCall]:
-    erc20, erc1155 = _required_trading_approvals(environment)
+    erc20, erc1155 = _required_trading_approvals(config)
     erc20_checks = [
         erc20_allowance_call(
             token_address=approval.token_address,
@@ -83,9 +83,9 @@ async def resolve_missing_trading_approval_calls(
 
 
 def resolve_missing_trading_approval_calls_sync(
-    rpc: SyncJsonRpcClient, *, wallet: EvmAddress, environment: Environment
+    rpc: SyncJsonRpcClient, *, wallet: EvmAddress, config: EnvironmentConfig
 ) -> list[TransactionCall]:
-    erc20, erc1155 = _required_trading_approvals(environment)
+    erc20, erc1155 = _required_trading_approvals(config)
     erc20_checks = [
         erc20_allowance_call(
             token_address=approval.token_address,
@@ -134,80 +134,80 @@ def resolve_missing_trading_approval_calls_sync(
 
 
 def _required_trading_approvals(
-    environment: Environment,
+    config: EnvironmentConfig,
 ) -> tuple[list[_Erc20TradingApproval], list[_Erc1155TradingApproval]]:
-    collateral = cast(EvmAddress, environment.collateral_token)
-    conditional = cast(EvmAddress, environment.conditional_tokens)
+    collateral = cast(EvmAddress, config.collateral_token)
+    conditional = cast(EvmAddress, config.conditional_tokens)
     return (
         [
             _Erc20TradingApproval(
                 token_address=collateral,
-                spender=cast(EvmAddress, environment.standard_exchange),
+                spender=cast(EvmAddress, config.standard_exchange),
                 amount=MAX_UINT256,
             ),
             _Erc20TradingApproval(
                 token_address=collateral,
-                spender=cast(EvmAddress, environment.neg_risk_exchange),
+                spender=cast(EvmAddress, config.neg_risk_exchange),
                 amount=MAX_UINT256,
             ),
             _Erc20TradingApproval(
                 token_address=collateral,
-                spender=cast(EvmAddress, environment.collateral_adapter),
+                spender=cast(EvmAddress, config.collateral_adapter),
                 amount=MAX_UINT256,
             ),
             _Erc20TradingApproval(
                 token_address=collateral,
-                spender=cast(EvmAddress, environment.neg_risk_collateral_adapter),
+                spender=cast(EvmAddress, config.neg_risk_collateral_adapter),
                 amount=MAX_UINT256,
             ),
             _Erc20TradingApproval(
                 token_address=collateral,
-                spender=cast(EvmAddress, environment.protocol_v2_router),
+                spender=cast(EvmAddress, config.protocol_v2_router),
                 amount=MAX_UINT256,
             ),
             _Erc20TradingApproval(
                 token_address=collateral,
-                spender=cast(EvmAddress, environment.exchange_v3),
+                spender=cast(EvmAddress, config.exchange_v3),
                 amount=MAX_UINT256,
             ),
             _Erc20TradingApproval(
                 token_address=collateral,
-                spender=cast(EvmAddress, environment.perps_deposit_contract),
+                spender=cast(EvmAddress, config.perps_deposit_contract),
                 amount=MAX_UINT256,
             ),
         ],
         [
             _Erc1155TradingApproval(
                 token_address=conditional,
-                operator=cast(EvmAddress, environment.standard_exchange),
+                operator=cast(EvmAddress, config.standard_exchange),
             ),
             _Erc1155TradingApproval(
                 token_address=conditional,
-                operator=cast(EvmAddress, environment.neg_risk_exchange),
+                operator=cast(EvmAddress, config.neg_risk_exchange),
             ),
             _Erc1155TradingApproval(
                 token_address=conditional,
-                operator=cast(EvmAddress, environment.collateral_adapter),
+                operator=cast(EvmAddress, config.collateral_adapter),
             ),
             _Erc1155TradingApproval(
                 token_address=conditional,
-                operator=cast(EvmAddress, environment.neg_risk_collateral_adapter),
+                operator=cast(EvmAddress, config.neg_risk_collateral_adapter),
             ),
             _Erc1155TradingApproval(
                 token_address=conditional,
-                operator=cast(EvmAddress, environment.auto_redeem_operator),
+                operator=cast(EvmAddress, config.auto_redeem_operator),
             ),
             _Erc1155TradingApproval(
-                token_address=cast(EvmAddress, environment.position_manager),
-                operator=cast(EvmAddress, environment.protocol_v2_router),
+                token_address=cast(EvmAddress, config.position_manager),
+                operator=cast(EvmAddress, config.protocol_v2_router),
             ),
             _Erc1155TradingApproval(
-                token_address=cast(EvmAddress, environment.position_manager),
-                operator=cast(EvmAddress, environment.exchange_v3),
+                token_address=cast(EvmAddress, config.position_manager),
+                operator=cast(EvmAddress, config.exchange_v3),
             ),
             _Erc1155TradingApproval(
-                token_address=cast(EvmAddress, environment.position_manager),
-                operator=cast(EvmAddress, environment.auto_redeem_operator),
+                token_address=cast(EvmAddress, config.position_manager),
+                operator=cast(EvmAddress, config.auto_redeem_operator),
             ),
         ],
     )

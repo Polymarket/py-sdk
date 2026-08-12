@@ -1,8 +1,5 @@
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Annotated
-
-from pydantic import BeforeValidator
 
 
 def _coerce_decimalish(value: object) -> object:
@@ -40,25 +37,23 @@ def _require_epoch_ms(value: object) -> object:
     return parsed
 
 
+# The API reports an unarmed auto-cancel schedule as a `0` deadline.
+def _parse_auto_cancel_deadline(value: object) -> object:
+    if isinstance(value, int) and not isinstance(value, bool) and value == 0:
+        return None
+    return _parse_epoch_ms(value)
+
+
 def _parse_tx_hash(value: object) -> object:
     if value in ("", "0x"):
         return None
     return value
 
 
-if TYPE_CHECKING:
-    _Decimal = Decimal
-else:
-    _Decimal = Annotated[Decimal, BeforeValidator(_coerce_decimalish)]
-
-PerpsTimestamp = Annotated[datetime, BeforeValidator(_require_epoch_ms)]
-OptionalPerpsTimestamp = Annotated[datetime | None, BeforeValidator(_parse_epoch_ms)]
-OptionalTxHash = Annotated[str | None, BeforeValidator(_parse_tx_hash)]
-
-
 __all__ = [
-    "OptionalPerpsTimestamp",
-    "OptionalTxHash",
-    "PerpsTimestamp",
-    "_Decimal",
+    "_coerce_decimalish",
+    "_parse_auto_cancel_deadline",
+    "_parse_epoch_ms",
+    "_parse_tx_hash",
+    "_require_epoch_ms",
 ]

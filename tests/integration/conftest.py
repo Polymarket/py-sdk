@@ -190,6 +190,7 @@ def _has_required_trading_fields(market: Market) -> bool:
         and market.state.accepting_orders is True
         and market.trading.minimum_order_size is not None
         and market.trading.minimum_tick_size is not None
+        and (market.trading.seconds_delay or 0) == 0
         and market.outcomes.yes.token_id is not None
     )
 

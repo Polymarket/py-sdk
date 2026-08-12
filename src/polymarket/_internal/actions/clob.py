@@ -1,12 +1,13 @@
 from collections.abc import Sequence
 from decimal import Decimal
-from typing import cast
+from typing import Annotated, Literal, cast
 
-from pydantic import TypeAdapter, ValidationError
+from pydantic import BeforeValidator, TypeAdapter, ValidationError, field_validator
 
 from polymarket._internal.request import QueryParamValue
 from polymarket._internal.validation import require_nonempty
 from polymarket.errors import UnexpectedResponseError, UserInputError
+from polymarket.models._validators import parse_decimal_string
 from polymarket.models.base import BaseModel
 from polymarket.models.clob import (
     LastTradePrice,
@@ -16,30 +17,54 @@ from polymarket.models.clob import (
     PriceHistoryPoint,
     PriceRequest,
 )
-from polymarket.models.clob._validators import (
-    _DecimalFromString,  # pyright: ignore[reportPrivateUsage]
-)
 from polymarket.models.types import OrderSide, TokenId
 
 
 class _MidpointResponse(BaseModel):
-    mid: _DecimalFromString
+    mid: Decimal
+
+    @field_validator("mid", mode="before")
+    @classmethod
+    def _parse_mid(cls, value: object) -> object:
+        return parse_decimal_string(value)
 
 
 class _PriceResponse(BaseModel):
-    price: _DecimalFromString
+    price: Decimal
+
+    @field_validator("price", mode="before")
+    @classmethod
+    def _parse_price(cls, value: object) -> object:
+        return parse_decimal_string(value)
 
 
 class _SpreadResponse(BaseModel):
-    spread: _DecimalFromString
+    spread: Decimal
+
+    @field_validator("spread", mode="before")
+    @classmethod
+    def _parse_spread(cls, value: object) -> object:
+        return parse_decimal_string(value)
+
+
+class _LastTradePriceResponse(BaseModel):
+    price: Decimal
+    side: OrderSide | Literal[""]
+
+    @field_validator("price", mode="before")
+    @classmethod
+    def _parse_price(cls, value: object) -> object:
+        return parse_decimal_string(value)
 
 
 _PRICE_HISTORY_INTERVALS: frozenset[str] = frozenset({"max", "1w", "1d", "6h", "1h"})
 _VALID_ORDER_SIDES: frozenset[str] = frozenset({"BUY", "SELL"})
 
-_MidpointsAdapter = TypeAdapter(dict[TokenId, _DecimalFromString])
-_SpreadsAdapter = TypeAdapter(dict[TokenId, _DecimalFromString])
-_PricesAdapter = TypeAdapter(dict[TokenId, dict[OrderSide, _DecimalFromString]])
+_StrictDecimalValue = Annotated[Decimal, BeforeValidator(parse_decimal_string)]
+
+_MidpointsAdapter = TypeAdapter(dict[TokenId, _StrictDecimalValue])
+_SpreadsAdapter = TypeAdapter(dict[TokenId, _StrictDecimalValue])
+_PricesAdapter = TypeAdapter(dict[TokenId, dict[OrderSide, _StrictDecimalValue]])
 _OrderBookListAdapter = TypeAdapter(tuple[OrderBook, ...])
 _LastTradePriceListAdapter = TypeAdapter(tuple[LastTradePriceForToken, ...])
 _PriceHistoryListAdapter = TypeAdapter(tuple[PriceHistoryPoint, ...])
@@ -185,8 +210,11 @@ def build_last_trade_price_request(*, token_id: str) -> tuple[str, dict[str, str
     return "/last-trade-price", {"token_id": _require_string_token_id(token_id)}
 
 
-def parse_last_trade_price(data: object) -> LastTradePrice:
-    return LastTradePrice.parse_response(data)
+def parse_last_trade_price(data: object) -> LastTradePrice | None:
+    response = _LastTradePriceResponse.parse_response(data)
+    if response.side == "":
+        return None
+    return LastTradePrice(price=response.price, side=response.side)
 
 
 def build_last_trade_prices_request(

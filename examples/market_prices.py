@@ -37,8 +37,8 @@ def main() -> None:
                 "buyPrice": buy_price,
                 "midpoint": midpoint,
                 "spread": spread,
-                "lastTradePrice": last_trade.price,
-                "lastTradeSide": last_trade.side,
+                "lastTradePrice": last_trade.price if last_trade is not None else "N/A",
+                "lastTradeSide": last_trade.side if last_trade is not None else "N/A",
             }
         )
 

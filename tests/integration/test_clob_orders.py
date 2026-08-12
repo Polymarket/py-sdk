@@ -1,7 +1,9 @@
+# pyright: reportPrivateUsage=false
 import asyncio
 import contextlib
 from decimal import Decimal
 
+import httpx
 import pytest
 
 from polymarket import (
@@ -137,6 +139,31 @@ async def test_create_market_order_reports_unknown_builder_code_as_user_input(
             max_spend=amount,
             builder_code=UNKNOWN_BUILDER_CODE,
         )
+
+
+@pytest.mark.integration
+async def test_create_limit_order_reuses_live_market_metadata(
+    deposit_wallet_client: AsyncSecureClient,
+    tradable_market: Market,
+) -> None:
+    token_id = _yes_token_id(tradable_market)
+    paths: list[str] = []
+
+    async def capture(request: httpx.Request) -> None:
+        paths.append(request.url.path)
+
+    deposit_wallet_client._ctx.clob._client.event_hooks["request"].append(capture)
+    for _ in range(2):
+        signed = await deposit_wallet_client.create_limit_order(
+            token_id=token_id,
+            price=_minimum_tick_size(tradable_market),
+            size=_minimum_order_size(tradable_market),
+            side="BUY",
+        )
+        assert signed.signature.startswith("0x")
+
+    assert paths.count(f"/markets-by-token/{token_id}") == 1
+    assert paths.count(f"/clob-markets/{_market_condition_id(tradable_market)}") == 1
 
 
 # Metered tests below place/cancel live orders or execute FAK market orders.

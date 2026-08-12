@@ -56,7 +56,7 @@ async def execute_collateral_return_plan(
     if ctx.api_key is None:
         raise UserInputError(_MISSING_API_KEY_MESSAGE)
     _require_supported_wallet_type(ctx.wallet_type)
-    _require_plan_matches_client(plan, wallet=ctx.wallet, chain_id=ctx.environment.chain_id)
+    _require_plan_matches_client(plan, wallet=ctx.wallet, chain_id=ctx.environment_config.chain_id)
 
     call = TransactionCall(to=plan.router_call.to, data=plan.router_call.data, value=0)
     return await submit_gasless_with_retry(
@@ -70,7 +70,7 @@ def execute_collateral_return_plan_sync(
     if ctx.api_key is None:
         raise UserInputError(_MISSING_API_KEY_MESSAGE)
     _require_supported_wallet_type(ctx.wallet_type)
-    _require_plan_matches_client(plan, wallet=ctx.wallet, chain_id=ctx.environment.chain_id)
+    _require_plan_matches_client(plan, wallet=ctx.wallet, chain_id=ctx.environment_config.chain_id)
 
     call = TransactionCall(to=plan.router_call.to, data=plan.router_call.data, value=0)
     return submit_gasless_with_retry_sync(

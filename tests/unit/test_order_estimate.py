@@ -78,7 +78,6 @@ def test_resolve_market_price_buy_walks_asks_in_reverse() -> None:
                 side="BUY",
                 notional=Decimal("5"),
                 order_type="FOK",
-                tick_size=Decimal("0.01"),
             )
         finally:
             await client.close()
@@ -108,7 +107,6 @@ def test_resolve_market_price_sell_walks_bids_in_reverse() -> None:
                 side="SELL",
                 notional=Decimal("15"),
                 order_type="FOK",
-                tick_size=Decimal("0.01"),
             )
         finally:
             await client.close()
@@ -132,7 +130,6 @@ def test_resolve_market_price_fok_raises_when_book_too_thin() -> None:
                 side="BUY",
                 notional=Decimal("100"),
                 order_type="FOK",
-                tick_size=Decimal("0.01"),
             )
         finally:
             await client.close()
@@ -160,7 +157,6 @@ def test_resolve_market_price_fak_falls_back_to_best_level_when_book_too_thin() 
                 side="BUY",
                 notional=Decimal("100"),
                 order_type="FAK",
-                tick_size=Decimal("0.01"),
             )
         finally:
             await client.close()
@@ -181,7 +177,6 @@ def test_resolve_market_price_raises_for_empty_book() -> None:
                 side="BUY",
                 notional=Decimal("1"),
                 order_type="FOK",
-                tick_size=Decimal("0.01"),
             )
         finally:
             await client.close()
@@ -215,7 +210,7 @@ def test_public_client_exposes_estimate_market_price() -> None:
         ],
     )
 
-    routes = {"/tick-size": {"minimum_tick_size": 0.01}, "/book": payload}
+    routes = {"/book": payload}
 
     def handler(request: httpx.Request) -> httpx.Response:
         from urllib.parse import urlparse

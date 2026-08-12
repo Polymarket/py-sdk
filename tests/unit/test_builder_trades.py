@@ -1,8 +1,9 @@
 # pyright: reportPrivateUsage=false
 import asyncio
+import inspect
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, get_type_hints
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -14,8 +15,8 @@ from polymarket._internal.actions.builders import (
     build_list_builder_trades_request,
     parse_builder_trades_page,
 )
+from polymarket._internal.environment import PRODUCTION_CONFIG
 from polymarket.clients._transport import AsyncTransport, SyncTransport
-from polymarket.environments import PRODUCTION
 from polymarket.errors import UnexpectedResponseError, UserInputError
 from polymarket.models.clob.builder import BuilderTrade
 
@@ -49,6 +50,19 @@ _WIRE_TRADE: dict[str, Any] = {
 
 
 class TestBuilderTradeModel:
+    def test_annotations_and_signature_expose_canonical_types(self) -> None:
+        hints = get_type_hints(BuilderTrade, include_extras=True)
+        for field in ("size", "size_usdc", "price", "fee", "fee_usdc"):
+            assert hints[field] is Decimal
+        assert hints["matched_at"] is datetime
+        assert hints["created_at"] == (datetime | None)
+        assert hints["updated_at"] == (datetime | None)
+
+        parameters = inspect.signature(BuilderTrade).parameters
+        assert parameters["size"].annotation is Decimal
+        assert parameters["matchTime"].annotation is datetime
+        assert parameters["createdAt"].annotation == (datetime | None)
+
     def test_parses_required_fields_with_alias_mapping(self) -> None:
         trade = BuilderTrade.parse_response(_WIRE_TRADE)
         assert trade.id == "trade-1"
@@ -114,6 +128,12 @@ class TestBuilderTradeModel:
     def test_parses_match_time_from_epoch_seconds_int(self) -> None:
         trade = BuilderTrade.parse_response({**_WIRE_TRADE, "matchTime": 1777040544})
         assert trade.matched_at == datetime(2026, 4, 24, 14, 22, 24, tzinfo=UTC)
+
+    def test_parses_match_time_from_iso_string(self) -> None:
+        trade = BuilderTrade.parse_response(
+            {**_WIRE_TRADE, "matchTime": "2026-04-24T14:22:24.198666Z"}
+        )
+        assert trade.matched_at == datetime(2026, 4, 24, 14, 22, 24, 198666, tzinfo=UTC)
 
     def test_parses_created_and_updated_at_from_iso_strings(self) -> None:
         trade = BuilderTrade.parse_response(
@@ -259,8 +279,8 @@ class TestPublicClientListBuilderTrades:
                 data=client._ctx.data,
                 rfq=client._ctx.rfq,
                 clob=SyncTransport(
-                    base_url=PRODUCTION.clob_url,
-                    client=httpx.Client(base_url=PRODUCTION.clob_url, transport=handler),
+                    base_url=PRODUCTION_CONFIG.clob_url,
+                    client=httpx.Client(base_url=PRODUCTION_CONFIG.clob_url, transport=handler),
                 ),
             )
 
@@ -309,9 +329,10 @@ class TestAsyncPublicClientListBuilderTrades:
                     data=client._ctx.data,
                     rfq=client._ctx.rfq,
                     clob=AsyncTransport(
-                        base_url=PRODUCTION.clob_url,
+                        base_url=PRODUCTION_CONFIG.clob_url,
                         client=httpx.AsyncClient(
-                            base_url=PRODUCTION.clob_url, transport=httpx.MockTransport(handler)
+                            base_url=PRODUCTION_CONFIG.clob_url,
+                            transport=httpx.MockTransport(handler),
                         ),
                     ),
                     perps=client._ctx.perps,
@@ -357,9 +378,10 @@ class TestAsyncSecureClientListBuilderTrades:
                 client._ctx = dataclasses.replace(
                     client._ctx,
                     clob=AsyncTransport(
-                        base_url=PRODUCTION.clob_url,
+                        base_url=PRODUCTION_CONFIG.clob_url,
                         client=httpx.AsyncClient(
-                            base_url=PRODUCTION.clob_url, transport=httpx.MockTransport(handler)
+                            base_url=PRODUCTION_CONFIG.clob_url,
+                            transport=httpx.MockTransport(handler),
                         ),
                     ),
                 )

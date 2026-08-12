@@ -1,0 +1,41 @@
+name: API Reference
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Sphinx artifact
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: uv sync --locked --group docs
+
+      - name: Build API reference
+        run: make api-reference
+
+      - name: Upload API reference
+        uses: actions/upload-artifact@v4
+        with:
+          name: polymarket-client-api-reference-${{ github.sha }}
+          path: build/api-reference/polymarket-client-sphinx.zip
+          if-no-files-found: error
