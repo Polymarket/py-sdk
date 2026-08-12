@@ -1,13 +1,23 @@
 """Perps account models."""
 
 from collections.abc import Sequence
-from typing import Annotated, cast
+from datetime import datetime
+from decimal import Decimal
+from typing import cast
 
-from pydantic import AliasChoices, BeforeValidator, Field, model_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 
 from polymarket.models.base import BaseModel
-from polymarket.models.perps._validators import PerpsTimestamp, _Decimal
-from polymarket.models.perps.types import PerpsEntityId, PerpsInstrumentId
+from polymarket.models.perps._validators import (
+    _coerce_decimalish,  # pyright: ignore[reportPrivateUsage]
+    _parse_auto_cancel_deadline,  # pyright: ignore[reportPrivateUsage]
+    _require_epoch_ms,  # pyright: ignore[reportPrivateUsage]
+)
+from polymarket.models.perps.types import (
+    PerpsEntityId,
+    PerpsFundingPaymentId,
+    PerpsInstrumentId,
+)
 
 # Proxy key expiries above this magnitude are nanoseconds; convert to ms.
 _MAX_EPOCH_MS = 2**53 - 1
@@ -17,20 +27,62 @@ class PerpsBalance(BaseModel):
     """One asset balance in the Perps account."""
 
     asset: str
-    balance: _Decimal
-    value: _Decimal
+    balance: Decimal
+    value: Decimal
+
+    @field_validator("balance", "value", mode="before")
+    @classmethod
+    def _parse_decimal(cls, value: object) -> object:
+        return _coerce_decimalish(value)
+
+
+class PerpsAutoCancelStatus(BaseModel):
+    """Current auto-cancel state for the account.
+
+    ``deadline`` is the armed cancellation time, or ``None`` when no schedule
+    is armed. ``triggered`` counts today's fires, ``daily_limit`` is the
+    maximum triggers allowed per UTC day, and ``next_reset`` is when the
+    daily counter resets.
+    """
+
+    deadline: datetime | None
+    triggered: int
+    daily_limit: int
+    next_reset: datetime
+
+    @field_validator("deadline", mode="before")
+    @classmethod
+    def _parse_deadline(cls, value: object) -> object:
+        return _parse_auto_cancel_deadline(value)
+
+    @field_validator("next_reset", mode="before")
+    @classmethod
+    def _parse_timestamp(cls, value: object) -> object:
+        return _require_epoch_ms(value)
 
 
 class PerpsAccountStats(BaseModel):
     """Rolling 7-day trading statistics for the Perps account."""
 
-    volume_7d: _Decimal
-    taker_volume_7d: _Decimal
-    maker_volume_7d: _Decimal
-    account_maker_share_7d: _Decimal
-    entity_maker_share_7d: _Decimal | None = None
+    volume_7d: Decimal
+    taker_volume_7d: Decimal
+    maker_volume_7d: Decimal
+    account_maker_share_7d: Decimal
+    entity_maker_share_7d: Decimal | None = None
     entity_id: PerpsEntityId | None = None
     entity_name: str | None = None
+
+    @field_validator(
+        "volume_7d",
+        "taker_volume_7d",
+        "maker_volume_7d",
+        "account_maker_share_7d",
+        "entity_maker_share_7d",
+        mode="before",
+    )
+    @classmethod
+    def _parse_decimal(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
 
 class PerpsPosition(BaseModel):
@@ -38,26 +90,53 @@ class PerpsPosition(BaseModel):
 
     instrument_id: PerpsInstrumentId
     symbol: str
-    size: _Decimal
-    entry_price: _Decimal
+    size: Decimal
+    entry_price: Decimal
     leverage: int
     cross: bool
-    initial_margin: _Decimal
-    maintenance_margin: _Decimal
-    position_value: _Decimal
-    liquidation_price: _Decimal
-    unrealized_pnl: _Decimal
-    return_on_equity: _Decimal
-    cumulative_funding: _Decimal
+    initial_margin: Decimal
+    maintenance_margin: Decimal
+    position_value: Decimal
+    liquidation_price: Decimal
+    unrealized_pnl: Decimal
+    return_on_equity: Decimal
+    cumulative_funding: Decimal
+
+    @field_validator(
+        "size",
+        "entry_price",
+        "initial_margin",
+        "maintenance_margin",
+        "position_value",
+        "liquidation_price",
+        "unrealized_pnl",
+        "return_on_equity",
+        "cumulative_funding",
+        mode="before",
+    )
+    @classmethod
+    def _parse_decimal(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
 
 class PerpsMarginSummary(BaseModel):
     """Account-wide margin totals."""
 
-    total_account_value: _Decimal
-    total_initial_margin: _Decimal
-    total_maintenance_margin: _Decimal
-    total_position_value: _Decimal
+    total_account_value: Decimal
+    total_initial_margin: Decimal
+    total_maintenance_margin: Decimal
+    total_position_value: Decimal
+
+    @field_validator(
+        "total_account_value",
+        "total_initial_margin",
+        "total_maintenance_margin",
+        "total_position_value",
+        mode="before",
+    )
+    @classmethod
+    def _parse_decimal(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
 
 class PerpsPortfolio(BaseModel):
@@ -65,20 +144,41 @@ class PerpsPortfolio(BaseModel):
 
     positions: tuple[PerpsPosition, ...]
     margin: PerpsMarginSummary
-    withdrawable: _Decimal
+    withdrawable: Decimal
     in_liquidation: bool
-    timestamp: PerpsTimestamp
+    timestamp: datetime
+
+    @field_validator("withdrawable", mode="before")
+    @classmethod
+    def _parse_decimal(cls, value: object) -> object:
+        return _coerce_decimalish(value)
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def _parse_timestamp(cls, value: object) -> object:
+        return _require_epoch_ms(value)
 
 
 class PerpsFundingPayment(BaseModel):
     """One funding payment applied to a position."""
 
+    id: PerpsFundingPaymentId
     instrument_id: PerpsInstrumentId = Field(validation_alias=AliasChoices("instrument_id", "iid"))
-    size: _Decimal = Field(validation_alias=AliasChoices("size", "sz"))
-    funding_rate: _Decimal = Field(validation_alias=AliasChoices("funding_rate", "fr"))
+    size: Decimal = Field(validation_alias=AliasChoices("size", "sz"))
+    funding_rate: Decimal = Field(validation_alias=AliasChoices("funding_rate", "fr"))
     funding_asset: str = Field(validation_alias=AliasChoices("funding_asset", "fua"))
-    funding: _Decimal = Field(validation_alias=AliasChoices("funding", "fund"))
-    timestamp: PerpsTimestamp = Field(validation_alias=AliasChoices("timestamp", "ts"))
+    funding: Decimal = Field(validation_alias=AliasChoices("funding", "fund"))
+    timestamp: datetime = Field(validation_alias=AliasChoices("timestamp", "ts"))
+
+    @field_validator("size", "funding_rate", "funding", mode="before")
+    @classmethod
+    def _parse_decimal(cls, value: object) -> object:
+        return _coerce_decimalish(value)
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def _parse_timestamp(cls, value: object) -> object:
+        return _require_epoch_ms(value)
 
 
 class PerpsAccountConfig(BaseModel):
@@ -92,8 +192,8 @@ class PerpsAccountConfig(BaseModel):
 class PerpsEquityPoint(BaseModel):
     """One account equity observation."""
 
-    timestamp: PerpsTimestamp
-    equity: _Decimal
+    timestamp: datetime
+    equity: Decimal
 
     @model_validator(mode="before")
     @classmethod
@@ -105,12 +205,22 @@ class PerpsEquityPoint(BaseModel):
             return list(entries)
         return {"timestamp": entries[0], "equity": entries[1]}
 
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def _parse_timestamp(cls, value: object) -> object:
+        return _require_epoch_ms(value)
+
+    @field_validator("equity", mode="before")
+    @classmethod
+    def _parse_decimal(cls, value: object) -> object:
+        return _coerce_decimalish(value)
+
 
 class PerpsPnlPoint(BaseModel):
     """One account profit-and-loss observation."""
 
-    timestamp: PerpsTimestamp
-    pnl: _Decimal
+    timestamp: datetime
+    pnl: Decimal
 
     @model_validator(mode="before")
     @classmethod
@@ -121,6 +231,16 @@ class PerpsPnlPoint(BaseModel):
         if len(entries) != 2:
             return list(entries)
         return {"timestamp": entries[0], "pnl": entries[1]}
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def _parse_timestamp(cls, value: object) -> object:
+        return _require_epoch_ms(value)
+
+    @field_validator("pnl", mode="before")
+    @classmethod
+    def _parse_decimal(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
 
 def _normalize_proxy_expiry(value: object) -> object:
@@ -136,9 +256,12 @@ class PerpsProxyKey(BaseModel):
 
     proxy: str
     label: str | None = None
-    expires_at: Annotated[PerpsTimestamp, BeforeValidator(_normalize_proxy_expiry)] = Field(
-        validation_alias="expiry"
-    )
+    expires_at: datetime = Field(validation_alias="expiry")
+
+    @field_validator("expires_at", mode="before")
+    @classmethod
+    def _parse_expiry(cls, value: object) -> object:
+        return _require_epoch_ms(_normalize_proxy_expiry(value))
 
 
 class PerpsCredentialsInfo(BaseModel):
@@ -151,6 +274,7 @@ class PerpsCredentialsInfo(BaseModel):
 __all__ = [
     "PerpsAccountConfig",
     "PerpsAccountStats",
+    "PerpsAutoCancelStatus",
     "PerpsBalance",
     "PerpsCredentialsInfo",
     "PerpsEquityPoint",

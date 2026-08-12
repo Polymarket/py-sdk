@@ -46,6 +46,7 @@ from polymarket._internal.dispatch import (
     async_paginate_offset,
     async_paginate_page_based,
 )
+from polymarket._internal.environment import get_environment_config
 from polymarket._internal.streams.handle import AsyncSubscriptionHandle, SubscriptionHandle
 from polymarket.clients._transport import AsyncTransport
 from polymarket.environments import PRODUCTION, Environment
@@ -152,13 +153,15 @@ class AsyncPublicClient:
         *,
         logger: logging.Logger | None = None,
     ) -> None:
+        config = get_environment_config(environment)
         self._ctx = AsyncClientContext(
             environment=environment,
-            gamma=AsyncTransport(base_url=environment.gamma_url, logger=logger),
-            data=AsyncTransport(base_url=environment.data_url, logger=logger),
-            rfq=AsyncTransport(base_url=environment.rfq_url, logger=logger),
-            clob=AsyncTransport(base_url=environment.clob_url, logger=logger),
-            perps=AsyncTransport(base_url=environment.perps_url, logger=logger),
+            _resolved_environment_config=config,
+            gamma=AsyncTransport(base_url=config.gamma_url, logger=logger),
+            data=AsyncTransport(base_url=config.data_url, logger=logger),
+            rfq=AsyncTransport(base_url=config.rfq_url, logger=logger),
+            clob=AsyncTransport(base_url=config.clob_url, logger=logger),
+            perps=AsyncTransport(base_url=config.perps_url, logger=logger),
         )
         self._market_manager: ClobMarketStreamManager | None = None
         self._sports_manager: SportsStreamManager | None = None
@@ -286,7 +289,7 @@ class AsyncPublicClient:
             from polymarket._internal.streams.clob.market import ClobMarketStreamManager
 
             self._market_manager = ClobMarketStreamManager(
-                url=self._ctx.environment.clob_market_ws_url,
+                url=self._ctx.environment_config.clob_market_ws_url,
                 logger=self._streams_logger,
             )
         return self._market_manager
@@ -296,7 +299,7 @@ class AsyncPublicClient:
             from polymarket._internal.streams.rtds.manager import RtdsStreamManager
 
             self._rtds_manager = RtdsStreamManager(
-                url=self._ctx.environment.rtds_ws_url,
+                url=self._ctx.environment_config.rtds_ws_url,
                 logger=self._streams_logger,
             )
         return self._rtds_manager
@@ -306,7 +309,7 @@ class AsyncPublicClient:
             from polymarket._internal.streams.sports.manager import SportsStreamManager
 
             self._sports_manager = SportsStreamManager(
-                url=self._ctx.environment.sports_ws_url,
+                url=self._ctx.environment_config.sports_ws_url,
                 logger=self._streams_logger,
             )
         return self._sports_manager
@@ -316,7 +319,7 @@ class AsyncPublicClient:
             from polymarket._internal.streams.perps.market import PerpsMarketStreamManager
 
             self._perps_manager = PerpsMarketStreamManager(
-                url=self._ctx.environment.perps_ws_url,
+                url=self._ctx.environment_config.perps_ws_url,
                 logger=self._streams_logger,
             )
         return self._perps_manager
@@ -1273,8 +1276,11 @@ class AsyncPublicClient:
         path, body = _clob_actions.build_spreads_request(token_ids=token_ids)
         return _clob_actions.parse_spreads(await self._ctx.clob.post_json(path, json=body))
 
-    async def get_last_trade_price(self, *, token_id: str) -> LastTradePrice:
-        """Get the most recent trade price for a token."""
+    async def get_last_trade_price(self, *, token_id: str) -> LastTradePrice | None:
+        """Get the most recent trade price for a token.
+
+        Returns ``None`` when the token has not traded.
+        """
         path, params = _clob_actions.build_last_trade_price_request(token_id=token_id)
         return _clob_actions.parse_last_trade_price(
             await self._ctx.clob.get_json(path, params=params)
@@ -1283,7 +1289,11 @@ class AsyncPublicClient:
     async def get_last_trade_prices(
         self, *, token_ids: Sequence[str]
     ) -> tuple[LastTradePriceForToken, ...]:
-        """Get the most recent trade prices for multiple tokens."""
+        """Get the most recent trade prices for multiple tokens.
+
+        Tokens without trades are omitted. Match returned entries by ``token_id``;
+        the result is not positionally aligned with ``token_ids``.
+        """
         path, body = _clob_actions.build_last_trade_prices_request(token_ids=token_ids)
         return _clob_actions.parse_last_trade_prices(
             await self._ctx.clob.post_json(path, json=body)
@@ -1335,7 +1345,7 @@ class AsyncPublicClient:
         shares: Decimal | int | float | str | None = None,
         order_type: MarketOrderType = "FOK",
     ) -> Decimal:
-        """Estimate the average execution price for a market order.
+        """Estimate the limiting price level for a market order.
 
         BUY orders use ``amount`` as the spend amount. SELL orders use ``shares``
         as the number of shares to sell.

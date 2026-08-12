@@ -20,20 +20,30 @@ from polymarket._internal.actions.perps.signing import (
 )
 from polymarket._internal.actions.perps.trading import (
     RawPerpsOrder,
+    auto_cancel_op,
     cancel_all_orders_op,
     cancel_orders_by_client_id_op,
     cancel_orders_op,
     create_orders_op,
     to_command_body_op,
-    to_raw_order,
-    to_raw_tp_sl_order,
     update_leverage_op,
+    update_margin_op,
+)
+from polymarket._internal.actions.perps.trading import (
+    place_order as place_perps_order,
+)
+from polymarket._internal.actions.perps.trading import (
+    place_position_tp_sl as place_perps_position_tp_sl,
+)
+from polymarket._internal.actions.perps.trading import (
+    post_orders as post_perps_orders,
 )
 from polymarket._internal.streams.perps.heartbeat import PerpsWebSocketHeartbeat
 from polymarket._internal.streams.reconnect import ReconnectScheduler
 from polymarket._internal.ws.connection import AsyncWebSocketConnection
 from polymarket.clients._transport import AsyncTransport
 from polymarket.errors import (
+    AutoCancelDailyLimitError,
     RequestRejectedError,
     TransportError,
     UserInputError,
@@ -44,6 +54,7 @@ from polymarket.errors import (
 from polymarket.models.perps.account import (
     PerpsAccountConfig,
     PerpsAccountStats,
+    PerpsAutoCancelStatus,
     PerpsBalance,
     PerpsEquityPoint,
     PerpsFundingPayment,
@@ -52,7 +63,6 @@ from polymarket.models.perps.account import (
 )
 from polymarket.models.perps.credentials import PerpsCredentials
 from polymarket.models.perps.events import (
-    PerpsOrderEvent,
     PerpsResyncEvent,
     PerpsSessionEvent,
     parse_perps_session_event,
@@ -63,6 +73,7 @@ from polymarket.models.perps.notifications import (
     PerpsNotificationsPaginator,
 )
 from polymarket.models.perps.orders import (
+    PerpsAutoCancelResponse,
     PerpsCancelAllOrdersResponse,
     PerpsCancelOrderResult,
     PerpsFill,
@@ -75,16 +86,13 @@ from polymarket.models.perps.requests import (
     PerpsOrderRequest,
     PerpsPositionTpSlTrigger,
     PerpsTpSlTrigger,
-    to_decimal_string,
 )
 from polymarket.models.perps.results import (
     PerpsOrderPlacement,
-    PerpsPlacedTpSlOrder,
     PerpsPlacedTpSlOrders,
 )
 from polymarket.models.perps.types import (
     PerpsDepositStatus,
-    PerpsOrderId,
     PerpsPnlInterval,
     PerpsSortDirection,
     PerpsTimeInForce,
@@ -95,8 +103,7 @@ from polymarket.pagination import AsyncPaginator
 
 _AUTH_TIMEOUT_S = 30.0
 _ACK_TIMEOUT_S = 30.0
-# Purposefully generous: backend order updates are expected in the ~100ms range.
-_ORDER_PLACEMENT_UPDATE_TIMEOUT_S = 2.0
+_MIN_AUTO_CANCEL_BUFFER_MS = 5_000
 _QUEUE_SIZE = 1024
 
 _SESSION_CHANNELS = (
@@ -174,9 +181,6 @@ class PerpsSession:
         )
         self._pending: dict[int, _PendingRequest] = {}
         self._event_waiters: list[_EventWaiter] = []
-        # Order updates can arrive before the post acknowledgement resumes the
-        # caller; keep a bounded buffer so place_order never misses its update.
-        self._recent_orders: dict[PerpsOrderId, PerpsOrder] = {}
         self._sequences: dict[str, int] = {}
         self._next_request_id = 1
         self._closed = False
@@ -295,6 +299,8 @@ class PerpsSession:
         ``take_profit`` and/or ``stop_loss`` to place reduce-only trigger orders
         together with the entry order. ``expires_at`` is an optional command
         expiration timestamp, accepted as ``datetime`` or epoch milliseconds.
+        When ``client_order_id`` is omitted, the session generates one for
+        reliable private-order update correlation.
         """
         if time_in_force == "gtc":
             request = PerpsOrderRequest(
@@ -319,51 +325,12 @@ class PerpsSession:
                 reduce_only=reduce_only,
                 client_order_id=client_order_id,
             )
-        if take_profit is None and stop_loss is None:
-            acks = await self._send_create_orders(
-                [to_raw_order(request)], group=None, expires_at=expires_at
-            )
-            entry = self._expect_ok_ack(acks[0])
-            order = await self._wait_for_order_update(entry)
-            return PerpsOrderPlacement(order=order)
-
-        rows: list[RawPerpsOrder] = [to_raw_order(request)]
-        exit_buy = request.side == "SELL"
-        quantity_string = to_decimal_string("quantity", request.quantity)
-        if take_profit is not None:
-            rows.append(
-                to_raw_tp_sl_order(
-                    buy=exit_buy,
-                    instrument_id=request.instrument_id,
-                    kind="tp",
-                    quantity=quantity_string,
-                    trigger=take_profit,
-                )
-            )
-        if stop_loss is not None:
-            rows.append(
-                to_raw_tp_sl_order(
-                    buy=exit_buy,
-                    instrument_id=request.instrument_id,
-                    kind="sl",
-                    quantity=quantity_string,
-                    trigger=stop_loss,
-                )
-            )
-        acks = await self._send_create_orders(rows, group="order", expires_at=expires_at)
-        placed = [self._expect_ok_ack(ack) for ack in acks]
-        order = await self._wait_for_order_update(placed[0])
-        trigger_index = 1
-        take_profit_order = None
-        stop_loss_order = None
-        if take_profit is not None:
-            take_profit_order = PerpsPlacedTpSlOrder(order_id=placed[trigger_index])
-            trigger_index += 1
-        if stop_loss is not None:
-            stop_loss_order = PerpsPlacedTpSlOrder(order_id=placed[trigger_index])
-        return PerpsOrderPlacement(
-            order=order,
-            tp_sl=PerpsPlacedTpSlOrders(take_profit=take_profit_order, stop_loss=stop_loss_order),
+        return await place_perps_order(
+            self,
+            request,
+            take_profit=take_profit,
+            stop_loss=stop_loss,
+            expires_at=expires_at,
         )
 
     async def post_orders(
@@ -377,12 +344,7 @@ class PerpsSession:
         This is a low-level method; :meth:`place_order` is the common path when
         callers want to wait for the resulting order update.
         """
-        if not orders:
-            raise UserInputError("orders must be non-empty")
-        acks = await self._send_create_orders(
-            [to_raw_order(order) for order in orders], group=None, expires_at=expires_at
-        )
-        return tuple(acks)
+        return await post_perps_orders(self, orders, expires_at=expires_at)
 
     async def place_position_tp_sl(
         self,
@@ -398,41 +360,13 @@ class PerpsSession:
         raises :class:`~polymarket.errors.UserInputError`. Provide
         ``take_profit``, ``stop_loss``, or both.
         """
-        if take_profit is None and stop_loss is None:
-            raise UserInputError("Provide take_profit, stop_loss, or both")
-        exit_buy = await self._position_exit_buy(instrument_id)
-        rows: list[RawPerpsOrder] = []
-        if take_profit is not None:
-            rows.append(
-                to_raw_tp_sl_order(
-                    buy=exit_buy,
-                    instrument_id=instrument_id,
-                    kind="tp",
-                    quantity="0",
-                    trigger=take_profit,
-                )
-            )
-        if stop_loss is not None:
-            rows.append(
-                to_raw_tp_sl_order(
-                    buy=exit_buy,
-                    instrument_id=instrument_id,
-                    kind="sl",
-                    quantity="0",
-                    trigger=stop_loss,
-                )
-            )
-        acks = await self._send_create_orders(rows, group="position", expires_at=expires_at)
-        placed = [self._expect_ok_ack(ack) for ack in acks]
-        trigger_index = 0
-        take_profit_order = None
-        stop_loss_order = None
-        if take_profit is not None:
-            take_profit_order = PerpsPlacedTpSlOrder(order_id=placed[trigger_index])
-            trigger_index += 1
-        if stop_loss is not None:
-            stop_loss_order = PerpsPlacedTpSlOrder(order_id=placed[trigger_index])
-        return PerpsPlacedTpSlOrders(take_profit=take_profit_order, stop_loss=stop_loss_order)
+        return await place_perps_position_tp_sl(
+            self,
+            instrument_id=instrument_id,
+            take_profit=take_profit,
+            stop_loss=stop_loss,
+            expires_at=expires_at,
+        )
 
     @overload
     async def cancel_order(
@@ -538,6 +472,75 @@ class PerpsSession:
         )
         PerpsCancelAllOrdersResponse.parse_response(response)
 
+    async def arm_auto_cancel(
+        self,
+        *,
+        cancel_at: datetime | int,
+        expires_at: datetime | int | None = None,
+    ) -> None:
+        """Arm the auto-cancel switch that cancels all open Perps orders at
+        ``cancel_at``.
+
+        The switch is one-shot: once it fires and open orders are cancelled,
+        the schedule clears itself and orders placed afterwards are
+        unprotected, so re-arm periodically to keep protection active. Arming
+        again replaces the previous schedule, and ``cancel_at`` must be at
+        least five seconds in the future. Accounts may only trigger
+        auto-cancel a limited number of times per UTC day; use
+        :meth:`fetch_auto_cancel_status` to inspect the limit, today's
+        trigger count, and when the counter resets.
+
+        Keep a 60-second dead man's switch alive by re-arming every 20
+        seconds::
+
+            while trading:
+                await session.arm_auto_cancel(
+                    cancel_at=datetime.now(timezone.utc) + timedelta(seconds=60)
+                )
+                await asyncio.sleep(20)
+            await session.disarm_auto_cancel()
+
+        Raises :class:`polymarket.AutoCancelDailyLimitError` when the daily
+        trigger limit has been reached.
+        """
+        cancel_at_ms = to_epoch_ms("cancel_at", cancel_at)
+        if cancel_at_ms is None or cancel_at_ms < now_ms() + _MIN_AUTO_CANCEL_BUFFER_MS:
+            raise UserInputError("cancel_at must be at least 5 seconds in the future.")
+        op = auto_cancel_op(time_ms=cancel_at_ms)
+        try:
+            response = await self._api.patch_json(
+                "/v1/trade/auto-cancel",
+                json={
+                    **self._create_signed_command(op, expires_at=expires_at),
+                    "op": to_command_body_op(op),
+                },
+            )
+        except RequestRejectedError as error:
+            if str(error) == "auto_cancel_daily_limit_reached":
+                raise AutoCancelDailyLimitError(
+                    "Auto-cancel daily trigger limit reached.",
+                    status=error.status,
+                    retry_after=error.retry_after,
+                ) from error
+            raise
+        PerpsAutoCancelResponse.parse_response(response)
+
+    async def disarm_auto_cancel(self, *, expires_at: datetime | int | None = None) -> None:
+        """Disarm the auto-cancel schedule without triggering it.
+
+        Disarming is always allowed, even when the daily trigger limit has
+        been reached.
+        """
+        op = auto_cancel_op(time_ms=0)
+        response = await self._api.patch_json(
+            "/v1/trade/auto-cancel",
+            json={
+                **self._create_signed_command(op, expires_at=expires_at),
+                "op": to_command_body_op(op),
+            },
+        )
+        PerpsAutoCancelResponse.parse_response(response)
+
     async def update_leverage(
         self, *, instrument_id: int, leverage: int, cross_margin: bool
     ) -> PerpsUpdateLeverageResult:
@@ -549,6 +552,18 @@ class PerpsSession:
             op,
             parse=PerpsUpdateLeverageResult.parse_response,
             timeout_message="Perps update leverage response timed out.",
+        )
+
+    async def update_margin(self, *, instrument_id: int, amount: DecimalInput) -> None:
+        """Adjust isolated margin for an instrument position.
+
+        Positive amounts add margin; negative amounts remove it.
+        """
+        op = update_margin_op(instrument_id=instrument_id, amount=amount)
+        await self._send_signed_command(
+            op,
+            parse=_parse_session_ack,
+            timeout_message="Perps update margin response timed out.",
         )
 
     async def fetch_balances(self) -> tuple[PerpsBalance, ...]:
@@ -568,6 +583,14 @@ class PerpsSession:
     ) -> tuple[PerpsAccountConfig, ...]:
         """Fetch Perps account configuration, optionally filtered by instrument."""
         return await _account.fetch_account_config(self._api, instrument_id=instrument_id)
+
+    async def fetch_auto_cancel_status(self) -> PerpsAutoCancelStatus:
+        """Fetch the auto-cancel status for the session account.
+
+        Includes the armed deadline, today's trigger count, the daily trigger
+        limit, and when the daily counter resets.
+        """
+        return await _account.fetch_auto_cancel_status(self._api)
 
     async def fetch_open_orders(
         self, *, instrument_id: int | None = None
@@ -851,49 +874,31 @@ class PerpsSession:
         self._next_request_id += 1
         return request_id
 
-    def _expect_ok_ack(self, ack: PerpsPostOrderAck) -> PerpsOrderId:
-        if ack.status == "err":
-            raise RequestRejectedError(ack.error or "Perps command was rejected.", status=200)
-        return cast(PerpsOrderId, ack.order_id)
-
-    async def _wait_for_order_update(self, order_id: PerpsOrderId) -> PerpsOrder:
-        buffered = self._recent_orders.get(order_id)
-        if buffered is not None:
-            return buffered
-
-        def matches(event: PerpsSessionEvent) -> bool:
-            return isinstance(event, PerpsOrderEvent) and event.payload.id == order_id
-
-        event = await self._wait_for_event(matches, timeout_s=_ORDER_PLACEMENT_UPDATE_TIMEOUT_S)
-        assert isinstance(event, PerpsOrderEvent)
-        return event.payload
-
-    async def _wait_for_event(
-        self,
-        predicate: Callable[[PerpsSessionEvent], bool],
-        *,
-        timeout_s: float,
-    ) -> PerpsSessionEvent:
+    def _create_event_waiter(self, predicate: Callable[[PerpsSessionEvent], bool]) -> _EventWaiter:
         future: asyncio.Future[PerpsSessionEvent] = asyncio.get_running_loop().create_future()
         waiter = _EventWaiter(future=future, predicate=predicate)
         self._event_waiters.append(waiter)
+        return waiter
+
+    async def _wait_for_event(
+        self,
+        waiter: _EventWaiter,
+        *,
+        timeout_s: float,
+    ) -> PerpsSessionEvent:
         try:
-            return await asyncio.wait_for(future, timeout=timeout_s)
+            return await asyncio.wait_for(waiter.future, timeout=timeout_s)
         except TimeoutError as error:
             raise SDKTimeoutError("Perps event wait timed out.") from error
-        finally:
-            with contextlib.suppress(ValueError):
-                self._event_waiters.remove(waiter)
 
-    async def _position_exit_buy(self, instrument_id: int) -> bool:
-        portfolio = await self.fetch_portfolio()
-        position = next(
-            (item for item in portfolio.positions if item.instrument_id == instrument_id),
-            None,
-        )
-        if position is None or position.size == 0:
-            raise UserInputError(f"No open Perps position for instrument {instrument_id}.")
-        return position.size < 0
+    def _remove_event_waiter(self, waiter: _EventWaiter) -> None:
+        with contextlib.suppress(ValueError):
+            self._event_waiters.remove(waiter)
+        if not waiter.future.done():
+            waiter.future.cancel()
+            return
+        with contextlib.suppress(asyncio.CancelledError):
+            waiter.future.exception()
 
     def _on_message(self, raw: object) -> None:
         if isinstance(raw, list):
@@ -993,13 +998,7 @@ class PerpsSession:
             )
         )
 
-    _RECENT_ORDERS_LIMIT = 256
-
     def _emit_event(self, event: PerpsSessionEvent) -> None:
-        if isinstance(event, PerpsOrderEvent):
-            self._recent_orders[event.payload.id] = event.payload
-            while len(self._recent_orders) > self._RECENT_ORDERS_LIMIT:
-                self._recent_orders.pop(next(iter(self._recent_orders)))
         for waiter in tuple(self._event_waiters):
             try:
                 matched = waiter.predicate(event)

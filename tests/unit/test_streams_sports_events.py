@@ -1,5 +1,6 @@
+import inspect
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, get_type_hints
 
 import pytest
 from pydantic import ValidationError
@@ -41,6 +42,15 @@ def test_camelcase_wire_fields_map_to_snake_case() -> None:
     assert event.payload.league_abbreviation == "NBA"
     assert event.payload.home_team == "LAL"
     assert event.payload.away_team == "BOS"
+
+
+def test_finished_timestamp_exposes_canonical_annotation_and_alias_signature() -> None:
+    hints = get_type_hints(SportsGameResult, include_extras=True)
+    parameters = inspect.signature(SportsGameResult).parameters
+
+    assert hints["finished_at"] == (datetime | None)
+    assert parameters["finishedTimestamp"].annotation == (datetime | None)
+    assert "finished_at" not in parameters
 
 
 def test_required_fields_only() -> None:
@@ -94,6 +104,16 @@ def test_finished_timestamp_accepts_iso_string() -> None:
     event = parse_sports_event(payload)
     assert event.payload.finished_at is not None
     assert event.payload.finished_at.year == 2024
+
+
+@pytest.mark.parametrize(
+    "finished_timestamp", [True, 1710000000000.0, b"1710000000000", "+1", "-1"]
+)
+def test_finished_timestamp_preserves_rejected_inputs(finished_timestamp: object) -> None:
+    payload = dict(_WIRE) | {"finishedTimestamp": finished_timestamp}
+
+    with pytest.raises(ValidationError):
+        parse_sports_event(payload)
 
 
 def test_missing_required_field_raises_validation_error() -> None:

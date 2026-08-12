@@ -1,17 +1,19 @@
+import inspect
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import get_type_hints
 
 import pytest
 
 from polymarket.errors import UnexpectedResponseError
-from polymarket.models.clob._validators import (
-    _DecimalFromNumberOrString,  # pyright: ignore[reportPrivateUsage]
-)
+from polymarket.models.base import BaseModel
 from polymarket.models.clob.rewards import (
     CurrentReward,
+    CurrentRewardConfig,
     EarningBreakdown,
     MarketReward,
     MarketRewardConfig,
+    MarketRewardToken,
     TotalUserEarning,
     UserEarning,
     UserRewardsConfig,
@@ -182,39 +184,93 @@ def test_user_earning_rejects_out_of_range_epoch() -> None:
         )
 
 
-def test_decimalish_string_accepts_int() -> None:
-    from pydantic import BaseModel as _Base
+def test_reward_decimal_fields_expose_canonical_annotations_and_signatures() -> None:
+    fields_by_model: tuple[tuple[type[BaseModel], dict[str, object]], ...] = (
+        (
+            CurrentRewardConfig,
+            {"rate_per_day": Decimal, "total_rewards": Decimal | None},
+        ),
+        (
+            CurrentReward,
+            {
+                "rewards_min_size": Decimal | None,
+                "sponsored_daily_rate": Decimal | None,
+                "native_daily_rate": Decimal | None,
+                "total_daily_rate": Decimal | None,
+            },
+        ),
+        (
+            MarketRewardConfig,
+            {"rate_per_day": Decimal, "total_rewards": Decimal | None},
+        ),
+        (MarketRewardToken, {"price": Decimal}),
+        (MarketReward, {"rewards_min_size": Decimal | None}),
+        (UserEarning, {"asset_rate": Decimal, "earnings": Decimal}),
+        (TotalUserEarning, {"asset_rate": Decimal, "earnings": Decimal}),
+        (UserRewardsConfig, {"rate_per_day": Decimal, "total_rewards": Decimal}),
+        (EarningBreakdown, {"asset_rate": Decimal, "earnings": Decimal}),
+        (UserRewardsEarning, {"rewards_min_size": Decimal}),
+    )
 
-    class Foo(_Base):
-        v: _DecimalFromNumberOrString
-
-    assert Foo.model_validate({"v": 10}).v == Decimal("10")
-
-
-def test_decimalish_string_accepts_float_via_str() -> None:
-    from pydantic import BaseModel as _Base
-
-    class Foo(_Base):
-        v: _DecimalFromNumberOrString
-
-    assert Foo.model_validate({"v": 0.1}).v == Decimal("0.1")
+    for model, expected_fields in fields_by_model:
+        hints = get_type_hints(model)
+        parameters = inspect.signature(model).parameters
+        for field, annotation in expected_fields.items():
+            assert hints[field] == annotation
+            assert parameters[field].annotation == annotation
 
 
-def test_decimalish_string_accepts_decimal_string() -> None:
-    from pydantic import BaseModel as _Base
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (10, Decimal("10")),
+        (0.1, Decimal("0.1")),
+        ("0.001", Decimal("0.001")),
+        (Decimal("1.25"), Decimal("1.25")),
+    ],
+)
+def test_reward_decimal_fields_accept_number_string_and_decimal(
+    value: int | float | str | Decimal, expected: Decimal
+) -> None:
+    token = MarketRewardToken.parse_response(
+        {"token_id": "8501497", "outcome": "Yes", "price": value}
+    )
+    assert token.price == expected
 
-    class Foo(_Base):
-        v: _DecimalFromNumberOrString
 
-    assert Foo.model_validate({"v": "0.001"}).v == Decimal("0.001")
+def test_reward_decimal_fields_reject_bool() -> None:
+    with pytest.raises(UnexpectedResponseError):
+        MarketRewardToken.parse_response({"token_id": "8501497", "outcome": "Yes", "price": True})
 
 
-def test_decimalish_string_rejects_bool() -> None:
-    from pydantic import BaseModel as _Base
-    from pydantic import ValidationError
+@pytest.mark.parametrize(
+    ("model", "payload", "field"),
+    [
+        (
+            CurrentRewardConfig,
+            {"asset_address": "0xUSDC", "start_date": 1700000000000, "rate_per_day": "1"},
+            "total_rewards",
+        ),
+        (CurrentReward, {"condition_id": _CONDITION_ID}, "rewards_min_size"),
+        (CurrentReward, {"condition_id": _CONDITION_ID}, "sponsored_daily_rate"),
+        (CurrentReward, {"condition_id": _CONDITION_ID}, "native_daily_rate"),
+        (CurrentReward, {"condition_id": _CONDITION_ID}, "total_daily_rate"),
+        (
+            MarketRewardConfig,
+            {"asset_address": "0xUSDC", "start_date": 1700000000000, "rate_per_day": "1"},
+            "total_rewards",
+        ),
+        (
+            MarketReward,
+            {"condition_id": _CONDITION_ID, "question": "Q?", "tokens": []},
+            "rewards_min_size",
+        ),
+    ],
+)
+def test_optional_reward_decimals_accept_none_but_reject_empty_string(
+    model: type[BaseModel], payload: dict[str, object], field: str
+) -> None:
+    assert getattr(model.parse_response(payload | {field: None}), field) is None
 
-    class Foo(_Base):
-        v: _DecimalFromNumberOrString
-
-    with pytest.raises(ValidationError):
-        Foo.model_validate({"v": True})
+    with pytest.raises(UnexpectedResponseError):
+        model.parse_response(payload | {field: ""})

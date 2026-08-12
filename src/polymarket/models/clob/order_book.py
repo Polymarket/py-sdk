@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime
+from decimal import Decimal
 from typing import Any, Literal
 
 from pydantic import Field, field_validator
 
 from polymarket._frames_bridge import frames_func as _frames_func
+from polymarket.models._validators import parse_decimal_string
 from polymarket.models.base import BaseModel
 from polymarket.models.clob._validators import (
-    EpochMsTimestamp,
-    _DecimalFromString,  # pyright: ignore[reportPrivateUsage]
+    _parse_epoch_ms_timestamp,  # pyright: ignore[reportPrivateUsage]
 )
 from polymarket.models.types import CtfConditionId, TokenId
 
@@ -17,8 +19,13 @@ _DecimalMode = Literal["decimal", "float"]
 
 
 class OrderBookLevel(BaseModel):
-    price: _DecimalFromString
-    size: _DecimalFromString
+    price: Decimal
+    size: Decimal
+
+    @field_validator("price", "size", mode="before")
+    @classmethod
+    def _parse_decimal(cls, value: object) -> object:
+        return parse_decimal_string(value)
 
 
 class OrderBook(BaseModel):
@@ -30,21 +37,31 @@ class OrderBook(BaseModel):
         description="CTF condition id for the market represented by this order book.",
     )
     token_id: TokenId = Field(validation_alias="asset_id")
-    timestamp: EpochMsTimestamp = None
+    timestamp: datetime | None = None
     bids: tuple[OrderBookLevel, ...]
     """Ascending price order, lowest bid first."""
     asks: tuple[OrderBookLevel, ...]
     """Descending price order, highest ask first."""
-    min_order_size: _DecimalFromString
-    tick_size: _DecimalFromString
+    min_order_size: Decimal
+    tick_size: Decimal
     neg_risk: bool
-    last_trade_price: _DecimalFromString | None = None
+    last_trade_price: Decimal | None = None
     hash: str
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def _parse_timestamp(cls, value: object) -> object:
+        return _parse_epoch_ms_timestamp(value)
+
+    @field_validator("min_order_size", "tick_size", mode="before")
+    @classmethod
+    def _parse_decimal(cls, value: object) -> object:
+        return parse_decimal_string(value)
 
     @field_validator("last_trade_price", mode="before")
     @classmethod
     def _parse_last_trade_price(cls, value: object) -> object:
-        return None if value in (None, "") else value
+        return parse_decimal_string(None if value == "" else value)
 
     def _repr_html_(self) -> str:
         from polymarket._jupyter import card, safe_html_repr, truncate_mid

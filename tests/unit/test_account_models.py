@@ -1,5 +1,7 @@
+import inspect
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import get_type_hints
 
 import pytest
 
@@ -10,6 +12,7 @@ from polymarket.models.clob.account import (
     MakerOrder,
     Notification,
     OpenOrder,
+    TradeStatus,
 )
 
 
@@ -74,6 +77,131 @@ def _clob_trade_payload(**overrides: object) -> dict[str, object]:
     }
     base.update(overrides)
     return base
+
+
+def test_account_model_annotations_are_canonical() -> None:
+    expected = {
+        OpenOrder: {
+            "price": Decimal,
+            "original_size": Decimal,
+            "size_matched": Decimal,
+            "created_at": datetime,
+            "expires_at": datetime | None,
+        },
+        MakerOrder: {
+            "price": Decimal,
+            "matched_amount": Decimal,
+            "fee_rate_bps": Decimal | None,
+        },
+        ClobTrade: {
+            "price": Decimal,
+            "size": Decimal,
+            "status": TradeStatus,
+            "fee_rate_bps": Decimal,
+            "matched_at": datetime,
+            "updated_at": datetime,
+        },
+        Notification: {"timestamp": datetime},
+    }
+
+    for model, fields in expected.items():
+        hints = get_type_hints(model, include_extras=True)
+        for field, annotation in fields.items():
+            assert hints[field] == annotation
+            assert model.model_fields[field].annotation == annotation
+
+
+def test_account_model_signatures_use_canonical_annotations() -> None:
+    expected = {
+        OpenOrder: {
+            "price": Decimal,
+            "original_size": Decimal,
+            "size_matched": Decimal,
+            "created_at": datetime,
+            "expiration": datetime | None,
+        },
+        MakerOrder: {
+            "price": Decimal,
+            "matched_amount": Decimal,
+            "fee_rate_bps": Decimal | None,
+        },
+        ClobTrade: {
+            "price": Decimal,
+            "size": Decimal,
+            "status": TradeStatus,
+            "fee_rate_bps": Decimal,
+            "match_time": datetime,
+            "last_update": datetime,
+        },
+        Notification: {"timestamp": datetime},
+    }
+
+    for model, fields in expected.items():
+        parameters = inspect.signature(model).parameters
+        for field, annotation in fields.items():
+            assert parameters[field].annotation == annotation
+
+
+@pytest.mark.parametrize("field", ["price", "original_size", "size_matched"])
+def test_open_order_decimal_fields_require_strings_or_decimals(field: str) -> None:
+    order = OpenOrder.parse_response(_open_order_payload(**{field: Decimal("1.25")}))
+    assert getattr(order, field) == Decimal("1.25")
+
+    with pytest.raises(UnexpectedResponseError):
+        OpenOrder.parse_response(_open_order_payload(**{field: 1}))
+
+
+@pytest.mark.parametrize("field", ["price", "matched_amount", "fee_rate_bps"])
+def test_maker_order_decimal_fields_require_strings_or_decimals(field: str) -> None:
+    maker = MakerOrder.parse_response(_maker_order_payload(**{field: Decimal("1.25")}))
+    assert getattr(maker, field) == Decimal("1.25")
+
+    with pytest.raises(UnexpectedResponseError):
+        MakerOrder.parse_response(_maker_order_payload(**{field: 1}))
+
+
+@pytest.mark.parametrize("field", ["price", "size", "fee_rate_bps"])
+def test_clob_trade_decimal_fields_require_strings_or_decimals(field: str) -> None:
+    trade = ClobTrade.parse_response(_clob_trade_payload(**{field: Decimal("1.25")}))
+    assert getattr(trade, field) == Decimal("1.25")
+
+    with pytest.raises(UnexpectedResponseError):
+        ClobTrade.parse_response(_clob_trade_payload(**{field: 1}))
+
+
+@pytest.mark.parametrize(
+    "status",
+    ["MATCHED", "MATCHED_NOT_BROADCASTED", "MINED", "CONFIRMED", "RETRYING", "FAILED"],
+)
+def test_clob_trade_normalizes_prefixed_statuses(status: TradeStatus) -> None:
+    trade = ClobTrade.parse_response(_clob_trade_payload(status=f"TRADE_STATUS_{status}"))
+    assert trade.status == status
+
+
+def test_clob_trade_rejects_unknown_status() -> None:
+    with pytest.raises(UnexpectedResponseError):
+        ClobTrade.parse_response(_clob_trade_payload(status="TRADE_STATUS_UNKNOWN"))
+
+
+@pytest.mark.parametrize("created_at", [None, ""])
+def test_open_order_requires_created_at(created_at: object) -> None:
+    with pytest.raises(UnexpectedResponseError):
+        OpenOrder.parse_response(_open_order_payload(created_at=created_at))
+
+
+@pytest.mark.parametrize("field", ["match_time", "last_update"])
+@pytest.mark.parametrize("value", [None, ""])
+def test_clob_trade_requires_timestamps(field: str, value: object) -> None:
+    with pytest.raises(UnexpectedResponseError):
+        ClobTrade.parse_response(_clob_trade_payload(**{field: value}))
+
+
+@pytest.mark.parametrize("timestamp", [None, ""])
+def test_notification_requires_timestamp(timestamp: object) -> None:
+    with pytest.raises(UnexpectedResponseError):
+        Notification.parse_response(
+            {"id": 1, "owner": "0xOWNER", "type": 0, "payload": None, "timestamp": timestamp}
+        )
 
 
 def test_open_order_parses_epoch_ms_timestamps() -> None:

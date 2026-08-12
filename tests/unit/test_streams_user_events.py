@@ -1,14 +1,23 @@
-from typing import Any
+import inspect
+from datetime import datetime
+from decimal import Decimal
+from typing import Annotated, Any, Literal, get_args, get_origin, get_type_hints
 
 import pytest
 from pydantic import ValidationError
 
+from polymarket.models.clob.account import TradeStatus
 from polymarket.models.clob.user_events import (
+    UserEvent,
     UserOrderEvent,
+    UserOrderPayload,
     UserTradeEvent,
+    UserTradeMakerOrder,
+    UserTradePayload,
     parse_user_event,
     parse_user_events,
 )
+from polymarket.models.types import OrderSide
 
 _ORDER_PLACEMENT: dict[str, Any] = {
     "event_type": "order",
@@ -58,6 +67,39 @@ _TRADE: dict[str, Any] = {
         }
     ],
 }
+
+
+def test_user_payload_annotations_expose_canonical_types() -> None:
+    order_hints = get_type_hints(UserOrderPayload, include_extras=True)
+    maker_hints = get_type_hints(UserTradeMakerOrder, include_extras=True)
+    trade_hints = get_type_hints(UserTradePayload, include_extras=True)
+
+    assert order_hints["side"] == OrderSide
+    assert order_hints["original_size"] is Decimal
+    assert order_hints["timestamp"] == (datetime | None)
+    assert order_hints["expires_at"] == (datetime | None)
+    assert maker_hints["fee_rate_bps"] == (Decimal | None)
+    assert trade_hints["status"] == TradeStatus
+    assert trade_hints["trader_side"] == (Literal["TAKER", "MAKER"] | None)
+
+
+def test_user_payload_signature_exposes_canonical_types() -> None:
+    parameters = inspect.signature(UserTradePayload).parameters
+
+    assert parameters["side"].annotation == OrderSide
+    assert parameters["size"].annotation is Decimal
+    assert parameters["status"].annotation == TradeStatus
+    assert parameters["timestamp"].annotation == (datetime | None)
+    assert parameters["fee_rate_bps"].annotation == (Decimal | None)
+    assert parameters["trader_side"].annotation == (Literal["TAKER", "MAKER"] | None)
+
+
+def test_user_event_keeps_discriminated_union_metadata() -> None:
+    union, metadata = get_args(UserEvent)
+
+    assert get_origin(UserEvent) is Annotated
+    assert union == (UserOrderEvent | UserTradeEvent)
+    assert metadata.discriminator == "type"
 
 
 def test_order_placement_parses_with_normalized_envelope() -> None:

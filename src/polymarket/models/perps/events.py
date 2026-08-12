@@ -1,12 +1,16 @@
 """Perps realtime event models."""
 
 import re
+from datetime import datetime
 from typing import Annotated, Any, Literal, cast
 
-from pydantic import Field, TypeAdapter, ValidationError
+from pydantic import Field, TypeAdapter, ValidationError, field_validator
 
 from polymarket.models.base import BaseModel
-from polymarket.models.perps._validators import OptionalPerpsTimestamp, PerpsTimestamp
+from polymarket.models.perps._validators import (
+    _parse_epoch_ms,  # pyright: ignore[reportPrivateUsage]
+    _require_epoch_ms,  # pyright: ignore[reportPrivateUsage]
+)
 from polymarket.models.perps.account import PerpsBalance, PerpsFundingPayment, PerpsPortfolio
 from polymarket.models.perps.funds import PerpsDepositUpdate, PerpsWithdrawalUpdate
 from polymarket.models.perps.market import (
@@ -43,68 +47,75 @@ _SESSION_CHANNEL_TYPES: dict[str, str] = {
 _NOTIFICATIONS_CHANNEL = "notifications"
 
 
-class PerpsTradeEvent(BaseModel):
+class _PerpsEventEnvelope(BaseModel):
+    @field_validator("timestamp", mode="before", check_fields=False)
+    @classmethod
+    def _validate_timestamp(cls, value: object) -> object:
+        return _require_epoch_ms(value)
+
+
+class PerpsTradeEvent(_PerpsEventEnvelope):
     """Public trades printed in one update for a subscribed instrument."""
 
     topic: Literal["perps.trades"] = "perps.trades"
     type: Literal["trade"]
     channel: str
-    timestamp: PerpsTimestamp
+    timestamp: datetime
     sequence: int
     payload: list[PerpsTrade]
 
 
-class PerpsBboEvent(BaseModel):
+class PerpsBboEvent(_PerpsEventEnvelope):
     """A best bid/ask update for a subscribed instrument."""
 
     topic: Literal["perps.bbo"] = "perps.bbo"
     type: Literal["bbo"]
     channel: str
-    timestamp: PerpsTimestamp
+    timestamp: datetime
     sequence: int
     payload: PerpsBbo
 
 
-class PerpsBookEvent(BaseModel):
+class PerpsBookEvent(_PerpsEventEnvelope):
     """An order book delta for a subscribed instrument."""
 
     topic: Literal["perps.book"] = "perps.book"
     type: Literal["book"]
     channel: str
-    timestamp: PerpsTimestamp
+    timestamp: datetime
     sequence: int
     payload: PerpsBookUpdate
 
 
-class PerpsTickerEvent(BaseModel):
+class PerpsTickerEvent(_PerpsEventEnvelope):
     """A ticker update for a subscribed instrument."""
 
     topic: Literal["perps.tickers"] = "perps.tickers"
     type: Literal["ticker"]
     channel: str
-    timestamp: PerpsTimestamp
+    timestamp: datetime
     sequence: int
     payload: PerpsTickerUpdate
 
 
-class PerpsStatisticEvent(BaseModel):
+class PerpsStatisticEvent(_PerpsEventEnvelope):
     """A trading statistics update for a subscribed instrument."""
 
     topic: Literal["perps.statistics"] = "perps.statistics"
     type: Literal["statistic"]
     channel: str
-    timestamp: PerpsTimestamp
+    timestamp: datetime
     sequence: int
     payload: PerpsStatistic
 
 
-class PerpsCandleEvent(BaseModel):
+class PerpsCandleEvent(_PerpsEventEnvelope):
     """A candle batch for a subscribed instrument and interval."""
 
     topic: Literal["perps.candles"] = "perps.candles"
     type: Literal["candle"]
     channel: str
-    timestamp: PerpsTimestamp
+    timestamp: datetime
     sequence: int
     payload: PerpsCandleBatch
 
@@ -122,72 +133,72 @@ PerpsMarketEvent = Annotated[
 _MARKET_EVENT_ADAPTER: TypeAdapter[PerpsMarketEvent] = TypeAdapter(PerpsMarketEvent)
 
 
-class PerpsBalanceEvent(BaseModel):
+class PerpsBalanceEvent(_PerpsEventEnvelope):
     """A balance update for the session account."""
 
     type: Literal["balance"]
     channel: str
-    timestamp: PerpsTimestamp
+    timestamp: datetime
     sequence: int
     payload: PerpsBalance
 
 
-class PerpsPortfolioEvent(BaseModel):
+class PerpsPortfolioEvent(_PerpsEventEnvelope):
     """A portfolio snapshot update for the session account."""
 
     type: Literal["portfolio"]
     channel: str
-    timestamp: PerpsTimestamp
+    timestamp: datetime
     sequence: int
     payload: PerpsPortfolio
 
 
-class PerpsOrderEvent(BaseModel):
+class PerpsOrderEvent(_PerpsEventEnvelope):
     """An order lifecycle update for the session account."""
 
     type: Literal["order"]
     channel: str
-    timestamp: PerpsTimestamp
+    timestamp: datetime
     sequence: int
     payload: PerpsOrder
 
 
-class PerpsFillEvent(BaseModel):
+class PerpsFillEvent(_PerpsEventEnvelope):
     """Fill updates in one frame for the session account."""
 
     type: Literal["fill"]
     channel: str
-    timestamp: PerpsTimestamp
+    timestamp: datetime
     sequence: int
     payload: list[PerpsFill]
 
 
-class PerpsFundingEvent(BaseModel):
+class PerpsFundingEvent(_PerpsEventEnvelope):
     """A funding payment update for the session account."""
 
     type: Literal["funding"]
     channel: str
-    timestamp: PerpsTimestamp
+    timestamp: datetime
     sequence: int
     payload: PerpsFundingPayment
 
 
-class PerpsDepositEvent(BaseModel):
+class PerpsDepositEvent(_PerpsEventEnvelope):
     """A deposit status update for the session account."""
 
     type: Literal["deposit"]
     channel: str
-    timestamp: PerpsTimestamp
+    timestamp: datetime
     sequence: int
     payload: PerpsDepositUpdate
 
 
-class PerpsWithdrawalEvent(BaseModel):
+class PerpsWithdrawalEvent(_PerpsEventEnvelope):
     """A withdrawal status update for the session account."""
 
     type: Literal["withdrawal"]
     channel: str
-    timestamp: PerpsTimestamp
+    timestamp: datetime
     sequence: int
     payload: PerpsWithdrawalUpdate
 
@@ -200,22 +211,22 @@ class PerpsTpSlUpdate(BaseModel):
     reason: str | None = None
 
 
-class PerpsTpSlEvent(BaseModel):
+class PerpsTpSlEvent(_PerpsEventEnvelope):
     """A take-profit/stop-loss lifecycle update for the session account."""
 
     type: Literal["tpsl"]
     channel: str
-    timestamp: PerpsTimestamp
+    timestamp: datetime
     sequence: int
     payload: PerpsTpSlUpdate
 
 
-class PerpsNotificationEvent(BaseModel):
+class PerpsNotificationEvent(_PerpsEventEnvelope):
     """An account notification for the session account."""
 
     type: Literal["notification"]
     channel: str
-    timestamp: PerpsTimestamp
+    timestamp: datetime
     sequence: int
     payload: PerpsNotification
 
@@ -234,7 +245,12 @@ class PerpsResyncEvent(BaseModel):
     channel: str | None = None
     previous_sequence: int | None = None
     sequence: int | None = None
-    timestamp: OptionalPerpsTimestamp = None
+    timestamp: datetime | None = None
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def _validate_timestamp(cls, value: object) -> object:
+        return _parse_epoch_ms(value)
 
 
 PerpsSessionEvent = (

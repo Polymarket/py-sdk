@@ -291,10 +291,9 @@ class TestGetPriceHistory:
 
 
 class TestEstimateMarketPrice:
-    def test_buy_fetches_tick_size_and_book(self) -> None:
+    def test_buy_uses_book_metadata(self) -> None:
         captured: list[httpx.Request] = []
         routes: dict[str, object] = {
-            "/tick-size": {"minimum_tick_size": 0.01},
             "/book": {
                 "asset_id": "1",
                 "market": "0xM",
@@ -313,13 +312,11 @@ class TestEstimateMarketPrice:
 
         assert price == Decimal("0.50")
         paths = [urlparse(str(r.url)).path for r in captured]
-        assert "/tick-size" in paths
-        assert "/book" in paths
+        assert paths == ["/book"]
 
     def test_sell_uses_bids(self) -> None:
         captured: list[httpx.Request] = []
         routes: dict[str, object] = {
-            "/tick-size": {"minimum_tick_size": 0.01},
             "/book": {
                 "asset_id": "1",
                 "market": "0xM",
@@ -340,7 +337,6 @@ class TestEstimateMarketPrice:
 
     def test_fok_raises_on_insufficient_liquidity(self) -> None:
         routes: dict[str, object] = {
-            "/tick-size": {"minimum_tick_size": 0.01},
             "/book": {
                 "asset_id": "1",
                 "market": "0xM",
@@ -362,7 +358,6 @@ class TestEstimateMarketPrice:
 
     def test_available_on_secure_client(self) -> None:
         routes: dict[str, object] = {
-            "/tick-size": {"minimum_tick_size": 0.01},
             "/book": {
                 "asset_id": "1",
                 "market": "0xM",

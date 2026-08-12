@@ -89,6 +89,38 @@ def _withdrawal_payload(withdraw_id: int, status: str) -> dict[str, Any]:
     }
 
 
+def test_list_funding_payments_parses_funding_record_ids() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "id": 3055723280187747,
+                        "instrument_id": 7,
+                        "size": "10",
+                        "funding_rate": "0.0001",
+                        "funding_asset": "USDC",
+                        "funding": "0.5",
+                        "timestamp": 1747660800000,
+                    }
+                ],
+                "more": False,
+            },
+        )
+
+    async def run() -> None:
+        transport = _transport(handler)
+        try:
+            page = await perps_account.list_funding_payments(transport).first_page()
+            assert [item.id for item in page.items] == [3055723280187747]
+            assert page.items[0].funding == Decimal("0.5")
+        finally:
+            await transport.close()
+
+    asyncio.run(run())
+
+
 def test_list_withdrawals_parses_failed_and_unknown_statuses() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(

@@ -27,6 +27,7 @@ from polymarket.models.base import BaseModel
 from polymarket.models.perps.account import (
     PerpsAccountConfig,
     PerpsAccountStats,
+    PerpsAutoCancelStatus,
     PerpsBalance,
     PerpsEquityPoint,
     PerpsFundingPayment,
@@ -67,6 +68,10 @@ async def fetch_portfolio(api: AsyncTransport) -> PerpsPortfolio:
 
 async def fetch_stats(api: AsyncTransport) -> PerpsAccountStats:
     return PerpsAccountStats.parse_response(await api.get_json("/v1/account/stats"))
+
+
+async def fetch_auto_cancel_status(api: AsyncTransport) -> PerpsAutoCancelStatus:
+    return PerpsAutoCancelStatus.parse_response(await api.get_json("/v1/account/auto-cancel"))
 
 
 async def fetch_account_config(
@@ -490,6 +495,7 @@ def _point_timestamp(item: object) -> int | None:
 
 __all__ = [
     "fetch_account_config",
+    "fetch_auto_cancel_status",
     "fetch_balances",
     "fetch_open_orders",
     "fetch_orders",

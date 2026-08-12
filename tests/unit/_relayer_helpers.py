@@ -11,6 +11,10 @@ import httpx
 from eth_utils.crypto import keccak
 
 from polymarket import ApiKeyCreds, AsyncSecureClient, BuilderApiKey, SecureClient
+from polymarket._internal.environment import (
+    PRODUCTION_CONFIG,
+    with_environment_config,
+)
 from polymarket.clients._transport import AsyncTransport
 
 PK_DEPLOY_WALLET = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -28,10 +32,9 @@ async def make_deposit_client() -> AsyncSecureClient:
     from eth_account import Account
 
     from polymarket._internal.wallet import derive_uups_deposit_wallet_address
-    from polymarket.environments import PRODUCTION
 
     signer = Account.from_key(PK_DEPLOY_WALLET)
-    wallet = derive_uups_deposit_wallet_address(signer.address, PRODUCTION.wallet_derivation)
+    wallet = derive_uups_deposit_wallet_address(signer.address, PRODUCTION_CONFIG.wallet_derivation)
     return await AsyncSecureClient._create(
         private_key=PK_DEPLOY_WALLET,
         wallet=wallet,
@@ -45,10 +48,9 @@ async def make_proxy_client() -> AsyncSecureClient:
     from eth_account import Account
 
     from polymarket._internal.wallet import derive_proxy_wallet_address
-    from polymarket.environments import PRODUCTION
 
     signer = Account.from_key(PK_PROXY_WALLET)
-    wallet = derive_proxy_wallet_address(signer.address, PRODUCTION.wallet_derivation)
+    wallet = derive_proxy_wallet_address(signer.address, PRODUCTION_CONFIG.wallet_derivation)
     return await AsyncSecureClient._create(
         private_key=PK_PROXY_WALLET,
         wallet=wallet,
@@ -79,7 +81,10 @@ async def make_eoa_client_with_rpc(
     from polymarket._internal.eoa.rpc import JsonRpcClient
     from polymarket.environments import PRODUCTION
 
-    env = dataclasses.replace(PRODUCTION, rpc_url="https://rpc.test")
+    env = with_environment_config(
+        PRODUCTION,
+        config=dataclasses.replace(PRODUCTION_CONFIG, rpc_url="https://rpc.test"),
+    )
     signer = Account.from_key(PK_DEPLOY_WALLET)
     client = await AsyncSecureClient._create(
         private_key=PK_DEPLOY_WALLET,
@@ -263,10 +268,9 @@ async def make_safe_client() -> AsyncSecureClient:
     from eth_account import Account
 
     from polymarket._internal.wallet import derive_safe_wallet_address
-    from polymarket.environments import PRODUCTION
 
     signer = Account.from_key(PK_SAFE_WALLET)
-    wallet = derive_safe_wallet_address(signer.address, PRODUCTION.wallet_derivation)
+    wallet = derive_safe_wallet_address(signer.address, PRODUCTION_CONFIG.wallet_derivation)
     return await AsyncSecureClient._create(
         private_key=PK_SAFE_WALLET,
         wallet=wallet,
@@ -383,10 +387,9 @@ def make_sync_deposit_client() -> SecureClient:
     from eth_account import Account
 
     from polymarket._internal.wallet import derive_uups_deposit_wallet_address
-    from polymarket.environments import PRODUCTION
 
     signer = Account.from_key(PK_DEPLOY_WALLET)
-    wallet = derive_uups_deposit_wallet_address(signer.address, PRODUCTION.wallet_derivation)
+    wallet = derive_uups_deposit_wallet_address(signer.address, PRODUCTION_CONFIG.wallet_derivation)
     return SecureClient._create(
         private_key=PK_DEPLOY_WALLET,
         wallet=wallet,
@@ -400,10 +403,9 @@ def make_sync_proxy_client() -> SecureClient:
     from eth_account import Account
 
     from polymarket._internal.wallet import derive_proxy_wallet_address
-    from polymarket.environments import PRODUCTION
 
     signer = Account.from_key(PK_PROXY_WALLET)
-    wallet = derive_proxy_wallet_address(signer.address, PRODUCTION.wallet_derivation)
+    wallet = derive_proxy_wallet_address(signer.address, PRODUCTION_CONFIG.wallet_derivation)
     return SecureClient._create(
         private_key=PK_PROXY_WALLET,
         wallet=wallet,
@@ -417,10 +419,9 @@ def make_sync_safe_client() -> SecureClient:
     from eth_account import Account
 
     from polymarket._internal.wallet import derive_safe_wallet_address
-    from polymarket.environments import PRODUCTION
 
     signer = Account.from_key(PK_SAFE_WALLET)
-    wallet = derive_safe_wallet_address(signer.address, PRODUCTION.wallet_derivation)
+    wallet = derive_safe_wallet_address(signer.address, PRODUCTION_CONFIG.wallet_derivation)
     return SecureClient._create(
         private_key=PK_SAFE_WALLET,
         wallet=wallet,

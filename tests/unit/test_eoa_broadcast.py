@@ -11,6 +11,7 @@ from _relayer_helpers import (
 )
 
 from polymarket import TransactionCall
+from polymarket._internal.environment import with_environment_config
 from polymarket.errors import TimeoutError, TransactionFailedError, UserInputError
 from polymarket.transactions import DeprecatedTransactionHandle, EoaTransactionHandle
 from polymarket.types import EvmAddress
@@ -52,7 +53,12 @@ def test_eoa_wait_returns_outcome_on_success_receipt() -> None:
         client = await make_eoa_client_with_rpc(rpc_handler=handler)
         client._ctx = dataclasses.replace(
             client._ctx,
-            environment=dataclasses.replace(client._ctx.environment, relayer_poll_frequency_ms=1),
+            environment=with_environment_config(
+                client._ctx.environment,
+                config=dataclasses.replace(
+                    client._ctx.environment_config, relayer_poll_frequency_ms=1
+                ),
+            ),
         )
         try:
             handle = await client.approve_erc20(
@@ -75,7 +81,12 @@ def test_eoa_wait_raises_on_reverted_receipt() -> None:
         client = await make_eoa_client_with_rpc(rpc_handler=handler)
         client._ctx = dataclasses.replace(
             client._ctx,
-            environment=dataclasses.replace(client._ctx.environment, relayer_poll_frequency_ms=1),
+            environment=with_environment_config(
+                client._ctx.environment,
+                config=dataclasses.replace(
+                    client._ctx.environment_config, relayer_poll_frequency_ms=1
+                ),
+            ),
         )
         try:
             handle = await client.approve_erc20(
@@ -99,10 +110,13 @@ def test_eoa_wait_times_out_when_receipt_never_appears() -> None:
         client = await make_eoa_client_with_rpc(rpc_handler=handler)
         client._ctx = dataclasses.replace(
             client._ctx,
-            environment=dataclasses.replace(
+            environment=with_environment_config(
                 client._ctx.environment,
-                relayer_poll_frequency_ms=1,
-                relayer_max_polls=3,
+                config=dataclasses.replace(
+                    client._ctx.environment_config,
+                    relayer_poll_frequency_ms=1,
+                    relayer_max_polls=3,
+                ),
             ),
         )
         try:
@@ -195,7 +209,12 @@ def test_eoa_setup_trading_approvals_submits_and_waits_for_required_calls_sequen
         client = await make_eoa_client_with_rpc(rpc_handler=handler)
         client._ctx = dataclasses.replace(
             client._ctx,
-            environment=dataclasses.replace(client._ctx.environment, relayer_poll_frequency_ms=1),
+            environment=with_environment_config(
+                client._ctx.environment,
+                config=dataclasses.replace(
+                    client._ctx.environment_config, relayer_poll_frequency_ms=1
+                ),
+            ),
         )
         try:
             return await client.setup_trading_approvals()

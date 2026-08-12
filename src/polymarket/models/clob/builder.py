@@ -1,15 +1,16 @@
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal, DecimalException
 from typing import Any, cast
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
+from polymarket.models._validators import parse_decimal_string
 from polymarket.models.base import BaseModel
 from polymarket.models.clob._validators import (
-    EpochOrIsoTimestamp,
-    RequiredEpochOrIsoTimestamp,
-    _DecimalFromString,  # pyright: ignore[reportPrivateUsage]
+    _parse_epoch_or_iso_timestamp,  # pyright: ignore[reportPrivateUsage]
+    _require_epoch_or_iso_timestamp,  # pyright: ignore[reportPrivateUsage]
 )
 from polymarket.models.types import CtfConditionId, OrderSide, TokenId
 
@@ -53,22 +54,37 @@ class BuilderTrade(BaseModel):
     )
     token_id: TokenId = Field(validation_alias="assetId")
     side: OrderSide
-    size: _DecimalFromString
-    size_usdc: _DecimalFromString = Field(validation_alias="sizeUsdc")
-    price: _DecimalFromString
+    size: Decimal
+    size_usdc: Decimal = Field(validation_alias="sizeUsdc")
+    price: Decimal
     status: str
     outcome: str
     outcome_index: int = Field(validation_alias="outcomeIndex")
     owner: str
     maker: str
     transaction_hash: str = Field(validation_alias="transactionHash")
-    matched_at: RequiredEpochOrIsoTimestamp = Field(validation_alias="matchTime")
+    matched_at: datetime = Field(validation_alias="matchTime")
     bucket_index: int = Field(validation_alias="bucketIndex")
-    fee: _DecimalFromString
-    fee_usdc: _DecimalFromString = Field(validation_alias="feeUsdc")
+    fee: Decimal
+    fee_usdc: Decimal = Field(validation_alias="feeUsdc")
     error_msg: str | None = Field(default=None, validation_alias="err_msg")
-    created_at: EpochOrIsoTimestamp = Field(default=None, validation_alias="createdAt")
-    updated_at: EpochOrIsoTimestamp = Field(default=None, validation_alias="updatedAt")
+    created_at: datetime | None = Field(default=None, validation_alias="createdAt")
+    updated_at: datetime | None = Field(default=None, validation_alias="updatedAt")
+
+    @field_validator("size", "size_usdc", "price", "fee", "fee_usdc", mode="before")
+    @classmethod
+    def _parse_decimal_fields(cls, value: object) -> object:
+        return parse_decimal_string(value)
+
+    @field_validator("matched_at", mode="before")
+    @classmethod
+    def _parse_matched_at(cls, value: object) -> object:
+        return _require_epoch_or_iso_timestamp(value)
+
+    @field_validator("created_at", "updated_at", mode="before")
+    @classmethod
+    def _parse_optional_timestamps(cls, value: object) -> object:
+        return _parse_epoch_or_iso_timestamp(value)
 
 
 __all__ = ["BuilderFeeRates", "BuilderTrade"]

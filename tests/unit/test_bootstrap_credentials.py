@@ -7,10 +7,10 @@ from eth_account import Account
 from eth_account.signers.local import LocalAccount
 
 from polymarket import ApiKeyCreds
+from polymarket._internal.environment import PRODUCTION_CONFIG
 from polymarket._internal.l1_auth import ApiKeyAuthSignature
 from polymarket.clients import async_secure as _module
 from polymarket.clients._transport import AsyncTransport
-from polymarket.environments import PRODUCTION
 from polymarket.errors import RequestRejectedError
 
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
@@ -29,7 +29,7 @@ def _clob() -> AsyncTransport:
 def test_bootstrap_returns_provided_credentials_when_validation_disabled() -> None:
     async def run() -> ApiKeyCreds:
         return await _module._bootstrap_credentials(
-            environment=PRODUCTION,
+            config=PRODUCTION_CONFIG,
             signer=_signer(),
             clob=_clob(),
             provided=PROVIDED,
@@ -55,7 +55,7 @@ def test_bootstrap_returns_provided_when_validation_confirms_active(
 
     async def run() -> ApiKeyCreds:
         return await _module._bootstrap_credentials(
-            environment=PRODUCTION,
+            config=PRODUCTION_CONFIG,
             signer=_signer(),
             clob=_clob(),
             provided=PROVIDED,
@@ -81,7 +81,7 @@ def test_bootstrap_falls_back_to_l1_when_provided_creds_are_inactive(
 
     async def run() -> ApiKeyCreds:
         return await _module._bootstrap_credentials(
-            environment=PRODUCTION,
+            config=PRODUCTION_CONFIG,
             signer=_signer(),
             clob=_clob(),
             provided=PROVIDED,
@@ -110,7 +110,7 @@ def test_bootstrap_does_fresh_l1_when_no_credentials_provided(
 
     async def run() -> ApiKeyCreds:
         return await _module._bootstrap_credentials(
-            environment=PRODUCTION,
+            config=PRODUCTION_CONFIG,
             signer=_signer(),
             clob=_clob(),
             provided=None,
@@ -136,7 +136,7 @@ def test_credentials_are_active_returns_false_on_401(
 
     async def run() -> bool:
         return await _module._credentials_are_active(
-            environment=PRODUCTION,
+            config=PRODUCTION_CONFIG,
             signer=_signer(),
             credentials=PROVIDED,
             logger=None,
@@ -155,7 +155,7 @@ def test_credentials_are_active_returns_false_when_key_not_listed(
 
     async def run() -> bool:
         return await _module._credentials_are_active(
-            environment=PRODUCTION,
+            config=PRODUCTION_CONFIG,
             signer=_signer(),
             credentials=PROVIDED,
             logger=None,
@@ -174,7 +174,7 @@ def test_credentials_are_active_propagates_non_401_errors(
 
     async def run() -> bool:
         return await _module._credentials_are_active(
-            environment=PRODUCTION,
+            config=PRODUCTION_CONFIG,
             signer=_signer(),
             credentials=PROVIDED,
             logger=None,

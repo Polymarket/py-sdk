@@ -1,9 +1,13 @@
 from __future__ import annotations
 
-from pydantic import Field
+from datetime import datetime
+
+from pydantic import Field, field_validator
 
 from polymarket.models.base import BaseModel
-from polymarket.models.clob._validators import EpochMsOrIsoTimestamp
+from polymarket.models.clob._validators import (
+    _parse_epoch_ms_or_iso_timestamp,  # pyright: ignore[reportPrivateUsage]
+)
 
 
 class ApiKeyCreds(BaseModel):
@@ -31,8 +35,13 @@ class BuilderApiKeyInfo(BaseModel):
     """
 
     key: str
-    created_at: EpochMsOrIsoTimestamp = Field(default=None, validation_alias="createdAt")
-    revoked_at: EpochMsOrIsoTimestamp = Field(default=None, validation_alias="revokedAt")
+    created_at: datetime | None = Field(default=None, validation_alias="createdAt")
+    revoked_at: datetime | None = Field(default=None, validation_alias="revokedAt")
+
+    @field_validator("created_at", "revoked_at", mode="before")
+    @classmethod
+    def _parse_timestamps(cls, value: object) -> object:
+        return _parse_epoch_ms_or_iso_timestamp(value)
 
 
 __all__ = ["ApiKeyCreds", "BuilderApiKeyInfo"]
