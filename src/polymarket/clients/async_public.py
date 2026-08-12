@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal, Self, assert_never, cast, overlo
 from polymarket._internal.actions import builders as _builders_actions
 from polymarket._internal.actions import clob as _clob_actions
 from polymarket._internal.actions import data as _data_actions
+from polymarket._internal.actions import funding as _funding_actions
 from polymarket._internal.actions import gamma as _gamma_actions
 from polymarket._internal.actions import rewards as _rewards_actions
 from polymarket._internal.actions import rfq as _rfq_actions
@@ -57,6 +58,10 @@ from polymarket.models import (
     ComboMarket,
     Comment,
     Event,
+    FundingAddressSet,
+    FundingAssetCatalog,
+    FundingQuote,
+    FundingTransaction,
     LastTradePrice,
     LastTradePriceForToken,
     Market,
@@ -162,6 +167,7 @@ class AsyncPublicClient:
             _resolved_environment_config=config,
             gamma=AsyncTransport(base_url=config.gamma_url, logger=logger),
             data=AsyncTransport(base_url=config.data_url, logger=logger),
+            bridge=AsyncTransport(base_url=config.bridge_url, logger=logger),
             rfq=AsyncTransport(base_url=config.rfq_url, logger=logger),
             clob=AsyncTransport(base_url=config.clob_url, logger=logger),
             perps=AsyncTransport(base_url=config.perps_url, logger=logger),
@@ -364,15 +370,88 @@ class AsyncPublicClient:
                                 await self._ctx.data.close()
                             finally:
                                 try:
-                                    await self._ctx.rfq.close()
+                                    await self._ctx.bridge.close()
                                 finally:
                                     try:
-                                        await self._ctx.clob.close()
+                                        await self._ctx.rfq.close()
                                     finally:
                                         try:
-                                            await self._ctx.perps.close()
+                                            await self._ctx.clob.close()
                                         finally:
-                                            await self._rpc.close()
+                                            try:
+                                                await self._ctx.perps.close()
+                                            finally:
+                                                await self._rpc.close()
+
+    async def create_deposit_addresses(
+        self, *, wallet: str, builder_code: str | None = None
+    ) -> FundingAddressSet:
+        """Create chain-specific deposit addresses for a wallet."""
+        path, body, headers = _funding_actions.build_create_deposit_addresses_request(
+            wallet=wallet,
+            builder_code=builder_code,
+        )
+        return _funding_actions.parse_funding_address_set(
+            await self._ctx.bridge.post_json(path, json=body, headers=headers)
+        )
+
+    async def create_withdrawal_addresses(
+        self,
+        *,
+        wallet: str,
+        destination_chain_id: int,
+        destination_token_address: str,
+        recipient_address: str,
+        builder_code: str | None = None,
+    ) -> FundingAddressSet:
+        """Create addresses for withdrawing to a destination chain and token.
+
+        Send pUSD to the returned EVM address to start the withdrawal.
+        """
+        path, body, headers = _funding_actions.build_create_withdrawal_addresses_request(
+            wallet=wallet,
+            destination_chain_id=destination_chain_id,
+            destination_token_address=destination_token_address,
+            recipient_address=recipient_address,
+            builder_code=builder_code,
+        )
+        return _funding_actions.parse_funding_address_set(
+            await self._ctx.bridge.post_json(path, json=body, headers=headers)
+        )
+
+    async def get_supported_funding_assets(self) -> FundingAssetCatalog:
+        """Get the chain and token pairs supported for account funding."""
+        return _funding_actions.parse_funding_asset_catalog(
+            await self._ctx.bridge.get_json("/supported-assets")
+        )
+
+    async def get_funding_quote(
+        self,
+        *,
+        amount: int,
+        source_chain_id: int,
+        source_token_address: str,
+        destination_chain_id: int,
+        destination_token_address: str,
+        recipient_address: str,
+    ) -> FundingQuote:
+        """Estimate a transfer between supported funding assets."""
+        path, body = _funding_actions.build_funding_quote_request(
+            amount=amount,
+            source_chain_id=source_chain_id,
+            source_token_address=source_token_address,
+            destination_chain_id=destination_chain_id,
+            destination_token_address=destination_token_address,
+            recipient_address=recipient_address,
+        )
+        return _funding_actions.parse_funding_quote(
+            await self._ctx.bridge.post_json(path, json=body)
+        )
+
+    async def get_funding_transactions(self, *, address: str) -> tuple[FundingTransaction, ...]:
+        """Get deposit or withdrawal transactions observed for an address."""
+        path = _funding_actions.build_funding_status_request(address=address)
+        return _funding_actions.parse_funding_transactions(await self._ctx.bridge.get_json(path))
 
     @overload
     async def get_market(

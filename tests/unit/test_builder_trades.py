@@ -277,6 +277,7 @@ class TestPublicClientListBuilderTrades:
                 environment=client._ctx.environment,
                 gamma=client._ctx.gamma,
                 data=client._ctx.data,
+                bridge=client._ctx.bridge,
                 rfq=client._ctx.rfq,
                 clob=SyncTransport(
                     base_url=PRODUCTION_CONFIG.clob_url,
@@ -327,6 +328,7 @@ class TestAsyncPublicClientListBuilderTrades:
                     environment=client._ctx.environment,
                     gamma=client._ctx.gamma,
                     data=client._ctx.data,
+                    bridge=client._ctx.bridge,
                     rfq=client._ctx.rfq,
                     clob=AsyncTransport(
                         base_url=PRODUCTION_CONFIG.clob_url,

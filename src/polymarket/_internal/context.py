@@ -24,6 +24,7 @@ class SyncClientContext:
     environment_config: EnvironmentConfig = field(init=False, repr=False)
     gamma: SyncTransport
     data: SyncTransport
+    bridge: SyncTransport
     rfq: SyncTransport
     clob: SyncTransport
     _resolved_environment_config: InitVar[EnvironmentConfig | None] = None
@@ -54,6 +55,7 @@ class AsyncClientContext:
     environment_config: EnvironmentConfig = field(init=False, repr=False)
     gamma: AsyncTransport
     data: AsyncTransport
+    bridge: AsyncTransport
     rfq: AsyncTransport
     clob: AsyncTransport
     perps: AsyncTransport

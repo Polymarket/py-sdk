@@ -18,6 +18,7 @@ from polymarket._internal.actions import clob as _clob_actions
 from polymarket._internal.actions import combo_rfq as _combo_rfq_actions
 from polymarket._internal.actions import combos as _combos_actions
 from polymarket._internal.actions import data as _data_actions
+from polymarket._internal.actions import funding as _funding_actions
 from polymarket._internal.actions import gamma as _gamma_actions
 from polymarket._internal.actions import rewards as _rewards_actions
 from polymarket._internal.actions import rfq as _rfq_actions
@@ -148,6 +149,10 @@ from polymarket.models import (
     ComboMarket,
     Comment,
     Event,
+    FundingAddressSet,
+    FundingAssetCatalog,
+    FundingQuote,
+    FundingTransaction,
     LastTradePrice,
     LastTradePriceForToken,
     Market,
@@ -400,6 +405,7 @@ class SecureClient:
 
         gamma = SyncTransport(base_url=config.gamma_url, logger=logger)
         data = SyncTransport(base_url=config.data_url, logger=logger)
+        bridge = SyncTransport(base_url=config.bridge_url, logger=logger)
         rfq = SyncTransport(base_url=config.rfq_url, logger=logger)
         clob = SyncTransport(
             base_url=config.clob_url,
@@ -438,6 +444,7 @@ class SecureClient:
         except BaseException:
             gamma.close()
             data.close()
+            bridge.close()
             rfq.close()
             clob.close()
             relayer.close()
@@ -450,6 +457,7 @@ class SecureClient:
             _resolved_environment_config=config,
             gamma=gamma,
             data=data,
+            bridge=bridge,
             rfq=rfq,
             clob=clob,
             signer=signer,
@@ -512,24 +520,92 @@ class SecureClient:
                 ctx.data.close()
             finally:
                 try:
-                    ctx.clob.close()
+                    ctx.bridge.close()
                 finally:
                     try:
-                        ctx.rfq.close()
+                        ctx.clob.close()
                     finally:
                         try:
-                            ctx.secure_clob.close()
+                            ctx.rfq.close()
                         finally:
                             try:
-                                ctx.relayer.close()
+                                ctx.secure_clob.close()
                             finally:
                                 try:
-                                    ctx.combos.close()
+                                    ctx.relayer.close()
                                 finally:
                                     try:
-                                        ctx.builder_gateway.close()
+                                        ctx.combos.close()
                                     finally:
-                                        ctx.rpc.close()
+                                        try:
+                                            ctx.builder_gateway.close()
+                                        finally:
+                                            ctx.rpc.close()
+
+    def create_deposit_addresses(self, *, builder_code: str | None = None) -> FundingAddressSet:
+        """Create chain-specific deposit addresses for this client's wallet."""
+        path, body, headers = _funding_actions.build_create_deposit_addresses_request(
+            wallet=self._ctx.wallet,
+            builder_code=builder_code,
+        )
+        return _funding_actions.parse_funding_address_set(
+            self._ctx.bridge.post_json(path, json=body, headers=headers)
+        )
+
+    def create_withdrawal_addresses(
+        self,
+        *,
+        destination_chain_id: int,
+        destination_token_address: str,
+        recipient_address: str,
+        builder_code: str | None = None,
+    ) -> FundingAddressSet:
+        """Create withdrawal addresses for this client's wallet.
+
+        Send pUSD to the returned EVM address to start the withdrawal.
+        """
+        path, body, headers = _funding_actions.build_create_withdrawal_addresses_request(
+            wallet=self._ctx.wallet,
+            destination_chain_id=destination_chain_id,
+            destination_token_address=destination_token_address,
+            recipient_address=recipient_address,
+            builder_code=builder_code,
+        )
+        return _funding_actions.parse_funding_address_set(
+            self._ctx.bridge.post_json(path, json=body, headers=headers)
+        )
+
+    def get_supported_funding_assets(self) -> FundingAssetCatalog:
+        """Get the chain and token pairs supported for account funding."""
+        return _funding_actions.parse_funding_asset_catalog(
+            self._ctx.bridge.get_json("/supported-assets")
+        )
+
+    def get_funding_quote(
+        self,
+        *,
+        amount: int,
+        source_chain_id: int,
+        source_token_address: str,
+        destination_chain_id: int,
+        destination_token_address: str,
+        recipient_address: str,
+    ) -> FundingQuote:
+        """Estimate a transfer between supported funding assets."""
+        path, body = _funding_actions.build_funding_quote_request(
+            amount=amount,
+            source_chain_id=source_chain_id,
+            source_token_address=source_token_address,
+            destination_chain_id=destination_chain_id,
+            destination_token_address=destination_token_address,
+            recipient_address=recipient_address,
+        )
+        return _funding_actions.parse_funding_quote(self._ctx.bridge.post_json(path, json=body))
+
+    def get_funding_transactions(self, *, address: str) -> tuple[FundingTransaction, ...]:
+        """Get deposit or withdrawal transactions observed for an address."""
+        path = _funding_actions.build_funding_status_request(address=address)
+        return _funding_actions.parse_funding_transactions(self._ctx.bridge.get_json(path))
 
     def _user_or_wallet(self, user: str | None) -> str:
         return self._ctx.wallet if user is None else user
