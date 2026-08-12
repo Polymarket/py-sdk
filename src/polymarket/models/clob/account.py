@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated, Any, Literal, TypeAlias, cast
+from typing import Any, Literal, TypeAlias, cast
 
 from pydantic import Field, field_validator
 

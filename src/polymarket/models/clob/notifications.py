@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+from decimal import Decimal
 from enum import IntEnum
 from typing import Annotated, Literal
 
-from pydantic import BeforeValidator, Field, field_validator
+from pydantic import Field, field_validator
 
+from polymarket.models._validators import parse_decimal_string
 from polymarket.models.base import BaseModel
 from polymarket.models.clob._validators import (
-    EpochOrIsoTimestamp,
-    RequiredEpochOrIsoTimestamp,
-    _DecimalFromNumberOrString,  # pyright: ignore[reportPrivateUsage]
-    _DecimalFromString,  # pyright: ignore[reportPrivateUsage]
+    _coerce_decimalish,  # pyright: ignore[reportPrivateUsage]
+    _parse_epoch_or_iso_timestamp,  # pyright: ignore[reportPrivateUsage]
+    _require_epoch_or_iso_timestamp,  # pyright: ignore[reportPrivateUsage]
 )
 from polymarket.models.clob.orders import OrderType
 from polymarket.models.gamma.comment import CommentProfile
@@ -67,25 +69,31 @@ class OrderNotificationPayload(BaseModel):
     condition_id: CtfConditionId = Field(validation_alias="market")
     order_id: OrderId
     side: OrderSide
-    order_type: Annotated[OrderType | None, BeforeValidator(_empty_string_to_none)] = Field(
-        default=None, validation_alias="type"
-    )
-    price: _DecimalFromString
-    original_size: _DecimalFromString
-    matched_size: _DecimalFromString
-    remaining_size: _DecimalFromString
+    order_type: OrderType | None = Field(default=None, validation_alias="type")
+    price: Decimal
+    original_size: Decimal
+    matched_size: Decimal
+    remaining_size: Decimal
     outcome: str
     outcome_index: int
-    transaction_hash: Annotated[TransactionHash | None, BeforeValidator(_empty_string_to_none)] = (
-        None
-    )
-    trade_id: Annotated[str | None, BeforeValidator(_empty_string_to_none)] = None
+    transaction_hash: TransactionHash | None = None
+    trade_id: str | None = None
     question: str | None = None
     market_slug: str | None = None
     icon: str | None = None
     image: str | None = None
     event_slug: str | None = Field(default=None, validation_alias="eventSlug")
     series_slug: str | None = Field(default=None, validation_alias="seriesSlug")
+
+    @field_validator("price", "original_size", "matched_size", "remaining_size", mode="before")
+    @classmethod
+    def _parse_decimal_fields(cls, value: object) -> object:
+        return parse_decimal_string(value)
+
+    @field_validator("order_type", "transaction_hash", "trade_id", mode="before")
+    @classmethod
+    def _parse_optional_fields(cls, value: object) -> object:
+        return _empty_string_to_none(value)
 
 
 class MarketNotificationToken(BaseModel):
@@ -96,23 +104,38 @@ class MarketNotificationToken(BaseModel):
 
     token_id: TokenId
     outcome: str
-    price: _DecimalFromNumberOrString | None = None
+    price: Decimal | None = None
     winner: bool
+
+    @field_validator("price", mode="before")
+    @classmethod
+    def _parse_price(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
 
 class MarketNotificationRewardsRate(BaseModel):
     """Per-asset daily reward rate on a market lifecycle notification."""
 
     asset_address: str
-    daily_rate: _DecimalFromNumberOrString = Field(validation_alias="rewards_daily_rate")
+    daily_rate: Decimal = Field(validation_alias="rewards_daily_rate")
+
+    @field_validator("daily_rate", mode="before")
+    @classmethod
+    def _parse_daily_rate(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
 
 class MarketNotificationRewards(BaseModel):
     """Liquidity-rewards parameters carried on a market lifecycle notification."""
 
-    min_size: _DecimalFromNumberOrString
+    min_size: Decimal
     max_spread: float
     rates: tuple[MarketNotificationRewardsRate, ...] | None = None
+
+    @field_validator("min_size", mode="before")
+    @classmethod
+    def _parse_min_size(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
 
 class MarketNotificationPayload(BaseModel):
@@ -134,16 +157,16 @@ class MarketNotificationPayload(BaseModel):
     closed: bool
     archived: bool | None = None
     accepting_orders: bool
-    accepting_orders_timestamp: EpochOrIsoTimestamp = Field(
+    accepting_orders_timestamp: datetime | None = Field(
         default=None,
         validation_alias="accepting_order_timestamp",
     )
     enable_order_book: bool | None = None
-    end_date: EpochOrIsoTimestamp = Field(default=None, validation_alias="end_date_iso")
-    game_start_time: EpochOrIsoTimestamp = None
+    end_date: datetime | None = Field(default=None, validation_alias="end_date_iso")
+    game_start_time: datetime | None = None
     seconds_delay: int
-    minimum_order_size: _DecimalFromNumberOrString
-    minimum_tick_size: _DecimalFromNumberOrString
+    minimum_order_size: Decimal
+    minimum_tick_size: Decimal
     maker_base_fee: int | None = None
     taker_base_fee: int | None = None
     notifications_enabled: bool | None = None
@@ -156,21 +179,46 @@ class MarketNotificationPayload(BaseModel):
     tags: tuple[str, ...] | None = None
     event_slug: str | None = Field(default=None, validation_alias="eventSlug")
 
+    @field_validator(
+        "accepting_orders_timestamp",
+        "end_date",
+        "game_start_time",
+        mode="before",
+    )
+    @classmethod
+    def _parse_optional_timestamps(cls, value: object) -> object:
+        return _parse_epoch_or_iso_timestamp(value)
+
+    @field_validator("minimum_order_size", "minimum_tick_size", mode="before")
+    @classmethod
+    def _parse_decimal_fields(cls, value: object) -> object:
+        return _coerce_decimalish(value)
+
 
 class RewardPayoutNotificationPayload(BaseModel):
     """Payload of a liquidity-reward payout notification."""
 
     proxy_wallet: EvmAddress = Field(validation_alias="proxyWallet")
-    reward: _DecimalFromNumberOrString
+    reward: Decimal
     transaction_hash: TransactionHash = Field(validation_alias="txnHash")
+
+    @field_validator("reward", mode="before")
+    @classmethod
+    def _parse_reward(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
 
 class YieldPayoutNotificationPayload(BaseModel):
     """Payload of a yield payout notification."""
 
     proxy_wallet: EvmAddress = Field(validation_alias="proxyWallet")
-    amount: _DecimalFromNumberOrString
+    amount: Decimal
     transaction_hash: TransactionHash = Field(validation_alias="txnHash")
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def _parse_amount(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
 
 class ChildCommentNotificationPayload(BaseModel):
@@ -190,13 +238,18 @@ class ChildCommentNotificationPayload(BaseModel):
         validation_alias="parentCommentID",
     )
     user_address: EvmAddress | None = Field(default=None, validation_alias="userAddress")
-    created_at: EpochOrIsoTimestamp = Field(default=None, validation_alias="createdAt")
+    created_at: datetime | None = Field(default=None, validation_alias="createdAt")
     profile: CommentProfile | None = None
     event_slug: str | None = Field(default=None, validation_alias="eventSlug")
     event_title: str | None = Field(default=None, validation_alias="eventTitle")
     series_slug: str | None = Field(default=None, validation_alias="seriesSlug")
     series_title: str | None = Field(default=None, validation_alias="seriesTitle")
     image: str | None = None
+
+    @field_validator("created_at", mode="before")
+    @classmethod
+    def _parse_created_at(cls, value: object) -> object:
+        return _parse_epoch_or_iso_timestamp(value)
 
 
 class AutoRedeemedNotificationPayload(BaseModel):
@@ -205,7 +258,7 @@ class AutoRedeemedNotificationPayload(BaseModel):
     """
 
     proxy_wallet: EvmAddress = Field(validation_alias="proxyWallet")
-    amount: _DecimalFromNumberOrString
+    amount: Decimal
     condition_id: CtfConditionId = Field(validation_alias="conditionId")
     question: str
     image: str
@@ -216,6 +269,11 @@ class AutoRedeemedNotificationPayload(BaseModel):
     neg_risk: bool = Field(validation_alias="negRisk")
     transaction_hash: TransactionHash = Field(validation_alias="txnHash")
 
+    @field_validator("amount", mode="before")
+    @classmethod
+    def _parse_amount(cls, value: object) -> object:
+        return _coerce_decimalish(value)
+
 
 class ComboAutoRedeemedNotificationPayload(BaseModel):
     """Payload of a combo auto-redeem notification: a winning combo position
@@ -223,13 +281,18 @@ class ComboAutoRedeemedNotificationPayload(BaseModel):
     """
 
     proxy_wallet: EvmAddress = Field(validation_alias="proxyWallet")
-    amount: _DecimalFromNumberOrString
+    amount: Decimal
     position_id: PositionId = Field(validation_alias="positionId")
     condition_id: ComboConditionId = Field(validation_alias="conditionId")
     outcome_index: int = Field(validation_alias="outcomeIndex")
     legs: int
     portfolio_url: str | None = Field(default=None, validation_alias="portfolioUrl")
     transaction_hash: TransactionHash = Field(validation_alias="txnHash")
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def _parse_amount(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
     @field_validator("condition_id", mode="before")
     @classmethod
@@ -251,13 +314,20 @@ def _parse_notification_id(value: object) -> object:
     raise ValueError(msg)
 
 
-_NotificationId = Annotated[int, BeforeValidator(_parse_notification_id)]
-
-
 class _NotificationBase(BaseModel):
-    id: _NotificationId
+    id: int
     owner: ApiKey
-    timestamp: RequiredEpochOrIsoTimestamp
+    timestamp: datetime
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def _validate_id(cls, value: object) -> object:
+        return _parse_notification_id(value)
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def _parse_timestamp(cls, value: object) -> object:
+        return _require_epoch_or_iso_timestamp(value)
 
 
 class OrderCancellationNotification(_NotificationBase):

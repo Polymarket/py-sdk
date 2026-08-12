@@ -111,7 +111,7 @@ def test_account_model_annotations_are_canonical() -> None:
             "matched_at": datetime,
             "updated_at": datetime,
         },
-        Notification: {"timestamp": datetime},
+        OrderFillNotification: {"timestamp": datetime},
     }
 
     for model, fields in expected.items():
@@ -143,7 +143,7 @@ def test_account_model_signatures_use_canonical_annotations() -> None:
             "match_time": datetime,
             "last_update": datetime,
         },
-        Notification: {"timestamp": datetime},
+        OrderFillNotification: {"timestamp": datetime},
     }
 
     for model, fields in expected.items():
@@ -208,9 +208,13 @@ def test_clob_trade_requires_timestamps(field: str, value: object) -> None:
 
 @pytest.mark.parametrize("timestamp", [None, ""])
 def test_notification_requires_timestamp(timestamp: object) -> None:
-    with pytest.raises(UnexpectedResponseError):
-        Notification.parse_response(
-            {"id": 1, "owner": "0xOWNER", "type": 0, "payload": None, "timestamp": timestamp}
+    with pytest.raises(ValidationError):
+        _NOTIFICATION_ADAPTER.validate_python(
+            _notification(
+                NotificationType.ORDER_FILL,
+                _order_notification_payload(),
+                timestamp=timestamp,
+            )
         )
 
 
