@@ -2,7 +2,8 @@
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Literal, cast
+from enum import StrEnum
+from typing import Annotated, Any, Literal, TypeAlias, cast
 
 from pydantic import AliasChoices, Field, field_validator, model_validator
 
@@ -26,6 +27,16 @@ from polymarket.models.perps.types import (
 from polymarket.models.types import OrderSide
 
 _DEFAULT_ACK_ERROR = "Perps command was rejected."
+
+
+class PerpsCancelOrderErrorCode(StrEnum):
+    """Stable rejection identifiers for Perps order cancellations."""
+
+    ORDER_UNKNOWN = "order_unknown"
+    ORDER_NOT_IN_ORDERBOOK = "order_not_in_orderbook"
+    ORDER_IN_FLIGHT = "order_in_flight"
+    ORDER_NOT_PENDING_ENGINE = "order_not_pending_engine"
+    ORDER_NOT_FOUND = "order_not_found"
 
 
 def _side_from_buy(value: object) -> OrderSide:
@@ -175,18 +186,28 @@ class PerpsPostOrderAck(BaseModel):
         return self
 
 
-class PerpsCancelOrderResult(BaseModel):
-    """Result of one Perps order cancellation."""
+class PerpsCancelOrderSuccess(BaseModel):
+    """A successfully cancelled Perps order."""
 
-    status: Literal["ok", "err"]
+    status: Literal["ok"]
     order_id: PerpsOrderId | None = Field(default=None, validation_alias="oid")
     client_order_id: str | None = Field(default=None, validation_alias="coid")
-    error: str | None = None
 
-    @model_validator(mode="before")
-    @classmethod
-    def _normalize(cls, data: object) -> object:
-        return _default_ack_error(data)
+
+class PerpsCancelOrderRejection(BaseModel):
+    """A rejected Perps order cancellation."""
+
+    status: Literal["err"]
+    error: PerpsCancelOrderErrorCode
+    order_id: PerpsOrderId | None = Field(default=None, validation_alias="oid")
+    client_order_id: str | None = Field(default=None, validation_alias="coid")
+
+
+PerpsCancelOrderResult: TypeAlias = Annotated[
+    PerpsCancelOrderSuccess | PerpsCancelOrderRejection,
+    Field(discriminator="status"),
+]
+"""Result of one Perps order cancellation."""
 
 
 class PerpsCancelAllOrdersResponse(BaseModel):
@@ -223,7 +244,10 @@ class PerpsUpdateLeverageResult(BaseModel):
 __all__ = [
     "PerpsAutoCancelResponse",
     "PerpsCancelAllOrdersResponse",
+    "PerpsCancelOrderErrorCode",
+    "PerpsCancelOrderRejection",
     "PerpsCancelOrderResult",
+    "PerpsCancelOrderSuccess",
     "PerpsFill",
     "PerpsOrder",
     "PerpsPostOrderAck",
