@@ -445,6 +445,17 @@ def test_market_resolved_notification_parses_market_payload() -> None:
     assert notification.payload.minimum_tick_size == Decimal("0.01")
 
 
+@pytest.mark.parametrize("fee_field", ["maker_base_fee", "taker_base_fee"])
+def test_market_notification_requires_base_fees(fee_field: str) -> None:
+    payload = _market_notification_payload()
+    del payload[fee_field]
+
+    with pytest.raises(ValidationError):
+        _NOTIFICATION_ADAPTER.validate_python(
+            _notification(NotificationType.MARKET_RESOLVED, payload)
+        )
+
+
 def test_market_notification_allows_null_base_fees() -> None:
     notification = _NOTIFICATION_ADAPTER.validate_python(
         _notification(

@@ -167,8 +167,8 @@ class MarketNotificationPayload(BaseModel):
     seconds_delay: int
     minimum_order_size: Decimal
     minimum_tick_size: Decimal
-    maker_base_fee: int | None = None
-    taker_base_fee: int | None = None
+    maker_base_fee: int | None
+    taker_base_fee: int | None
     notifications_enabled: bool | None = None
     neg_risk: bool | None = None
     neg_risk_market_id: str | None = None
