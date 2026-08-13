@@ -1,5 +1,7 @@
 """Exception types raised by the Polymarket SDK."""
 
+from polymarket.rate_limit import RateLimitUpdate
+
 
 class PolymarketError(Exception):
     """Base class for errors raised by the Polymarket SDK."""
@@ -66,7 +68,25 @@ class AutoCancelDailyLimitError(RequestRejectedError):
 
 
 class RateLimitError(PolymarketError):
-    """Error raised when a request is rejected because of rate limits."""
+    """Error raised when a request is rejected because of rate limits.
+
+    ``retry_after`` is the server-suggested delay in seconds before retrying,
+    taken from the ``Retry-After`` response header or a ``retry_after_seconds``
+    field in the response body; ``None`` when the response provides neither.
+    ``rate_limit`` is the rate-limit state reported with the rejection; ``None``
+    when the response does not report it.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        retry_after: float | None = None,
+        rate_limit: RateLimitUpdate | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
+        self.rate_limit = rate_limit
 
 
 class TimeoutError(PolymarketError):

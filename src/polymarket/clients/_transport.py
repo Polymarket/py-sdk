@@ -18,6 +18,7 @@ from polymarket.errors import (
     TransportError,
     UnexpectedResponseError,
 )
+from polymarket.rate_limit import RateLimitUpdate, RateLimitUpdateListener
 
 SyncHeaderResolver: TypeAlias = Callable[[str, str, str | None], Mapping[str, str]]
 HeaderResolver: TypeAlias = Callable[[str, str, str | None], Awaitable[Mapping[str, str]]]
@@ -47,6 +48,7 @@ class SyncTransport:
         logger: logging.Logger | None = None,
         client: httpx.Client | None = None,
         header_resolver: SyncHeaderResolver | None = None,
+        on_rate_limit_update: RateLimitUpdateListener | None = None,
     ) -> None:
         opts = options or TransportOptions()
         self._owns_client = client is None
@@ -59,6 +61,7 @@ class SyncTransport:
         )
         self._logger = logger
         self._header_resolver = header_resolver
+        self._on_rate_limit_update = on_rate_limit_update
 
     def get_json(
         self,
@@ -157,6 +160,7 @@ class SyncTransport:
             raise TransportError(str(error) or "Request failed") from error
 
         _log_response(self._logger, method, path, response, started)
+        _notify_rate_limit_update(self._on_rate_limit_update, self._logger, response)
         _raise_for_response_status(response)
         return response
 
@@ -170,6 +174,7 @@ class AsyncTransport:
         logger: logging.Logger | None = None,
         client: httpx.AsyncClient | None = None,
         header_resolver: HeaderResolver | None = None,
+        on_rate_limit_update: RateLimitUpdateListener | None = None,
     ) -> None:
         opts = options or TransportOptions()
         self._owns_client = client is None
@@ -182,6 +187,7 @@ class AsyncTransport:
         )
         self._logger = logger
         self._header_resolver = header_resolver
+        self._on_rate_limit_update = on_rate_limit_update
 
     async def get_json(
         self,
@@ -291,6 +297,7 @@ class AsyncTransport:
             raise TransportError(str(error) or "Request failed") from error
 
         _log_response(self._logger, method, path, response, started)
+        _notify_rate_limit_update(self._on_rate_limit_update, self._logger, response)
         _raise_for_response_status(response)
         return response
 
@@ -331,12 +338,69 @@ def _log_failure(
     )
 
 
+def _parse_rate_limit_headers(headers: httpx.Headers) -> RateLimitUpdate | None:
+    """Parse the ``Poly-RateLimit-*`` response headers.
+
+    Returns ``None`` when the response carries none of them.
+    """
+    remaining = _parse_numeric_header(headers.get("Poly-RateLimit-Remaining"))
+    reset = _parse_numeric_header(headers.get("Poly-RateLimit-Reset"))
+    tier = _parse_text_header(headers.get("Poly-RateLimit-Tier"))
+    warning_header = _parse_text_header(headers.get("Poly-RateLimit-Warning"))
+    warning = warning_header is not None and warning_header.lower() == "true"
+
+    if remaining is None and reset is None and tier is None and not warning:
+        return None
+
+    return RateLimitUpdate(remaining=remaining, reset=reset, tier=tier, warning=warning)
+
+
+def _parse_numeric_header(value: str | None) -> float | None:
+    if value is None:
+        return None
+    try:
+        parsed = float(value.strip())
+    except ValueError:
+        return None
+    return parsed if math.isfinite(parsed) else None
+
+
+def _parse_text_header(value: str | None) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped if stripped else None
+
+
+def _notify_rate_limit_update(
+    listener: RateLimitUpdateListener | None,
+    logger: logging.Logger | None,
+    response: httpx.Response,
+) -> None:
+    if listener is None:
+        return
+
+    update = _parse_rate_limit_headers(response.headers)
+    if update is None:
+        return
+
+    try:
+        listener(update)
+    except Exception:
+        if logger is not None:
+            logger.warning("polymarket rate-limit update listener failed", exc_info=True)
+
+
 def _raise_for_response_status(response: httpx.Response) -> None:
     if response.is_success:
         return
 
     if response.status_code == 429:
-        raise RateLimitError(f"Request to {response.url} was rate limited")
+        raise RateLimitError(
+            f"Request to {response.url} was rate limited",
+            retry_after=_extract_retry_after(response),
+            rate_limit=_parse_rate_limit_headers(response.headers),
+        )
 
     raise RequestRejectedError(
         _extract_response_error_message(response),
