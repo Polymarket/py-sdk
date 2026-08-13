@@ -227,10 +227,26 @@ class PublicClient:
         )
         return _funding_actions.parse_funding_quote(self._ctx.bridge.post_json(path, json=body))
 
-    def get_funding_transactions(self, *, address: str) -> tuple[FundingTransaction, ...]:
-        """Get deposit or withdrawal transactions observed for an address."""
-        path = _funding_actions.build_funding_status_request(address=address)
-        return _funding_actions.parse_funding_transactions(self._ctx.bridge.get_json(path))
+    def list_funding_transactions(
+        self, *, address: str, page_size: int = 50
+    ) -> Paginator[FundingTransaction]:
+        """List deposit and withdrawal transactions for a bridge address, newest first.
+
+        Returns:
+            A paginator over transaction-status records.
+        """
+
+        def fetch(cursor: str | None) -> Page[FundingTransaction]:
+            path, params = _funding_actions.build_list_funding_transactions_request(
+                address=address,
+                page_size=page_size,
+                cursor=cursor,
+            )
+            return _funding_actions.parse_funding_transactions_page(
+                self._ctx.bridge.get_json(path, params=params)
+            )
+
+        return Paginator(fetch=fetch)
 
     @overload
     def get_market(

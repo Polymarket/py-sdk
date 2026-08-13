@@ -3,7 +3,9 @@
 from urllib.parse import quote
 
 from eth_utils.address import to_checksum_address
+from pydantic import Field, field_validator
 
+from polymarket._internal.request import QueryParamValue
 from polymarket._internal.validation import require_nonempty, validate_builder_code
 from polymarket.errors import UserInputError
 from polymarket.models.base import BaseModel
@@ -13,12 +15,25 @@ from polymarket.models.funding import (
     FundingQuote,
     FundingTransaction,
 )
+from polymarket.pagination import Page
 
 _BUILDER_CODE_HEADER = "X-Builder-Code"
+_DEFAULT_STATUS_PAGE_SIZE = 50
+_MAX_STATUS_PAGE_SIZE = 100
 
 
-class _FundingTransactionsResponse(BaseModel):
+class _FundingTransactionsPageResponse(BaseModel):
     transactions: tuple[FundingTransaction, ...]
+    # Production may briefly return the pre-pagination shape while the new
+    # required nextCursor field rolls out. Treat omission as a terminal page.
+    next_cursor: str | None = Field(default=None, validation_alias="nextCursor")
+
+    @field_validator("next_cursor")
+    @classmethod
+    def _validate_next_cursor(cls, value: str | None) -> str | None:
+        if value == "":
+            raise ValueError("nextCursor must be non-empty or null")
+        return value
 
 
 def _validate_evm_address(name: str, value: object) -> str:
@@ -114,10 +129,22 @@ def build_funding_quote_request(
     )
 
 
-def build_funding_status_request(*, address: str) -> str:
-    """Build a status path for an EVM, SVM, Bitcoin, or Tron address."""
+def build_list_funding_transactions_request(
+    *,
+    address: str,
+    page_size: int = _DEFAULT_STATUS_PAGE_SIZE,
+    cursor: str | None = None,
+) -> tuple[str, dict[str, QueryParamValue]]:
+    """Build a request for one page of funding transactions."""
     validated = _require_nonblank("address", address)
-    return f"/status/{quote(validated, safe='')}"
+    if type(page_size) is not int:
+        raise UserInputError("page_size must be an int.")
+    if page_size < 1 or page_size > _MAX_STATUS_PAGE_SIZE:
+        raise UserInputError(f"page_size must be between 1 and {_MAX_STATUS_PAGE_SIZE}.")
+    params: dict[str, QueryParamValue] = {"limit": page_size}
+    if cursor is not None:
+        params["cursor"] = require_nonempty("cursor", cursor)
+    return f"/status/{quote(validated, safe='')}", params
 
 
 def parse_funding_address_set(data: object) -> FundingAddressSet:
@@ -132,17 +159,22 @@ def parse_funding_quote(data: object) -> FundingQuote:
     return FundingQuote.parse_response(data)
 
 
-def parse_funding_transactions(data: object) -> tuple[FundingTransaction, ...]:
-    return _FundingTransactionsResponse.parse_response(data).transactions
+def parse_funding_transactions_page(data: object) -> Page[FundingTransaction]:
+    response = _FundingTransactionsPageResponse.parse_response(data)
+    return Page(
+        items=response.transactions,
+        has_more=response.next_cursor is not None,
+        next_cursor=response.next_cursor,
+    )
 
 
 __all__ = [
     "build_create_deposit_addresses_request",
     "build_create_withdrawal_addresses_request",
     "build_funding_quote_request",
-    "build_funding_status_request",
+    "build_list_funding_transactions_request",
     "parse_funding_address_set",
     "parse_funding_asset_catalog",
     "parse_funding_quote",
-    "parse_funding_transactions",
+    "parse_funding_transactions_page",
 ]

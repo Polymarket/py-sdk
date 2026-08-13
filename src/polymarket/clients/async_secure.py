@@ -1041,10 +1041,26 @@ class AsyncSecureClient:
             await self._ctx.bridge.post_json(path, json=body)
         )
 
-    async def get_funding_transactions(self, *, address: str) -> tuple[FundingTransaction, ...]:
-        """Get deposit or withdrawal transactions observed for an address."""
-        path = _funding_actions.build_funding_status_request(address=address)
-        return _funding_actions.parse_funding_transactions(await self._ctx.bridge.get_json(path))
+    def list_funding_transactions(
+        self, *, address: str, page_size: int = 50
+    ) -> AsyncPaginator[FundingTransaction]:
+        """List deposit and withdrawal transactions for a bridge address, newest first.
+
+        Returns:
+            An async paginator over transaction-status records.
+        """
+
+        async def fetch(cursor: str | None) -> Page[FundingTransaction]:
+            path, params = _funding_actions.build_list_funding_transactions_request(
+                address=address,
+                page_size=page_size,
+                cursor=cursor,
+            )
+            return _funding_actions.parse_funding_transactions_page(
+                await self._ctx.bridge.get_json(path, params=params)
+            )
+
+        return AsyncPaginator(fetch=fetch)
 
     async def _close_rfq_session(self) -> None:
         opening = self._rfq_session_opening
