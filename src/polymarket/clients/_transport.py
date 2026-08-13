@@ -341,6 +341,7 @@ def _raise_for_response_status(response: httpx.Response) -> None:
     raise RequestRejectedError(
         _extract_response_error_message(response),
         status=response.status_code,
+        code=_extract_response_error_code(response),
         retry_after=_extract_retry_after(response),
     )
 
@@ -385,6 +386,18 @@ def _read_json(response: httpx.Response) -> Any:
         return response.json()
     except ValueError as error:
         raise UnexpectedResponseError(f"Received non-JSON response from {response.url}") from error
+
+
+def _extract_response_error_code(response: httpx.Response) -> str | None:
+    if "application/json" not in response.headers.get("content-type", "").lower():
+        return None
+    try:
+        code = response.json().get("code")
+    except (AttributeError, ValueError):
+        return None
+    if isinstance(code, str) and code:
+        return code
+    return None
 
 
 def _extract_response_error_message(response: httpx.Response) -> str:

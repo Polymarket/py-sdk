@@ -30,7 +30,7 @@ from polymarket._internal.actions.clob import (
     parse_spreads,
 )
 from polymarket.errors import UnexpectedResponseError, UserInputError
-from polymarket.models import OrderSide, PriceRequest, TokenId
+from polymarket.models import LastTradePrice, OrderSide, PriceRequest, TokenId
 
 
 def test_build_midpoint_request_targets_midpoint_path_with_token_id() -> None:
@@ -496,8 +496,16 @@ def test_build_last_trade_price_request_targets_last_trade_price_path() -> None:
 def test_parse_last_trade_price_returns_model() -> None:
     result = parse_last_trade_price({"price": "0.53", "side": "BUY"})
 
+    assert result is not None
     assert result.price == Decimal("0.53")
     assert result.side == "BUY"
+
+
+def test_parse_last_trade_price_returns_none_without_trades() -> None:
+    result = parse_last_trade_price({"price": "0.5", "side": ""})
+
+    assert_type(result, LastTradePrice | None)
+    assert result is None
 
 
 def test_parse_last_trade_price_rejects_numeric_price() -> None:

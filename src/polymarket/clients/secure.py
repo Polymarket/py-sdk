@@ -15,6 +15,7 @@ from polymarket._internal.actions import account as _account_actions
 from polymarket._internal.actions import auth as _auth_actions
 from polymarket._internal.actions import builders as _builders_actions
 from polymarket._internal.actions import clob as _clob_actions
+from polymarket._internal.actions import combo_rfq as _combo_rfq_actions
 from polymarket._internal.actions import combos as _combos_actions
 from polymarket._internal.actions import data as _data_actions
 from polymarket._internal.actions import gamma as _gamma_actions
@@ -72,7 +73,10 @@ from polymarket._internal.actions.orders.types import OrderDraft
 from polymarket._internal.actions.relayer.approvals import (
     resolve_missing_trading_approval_calls_sync,
 )
-from polymarket._internal.actions.relayer.auth import make_relayer_header_resolver_sync
+from polymarket._internal.actions.relayer.auth import (
+    build_builder_key_headers,
+    make_relayer_header_resolver_sync,
+)
 from polymarket._internal.actions.relayer.calls import (
     MAX_UINT256,
     TransactionCall,
@@ -200,6 +204,15 @@ from polymarket.models.data import (
 )
 from polymarket.models.types import CtfConditionId, TokenId
 from polymarket.pagination import Page, Paginator
+from polymarket.rfq import (
+    ComboFillResult,
+    ComboQuote,
+    ComboQuoteAcceptance,
+    ComboQuoteResult,
+    RfqDirection,
+    RfqSide,
+    RfqStatusResult,
+)
 from polymarket.transactions import (
     MergePositionRequest,
     SyncDeprecatedTransactionHandle,
@@ -391,6 +404,13 @@ class SecureClient:
             logger=logger,
             header_resolver=relayer_resolver,
         )
+        builder_gateway = SyncTransport(
+            base_url=config.builder_gateway_url,
+            logger=logger,
+            header_resolver=_make_builder_gateway_header_resolver_sync(
+                api_key, signer, credentials
+            ),
+        )
         try:
             secure_clob = SyncTransport(
                 base_url=config.clob_url,
@@ -406,6 +426,7 @@ class SecureClient:
             clob.close()
             relayer.close()
             combos.close()
+            builder_gateway.close()
             raise
 
         ctx = SyncSecureClientContext(
@@ -422,6 +443,7 @@ class SecureClient:
             wallet_type=wallet_type,
             relayer=relayer,
             combos=combos,
+            builder_gateway=builder_gateway,
             api_key=api_key,
             rpc=rpc,
             order_metadata=SyncOrderMetadataCache(),
@@ -488,7 +510,10 @@ class SecureClient:
                                 try:
                                     ctx.combos.close()
                                 finally:
-                                    ctx.rpc.close()
+                                    try:
+                                        ctx.builder_gateway.close()
+                                    finally:
+                                        ctx.rpc.close()
 
     def _user_or_wallet(self, user: str | None) -> str:
         return self._ctx.wallet if user is None else user
@@ -1398,15 +1423,22 @@ class SecureClient:
         path, body = _clob_actions.build_spreads_request(token_ids=token_ids)
         return _clob_actions.parse_spreads(self._ctx.clob.post_json(path, json=body))
 
-    def get_last_trade_price(self, *, token_id: str) -> LastTradePrice:
-        """Get the most recent trade price for a token."""
+    def get_last_trade_price(self, *, token_id: str) -> LastTradePrice | None:
+        """Get the most recent trade price for a token.
+
+        Returns ``None`` when the token has not traded.
+        """
         path, params = _clob_actions.build_last_trade_price_request(token_id=token_id)
         return _clob_actions.parse_last_trade_price(self._ctx.clob.get_json(path, params=params))
 
     def get_last_trade_prices(
         self, *, token_ids: Sequence[str]
     ) -> tuple[LastTradePriceForToken, ...]:
-        """Get the most recent trade prices for multiple tokens."""
+        """Get the most recent trade prices for multiple tokens.
+
+        Tokens without trades are omitted. Match returned entries by ``token_id``;
+        the result is not positionally aligned with ``token_ids``.
+        """
         path, body = _clob_actions.build_last_trade_prices_request(token_ids=token_ids)
         return _clob_actions.parse_last_trade_prices(self._ctx.clob.post_json(path, json=body))
 
@@ -2572,6 +2604,122 @@ class SecureClient:
         """
         return _combos_actions.execute_collateral_return_plan_sync(self._ctx, plan=plan)
 
+    def request_combo_quote(
+        self,
+        *,
+        leg_position_ids: list[str] | tuple[str, ...],
+        direction: RfqDirection | str,
+        amount: Decimal | int | float | str | None = None,
+        size: Decimal | int | float | str | None = None,
+        side: RfqSide | str = RfqSide.YES,
+    ) -> ComboQuoteResult:
+        """Request a quote for a combo of positions.
+
+        BUY requests are sized in collateral via ``amount``; SELL requests
+        are sized in outcome tokens via ``size``. Amounts are human-readable:
+        ``1`` means one dollar or one full share, not one 6-decimal base
+        unit. Requires a Builder API Key passed as ``api_key=`` when
+        constructing the client.
+
+        The call resolves when the quote competition window closes. A request
+        that attracts no usable quotes is a normal outcome, returned with
+        ``quote=None`` and a ``reason`` rather than raised.
+
+        Returns:
+            The quote result. Pass ``result.quote`` to
+            :meth:`accept_combo_quote` to
+            execute the winning quote before ``quote.expires_at``.
+
+        Raises:
+            UserInputError: If the legs, direction/sizing pair, or side are
+                invalid, or the client has no Builder API Key.
+            RfqRequestRejectedError: If the request is rejected; inspect
+                ``code`` to distinguish permanent input problems from
+                transient conditions.
+        """
+        return _combo_rfq_actions.request_combo_quote_sync(
+            self._ctx,
+            leg_position_ids=leg_position_ids,
+            direction=direction,
+            amount=amount,
+            size=size,
+            side=side,
+        )
+
+    def accept_combo_quote(self, quote: ComboQuote | Mapping[str, object]) -> ComboQuoteAcceptance:
+        """Accept a self-contained combo quote and sign its order automatically.
+
+        The call resolves at the maker last-look outcome. A maker declining
+        or the acceptance window expiring is a normal outcome returned with
+        ``status="failed"`` and a ``reason``. ``status="executing"`` means
+        the trade was handed off for onchain execution; follow it with
+        :meth:`wait_for_combo_fill`.
+
+        A retry after an interrupted request or invalid response is safe: an
+        already-accepted RFQ reports its current status instead of executing
+        twice. In that case ``taker_order_hash`` is ``None`` because the
+        retry's order was not the one recorded.
+
+        Quotes can be persisted with ``quote.model_dump_json()`` and restored
+        with ``ComboQuote.model_validate_json(...)``. A JSON-decoded mapping is
+        also accepted directly. The accepting client must represent the same
+        account and builder identity used to request the quote. Treat restored
+        quote fields as signing-sensitive data and do not accept values modified
+        by an untrusted client.
+
+        Returns:
+            The acceptance outcome.
+
+        Raises:
+            UserInputError: If the quote is invalid or the client has no
+                Builder API Key.
+            RfqRequestRejectedError: If the acceptance is rejected.
+            TimeoutError: If the outcome is still pending after the wait
+                window; resume with :meth:`fetch_rfq_status`.
+        """
+        return _combo_rfq_actions.accept_combo_quote_sync(self._ctx, quote)
+
+    def wait_for_combo_fill(
+        self,
+        *,
+        rfq_id: str,
+        timeout: float = 30.0,
+        polling_interval: float = 1.0,
+    ) -> ComboFillResult:
+        """Wait for an accepted RFQ to reach a terminal state.
+
+        Polls the RFQ status until it is filled (or confirmed onchain),
+        failed, expired, or canceled. Terminal failure is a normal outcome
+        and is returned, not raised.
+
+        Returns:
+            The terminal state. ``tx_hash`` is set when the RFQ filled.
+
+        Raises:
+            TimeoutError: If the RFQ stays non-terminal past ``timeout``
+                seconds. This does not mean the trade failed; resume with
+                :meth:`fetch_rfq_status`.
+            RfqRequestRejectedError: If the RFQ is unknown or not accepted.
+        """
+        return _combo_rfq_actions.wait_for_combo_fill_sync(
+            self._ctx, rfq_id=rfq_id, timeout=timeout, polling_interval=polling_interval
+        )
+
+    def fetch_rfq_status(self, *, rfq_id: str) -> RfqStatusResult:
+        """Fetch the status of an accepted RFQ.
+
+        Status is available once an acceptance has been recorded; earlier
+        reads are rejected.
+
+        Returns:
+            The RFQ status. Onchain execution progress is merged into
+            ``status``.
+
+        Raises:
+            RfqRequestRejectedError: If the RFQ is unknown or not accepted.
+        """
+        return _combo_rfq_actions.fetch_rfq_status_sync(self._ctx, rfq_id=rfq_id)
+
     def _broadcast_eoa_call(self, call: TransactionCall) -> SyncEoaTransactionHandle:
         return broadcast_eoa_call_sync(
             rpc=self._ctx.rpc,
@@ -2763,6 +2911,24 @@ def _credentials_are_active_sync(
     finally:
         probe.close()
     return credentials.key in keys
+
+
+def _make_builder_gateway_header_resolver_sync(
+    api_key: ApiKey | None, signer: LocalAccount, credentials: ApiKeyCreds
+) -> SyncHeaderResolver:
+    l2_resolver = _make_l2_header_resolver_sync(signer, credentials)
+
+    def resolver(method: str, path: str, body: str | None) -> Mapping[str, str]:
+        headers = dict(l2_resolver(method, path, body))
+        # Status reads authenticate with account headers only; builder
+        # headers are required on the mutating requests.
+        if method != "GET" and isinstance(api_key, BuilderApiKey):
+            headers.update(
+                build_builder_key_headers(creds=api_key, method=method, path=path, body=body)
+            )
+        return headers
+
+    return resolver
 
 
 def _make_l2_header_resolver_sync(

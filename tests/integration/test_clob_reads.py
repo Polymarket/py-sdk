@@ -152,7 +152,7 @@ def test_async_get_spreads_returns_decimal_per_token(active_clob_token: TokenId)
 
 @pytest.mark.integration
 def test_async_get_last_trade_price_returns_model(active_clob_token: TokenId) -> None:
-    async def run() -> LastTradePrice:
+    async def run() -> LastTradePrice | None:
         async with AsyncPublicClient() as client:
             return await client.get_last_trade_price(token_id=active_clob_token)
 

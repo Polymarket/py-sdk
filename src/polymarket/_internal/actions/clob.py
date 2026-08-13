@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 from decimal import Decimal
-from typing import Annotated, cast
+from typing import Annotated, Literal, cast
 
 from pydantic import BeforeValidator, TypeAdapter, ValidationError, field_validator
 
@@ -44,6 +44,16 @@ class _SpreadResponse(BaseModel):
     @field_validator("spread", mode="before")
     @classmethod
     def _parse_spread(cls, value: object) -> object:
+        return parse_decimal_string(value)
+
+
+class _LastTradePriceResponse(BaseModel):
+    price: Decimal
+    side: OrderSide | Literal[""]
+
+    @field_validator("price", mode="before")
+    @classmethod
+    def _parse_price(cls, value: object) -> object:
         return parse_decimal_string(value)
 
 
@@ -200,8 +210,11 @@ def build_last_trade_price_request(*, token_id: str) -> tuple[str, dict[str, str
     return "/last-trade-price", {"token_id": _require_string_token_id(token_id)}
 
 
-def parse_last_trade_price(data: object) -> LastTradePrice:
-    return LastTradePrice.parse_response(data)
+def parse_last_trade_price(data: object) -> LastTradePrice | None:
+    response = _LastTradePriceResponse.parse_response(data)
+    if response.side == "":
+        return None
+    return LastTradePrice(price=response.price, side=response.side)
 
 
 def build_last_trade_prices_request(

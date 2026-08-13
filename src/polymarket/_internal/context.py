@@ -42,6 +42,7 @@ class SyncSecureClientContext(SyncClientContext):
     wallet_type: WalletType
     relayer: SyncTransport
     combos: SyncTransport
+    builder_gateway: SyncTransport
     api_key: ApiKey | None
     rpc: SyncJsonRpcClient
     order_metadata: SyncOrderMetadataCache
@@ -72,6 +73,7 @@ class AsyncSecureClientContext(AsyncClientContext):
     wallet_type: WalletType
     relayer: AsyncTransport
     combos: AsyncTransport
+    builder_gateway: AsyncTransport
     api_key: ApiKey | None
     rpc: JsonRpcClient
     order_metadata: AsyncOrderMetadataCache
