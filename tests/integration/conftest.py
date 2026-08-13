@@ -50,6 +50,16 @@ def require_env() -> Callable[[str], str]:
 
 
 @pytest.fixture
+def combo_leg_position_ids() -> list[str] | None:
+    _load_dotenv()
+    value = os.environ.get("POLYMARKET_COMBO_LEG_POSITION_IDS")
+    if value is None:
+        return None
+    legs = [leg.strip() for leg in value.split(",") if leg.strip()]
+    return legs if len(legs) >= 2 else None
+
+
+@pytest.fixture
 def builder_code(require_env: Callable[[str], str]) -> str:
     return require_env("POLYMARKET_BUILDER_CODE")
 
