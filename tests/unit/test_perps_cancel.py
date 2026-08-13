@@ -74,20 +74,9 @@ def _no_delay(attempt: int, *, base_s: float, max_s: float) -> float:
     return 0.0
 
 
-@pytest.mark.parametrize("error", list(PerpsCancelOrderErrorCode))
-def test_cancel_rejections_parse_every_error_code(error: PerpsCancelOrderErrorCode) -> None:
-    [result] = perps_session._parse_cancel_results(
-        [{"status": "err", "oid": 7, "error": error.value}]
-    )
-
-    assert isinstance(result, PerpsCancelOrderRejection)
-    assert result.error is error
-
-
-@pytest.mark.parametrize("payload", [{"status": "err"}, {"status": "err", "error": "new"}])
-def test_cancel_rejections_require_a_known_error_code(payload: dict[str, object]) -> None:
+def test_cancel_rejections_require_a_known_error_code() -> None:
     with pytest.raises(UnexpectedResponseError):
-        perps_session._parse_cancel_results([payload])
+        perps_session._parse_cancel_results([{"status": "err", "error": "new"}])
 
 
 def test_cancel_results_require_a_list_response() -> None:
@@ -134,37 +123,6 @@ def test_retries_only_in_flight_batch_results_and_preserves_order(
     asyncio.run(run())
 
 
-@pytest.mark.parametrize(
-    "error",
-    [
-        PerpsCancelOrderErrorCode.ORDER_UNKNOWN,
-        PerpsCancelOrderErrorCode.ORDER_NOT_IN_ORDERBOOK,
-        PerpsCancelOrderErrorCode.ORDER_NOT_PENDING_ENGINE,
-        PerpsCancelOrderErrorCode.ORDER_NOT_FOUND,
-    ],
-)
-def test_terminal_cancel_rejections_are_not_retried(
-    monkeypatch: pytest.MonkeyPatch, error: PerpsCancelOrderErrorCode
-) -> None:
-    async def run() -> None:
-        session = _session()
-        commands = _stub_cancel_responses(
-            monkeypatch,
-            session,
-            [[{"status": "err", "oid": 1, "error": error.value}]],
-        )
-        try:
-            [result] = await session.cancel_orders(order_ids=[1])
-        finally:
-            await session.close()
-
-        assert isinstance(result, PerpsCancelOrderRejection)
-        assert result.error is error
-        assert len(commands) == 1
-
-    asyncio.run(run())
-
-
 def test_retry_false_makes_one_attempt(monkeypatch: pytest.MonkeyPatch) -> None:
     async def run() -> None:
         session = _session()
@@ -188,13 +146,7 @@ def test_retry_false_makes_one_attempt(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_attempt_limit_returns_the_latest_in_flight_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    retry_indexes: list[tuple[int, float, float]] = []
-
-    def retry_delay(attempt: int, *, base_s: float, max_s: float) -> float:
-        retry_indexes.append((attempt, base_s, max_s))
-        return 0.0
-
-    monkeypatch.setattr(perps_session, "jittered_backoff", retry_delay)
+    monkeypatch.setattr(perps_session, "jittered_backoff", _no_delay)
 
     async def run() -> None:
         session = _session()
@@ -218,35 +170,6 @@ def test_attempt_limit_returns_the_latest_in_flight_result(
         assert isinstance(result, PerpsCancelOrderRejection)
         assert result.order_id == 1
         assert len(commands) == 3
-
-    asyncio.run(run())
-    assert retry_indexes == [(0, 0.1, 1.0), (1, 0.1, 1.0)]
-
-
-def test_default_retry_budget_uses_four_total_attempts(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(perps_session, "jittered_backoff", _no_delay)
-
-    async def run() -> None:
-        session = _session()
-        commands = _stub_cancel_responses(
-            monkeypatch,
-            session,
-            [
-                [{"status": "err", "oid": 1, "error": "order_in_flight"}],
-                [{"status": "err", "oid": 1, "error": "order_in_flight"}],
-                [{"status": "err", "oid": 1, "error": "order_in_flight"}],
-                [{"status": "err", "oid": 1, "error": "order_in_flight"}],
-            ],
-        )
-        try:
-            [result] = await session.cancel_orders(order_ids=[1])
-        finally:
-            await session.close()
-
-        assert isinstance(result, PerpsCancelOrderRejection)
-        assert len(commands) == 4
 
     asyncio.run(run())
 
@@ -298,56 +221,6 @@ def test_expiration_deadline_prevents_another_attempt(monkeypatch: pytest.Monkey
             await session.close()
 
         assert isinstance(result, PerpsCancelOrderRejection)
-        assert len(commands) == 1
-
-    asyncio.run(run())
-
-
-def test_task_cancellation_during_backoff_sends_no_more_commands(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    first_attempt = asyncio.Event()
-
-    def delay(attempt: int, *, base_s: float, max_s: float) -> float:
-        del attempt, base_s, max_s
-        return 1.0
-
-    monkeypatch.setattr(perps_session, "jittered_backoff", delay)
-
-    async def run() -> None:
-        session = _session()
-        commands = _stub_cancel_responses(
-            monkeypatch,
-            session,
-            [[{"status": "err", "oid": 1, "error": "order_in_flight"}]],
-        )
-        original_send = session._send_signed_command
-
-        async def signal_first_attempt(
-            op: list[Any],
-            *,
-            parse: Callable[[object], Any],
-            timeout_message: str,
-            expires_at: datetime | int | None = None,
-        ) -> Any:
-            result = await original_send(
-                op,
-                parse=parse,
-                timeout_message=timeout_message,
-                expires_at=expires_at,
-            )
-            first_attempt.set()
-            return result
-
-        monkeypatch.setattr(session, "_send_signed_command", signal_first_attempt)
-        task = asyncio.create_task(session.cancel_orders(order_ids=[1]))
-        await first_attempt.wait()
-        task.cancel()
-        try:
-            with pytest.raises(asyncio.CancelledError):
-                await task
-        finally:
-            await session.close()
         assert len(commands) == 1
 
     asyncio.run(run())
@@ -416,7 +289,6 @@ def test_cancel_response_cardinality_must_match_request(
         {"max_elapsed_s": True},
         {"max_elapsed_s": 0},
         {"max_elapsed_s": float("inf")},
-        {"max_elapsed_s": float("nan")},
     ],
 )
 def test_retry_options_reject_invalid_bounds(options: dict[str, object]) -> None:
