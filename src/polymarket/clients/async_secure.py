@@ -2933,10 +2933,10 @@ class AsyncSecureClient:
         the trade was handed off for onchain execution; follow it with
         :meth:`wait_for_combo_fill`.
 
-        A retry after a dropped connection is safe: an already-accepted RFQ
-        reports its current status instead of executing twice. In that case
-        ``taker_order_hash`` is ``None`` because the retry's order was not
-        the one recorded.
+        A retry after an interrupted request or invalid response is safe: an
+        already-accepted RFQ reports its current status instead of executing
+        twice. In that case ``taker_order_hash`` is ``None`` because the
+        retry's order was not the one recorded.
 
         Quotes can be persisted with ``quote.model_dump_json()`` and restored
         with ``ComboQuote.model_validate_json(...)``. A JSON-decoded mapping is

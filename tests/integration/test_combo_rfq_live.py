@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from decimal import Decimal
 
 import pytest
@@ -10,6 +9,7 @@ from polymarket import (
     BuilderApiKey,
     ComboAcceptFailureReason,
     ComboMarket,
+    RfqDirection,
     RfqRequestRejectedError,
     RfqStatus,
 )
@@ -41,14 +41,6 @@ async def test_fetch_rfq_status_rejects_unknown_rfq(
         await builder_client.fetch_rfq_status(rfq_id="rfq-00000000-0000-0000-0000-000000000000")
 
 
-def _load_combo_leg_position_ids() -> list[str] | None:
-    value = os.environ.get("POLYMARKET_COMBO_LEG_POSITION_IDS")
-    if value is None:
-        return None
-    legs = [leg.strip() for leg in value.split(",") if leg.strip()]
-    return legs if len(legs) >= 2 else None
-
-
 # Combo-enabled markets churn as games resolve, so fixed legs go stale. Pick
 # two unrelated, liquid, mid-priced markets from the live catalog unless the
 # operator provides an explicit override.
@@ -70,12 +62,37 @@ async def _discover_combo_leg_position_ids(client: AsyncSecureClient) -> list[st
     return None
 
 
+# Metered: creates a live combo RFQ, but does not accept it or execute an order.
+@pytest.mark.metered
+async def test_combo_sell_quote_returns_exact_net_proceeds(
+    builder_client: AsyncSecureClient,
+    combo_leg_position_ids: list[str] | None,
+) -> None:
+    legs = combo_leg_position_ids or await _discover_combo_leg_position_ids(builder_client)
+    if legs is None:
+        pytest.skip(
+            "No combo legs discoverable; set POLYMARKET_COMBO_LEG_POSITION_IDS to override."
+        )
+
+    result = await builder_client.request_combo_quote(
+        leg_position_ids=legs, direction="SELL", size=1
+    )
+
+    if result.quote is None:
+        pytest.skip(f"No SELL combo quote available: {result.reason}")
+
+    assert result.quote.direction is RfqDirection.SELL
+    assert result.quote.net_receive is not None
+    assert result.quote.net_receive > 0
+
+
 # Metered: an accepted combo quote executes a live trade with real funds.
 @pytest.mark.metered
 async def test_combo_quote_request_accept_and_fill(
     builder_client: AsyncSecureClient,
+    combo_leg_position_ids: list[str] | None,
 ) -> None:
-    legs = _load_combo_leg_position_ids() or await _discover_combo_leg_position_ids(builder_client)
+    legs = combo_leg_position_ids or await _discover_combo_leg_position_ids(builder_client)
     if legs is None:
         pytest.skip(
             "No combo legs discoverable; set POLYMARKET_COMBO_LEG_POSITION_IDS to override."

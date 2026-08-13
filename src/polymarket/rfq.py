@@ -5,7 +5,9 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import StrEnum
 from types import TracebackType
-from typing import Any, Literal, Protocol, TypeAlias, runtime_checkable
+from typing import Any, Literal, Protocol, Self, TypeAlias, runtime_checkable
+
+from pydantic import model_validator
 
 from polymarket.errors import PolymarketError, RequestRejectedError
 from polymarket.models.base import BaseModel
@@ -218,9 +220,11 @@ class ComboQuote(BaseModel):
 
     ``maker_amount`` and ``taker_amount`` are the amounts of the acceptance
     order: for a BUY, collateral spent and outcome tokens received; for a
-    SELL, outcome tokens sold and collateral received. ``total_required`` is
-    the total collateral (BUY) or position-share (SELL) balance required to
-    accept. ``expires_at`` is the acceptance deadline in Unix milliseconds.
+    SELL, outcome tokens sold and the gross collateral limit. ``net_receive``
+    is the exact post-fee collateral proceeds for a SELL and is ``None`` for a
+    BUY. ``total_required`` is the total collateral (BUY) or position-share
+    (SELL) balance required to accept. ``expires_at`` is the acceptance
+    deadline in Unix milliseconds.
 
     The model contains every input needed for acceptance. It can be persisted
     with :meth:`model_dump_json` and restored with
@@ -236,7 +240,14 @@ class ComboQuote(BaseModel):
     maker_amount: Decimal
     taker_amount: Decimal
     total_required: Decimal
+    net_receive: Decimal | None = None
     expires_at: int
+
+    @model_validator(mode="after")
+    def _require_sell_net_receive(self) -> Self:
+        if self.direction is RfqDirection.SELL and self.net_receive is None:
+            raise ValueError("net_receive is required for SELL combo quotes")
+        return self
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

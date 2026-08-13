@@ -60,6 +60,7 @@ QUOTE_READY: dict[str, Any] = {
         "no_position_id": "790",
         "direction": "BUY",
         "side": "YES",
+        "requested_size": {"unit": "notional", "value_e6": "100000000"},
         "created_at": 1_773_890_758_000,
     },
     "quote": {
@@ -68,6 +69,33 @@ QUOTE_READY: dict[str, Any] = {
         "maker_amount_e6": "966191",
         "taker_amount_e6": "1932381",
         "total_required_e6": "1000000",
+        "net_receive_e6": "1932381",
+    },
+}
+
+SELL_QUOTE_READY: dict[str, Any] = {
+    "rfq_id": "rfq-1",
+    "status": "AWAITING_REQUESTER_ACCEPTANCE",
+    "expires_at": 1_773_890_765_500,
+    "builder_code": BUILDER_CODE,
+    "request": {
+        "rfq_id": "rfq-1",
+        "leg_position_ids": LEGS,
+        "condition_id": CONDITION_ID,
+        "yes_position_id": "789",
+        "no_position_id": "790",
+        "direction": "SELL",
+        "side": "YES",
+        "requested_size": {"unit": "shares", "value_e6": "2500000"},
+        "created_at": 1_773_890_758_000,
+    },
+    "quote": {
+        "quote_id": "quote-1",
+        "blended_price_e6": "450000",
+        "maker_amount_e6": "2500000",
+        "taker_amount_e6": "1125000",
+        "total_required_e6": "2500000",
+        "net_receive_e6": "1090000",
     },
 }
 
@@ -185,18 +213,36 @@ def test_request_combo_quote_sell_is_sized_in_shares() -> None:
 
         def handler(request: httpx.Request) -> httpx.Response:
             captured.append(request)
-            return httpx.Response(200, json=QUOTE_READY, request=request)
+            return httpx.Response(200, json=SELL_QUOTE_READY, request=request)
 
         client = await make_eoa_client()
         install_builder_gateway_handler(client, handler)
 
-        await client.request_combo_quote(leg_position_ids=LEGS, direction="SELL", size="2.5")
+        result = await client.request_combo_quote(
+            leg_position_ids=LEGS, direction="SELL", size="2.5"
+        )
 
         body = json.loads(captured[0].content.decode("utf-8"))
         assert body["direction"] == "SELL"
         assert body["requested_size"] == {"unit": "shares", "value_e6": "2500000"}
+        assert result.quote is not None
+        assert result.quote.direction is RfqDirection.SELL
+        assert result.quote.maker_amount == Decimal("2.5")
+        assert result.quote.taker_amount == Decimal("1.125")
+        assert result.quote.total_required == Decimal("2.5")
+        assert result.quote.net_receive == Decimal("1.09")
 
     asyncio.run(run())
+
+
+def test_request_combo_quote_rejects_sell_quote_without_net_proceeds() -> None:
+    malformed = copy.deepcopy(SELL_QUOTE_READY)
+    del malformed["quote"]["net_receive_e6"]
+    client = make_sync_eoa_client()
+    install_sync_builder_gateway_handler(client, json_handler(httpx.Response(200, json=malformed)))
+
+    with pytest.raises(UnexpectedResponseError, match="omitted net sell proceeds"):
+        client.request_combo_quote(leg_position_ids=LEGS, direction="SELL", size="2.5")
 
 
 def test_request_combo_quote_returns_no_quote_outcome() -> None:
@@ -259,18 +305,20 @@ def test_request_combo_quote_validates_input_before_sending() -> None:
 
 def test_request_combo_quote_canonicalizes_numeric_leg_ids() -> None:
     captured: list[httpx.Request] = []
+    response = copy.deepcopy(QUOTE_READY)
+    response["request"]["leg_position_ids"] = ["2", "10"]
 
     def handler(request: httpx.Request) -> httpx.Response:
         captured.append(request)
-        return httpx.Response(200, json=QUOTE_READY, request=request)
+        return httpx.Response(200, json=response, request=request)
 
     client = make_sync_eoa_client()
     install_sync_builder_gateway_handler(client, handler)
 
-    client.request_combo_quote(leg_position_ids=["000123", "0456"], direction="BUY", amount=100)
+    client.request_combo_quote(leg_position_ids=["0010", "02"], direction="BUY", amount=100)
 
     body = json.loads(captured[0].content.decode("utf-8"))
-    assert body["leg_position_ids"] == ["123", "456"]
+    assert body["leg_position_ids"] == ["2", "10"]
 
 
 def test_request_combo_quote_requires_builder_api_key() -> None:
@@ -486,6 +534,53 @@ def test_sync_accept_combo_quote_retries_once_after_transport_drop() -> None:
         return httpx.Response(
             200,
             json={"rfq_id": "rfq-1", "status": "EXECUTING"},
+            request=request,
+        )
+
+    client = make_sync_eoa_client()
+    install_sync_builder_gateway_handler(client, handler)
+
+    acceptance = client.accept_combo_quote(QUOTE)
+
+    assert len(captured) == 2
+    assert captured[0].content == captured[1].content
+    assert acceptance.status == "executing"
+
+
+def test_accept_combo_quote_retries_once_after_unexpected_response() -> None:
+    async def run() -> None:
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            status = "UNKNOWN" if len(captured) == 1 else "EXECUTING"
+            return httpx.Response(
+                200,
+                json={"rfq_id": "rfq-1", "status": status},
+                request=request,
+            )
+
+        client = await make_eoa_client()
+        install_builder_gateway_handler(client, handler)
+
+        acceptance = await client.accept_combo_quote(QUOTE)
+
+        assert len(captured) == 2
+        assert captured[0].content == captured[1].content
+        assert acceptance.status == "executing"
+
+    asyncio.run(run())
+
+
+def test_sync_accept_combo_quote_retries_once_after_unexpected_response() -> None:
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        status = "UNKNOWN" if len(captured) == 1 else "EXECUTING"
+        return httpx.Response(
+            200,
+            json={"rfq_id": "rfq-1", "status": status},
             request=request,
         )
 
@@ -717,7 +812,26 @@ def test_request_combo_quote_rejects_mismatched_nested_rfq_id() -> None:
     client = make_sync_eoa_client()
     install_sync_builder_gateway_handler(client, json_handler(httpx.Response(200, json=malformed)))
 
-    with pytest.raises(UnexpectedResponseError, match="did not match requested ID"):
+    with pytest.raises(UnexpectedResponseError, match="rfq_id"):
+        client.request_combo_quote(leg_position_ids=LEGS, direction="BUY", amount=100)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("direction", "SELL"),
+        ("side", "NO"),
+        ("leg_position_ids", list(reversed(LEGS))),
+        ("requested_size", {"unit": "notional", "value_e6": "99999999"}),
+    ],
+)
+def test_request_combo_quote_rejects_mismatched_request_echo(field: str, value: object) -> None:
+    malformed = copy.deepcopy(QUOTE_READY)
+    malformed["request"][field] = value
+    client = make_sync_eoa_client()
+    install_sync_builder_gateway_handler(client, json_handler(httpx.Response(200, json=malformed)))
+
+    with pytest.raises(UnexpectedResponseError, match=field):
         client.request_combo_quote(leg_position_ids=LEGS, direction="BUY", amount=100)
 
 
@@ -725,7 +839,10 @@ def test_accept_combo_quote_rejects_mismatched_response_id() -> None:
     client = make_sync_eoa_client()
     install_sync_builder_gateway_handler(
         client,
-        json_handler(httpx.Response(200, json={"rfq_id": "rfq-2", "status": "EXECUTING"})),
+        json_handler(
+            httpx.Response(200, json={"rfq_id": "rfq-2", "status": "EXECUTING"}),
+            httpx.Response(200, json={"rfq_id": "rfq-2", "status": "EXECUTING"}),
+        ),
     )
 
     with pytest.raises(UnexpectedResponseError, match="did not match requested ID"):
