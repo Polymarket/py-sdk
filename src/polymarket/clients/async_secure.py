@@ -84,7 +84,8 @@ from polymarket._internal.actions.perps import credentials as _perps_credentials
 from polymarket._internal.actions.perps import funds as _perps_funds
 from polymarket._internal.actions.perps import public as _perps_actions
 from polymarket._internal.actions.relayer.approvals import (
-    resolve_missing_trading_approval_calls,
+    build_missing_trading_approval_calls,
+    get_trading_approvals_state,
 )
 from polymarket._internal.actions.relayer.auth import (
     build_builder_key_headers,
@@ -184,6 +185,7 @@ from polymarket.models import (
     Tag,
     TagReference,
     Team,
+    TradingApprovalsState,
 )
 from polymarket.models.clob.api_key import BuilderApiKeyInfo
 from polymarket.models.clob.cancel import CancelOrdersResponse
@@ -2415,6 +2417,16 @@ class AsyncSecureClient:
         )
         return await self._dispatch_single_call(call, metadata=resolved_metadata)
 
+    async def get_trading_approvals_state(
+        self, *, wallet: str | None = None
+    ) -> TradingApprovalsState:
+        """Get missing trading approvals for a wallet or the authenticated wallet."""
+        return await get_trading_approvals_state(
+            self._ctx.rpc,
+            wallet=self._ctx.wallet if wallet is None else wallet,
+            config=self._ctx.environment_config,
+        )
+
     async def setup_trading_approvals(self) -> DeprecatedTransactionHandle:
         """Approve the standard set of trading allowances for the wallet.
 
@@ -2425,11 +2437,8 @@ class AsyncSecureClient:
         Returns:
             A deprecated compatibility handle whose ``wait()`` returns immediately.
         """
-        calls = await resolve_missing_trading_approval_calls(
-            self._ctx.rpc,
-            wallet=self._ctx.wallet,
-            config=self._ctx.environment_config,
-        )
+        state = await self.get_trading_approvals_state()
+        calls = build_missing_trading_approval_calls(state.missing)
         if not calls:
             return DeprecatedTransactionHandle()
         if self._ctx.wallet_type == "EOA":

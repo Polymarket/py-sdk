@@ -37,6 +37,7 @@ from polymarket._internal.actions.orders.estimate import (
     estimate_market_price_sync as _estimate_market_price_sync,
 )
 from polymarket._internal.actions.orders.types import MarketOrderType
+from polymarket._internal.actions.relayer.approvals import get_trading_approvals_state_sync
 from polymarket._internal.context import SyncClientContext
 from polymarket._internal.dispatch import (
     sync_dispatch,
@@ -45,6 +46,7 @@ from polymarket._internal.dispatch import (
     sync_paginate_page_based,
 )
 from polymarket._internal.environment import get_environment_config
+from polymarket._internal.eoa.rpc import SyncJsonRpcClient
 from polymarket.clients._transport import SyncTransport
 from polymarket.environments import PRODUCTION, Environment
 from polymarket.errors import RequestRejectedError
@@ -69,6 +71,7 @@ from polymarket.models import (
     Tag,
     TagReference,
     Team,
+    TradingApprovalsState,
 )
 from polymarket.models.clob import BuilderTrade
 from polymarket.models.clob.rewards import CurrentReward, MarketReward
@@ -118,6 +121,7 @@ class PublicClient:
             rfq=SyncTransport(base_url=config.rfq_url, logger=logger),
             clob=SyncTransport(base_url=config.clob_url, logger=logger),
         )
+        self._rpc = SyncJsonRpcClient(SyncTransport(base_url=config.rpc_url, logger=logger))
 
     @property
     def environment(self) -> Environment:
@@ -146,7 +150,10 @@ class PublicClient:
                 try:
                     self._ctx.rfq.close()
                 finally:
-                    self._ctx.clob.close()
+                    try:
+                        self._ctx.clob.close()
+                    finally:
+                        self._rpc.close()
 
     @overload
     def get_market(
@@ -330,6 +337,14 @@ class PublicClient:
             if error.status == 404:
                 return None
             raise
+
+    def get_trading_approvals_state(self, *, wallet: str) -> TradingApprovalsState:
+        """Get the trading approvals that a wallet still needs to grant."""
+        return get_trading_approvals_state_sync(
+            self._rpc,
+            wallet=wallet,
+            config=self._ctx.environment_config,
+        )
 
     def get_comment_thread(
         self, id: str, *, get_positions: bool | None = None
