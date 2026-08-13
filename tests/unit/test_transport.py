@@ -61,6 +61,7 @@ def test_sync_transport_maps_rejected_json_error_response() -> None:
 
     assert exc_info.value.status == 400
     assert exc_info.value.retry_after is None
+    assert exc_info.value.restriction is None
 
 
 def test_sync_transport_exposes_retry_after_header_on_rejection() -> None:
@@ -105,6 +106,105 @@ def test_sync_transport_exposes_retry_after_seconds_from_body() -> None:
         transport.get_json("/markets/1")
 
     assert exc_info.value.retry_after == 2.5
+    assert exc_info.value.restriction is None
+
+
+def test_sync_transport_flags_restarting_restriction_on_425() -> None:
+    transport = SyncTransport(
+        base_url="https://example.test",
+        client=httpx.Client(
+            base_url="https://example.test",
+            transport=httpx.MockTransport(lambda request: httpx.Response(425, request=request)),
+        ),
+    )
+
+    with pytest.raises(RequestRejectedError) as exc_info:
+        transport.post_json("/order", json={})
+
+    assert exc_info.value.status == 425
+    assert exc_info.value.restriction == "restarting"
+
+
+def test_sync_transport_flags_post_only_restriction_with_body_delay() -> None:
+    transport = SyncTransport(
+        base_url="https://example.test",
+        client=httpx.Client(
+            base_url="https://example.test",
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(
+                    503,
+                    json={
+                        "error": "post-only mode: only post-only orders and cancels are allowed",
+                        "code": "post_only_mode",
+                        "retry_after_seconds": 79,
+                    },
+                    request=request,
+                )
+            ),
+        ),
+    )
+
+    with pytest.raises(RequestRejectedError, match="post-only mode") as exc_info:
+        transport.post_json("/order", json={})
+
+    assert exc_info.value.status == 503
+    assert exc_info.value.restriction == "post_only"
+    assert exc_info.value.retry_after == 79.0
+
+
+def test_sync_transport_prefers_retry_after_header_over_body_delay() -> None:
+    transport = SyncTransport(
+        base_url="https://example.test",
+        client=httpx.Client(
+            base_url="https://example.test",
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(
+                    503,
+                    json={
+                        "error": "post-only mode: only post-only orders and cancels are allowed",
+                        "code": "post_only_mode",
+                        "retry_after_seconds": 79,
+                    },
+                    headers={"Retry-After": "80"},
+                    request=request,
+                )
+            ),
+        ),
+    )
+
+    with pytest.raises(RequestRejectedError) as exc_info:
+        transport.post_json("/order", json={})
+
+    assert exc_info.value.restriction == "post_only"
+    assert exc_info.value.retry_after == 80.0
+
+
+def test_sync_transport_flags_cancel_only_restriction() -> None:
+    transport = SyncTransport(
+        base_url="https://example.test",
+        client=httpx.Client(
+            base_url="https://example.test",
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(
+                    503,
+                    json={
+                        "error": (
+                            "Trading is currently cancel-only. "
+                            "New orders are not accepted, but cancels are allowed."
+                        )
+                    },
+                    request=request,
+                )
+            ),
+        ),
+    )
+
+    with pytest.raises(RequestRejectedError, match="cancel-only") as exc_info:
+        transport.post_json("/order", json={})
+
+    assert exc_info.value.status == 503
+    assert exc_info.value.restriction == "cancel_only"
+    assert exc_info.value.retry_after is None
 
 
 def test_sync_transport_ignores_unparseable_retry_after_header() -> None:

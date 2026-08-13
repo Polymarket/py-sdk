@@ -1,5 +1,7 @@
 """Exception types raised by the Polymarket SDK."""
 
+from typing import Literal, TypeAlias
+
 from polymarket.rate_limit import RateLimitUpdate
 
 
@@ -33,6 +35,16 @@ class ConnectionLostError(PolymarketError):
         self.reason = reason
 
 
+TradingRestriction: TypeAlias = Literal["restarting", "cancel_only", "post_only"]
+"""Trading restriction reported while orders cannot be placed normally.
+
+``"restarting"`` means the matching engine is restarting and rejects order
+requests until it is back. ``"cancel_only"`` means cancels are accepted but
+new orders are rejected. ``"post_only"`` means cancels and post-only orders
+are accepted while other orders are rejected.
+"""
+
+
 class RequestRejectedError(PolymarketError):
     """Error raised when a request receives a non-success status.
 
@@ -42,6 +54,9 @@ class RequestRejectedError(PolymarketError):
     ``retry_after`` is the server-suggested delay in seconds before retrying,
     taken from the ``Retry-After`` response header or a ``retry_after_seconds``
     field in the response body; ``None`` when the response provides neither.
+    ``restriction`` identifies the trading restriction that caused the
+    rejection; ``None`` when the rejection is not a trading restriction. The
+    SDK does not retry automatically; callers decide how to react.
     """
 
     def __init__(
@@ -51,11 +66,13 @@ class RequestRejectedError(PolymarketError):
         status: int,
         code: str | None = None,
         retry_after: float | None = None,
+        restriction: TradingRestriction | None = None,
     ) -> None:
         super().__init__(message)
         self.status = status
         self.code = code
         self.retry_after = retry_after
+        self.restriction = restriction
 
 
 class AutoCancelDailyLimitError(RequestRejectedError):

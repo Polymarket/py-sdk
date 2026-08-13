@@ -15,6 +15,7 @@ from polymarket._internal.request import QueryParamValue
 from polymarket.errors import (
     RateLimitError,
     RequestRejectedError,
+    TradingRestriction,
     TransportError,
     UnexpectedResponseError,
 )
@@ -407,6 +408,7 @@ def _raise_for_response_status(response: httpx.Response) -> None:
         status=response.status_code,
         code=_extract_response_error_code(response),
         retry_after=_extract_retry_after(response),
+        restriction=_detect_trading_restriction(response),
     )
 
 
@@ -433,6 +435,28 @@ def _extract_retry_after(response: httpx.Response) -> float | None:
             if seconds is not None and math.isfinite(seconds) and seconds >= 0:
                 return seconds
 
+    return None
+
+
+def _detect_trading_restriction(response: httpx.Response) -> TradingRestriction | None:
+    if response.status_code == 425:
+        return "restarting"
+    if response.status_code != 503:
+        return None
+
+    if "application/json" not in response.headers.get("content-type", "").lower():
+        return None
+    try:
+        body = response.json()
+        code = body.get("code")
+        error = body.get("error")
+    except (AttributeError, ValueError):
+        return None
+    if code == "post_only_mode":
+        return "post_only"
+    # Cancel-only responses carry no structured code, only the message text.
+    if isinstance(error, str) and "cancel-only" in error:
+        return "cancel_only"
     return None
 
 
