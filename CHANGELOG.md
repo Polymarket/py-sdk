@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.6.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.5.0...polymarket-client-v0.6.0) (2026-08-13)
+
+
+### Features
+
+* requester-side combo RFQ support (request quote, accept, wait for fill) ([e060f34](https://github.com/Polymarket/py-sdk/commit/e060f348e637576bf000e65ad0c12464b4e10508))
+
+
+### Bug Fixes
+
+* align combo RFQ requester behavior ([a5b5c75](https://github.com/Polymarket/py-sdk/commit/a5b5c757a777fd0e8dc3ed65f353f94f9c569a90))
+* **client:** handle tokens without trades ([39b9075](https://github.com/Polymarket/py-sdk/commit/39b90750c0ff4034be32f2db623d4ed4fa74a729))
+* **client:** return None for tokens without trades ([dbd0559](https://github.com/Polymarket/py-sdk/commit/dbd05590b925449a6024cfe9dbe28f10f8aecbf0))
+* harden combo requester quote handling ([215ffa7](https://github.com/Polymarket/py-sdk/commit/215ffa71c234670522097171ebd86d133485e7c5))
+* use resolved config for combo RFQ ([10f48ee](https://github.com/Polymarket/py-sdk/commit/10f48ee2c5b0235f3d2972817d1536353d872dc6))
+
+
+### Documentation
+
+* **client:** clarify sparse last trade batches ([e5a0b19](https://github.com/Polymarket/py-sdk/commit/e5a0b1963ad5943e087fa1d16d36e2284257d3f8))
+
 ## [0.5.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.4.0...polymarket-client-v0.5.0) (2026-08-07)
 
 
