@@ -31,7 +31,7 @@ jobs:
             echo "Invalid release tag: $RELEASE_TAG" >&2
             exit 1
           fi
-          gh release view "$RELEASE_TAG" --json isDraft --jq 'select(.isDraft == false)' >/dev/null
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq 'select(.isDraft == false)' >/dev/null
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Checkout
