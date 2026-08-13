@@ -179,6 +179,7 @@ from polymarket.models import (
     to_ctf_condition_id,
 )
 from polymarket.pagination import AsyncPaginator, Page, Paginator
+from polymarket.rate_limit import RateLimitUpdate, RateLimitUpdateListener
 from polymarket.rfq import (
     ComboAcceptFailureReason,
     ComboFillResult,
@@ -382,6 +383,8 @@ __all__ = [
     "PublicProfile",
     "QuestionId",
     "RateLimitError",
+    "RateLimitUpdate",
+    "RateLimitUpdateListener",
     "RedeemActivity",
     "ReferralRewardActivity",
     "RejectedOrder",
