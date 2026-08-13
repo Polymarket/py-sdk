@@ -1,5 +1,120 @@
 # Changelog
 
+## [0.6.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.5.0...polymarket-client-v0.6.0) (2026-08-13)
+
+
+### Features
+
+* requester-side combo RFQ support (request quote, accept, wait for fill) ([e060f34](https://github.com/Polymarket/py-sdk/commit/e060f348e637576bf000e65ad0c12464b4e10508))
+
+
+### Bug Fixes
+
+* align combo RFQ requester behavior ([a5b5c75](https://github.com/Polymarket/py-sdk/commit/a5b5c757a777fd0e8dc3ed65f353f94f9c569a90))
+* **client:** handle tokens without trades ([39b9075](https://github.com/Polymarket/py-sdk/commit/39b90750c0ff4034be32f2db623d4ed4fa74a729))
+* **client:** return None for tokens without trades ([dbd0559](https://github.com/Polymarket/py-sdk/commit/dbd05590b925449a6024cfe9dbe28f10f8aecbf0))
+* harden combo requester quote handling ([215ffa7](https://github.com/Polymarket/py-sdk/commit/215ffa71c234670522097171ebd86d133485e7c5))
+* use resolved config for combo RFQ ([10f48ee](https://github.com/Polymarket/py-sdk/commit/10f48ee2c5b0235f3d2972817d1536353d872dc6))
+
+
+### Documentation
+
+* **client:** clarify sparse last trade batches ([e5a0b19](https://github.com/Polymarket/py-sdk/commit/e5a0b1963ad5943e087fa1d16d36e2284257d3f8))
+
+## [0.5.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.4.0...polymarket-client-v0.5.0) (2026-08-07)
+
+
+### Features
+
+* **client:** cache order market metadata ([9e8fd4d](https://github.com/Polymarket/py-sdk/commit/9e8fd4d14adb95248fa0500dc1a544a2f4684c2f))
+* **perps:** add auto-cancel support ([c5c97b0](https://github.com/Polymarket/py-sdk/commit/c5c97b0ea50a224465ca2c2468beab89de87ab64))
+* **perps:** add id to funding payment records ([3187d48](https://github.com/Polymarket/py-sdk/commit/3187d4839b3c51609b5bf1ef23195ccc780fbc1d))
+* **perps:** add id to funding payment records ([bf2f0d3](https://github.com/Polymarket/py-sdk/commit/bf2f0d3e1c00527a4b3fa1c35fee708f00001c84))
+
+
+### Bug Fixes
+
+* match tagged TOML package name ([c0ba4c2](https://github.com/Polymarket/py-sdk/commit/c0ba4c2cbbd7643126b86a22b65386e8afe816a3))
+* **perps:** prevent order update race ([1060794](https://github.com/Polymarket/py-sdk/commit/10607940d38ef67d1f0b7dcae47709bdd3140801))
+* **perps:** prevent order update race ([f4afcc9](https://github.com/Polymarket/py-sdk/commit/f4afcc91f4a7fc7cfd94dc3daf01b8886629ad09))
+
+## [0.4.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.3.0...polymarket-client-v0.4.0) (2026-08-05)
+
+
+### Features
+
+* support isolated margin adjustments ([0fc001d](https://github.com/Polymarket/py-sdk/commit/0fc001d7ab21f64e01a937df9b2e6996564fdccc))
+* support isolated margin adjustments ([7155918](https://github.com/Polymarket/py-sdk/commit/7155918966e59d1eb0dee777f977a5a8a57f27a1))
+
+
+### Bug Fixes
+
+* avoid delayed markets in order tests ([a231997](https://github.com/Polymarket/py-sdk/commit/a231997f65ecc2bd7329f0acf83fd0abe35f5907))
+
+
+### Documentation
+
+* add Python API reference artifact pipeline ([f6611c7](https://github.com/Polymarket/py-sdk/commit/f6611c74cb8a4b6fa683f463722ca1c3ce54423f))
+* add Python API reference artifact pipeline ([049fe0d](https://github.com/Polymarket/py-sdk/commit/049fe0d8006265fb260ab59722428bc1f93e5c12))
+* avoid conflict-like reference headings ([a5ca9e9](https://github.com/Polymarket/py-sdk/commit/a5ca9e9b14009509ba753164a500f700eac05038))
+* **repo:** add review method guidance ([ef31dff](https://github.com/Polymarket/py-sdk/commit/ef31dff308148e62701fffa52d4b7979d77bb54c))
+* **repo:** add review method guidance ([7bb0940](https://github.com/Polymarket/py-sdk/commit/7bb094035a7bdaf09ce9ad94b85e33531a89741f))
+* **repo:** document tick-size invariant ([6021381](https://github.com/Polymarket/py-sdk/commit/6021381ec2731414e9350b255954ea2b25c5b2f6))
+* **repo:** document tick-size platform invariant ([df01e80](https://github.com/Polymarket/py-sdk/commit/df01e80ac39d0599dd8a52f1867620d9168b02ef))
+
+## [0.3.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.3.0-b2...polymarket-client-v0.3.0) (2026-08-04)
+
+
+### Features
+
+* prepare Python SDK for stable 0.3.0 ([12c59aa](https://github.com/Polymarket/py-sdk/commit/12c59aa9ca2af4a1147beb9749694f3714e98f6b))
+* prepare Python SDK for stable 0.3.0 ([1f67eeb](https://github.com/Polymarket/py-sdk/commit/1f67eeb11a1880250e46338ae5185ee3fa605106))
+
+
+### Bug Fixes
+
+* include deposits and withdrawals in list_activity by default ([25a556b](https://github.com/Polymarket/py-sdk/commit/25a556bcc3cce5f5889aea80cedaa975b6ba9712))
+* include deposits and withdrawals in list_activity by default ([581c9ac](https://github.com/Polymarket/py-sdk/commit/581c9ac88eebc503272ed4ba0b7fadd875e89a2c))
+
+
+### Documentation
+
+* clarify async-only WebSocket features ([d6b96ad](https://github.com/Polymarket/py-sdk/commit/d6b96adb2b4bdfbeb4739ee023b5606fd08dc05f))
+* clarify async-only WebSocket features ([c9d8f38](https://github.com/Polymarket/py-sdk/commit/c9d8f386effb0bacb81e22110dcef28b187a6263))
+
+## [0.3.0-b2](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.3.0-b1...polymarket-client-v0.3.0-b2) (2026-07-31)
+
+
+### Bug Fixes
+
+* **relayer:** self-heal deposit wallet nonce on submit rejection ([d711cd1](https://github.com/Polymarket/py-sdk/commit/d711cd19d54b9275e94e41ce366a91da3c818db4))
+* support TAKER_REBATE, DEPOSIT, and WITHDRAWAL activity types ([c426bc7](https://github.com/Polymarket/py-sdk/commit/c426bc7eb9a685fa273efa74e74fcec544eb4763))
+
+## [0.3.0-b1](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.2.0...polymarket-client-v0.3.0-b1) (2026-07-29)
+
+
+### Features
+
+* add Chainlink TWAP subscriptions ([3094295](https://github.com/Polymarket/py-sdk/commit/3094295c2575bb73ec6220d8d7f71e4811747bce))
+* add Chainlink TWAP subscriptions ([5bd34cf](https://github.com/Polymarket/py-sdk/commit/5bd34cf045a72b60160a29aaebe5f5c6e84b7141))
+* **perps:** paginate fills with the native cursor and sort ([1b87a81](https://github.com/Polymarket/py-sdk/commit/1b87a81162ed746f4f0b9be3b2ea5f175ed41ec5))
+* **perps:** support account notifications in session reads and events ([9ec77d3](https://github.com/Polymarket/py-sdk/commit/9ec77d3d12da3777e6f5afb11f43fd18c57da498))
+* **rfq:** expose granular quote validation errors ([e3a3b2d](https://github.com/Polymarket/py-sdk/commit/e3a3b2d0cec7707fae1e72fe539d4a19f93ef169))
+* **rfq:** expose granular quote validation errors ([91d1221](https://github.com/Polymarket/py-sdk/commit/91d1221a0cc50fb23c8fa49c4101b4e2e934276e))
+
+
+### Bug Fixes
+
+* **errors:** expose retry_after on RequestRejectedError ([338f2d7](https://github.com/Polymarket/py-sdk/commit/338f2d7ef5f18b5b8c8c347ad8d81ade82974e0a))
+* **errors:** reject non-finite retry_after values ([891a413](https://github.com/Polymarket/py-sdk/commit/891a413881d738bde586320ada2493649270432f))
+* **models:** type collateral return event ids as EventId ([8c78c9e](https://github.com/Polymarket/py-sdk/commit/8c78c9ea8d748f29f89a50d50d1871874954d1e1))
+* **models:** type collateral return event ids as EventId ([2b781f2](https://github.com/Polymarket/py-sdk/commit/2b781f2eaef6bf51c718a6345ab7296dd1eb5ed5))
+
+
+### Documentation
+
+* **models:** clarify collateral return event ids are neg-risk ids ([e3b306a](https://github.com/Polymarket/py-sdk/commit/e3b306a12133e980f0dea4e9f439f48177c03a95))
+
 ## [0.2.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.1.0...polymarket-client-v0.2.0) (2026-07-24)
 
 

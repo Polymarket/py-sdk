@@ -46,6 +46,9 @@ are accepted while other orders are rejected.
 class RequestRejectedError(PolymarketError):
     """Error raised when a request receives a non-success status.
 
+    ``code`` is the machine-readable error code from the response body;
+    ``None`` when the response does not provide one.
+
     ``retry_after`` is the server-suggested delay in seconds before retrying,
     taken from the ``Retry-After`` response header or a ``retry_after_seconds``
     field in the response body; ``None`` when the response provides neither.
@@ -59,13 +62,24 @@ class RequestRejectedError(PolymarketError):
         message: str,
         *,
         status: int,
+        code: str | None = None,
         retry_after: float | None = None,
         restriction: TradingRestriction | None = None,
     ) -> None:
         super().__init__(message)
         self.status = status
+        self.code = code
         self.retry_after = retry_after
         self.restriction = restriction
+
+
+class AutoCancelDailyLimitError(RequestRejectedError):
+    """Error raised when arming auto-cancel is rejected because the account
+    reached its daily auto-cancel trigger limit.
+
+    Arming is rejected until the daily counter resets at the next UTC
+    midnight; clearing an existing schedule is always allowed.
+    """
 
 
 class RateLimitError(PolymarketError):

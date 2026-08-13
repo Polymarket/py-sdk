@@ -25,6 +25,7 @@ from polymarket._internal.actions import account as _account_actions
 from polymarket._internal.actions import auth as _auth_actions
 from polymarket._internal.actions import builders as _builders_actions
 from polymarket._internal.actions import clob as _clob_actions
+from polymarket._internal.actions import combo_rfq as _combo_rfq_actions
 from polymarket._internal.actions import combos as _combos_actions
 from polymarket._internal.actions import data as _data_actions
 from polymarket._internal.actions import gamma as _gamma_actions
@@ -54,6 +55,7 @@ from polymarket._internal.actions.gamma import (
 from polymarket._internal.actions.orders import cancel as _cancel_actions
 from polymarket._internal.actions.orders import post as _post_actions
 from polymarket._internal.actions.orders import settlement as _settlement_actions
+from polymarket._internal.actions.orders.cache import AsyncOrderMetadataCache
 from polymarket._internal.actions.orders.estimate import (
     estimate_market_price as _estimate_market_price,
 )
@@ -82,9 +84,13 @@ from polymarket._internal.actions.perps import credentials as _perps_credentials
 from polymarket._internal.actions.perps import funds as _perps_funds
 from polymarket._internal.actions.perps import public as _perps_actions
 from polymarket._internal.actions.relayer.approvals import (
-    resolve_missing_trading_approval_calls,
+    build_missing_trading_approval_calls,
+    get_trading_approvals_state,
 )
-from polymarket._internal.actions.relayer.auth import make_relayer_header_resolver
+from polymarket._internal.actions.relayer.auth import (
+    build_builder_key_headers,
+    make_relayer_header_resolver,
+)
 from polymarket._internal.actions.relayer.calls import (
     MAX_UINT256,
     TransactionCall,
@@ -126,6 +132,7 @@ from polymarket._internal.dispatch import (
     async_paginate_offset,
     async_paginate_page_based,
 )
+from polymarket._internal.environment import EnvironmentConfig, get_environment_config
 from polymarket._internal.eoa.broadcast import broadcast_eoa_call
 from polymarket._internal.eoa.rpc import JsonRpcClient
 from polymarket._internal.hmac import build_hmac_signature
@@ -178,6 +185,7 @@ from polymarket.models import (
     Tag,
     TagReference,
     Team,
+    TradingApprovalsState,
 )
 from polymarket.models.clob.api_key import BuilderApiKeyInfo
 from polymarket.models.clob.cancel import CancelOrdersResponse
@@ -233,6 +241,7 @@ from polymarket.models.perps import (
 )
 from polymarket.models.rtds_events import (
     CommentsEvent,
+    CryptoPricesChainlinkTwapEvent,
     CryptoPricesEvent,
     EquityPricesEvent,
     RtdsEvent,
@@ -240,8 +249,18 @@ from polymarket.models.rtds_events import (
 from polymarket.models.sports_events import SportsEvent
 from polymarket.models.types import CtfConditionId, TokenId
 from polymarket.pagination import AsyncPaginator, Page
+from polymarket.rfq import (
+    ComboFillResult,
+    ComboQuote,
+    ComboQuoteAcceptance,
+    ComboQuoteResult,
+    RfqDirection,
+    RfqSide,
+    RfqStatusResult,
+)
 from polymarket.streams._specs import (
     CommentsSpec,
+    CryptoPricesChainlinkTwapSpec,
     CryptoPricesSpec,
     EquityPricesSpec,
     MarketSpec,
@@ -392,6 +411,7 @@ class AsyncSecureClient:
         _validate_nonce(nonce)
         if credentials is not None and nonce != 0:
             raise UserInputError("nonce cannot be combined with credentials.")
+        config = get_environment_config(environment)
         try:
             signer = cast(LocalAccount, Account.from_key(private_key))
         except (ValueError, TypeError) as error:
@@ -400,7 +420,7 @@ class AsyncSecureClient:
         resolved_wallet = await _resolve_requested_wallet(
             signer=signer,
             wallet=wallet,
-            environment=environment,
+            config=config,
             logger=logger,
         )
         try:
@@ -408,10 +428,10 @@ class AsyncSecureClient:
         except ValueError as error:
             raise UserInputError(f"Invalid wallet address: {error}") from error
 
-        bootstrap_clob = AsyncTransport(base_url=environment.clob_url, logger=logger)
+        bootstrap_clob = AsyncTransport(base_url=config.clob_url, logger=logger)
         try:
             resolved_credentials = await _bootstrap_credentials(
-                environment=environment,
+                config=config,
                 signer=signer,
                 clob=bootstrap_clob,
                 provided=credentials,
@@ -426,6 +446,7 @@ class AsyncSecureClient:
             signer=signer,
             wallet=wallet_checksum,
             environment=environment,
+            config=config,
             credentials=resolved_credentials,
             api_key=api_key,
             logger=logger,
@@ -438,6 +459,7 @@ class AsyncSecureClient:
         signer: LocalAccount,
         wallet: str,
         environment: Environment,
+        config: EnvironmentConfig,
         credentials: ApiKeyCreds,
         api_key: ApiKey | None,
         logger: logging.Logger | None,
@@ -446,40 +468,46 @@ class AsyncSecureClient:
         wallet_type = classify_wallet_type(
             signer=signer.address,
             wallet=wallet_checksum,
-            config=environment.wallet_derivation,
+            config=config.wallet_derivation,
         )
         branded_wallet = cast(EvmAddress, wallet_checksum)
 
-        gamma = AsyncTransport(base_url=environment.gamma_url, logger=logger)
-        data = AsyncTransport(base_url=environment.data_url, logger=logger)
-        rfq = AsyncTransport(base_url=environment.rfq_url, logger=logger)
-        clob = AsyncTransport(base_url=environment.clob_url, logger=logger)
+        gamma = AsyncTransport(base_url=config.gamma_url, logger=logger)
+        data = AsyncTransport(base_url=config.data_url, logger=logger)
+        rfq = AsyncTransport(base_url=config.rfq_url, logger=logger)
+        clob = AsyncTransport(base_url=config.clob_url, logger=logger)
         relayer_resolver = make_relayer_header_resolver(api_key) if api_key is not None else None
         relayer = AsyncTransport(
-            base_url=environment.relayer_url,
+            base_url=config.relayer_url,
             logger=logger,
             header_resolver=relayer_resolver,
         )
         combos = AsyncTransport(
-            base_url=environment.collateral_return_url,
+            base_url=config.collateral_return_url,
             logger=logger,
             header_resolver=relayer_resolver,
         )
+        builder_gateway = AsyncTransport(
+            base_url=config.builder_gateway_url,
+            logger=logger,
+            header_resolver=_make_builder_gateway_header_resolver(api_key, signer, credentials),
+        )
         secure_clob = AsyncTransport(
-            base_url=environment.clob_url,
+            base_url=config.clob_url,
             logger=logger,
             header_resolver=_make_l2_header_resolver(signer, credentials),
         )
-        rpc_transport = AsyncTransport(base_url=environment.rpc_url, logger=logger)
+        rpc_transport = AsyncTransport(base_url=config.rpc_url, logger=logger)
         rpc = JsonRpcClient(rpc_transport)
 
         ctx = AsyncSecureClientContext(
             environment=environment,
+            _resolved_environment_config=config,
             gamma=gamma,
             data=data,
             rfq=rfq,
             clob=clob,
-            perps=AsyncTransport(base_url=environment.perps_url, logger=logger),
+            perps=AsyncTransport(base_url=config.perps_url, logger=logger),
             signer=signer,
             credentials=credentials,
             secure_clob=secure_clob,
@@ -487,8 +515,10 @@ class AsyncSecureClient:
             wallet_type=wallet_type,
             relayer=relayer,
             combos=combos,
+            builder_gateway=builder_gateway,
             api_key=api_key,
             rpc=rpc,
+            order_metadata=AsyncOrderMetadataCache(),
         )
         return cls(ctx=ctx, _create_token=_CREATE_TOKEN, logger=logger)
 
@@ -529,6 +559,10 @@ class AsyncSecureClient:
     ) -> SubscriptionHandle[CryptoPricesEvent]: ...
     @overload
     async def subscribe(
+        self, specs: CryptoPricesChainlinkTwapSpec, /
+    ) -> SubscriptionHandle[CryptoPricesChainlinkTwapEvent]: ...
+    @overload
+    async def subscribe(
         self, specs: EquityPricesSpec, /
     ) -> SubscriptionHandle[EquityPricesEvent]: ...
     @overload
@@ -551,6 +585,10 @@ class AsyncSecureClient:
     async def subscribe(
         self, specs: Sequence[CryptoPricesSpec], /
     ) -> SubscriptionHandle[CryptoPricesEvent]: ...
+    @overload
+    async def subscribe(
+        self, specs: Sequence[CryptoPricesChainlinkTwapSpec], /
+    ) -> SubscriptionHandle[CryptoPricesChainlinkTwapEvent]: ...
     @overload
     async def subscribe(
         self, specs: Sequence[EquityPricesSpec], /
@@ -598,7 +636,13 @@ class AsyncSecureClient:
                     handles.append(await self._get_user_manager().subscribe(markets=spec.markets))
                 elif isinstance(spec, PerpsSpec):
                     handles.append(await self._get_perps_manager().subscribe(spec))
-                elif isinstance(spec, CommentsSpec | CryptoPricesSpec | EquityPricesSpec):  # pyright: ignore[reportUnnecessaryIsInstance]
+                elif isinstance(
+                    spec,
+                    CommentsSpec
+                    | CryptoPricesSpec
+                    | CryptoPricesChainlinkTwapSpec
+                    | EquityPricesSpec,
+                ):  # pyright: ignore[reportUnnecessaryIsInstance]
                     handles.append(await self._get_rtds_manager().subscribe(spec))
                 else:
                     assert_never(spec)
@@ -628,7 +672,7 @@ class AsyncSecureClient:
             from polymarket._internal.streams.clob.market import ClobMarketStreamManager
 
             self._market_manager = ClobMarketStreamManager(
-                url=self._ctx.environment.clob_market_ws_url,
+                url=self._ctx.environment_config.clob_market_ws_url,
                 logger=self._streams_logger,
             )
         return self._market_manager
@@ -638,7 +682,7 @@ class AsyncSecureClient:
             from polymarket._internal.streams.sports.manager import SportsStreamManager
 
             self._sports_manager = SportsStreamManager(
-                url=self._ctx.environment.sports_ws_url,
+                url=self._ctx.environment_config.sports_ws_url,
                 logger=self._streams_logger,
             )
         return self._sports_manager
@@ -648,7 +692,7 @@ class AsyncSecureClient:
             from polymarket._internal.streams.rtds.manager import RtdsStreamManager
 
             self._rtds_manager = RtdsStreamManager(
-                url=self._ctx.environment.rtds_ws_url,
+                url=self._ctx.environment_config.rtds_ws_url,
                 logger=self._streams_logger,
             )
         return self._rtds_manager
@@ -658,7 +702,7 @@ class AsyncSecureClient:
             from polymarket._internal.streams.clob.user import ClobUserStreamManager
 
             self._user_manager = ClobUserStreamManager(
-                url=self._ctx.environment.clob_user_ws_url,
+                url=self._ctx.environment_config.clob_user_ws_url,
                 resolve_credentials=self._resolve_api_key_credentials,
                 logger=self._streams_logger,
             )
@@ -669,7 +713,7 @@ class AsyncSecureClient:
             from polymarket._internal.streams.perps.market import PerpsMarketStreamManager
 
             self._perps_manager = PerpsMarketStreamManager(
-                url=self._ctx.environment.perps_ws_url,
+                url=self._ctx.environment_config.perps_ws_url,
                 logger=self._streams_logger,
             )
         return self._perps_manager
@@ -719,7 +763,7 @@ class AsyncSecureClient:
             resolved = await _perps_credentials.create_credentials(
                 self._ctx.perps,
                 signer=self._ctx.signer,
-                chain_id=self._ctx.environment.chain_id,
+                chain_id=self._ctx.environment_config.chain_id,
                 expires_in=(
                     expires_in
                     if expires_in is not None
@@ -728,10 +772,10 @@ class AsyncSecureClient:
                 label=label,
             )
         session = PerpsSession(
-            chain_id=self._ctx.environment.chain_id,
+            chain_id=self._ctx.environment_config.chain_id,
             credentials=resolved,
-            rest_url=self._ctx.environment.perps_url,
-            ws_url=self._ctx.environment.perps_ws_url,
+            rest_url=self._ctx.environment_config.perps_url,
+            ws_url=self._ctx.environment_config.perps_ws_url,
             logger=self._streams_logger,
             on_close=self._perps_sessions.discard,
         )
@@ -755,7 +799,7 @@ class AsyncSecureClient:
         await _perps_credentials.revoke_credentials(
             self._ctx.perps,
             signer=self._ctx.signer,
-            chain_id=self._ctx.environment.chain_id,
+            chain_id=self._ctx.environment_config.chain_id,
             proxy=proxy,
         )
 
@@ -779,10 +823,13 @@ class AsyncSecureClient:
         Returns:
             A transaction handle. Await ``wait()`` to wait for a terminal outcome.
         """
-        env = self._ctx.environment
         call = _perps_funds.perps_deposit_call(
-            deposit_contract=cast(EvmAddress, to_checksum_address(env.perps_deposit_contract)),
-            token=cast(EvmAddress, to_checksum_address(env.collateral_token)),
+            deposit_contract=cast(
+                EvmAddress, to_checksum_address(self._ctx.environment_config.perps_deposit_contract)
+            ),
+            token=cast(
+                EvmAddress, to_checksum_address(self._ctx.environment_config.collateral_token)
+            ),
             amount=amount,
             to=cast(EvmAddress, self._ctx.signer.address),
         )
@@ -805,13 +852,12 @@ class AsyncSecureClient:
             The withdrawal identifier. Track its status with the session's
             ``list_withdrawals``.
         """
-        env = self._ctx.environment
         return await _perps_funds.withdraw_from_perps(
             self._ctx.perps,
             signer=self._ctx.signer,
-            chain_id=env.chain_id,
-            deposit_contract=env.perps_deposit_contract,
-            token=env.collateral_token,
+            chain_id=self._ctx.environment_config.chain_id,
+            deposit_contract=self._ctx.environment_config.perps_deposit_contract,
+            token=self._ctx.environment_config.collateral_token,
             amount=amount,
             to=str(self._ctx.wallet),
         )
@@ -856,14 +902,14 @@ class AsyncSecureClient:
                 self._rfq_session = None
 
         session = RfqQuoterSession(
-            chain_id=self._ctx.environment.chain_id,
+            chain_id=self._ctx.environment_config.chain_id,
             credentials=self._ctx.credentials,
-            exchange=EvmAddress(self._ctx.environment.exchange_v3),
-            headers=self._ctx.environment.rfq_quoter_ws_headers,
+            exchange=EvmAddress(self._ctx.environment_config.exchange_v3),
+            headers=self._ctx.environment_config.rfq_quoter_ws_headers,
             logger=self._streams_logger,
             on_close=clear_session,
             signer=self._ctx.signer,
-            url=self._ctx.environment.rfq_quoter_ws_url,
+            url=self._ctx.environment_config.rfq_quoter_ws_url,
             wallet=self._ctx.wallet,
             wallet_type=self._ctx.wallet_type,
         )
@@ -889,6 +935,7 @@ class AsyncSecureClient:
         """Close the underlying network transports and any open streams."""
         ctx = self._ctx_inner
         await _close_all(
+            ctx.order_metadata,
             self._market_manager,
             self._sports_manager,
             self._rtds_manager,
@@ -904,6 +951,7 @@ class AsyncSecureClient:
             ctx.secure_clob,
             ctx.relayer,
             ctx.combos,
+            ctx.builder_gateway,
             ctx.rpc,
         )
 
@@ -1848,8 +1896,11 @@ class AsyncSecureClient:
         path, body = _clob_actions.build_spreads_request(token_ids=token_ids)
         return _clob_actions.parse_spreads(await self._ctx.clob.post_json(path, json=body))
 
-    async def get_last_trade_price(self, *, token_id: str) -> LastTradePrice:
-        """Get the most recent trade price for a token."""
+    async def get_last_trade_price(self, *, token_id: str) -> LastTradePrice | None:
+        """Get the most recent trade price for a token.
+
+        Returns ``None`` when the token has not traded.
+        """
         path, params = _clob_actions.build_last_trade_price_request(token_id=token_id)
         return _clob_actions.parse_last_trade_price(
             await self._ctx.clob.get_json(path, params=params)
@@ -1858,7 +1909,11 @@ class AsyncSecureClient:
     async def get_last_trade_prices(
         self, *, token_ids: Sequence[str]
     ) -> tuple[LastTradePriceForToken, ...]:
-        """Get the most recent trade prices for multiple tokens."""
+        """Get the most recent trade prices for multiple tokens.
+
+        Tokens without trades are omitted. Match returned entries by ``token_id``;
+        the result is not positionally aligned with ``token_ids``.
+        """
         path, body = _clob_actions.build_last_trade_prices_request(token_ids=token_ids)
         return _clob_actions.parse_last_trade_prices(
             await self._ctx.clob.post_json(path, json=body)
@@ -2049,7 +2104,7 @@ class AsyncSecureClient:
         shares: Decimal | int | float | str | None = None,
         order_type: MarketOrderType = "FOK",
     ) -> Decimal:
-        """Estimate the average execution price for a market order.
+        """Estimate the limiting price level for a market order.
 
         BUY orders use ``amount`` as the spend amount. SELL orders use ``shares``
         as the number of shares to sell.
@@ -2136,6 +2191,10 @@ class AsyncSecureClient:
         BUY orders use ``amount`` as the spend amount and may include
         ``max_spend`` and ``max_price``. SELL orders use ``shares`` as the
         number of shares to sell and may include ``min_price``.
+
+        ``max_spend`` is an estimated all-in spend target based on recently
+        resolved platform and builder fee rates. Actual fees may change before
+        execution.
         """
         return await self._prepare_and_sign_market_order(
             token_id=token_id,
@@ -2245,6 +2304,10 @@ class AsyncSecureClient:
         BUY orders use ``amount`` as the spend amount and may include
         ``max_spend`` and ``max_price``. SELL orders use ``shares`` as the
         number of shares to sell and may include ``min_price``.
+
+        ``max_spend`` is an estimated all-in spend target based on recently
+        resolved platform and builder fee rates. Actual fees may change before
+        execution.
         """
         signed = await self._prepare_and_sign_market_order(
             token_id=token_id,
@@ -2354,6 +2417,16 @@ class AsyncSecureClient:
         )
         return await self._dispatch_single_call(call, metadata=resolved_metadata)
 
+    async def get_trading_approvals_state(
+        self, *, wallet: str | None = None
+    ) -> TradingApprovalsState:
+        """Get missing trading approvals for a wallet or the authenticated wallet."""
+        return await get_trading_approvals_state(
+            self._ctx.rpc,
+            wallet=self._ctx.wallet if wallet is None else wallet,
+            config=self._ctx.environment_config,
+        )
+
     async def setup_trading_approvals(self) -> DeprecatedTransactionHandle:
         """Approve the standard set of trading allowances for the wallet.
 
@@ -2364,11 +2437,8 @@ class AsyncSecureClient:
         Returns:
             A deprecated compatibility handle whose ``wait()`` returns immediately.
         """
-        calls = await resolve_missing_trading_approval_calls(
-            self._ctx.rpc,
-            wallet=self._ctx.wallet,
-            environment=self._ctx.environment,
-        )
+        state = await self.get_trading_approvals_state()
+        calls = build_missing_trading_approval_calls(state.missing)
         if not calls:
             return DeprecatedTransactionHandle()
         if self._ctx.wallet_type == "EOA":
@@ -2416,14 +2486,13 @@ class AsyncSecureClient:
         )
 
     async def _broadcast_eoa_call(self, call: TransactionCall) -> EoaTransactionHandle:
-        env = self._ctx.environment
         return await broadcast_eoa_call(
             rpc=self._ctx.rpc,
             signer=self._ctx.signer,
             call=call,
-            chain_id=env.chain_id,
-            max_polls=env.relayer_max_polls,
-            poll_delay_s=env.relayer_poll_frequency_ms / 1000,
+            chain_id=self._ctx.environment_config.chain_id,
+            max_polls=self._ctx.environment_config.relayer_max_polls,
+            poll_delay_s=self._ctx.environment_config.relayer_poll_frequency_ms / 1000,
         )
 
     async def _dispatch_single_call(
@@ -2467,7 +2536,7 @@ class AsyncSecureClient:
     async def _deploy_default_deposit_wallet(self) -> None:
         ctx = self._ctx
         current_deposit_wallet = derive_beacon_deposit_wallet_address(
-            ctx.signer.address, ctx.environment.wallet_derivation
+            ctx.signer.address, ctx.environment_config.wallet_derivation
         )
         if str(ctx.wallet).lower() != current_deposit_wallet.lower():
             raise UserInputError(
@@ -2498,7 +2567,6 @@ class AsyncSecureClient:
         """
         if (condition_id is None) == (legs is None):
             raise UserInputError("Provide exactly one of condition_id or legs")
-        env = self._ctx.environment
         if legs is not None:
             if amount <= 0:
                 raise UserInputError("Split amount must be positive for combo positions")
@@ -2506,11 +2574,13 @@ class AsyncSecureClient:
             combo = derive_combo_position_context(canonical_legs)
             calls = [
                 combinatorial_prepare_condition_call(
-                    combinatorial_module=cast(EvmAddress, env.combinatorial_module),
+                    combinatorial_module=cast(
+                        EvmAddress, self._ctx.environment_config.combinatorial_module
+                    ),
                     legs=list(canonical_legs),
                 ),
                 split_v2_call(
-                    router=cast(EvmAddress, env.protocol_v2_router),
+                    router=cast(EvmAddress, self._ctx.environment_config.protocol_v2_router),
                     condition_id=combo.condition_id,
                     amount=amount,
                 ),
@@ -2525,7 +2595,7 @@ class AsyncSecureClient:
         context = await self._resolve_market_position_context(condition_id=condition_id)
         call = split_position_call(
             target=context.adapter_address,
-            collateral=cast(EvmAddress, env.collateral_token),
+            collateral=cast(EvmAddress, self._ctx.environment_config.collateral_token),
             condition_id=context.condition_id,
             amount=amount,
         )
@@ -2558,12 +2628,11 @@ class AsyncSecureClient:
         """
         if (condition_id is None) == (legs is None):
             raise UserInputError("Provide exactly one of condition_id or legs")
-        env = self._ctx.environment
         if legs is not None:
             canonical_legs = canonicalize_combo_legs(legs)
             combo = derive_combo_position_context(canonical_legs)
             balance_call = erc1155_balance_of_batch_call(
-                token_address=cast(EvmAddress, env.position_manager),
+                token_address=cast(EvmAddress, self._ctx.environment_config.position_manager),
                 owners=[self._ctx.wallet, self._ctx.wallet],
                 token_ids=list(combo.position_ids),
             )
@@ -2575,11 +2644,13 @@ class AsyncSecureClient:
             )
             calls = [
                 combinatorial_prepare_condition_call(
-                    combinatorial_module=cast(EvmAddress, env.combinatorial_module),
+                    combinatorial_module=cast(
+                        EvmAddress, self._ctx.environment_config.combinatorial_module
+                    ),
                     legs=list(canonical_legs),
                 ),
                 merge_v2_call(
-                    router=cast(EvmAddress, env.protocol_v2_router),
+                    router=cast(EvmAddress, self._ctx.environment_config.protocol_v2_router),
                     condition_id=combo.condition_id,
                     amount=resolved_amount,
                 ),
@@ -2603,7 +2674,7 @@ class AsyncSecureClient:
         resolved_amount = resolve_merge_amount_from_balances(context.condition_id, balances, amount)
         call = merge_positions_call(
             target=context.adapter_address,
-            collateral=cast(EvmAddress, env.collateral_token),
+            collateral=cast(EvmAddress, self._ctx.environment_config.collateral_token),
             condition_id=context.condition_id,
             amount=resolved_amount,
         )
@@ -2635,7 +2706,6 @@ class AsyncSecureClient:
         if not positions:
             raise UserInputError("positions must include at least one merge request")
 
-        env = self._ctx.environment
         normalized = [
             normalize_batch_merge_position_request(cast(Mapping[str, object], position))
             for position in positions
@@ -2656,7 +2726,7 @@ class AsyncSecureClient:
                 seen_conditions.add(condition_key)
                 token_ids = derive_combo_outcome_position_ids(decoded.condition_id)
                 balance_call = erc1155_balance_of_batch_call(
-                    token_address=cast(EvmAddress, env.position_manager),
+                    token_address=cast(EvmAddress, self._ctx.environment_config.position_manager),
                     owners=[self._ctx.wallet, self._ctx.wallet],
                     token_ids=list(token_ids),
                 )
@@ -2668,7 +2738,7 @@ class AsyncSecureClient:
                 )
                 calls.append(
                     merge_v2_call(
-                        router=cast(EvmAddress, env.protocol_v2_router),
+                        router=cast(EvmAddress, self._ctx.environment_config.protocol_v2_router),
                         condition_id=decoded.condition_id,
                         amount=resolved_amount,
                     )
@@ -2697,7 +2767,7 @@ class AsyncSecureClient:
             calls.append(
                 merge_positions_call(
                     target=context.adapter_address,
-                    collateral=cast(EvmAddress, env.collateral_token),
+                    collateral=cast(EvmAddress, self._ctx.environment_config.collateral_token),
                     condition_id=context.condition_id,
                     amount=resolved_amount,
                 )
@@ -2742,11 +2812,10 @@ class AsyncSecureClient:
         """
         if sum(value is not None for value in (condition_id, market_id, position_id)) != 1:
             raise UserInputError("Provide exactly one of condition_id, market_id, or position_id")
-        env = self._ctx.environment
         if position_id is not None:
             decoded = decode_combo_outcome_position_id(position_id)
             balance_call = erc1155_balance_of_call(
-                token_address=cast(EvmAddress, env.position_manager),
+                token_address=cast(EvmAddress, self._ctx.environment_config.position_manager),
                 owner=self._ctx.wallet,
                 token_id=position_id,
             )
@@ -2756,7 +2825,7 @@ class AsyncSecureClient:
             if balance == 0:
                 raise UserInputError("Combo position has no balance to redeem")
             call = redeem_v2_call(
-                router=cast(EvmAddress, env.protocol_v2_router),
+                router=cast(EvmAddress, self._ctx.environment_config.protocol_v2_router),
                 condition_id=decoded.condition_id,
                 outcome_index=decoded.outcome_index,
                 amount=balance,
@@ -2772,7 +2841,7 @@ class AsyncSecureClient:
         )
         call = ctf_redeem_positions_call(
             ctf=context.adapter_address,
-            collateral=cast(EvmAddress, env.collateral_token),
+            collateral=cast(EvmAddress, self._ctx.environment_config.collateral_token),
             condition_id=context.condition_id,
         )
         resolved_metadata = (
@@ -2827,6 +2896,124 @@ class AsyncSecureClient:
         """
         return await _combos_actions.execute_collateral_return_plan(self._ctx, plan=plan)
 
+    async def request_combo_quote(
+        self,
+        *,
+        leg_position_ids: list[str] | tuple[str, ...],
+        direction: RfqDirection | str,
+        amount: Decimal | int | float | str | None = None,
+        size: Decimal | int | float | str | None = None,
+        side: RfqSide | str = RfqSide.YES,
+    ) -> ComboQuoteResult:
+        """Request a quote for a combo of positions.
+
+        BUY requests are sized in collateral via ``amount``; SELL requests
+        are sized in outcome tokens via ``size``. Amounts are human-readable:
+        ``1`` means one dollar or one full share, not one 6-decimal base
+        unit. Requires a Builder API Key passed as ``api_key=`` when
+        constructing the client.
+
+        The call resolves when the quote competition window closes. A request
+        that attracts no usable quotes is a normal outcome, returned with
+        ``quote=None`` and a ``reason`` rather than raised.
+
+        Returns:
+            The quote result. Pass ``result.quote`` to
+            :meth:`accept_combo_quote` to
+            execute the winning quote before ``quote.expires_at``.
+
+        Raises:
+            UserInputError: If the legs, direction/sizing pair, or side are
+                invalid, or the client has no Builder API Key.
+            RfqRequestRejectedError: If the request is rejected; inspect
+                ``code`` to distinguish permanent input problems from
+                transient conditions.
+        """
+        return await _combo_rfq_actions.request_combo_quote(
+            self._ctx,
+            leg_position_ids=leg_position_ids,
+            direction=direction,
+            amount=amount,
+            size=size,
+            side=side,
+        )
+
+    async def accept_combo_quote(
+        self, quote: ComboQuote | Mapping[str, object]
+    ) -> ComboQuoteAcceptance:
+        """Accept a self-contained combo quote and sign its order automatically.
+
+        The call resolves at the maker last-look outcome. A maker declining
+        or the acceptance window expiring is a normal outcome returned with
+        ``status="failed"`` and a ``reason``. ``status="executing"`` means
+        the trade was handed off for onchain execution; follow it with
+        :meth:`wait_for_combo_fill`.
+
+        A retry after an interrupted request or invalid response is safe: an
+        already-accepted RFQ reports its current status instead of executing
+        twice. In that case ``taker_order_hash`` is ``None`` because the
+        retry's order was not the one recorded.
+
+        Quotes can be persisted with ``quote.model_dump_json()`` and restored
+        with ``ComboQuote.model_validate_json(...)``. A JSON-decoded mapping is
+        also accepted directly. The accepting client must represent the same
+        account and builder identity used to request the quote. Treat restored
+        quote fields as signing-sensitive data and do not accept values modified
+        by an untrusted client.
+
+        Returns:
+            The acceptance outcome.
+
+        Raises:
+            UserInputError: If the quote is invalid or the client has no
+                Builder API Key.
+            RfqRequestRejectedError: If the acceptance is rejected.
+            TimeoutError: If the outcome is still pending after the wait
+                window; resume with :meth:`fetch_rfq_status`.
+        """
+        return await _combo_rfq_actions.accept_combo_quote(self._ctx, quote)
+
+    async def wait_for_combo_fill(
+        self,
+        *,
+        rfq_id: str,
+        timeout: float = 30.0,
+        polling_interval: float = 1.0,
+    ) -> ComboFillResult:
+        """Wait for an accepted RFQ to reach a terminal state.
+
+        Polls the RFQ status until it is filled (or confirmed onchain),
+        failed, expired, or canceled. Terminal failure is a normal outcome
+        and is returned, not raised.
+
+        Returns:
+            The terminal state. ``tx_hash`` is set when the RFQ filled.
+
+        Raises:
+            TimeoutError: If the RFQ stays non-terminal past ``timeout``
+                seconds. This does not mean the trade failed; resume with
+                :meth:`fetch_rfq_status`.
+            RfqRequestRejectedError: If the RFQ is unknown or not accepted.
+        """
+        return await _combo_rfq_actions.wait_for_combo_fill(
+            self._ctx, rfq_id=rfq_id, timeout=timeout, polling_interval=polling_interval
+        )
+
+    async def fetch_rfq_status(self, *, rfq_id: str) -> RfqStatusResult:
+        """Fetch the status of an accepted RFQ.
+
+        Status is available once an acceptance has been recorded; earlier
+        reads are rejected.
+
+        Returns:
+            The RFQ status. Onchain execution progress is merged into
+            ``status``.
+
+        Raises:
+            RfqRequestRejectedError: If the RFQ is unknown or not accepted.
+        """
+        return await _combo_rfq_actions.fetch_rfq_status(self._ctx, rfq_id=rfq_id)
+
     async def _resolve_market_position_context(
         self,
         *,
@@ -2836,7 +3023,6 @@ class AsyncSecureClient:
     ) -> MarketPositionContext:
         if (condition_id is None) == (market_id is None):
             raise UserInputError("Provide exactly one of condition_id or market_id")
-        env = self._ctx.environment
         if condition_id is not None:
             context = f"condition {condition_id}"
             if closed is None:
@@ -2866,10 +3052,12 @@ class AsyncSecureClient:
         return normalize_market_position_context(
             markets[0],
             context=context,
-            collateral_adapter=cast(EvmAddress, env.collateral_adapter),
-            neg_risk_collateral_adapter=cast(EvmAddress, env.neg_risk_collateral_adapter),
-            conditional_tokens=cast(EvmAddress, env.conditional_tokens),
-            neg_risk_adapter=cast(EvmAddress, env.neg_risk_adapter),
+            collateral_adapter=cast(EvmAddress, self._ctx.environment_config.collateral_adapter),
+            neg_risk_collateral_adapter=cast(
+                EvmAddress, self._ctx.environment_config.neg_risk_collateral_adapter
+            ),
+            conditional_tokens=cast(EvmAddress, self._ctx.environment_config.conditional_tokens),
+            neg_risk_adapter=cast(EvmAddress, self._ctx.environment_config.neg_risk_adapter),
         )
 
     async def post_order(self, signed_order: SignedOrder) -> OrderResponse:
@@ -3236,7 +3424,7 @@ async def _close_all(*resources: AsyncCloseable | None) -> None:
 
 async def _bootstrap_credentials(
     *,
-    environment: Environment,
+    config: EnvironmentConfig,
     signer: LocalAccount,
     clob: AsyncTransport,
     provided: ApiKeyCreds | None,
@@ -3247,7 +3435,7 @@ async def _bootstrap_credentials(
     if provided is not None and (
         not validate
         or await _credentials_are_active(
-            environment=environment,
+            config=config,
             signer=signer,
             credentials=provided,
             logger=logger,
@@ -3256,7 +3444,10 @@ async def _bootstrap_credentials(
         return provided
 
     signature = sign_api_key_auth(
-        signer, chain_id=environment.chain_id, timestamp=int(time.time()), nonce=nonce
+        signer,
+        chain_id=config.chain_id,
+        timestamp=int(time.time()),
+        nonce=nonce,
     )
     return await _auth_actions.create_or_derive_api_key(clob, signature)
 
@@ -3265,15 +3456,15 @@ async def _resolve_requested_wallet(
     *,
     signer: LocalAccount,
     wallet: str | None,
-    environment: Environment,
+    config: EnvironmentConfig,
     logger: logging.Logger | None,
 ) -> str:
     if wallet is not None:
         return wallet
     legacy_deposit_wallet = derive_uups_deposit_wallet_address(
-        signer.address, environment.wallet_derivation
+        signer.address, config.wallet_derivation
     )
-    relayer = AsyncTransport(base_url=environment.relayer_url, logger=logger)
+    relayer = AsyncTransport(base_url=config.relayer_url, logger=logger)
     try:
         if await fetch_deployed(
             relayer,
@@ -3281,7 +3472,7 @@ async def _resolve_requested_wallet(
             type=RelayerTransactionType.WALLET,
         ):
             return legacy_deposit_wallet
-        return derive_beacon_deposit_wallet_address(signer.address, environment.wallet_derivation)
+        return derive_beacon_deposit_wallet_address(signer.address, config.wallet_derivation)
     finally:
         await relayer.close()
 
@@ -3300,13 +3491,13 @@ def _relayer_transaction_type_for_wallet(
 
 async def _credentials_are_active(
     *,
-    environment: Environment,
+    config: EnvironmentConfig,
     signer: LocalAccount,
     credentials: ApiKeyCreds,
     logger: logging.Logger | None,
 ) -> bool:
     probe = AsyncTransport(
-        base_url=environment.clob_url,
+        base_url=config.clob_url,
         logger=logger,
         header_resolver=_make_l2_header_resolver(signer, credentials),
     )
@@ -3319,6 +3510,24 @@ async def _credentials_are_active(
     finally:
         await probe.close()
     return credentials.key in keys
+
+
+def _make_builder_gateway_header_resolver(
+    api_key: ApiKey | None, signer: LocalAccount, credentials: ApiKeyCreds
+) -> _L2HeaderResolver:
+    l2_resolver = _make_l2_header_resolver(signer, credentials)
+
+    async def resolver(method: str, path: str, body: str | None) -> Mapping[str, str]:
+        headers = dict(await l2_resolver(method, path, body))
+        # Status reads authenticate with account headers only; builder
+        # headers are required on the mutating requests.
+        if method != "GET" and isinstance(api_key, BuilderApiKey):
+            headers.update(
+                build_builder_key_headers(creds=api_key, method=method, path=path, body=body)
+            )
+        return headers
+
+    return resolver
 
 
 def _make_l2_header_resolver(signer: LocalAccount, credentials: ApiKeyCreds) -> _L2HeaderResolver:

@@ -37,6 +37,7 @@ from polymarket._internal.actions.orders.estimate import (
     estimate_market_price_sync as _estimate_market_price_sync,
 )
 from polymarket._internal.actions.orders.types import MarketOrderType
+from polymarket._internal.actions.relayer.approvals import get_trading_approvals_state_sync
 from polymarket._internal.context import SyncClientContext
 from polymarket._internal.dispatch import (
     sync_dispatch,
@@ -44,6 +45,8 @@ from polymarket._internal.dispatch import (
     sync_paginate_offset,
     sync_paginate_page_based,
 )
+from polymarket._internal.environment import get_environment_config
+from polymarket._internal.eoa.rpc import SyncJsonRpcClient
 from polymarket.clients._transport import SyncTransport
 from polymarket.environments import PRODUCTION, Environment
 from polymarket.errors import RequestRejectedError
@@ -68,6 +71,7 @@ from polymarket.models import (
     Tag,
     TagReference,
     Team,
+    TradingApprovalsState,
 )
 from polymarket.models.clob import BuilderTrade
 from polymarket.models.clob.rewards import CurrentReward, MarketReward
@@ -108,13 +112,16 @@ class PublicClient:
         *,
         logger: logging.Logger | None = None,
     ) -> None:
+        config = get_environment_config(environment)
         self._ctx = SyncClientContext(
             environment=environment,
-            gamma=SyncTransport(base_url=environment.gamma_url, logger=logger),
-            data=SyncTransport(base_url=environment.data_url, logger=logger),
-            rfq=SyncTransport(base_url=environment.rfq_url, logger=logger),
-            clob=SyncTransport(base_url=environment.clob_url, logger=logger),
+            _resolved_environment_config=config,
+            gamma=SyncTransport(base_url=config.gamma_url, logger=logger),
+            data=SyncTransport(base_url=config.data_url, logger=logger),
+            rfq=SyncTransport(base_url=config.rfq_url, logger=logger),
+            clob=SyncTransport(base_url=config.clob_url, logger=logger),
         )
+        self._rpc = SyncJsonRpcClient(SyncTransport(base_url=config.rpc_url, logger=logger))
 
     @property
     def environment(self) -> Environment:
@@ -143,7 +150,10 @@ class PublicClient:
                 try:
                     self._ctx.rfq.close()
                 finally:
-                    self._ctx.clob.close()
+                    try:
+                        self._ctx.clob.close()
+                    finally:
+                        self._rpc.close()
 
     @overload
     def get_market(
@@ -327,6 +337,14 @@ class PublicClient:
             if error.status == 404:
                 return None
             raise
+
+    def get_trading_approvals_state(self, *, wallet: str) -> TradingApprovalsState:
+        """Get the trading approvals that a wallet still needs to grant."""
+        return get_trading_approvals_state_sync(
+            self._rpc,
+            wallet=wallet,
+            config=self._ctx.environment_config,
+        )
 
     def get_comment_thread(
         self, id: str, *, get_positions: bool | None = None
@@ -1069,15 +1087,22 @@ class PublicClient:
         path, body = _clob_actions.build_spreads_request(token_ids=token_ids)
         return _clob_actions.parse_spreads(self._ctx.clob.post_json(path, json=body))
 
-    def get_last_trade_price(self, *, token_id: str) -> LastTradePrice:
-        """Get the most recent trade price for a token."""
+    def get_last_trade_price(self, *, token_id: str) -> LastTradePrice | None:
+        """Get the most recent trade price for a token.
+
+        Returns ``None`` when the token has not traded.
+        """
         path, params = _clob_actions.build_last_trade_price_request(token_id=token_id)
         return _clob_actions.parse_last_trade_price(self._ctx.clob.get_json(path, params=params))
 
     def get_last_trade_prices(
         self, *, token_ids: Sequence[str]
     ) -> tuple[LastTradePriceForToken, ...]:
-        """Get the most recent trade prices for multiple tokens."""
+        """Get the most recent trade prices for multiple tokens.
+
+        Tokens without trades are omitted. Match returned entries by ``token_id``;
+        the result is not positionally aligned with ``token_ids``.
+        """
         path, body = _clob_actions.build_last_trade_prices_request(token_ids=token_ids)
         return _clob_actions.parse_last_trade_prices(self._ctx.clob.post_json(path, json=body))
 
@@ -1127,7 +1152,7 @@ class PublicClient:
         shares: Decimal | int | float | str | None = None,
         order_type: MarketOrderType = "FOK",
     ) -> Decimal:
-        """Estimate the average execution price for a market order.
+        """Estimate the limiting price level for a market order.
 
         BUY orders use ``amount`` as the spend amount. SELL orders use ``shares``
         as the number of shares to sell.

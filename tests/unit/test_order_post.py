@@ -1,3 +1,7 @@
+import inspect
+from decimal import Decimal
+from typing import get_type_hints
+
 import pytest
 
 from polymarket._internal.actions.orders.post import (
@@ -8,7 +12,7 @@ from polymarket._internal.actions.orders.post import (
 )
 from polymarket._internal.actions.orders.types import BYTES32_ZERO
 from polymarket.errors import UnexpectedResponseError, UserInputError
-from polymarket.models.clob.order_response import AcceptedOrder, RejectedOrder
+from polymarket.models.clob.order_response import AcceptedOrder, RawOrderResponse, RejectedOrder
 from polymarket.models.clob.orders import SignedOrder
 from polymarket.models.types import TokenId
 from polymarket.types import EvmAddress, HexString
@@ -126,6 +130,31 @@ def test_parse_order_response_normalizes_empty_making_taking_for_live_orders() -
     assert isinstance(parsed, AcceptedOrder)
     assert parsed.making_amount == 0
     assert parsed.taking_amount == 0
+
+
+def test_raw_order_response_annotations_and_signature_expose_decimals() -> None:
+    hints = get_type_hints(RawOrderResponse, include_extras=True)
+    assert hints["making_amount"] is Decimal
+    assert hints["taking_amount"] is Decimal
+
+    parameters = inspect.signature(RawOrderResponse).parameters
+    assert parameters["makingAmount"].annotation is Decimal
+    assert parameters["takingAmount"].annotation is Decimal
+
+
+@pytest.mark.parametrize("amount", [1, 1.0])
+def test_parse_order_response_rejects_non_string_amounts(amount: object) -> None:
+    raw: dict[str, object] = {
+        "errorMsg": "",
+        "makingAmount": amount,
+        "orderID": "ord-1",
+        "status": "live",
+        "success": True,
+        "takingAmount": "1",
+    }
+
+    with pytest.raises(UnexpectedResponseError):
+        parse_order_response(raw)
 
 
 def test_parse_order_response_recognizes_accepted_payload() -> None:

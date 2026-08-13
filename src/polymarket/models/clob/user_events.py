@@ -1,24 +1,26 @@
+from datetime import datetime
+from decimal import Decimal
 from typing import Annotated, Any, Literal, cast
 
-from pydantic import AliasChoices, BeforeValidator, Field, TypeAdapter, ValidationError
+from pydantic import AliasChoices, Field, TypeAdapter, ValidationError, field_validator
 
 from polymarket.models.base import BaseModel
 from polymarket.models.clob._validators import (
-    EpochSecondsOrMsTimestamp,
-    EpochSecondsTimestamp,
-    ExpirationTimestamp,
-    _DecimalFromNumberOrString,  # pyright: ignore[reportPrivateUsage]
-    _OptionalDecimalFromNumberOrString,  # pyright: ignore[reportPrivateUsage]
+    _coerce_decimalish,  # pyright: ignore[reportPrivateUsage]
+    _coerce_optional_decimalish,  # pyright: ignore[reportPrivateUsage]
+    _parse_epoch_seconds_or_ms_timestamp,  # pyright: ignore[reportPrivateUsage]
+    _parse_epoch_seconds_timestamp,  # pyright: ignore[reportPrivateUsage]
+    _parse_expiration_timestamp,  # pyright: ignore[reportPrivateUsage]
 )
-from polymarket.models.clob.account import TradeStatusField
-from polymarket.models.types import TokenId
+from polymarket.models.clob.account import (
+    TradeStatus,
+    _normalize_trade_status,  # pyright: ignore[reportPrivateUsage]
+)
+from polymarket.models.types import OrderSide, TokenId
 
 
 def _uppercase_string(value: object) -> object:
     return value.upper() if isinstance(value, str) else value
-
-
-_OrderSide = Annotated[Literal["BUY", "SELL"], BeforeValidator(_uppercase_string)]
 
 
 _OrderEventType = Literal["PLACEMENT", "UPDATE", "CANCELLATION"]
@@ -30,22 +32,19 @@ _OrderStatus = Literal["LIVE", "MATCHED", "DELAYED", "UNMATCHED", "CANCELED"]
 _OrderType = Literal["GTC", "FOK", "IOC", "GTD", "FAK"]
 
 
-_TraderSide = Annotated[Literal["TAKER", "MAKER"], BeforeValidator(_uppercase_string)]
-
-
 class UserOrderPayload(BaseModel):
     id: str
     owner: str
     market: str
     token_id: TokenId = Field(validation_alias="asset_id")
-    side: _OrderSide
-    original_size: _DecimalFromNumberOrString
-    size_matched: _DecimalFromNumberOrString
-    price: _DecimalFromNumberOrString
+    side: OrderSide
+    original_size: Decimal
+    size_matched: Decimal
+    price: Decimal
     order_event_type: _OrderEventType = Field(validation_alias="type")
-    timestamp: EpochSecondsOrMsTimestamp = None
-    created_at: EpochSecondsTimestamp = None
-    expires_at: ExpirationTimestamp = Field(default=None, validation_alias="expiration")
+    timestamp: datetime | None = None
+    created_at: datetime | None = None
+    expires_at: datetime | None = Field(default=None, validation_alias="expiration")
     order_type: _OrderType | None = None
     status: _OrderStatus | None = None
     maker_address: str | None = None
@@ -53,18 +52,58 @@ class UserOrderPayload(BaseModel):
     associate_trades: tuple[str, ...] | None = None
     outcome: str | None = None
 
+    @field_validator("side", mode="before")
+    @classmethod
+    def _normalize_side(cls, value: object) -> object:
+        return _uppercase_string(value)
+
+    @field_validator("original_size", "size_matched", "price", mode="before")
+    @classmethod
+    def _parse_decimals(cls, value: object) -> object:
+        return _coerce_decimalish(value)
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def _parse_timestamp(cls, value: object) -> object:
+        return _parse_epoch_seconds_or_ms_timestamp(value)
+
+    @field_validator("created_at", mode="before")
+    @classmethod
+    def _parse_created_at(cls, value: object) -> object:
+        return _parse_epoch_seconds_timestamp(value)
+
+    @field_validator("expires_at", mode="before")
+    @classmethod
+    def _parse_expires_at(cls, value: object) -> object:
+        return _parse_expiration_timestamp(value)
+
 
 class UserTradeMakerOrder(BaseModel):
     order_id: str
     owner: str
     maker_address: str | None = None
-    matched_amount: _DecimalFromNumberOrString
-    price: _DecimalFromNumberOrString
-    fee_rate_bps: _OptionalDecimalFromNumberOrString = None
+    matched_amount: Decimal
+    price: Decimal
+    fee_rate_bps: Decimal | None = None
     token_id: TokenId = Field(validation_alias="asset_id")
-    side: _OrderSide
+    side: OrderSide
     outcome: str | None = None
     outcome_index: int | None = None
+
+    @field_validator("matched_amount", "price", mode="before")
+    @classmethod
+    def _parse_decimals(cls, value: object) -> object:
+        return _coerce_decimalish(value)
+
+    @field_validator("fee_rate_bps", mode="before")
+    @classmethod
+    def _parse_optional_decimal(cls, value: object) -> object:
+        return _coerce_optional_decimalish(value)
+
+    @field_validator("side", mode="before")
+    @classmethod
+    def _normalize_side(cls, value: object) -> object:
+        return _uppercase_string(value)
 
 
 class UserTradePayload(BaseModel):
@@ -72,24 +111,54 @@ class UserTradePayload(BaseModel):
     taker_order_id: str
     market: str
     token_id: TokenId = Field(validation_alias="asset_id")
-    side: _OrderSide
-    size: _DecimalFromNumberOrString
-    price: _DecimalFromNumberOrString
-    status: TradeStatusField
+    side: OrderSide
+    size: Decimal
+    price: Decimal
+    status: TradeStatus
     owner: str
-    timestamp: EpochSecondsOrMsTimestamp = None
-    fee_rate_bps: _OptionalDecimalFromNumberOrString = None
-    matched_at: EpochSecondsTimestamp = Field(
+    timestamp: datetime | None = None
+    fee_rate_bps: Decimal | None = None
+    matched_at: datetime | None = Field(
         default=None, validation_alias=AliasChoices("match_time", "matchtime")
     )
-    updated_at: EpochSecondsTimestamp = Field(default=None, validation_alias="last_update")
+    updated_at: datetime | None = Field(default=None, validation_alias="last_update")
     trade_owner: str | None = None
     maker_address: str | None = None
     transaction_hash: str | None = None
     bucket_index: int | None = None
     maker_orders: tuple[UserTradeMakerOrder, ...] | None = None
-    trader_side: _TraderSide | None = None
+    trader_side: Literal["TAKER", "MAKER"] | None = None
     outcome: str | None = None
+
+    @field_validator("side", "trader_side", mode="before")
+    @classmethod
+    def _normalize_sides(cls, value: object) -> object:
+        return _uppercase_string(value)
+
+    @field_validator("size", "price", mode="before")
+    @classmethod
+    def _parse_decimals(cls, value: object) -> object:
+        return _coerce_decimalish(value)
+
+    @field_validator("fee_rate_bps", mode="before")
+    @classmethod
+    def _parse_optional_decimal(cls, value: object) -> object:
+        return _coerce_optional_decimalish(value)
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _parse_status(cls, value: object) -> object:
+        return _normalize_trade_status(value)
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def _parse_timestamp(cls, value: object) -> object:
+        return _parse_epoch_seconds_or_ms_timestamp(value)
+
+    @field_validator("matched_at", "updated_at", mode="before")
+    @classmethod
+    def _parse_seconds_timestamp(cls, value: object) -> object:
+        return _parse_epoch_seconds_timestamp(value)
 
 
 class UserOrderEvent(BaseModel):

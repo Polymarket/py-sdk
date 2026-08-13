@@ -9,6 +9,7 @@ import pytest
 
 from polymarket import ApiKeyCreds, AsyncSecureClient
 from polymarket._internal.actions.account import END_CURSOR
+from polymarket._internal.environment import PRODUCTION_CONFIG
 from polymarket.clients._transport import AsyncTransport
 from polymarket.errors import UserInputError
 
@@ -397,10 +398,11 @@ def test_secure_client_defaults_wallet_to_current_deposit_wallet() -> None:
     from eth_account import Account
 
     from polymarket._internal.wallet import derive_uups_deposit_wallet_address
-    from polymarket.environments import PRODUCTION
 
     signer = Account.from_key(PRIVATE_KEY)
-    expected = derive_uups_deposit_wallet_address(signer.address, PRODUCTION.wallet_derivation)
+    expected = derive_uups_deposit_wallet_address(
+        signer.address, PRODUCTION_CONFIG.wallet_derivation
+    )
 
     async def run() -> str:
         client = await AsyncSecureClient._create(

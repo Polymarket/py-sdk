@@ -1,11 +1,14 @@
+import inspect
+from datetime import datetime
 from decimal import Decimal
 from typing import get_type_hints
 
 import pytest
 
 from polymarket.errors import UnexpectedResponseError
-from polymarket.models.clob.order_book import OrderBookLevel
-from polymarket.models.rtds_events import PriceUpdatePayload
+from polymarket.models.clob.last_trade import LastTradePrice, LastTradePriceForToken
+from polymarket.models.clob.order_book import OrderBook, OrderBookLevel
+from polymarket.models.rtds_events import CryptoPricesChainlinkTwapPayload, PriceUpdatePayload
 
 
 class TestStrictStringFieldsExposeBareDecimal:
@@ -14,9 +17,28 @@ class TestStrictStringFieldsExposeBareDecimal:
         assert OrderBookLevel.model_fields["size"].annotation is Decimal
 
     def test_get_type_hints_resolves_to_bare_decimal(self) -> None:
-        hints = get_type_hints(OrderBookLevel)
+        hints = get_type_hints(OrderBookLevel, include_extras=True)
         assert hints["price"] is Decimal
         assert hints["size"] is Decimal
+
+    @pytest.mark.parametrize(
+        ("model", "field", "annotation"),
+        [
+            (OrderBookLevel, "price", Decimal),
+            (OrderBookLevel, "size", Decimal),
+            (OrderBook, "min_order_size", Decimal),
+            (OrderBook, "tick_size", Decimal),
+            (OrderBook, "last_trade_price", Decimal | None),
+            (OrderBook, "timestamp", datetime | None),
+            (LastTradePrice, "price", Decimal),
+            (LastTradePriceForToken, "price", Decimal),
+        ],
+    )
+    def test_market_read_annotations_are_canonical(
+        self, model: type[object], field: str, annotation: object
+    ) -> None:
+        assert get_type_hints(model, include_extras=True)[field] == annotation
+        assert inspect.signature(model).parameters[field].annotation == annotation
 
 
 class TestStrictStringValidatorAcceptsAndRejects:
@@ -70,6 +92,15 @@ class TestNumberOrStringValidatorAcceptsBroaderInput:
     def test_bool_input_is_rejected(self) -> None:
         with pytest.raises(UnexpectedResponseError):
             PriceUpdatePayload.parse_response({"symbol": "BTC", "timestamp": 0, "value": True})
+
+
+class TestTwapPayloadExposesBareDecimal:
+    def test_model_field_annotation_is_bare_decimal(self) -> None:
+        assert CryptoPricesChainlinkTwapPayload.model_fields["value"].annotation is Decimal
+
+    def test_get_type_hints_resolves_to_bare_decimal(self) -> None:
+        hints = get_type_hints(CryptoPricesChainlinkTwapPayload)
+        assert hints["value"] is Decimal
 
 
 class TestNoDecimalStringAliasLeaksToPublicSurface:

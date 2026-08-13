@@ -4,6 +4,20 @@
 
 - Use `uv` for dependency management, testing, and builds.
 
+## Review Method
+
+- Review from the developer workflow inward. Start by understanding what the consumer is trying to accomplish and inspect realistic usage examples.
+- Build a complete mental model before judging the implementation. Clarify terminology, lifecycle, ownership, and failure behavior.
+- Review the public contract first: naming, symmetry, defaults, state representation, validation, errors, and call-site ergonomics.
+- Separate SDK behavior, integrator behavior, documentation examples, and backend behavior. Attach findings to the layer that owns them.
+- Compare questionable code with established repository patterns before requesting a change.
+- Evaluate findings by practical impact. Downgrade or discard concerns when the risk is bounded and the proposed complexity is not justified.
+- Prefer tests that prove meaningful boundaries. Favor one live integration workflow over multiple mocks when a safe test environment exists.
+- Use mocks for conditions that cannot reasonably be produced through integration testing.
+- Distinguish demonstrated bugs, contract problems, missing regression coverage, and optional hardening.
+- Revisit initial findings as understanding improves rather than defending the first interpretation.
+- Keep review comments short, human, line-specific, and actionable.
+
 ## SDK Design
 
 - Keep the PyPI distribution name as `polymarket-client` and the import package as `polymarket` unless explicitly changed.
@@ -20,13 +34,29 @@
 - Use `typing.NewType` selectively for meaningful SDK domain types. Generic primitives such as `EvmAddress`, `HexString`, and `TransactionHash` belong outside `polymarket.models`; model-specific identifiers such as `MarketId`, `EventId`, `ConditionId`, `TokenId`, and `OrderId` belong under `polymarket.models` and should be re-exported from the public package where useful.
 - Do not mark every primitive field. Prefer marked types for key identifiers and domain concepts where the IDE/type name adds meaning or prevents confusion. Keep public method inputs developer-friendly by accepting plain primitives like `str` unless stricter typing has a concrete benefit; returned models may expose marked types.
 - Name request/path construction helpers with `build_*`.
+- Do not rename existing variables, functions, or classes unless the operator explicitly asks for it in the prompt. Keep PRs lean; if a name looks wrong, propose the rename as a separate change instead of bundling it.
 - Avoid reuse that does not carry semantic or domain-specific value. Do not add boolean mode flags or generic helpers that hide distinct behavior behind one function; prefer separate explicit helpers whose names describe the behavior they implement.
+
+## Public Model Types
+
+- Public model fields and generated constructor signatures must expose canonical Python value types such as `Decimal`, `datetime`, and domain enums, not wire-format names or validation-only `Annotated` aliases.
+- Do not use `TYPE_CHECKING` branches to give static tooling a different type definition from the one available at runtime. Keep static annotations, runtime introspection, and generated documentation consistent.
+- Normalize incoming wire values at the response boundary with field validators or explicit response parsing. Keep format-specific behavior, such as decimal strings, E6 integer strings, and distinct timestamp encodings, in clearly named parsers rather than broad shared aliases.
+- Construct outgoing request payloads explicitly at the request boundary, including unit scaling and string conversion. Do not rely on response-model serializers to satisfy request protocols, and only add a model serializer when JSON serialization is itself part of the model's documented public contract.
+- Preserve `Annotated` metadata that expresses real type semantics, such as discriminators or constraints. The restriction is on validation-only metadata leaking into the public type surface, not on `Annotated` itself.
+
+## Platform Invariants
+
+- A market's minimum tick size may become finer, such as `0.01` to `0.001`, but it cannot become coarser, such as `0.001` to `0.01`. SDK caching and recovery logic may rely on this monotonic behavior and should not add defensive handling for tick-size coarsening.
+- When a Perps order is submitted with a client order ID, every corresponding private order update echoes that same client order ID. SDK order-placement workflows may rely on this invariant for pre-acknowledgement correlation.
 
 ## Client Sync/Async Design
 
-- The default public clients should be synchronous: use `PublicClient` and `SecureClient` for normal imports, docs, examples, notebooks, scripts, and basic bot usage.
+- For request/response workflows supported by both client modes, the default public clients should be synchronous: use `PublicClient` and `SecureClient` for normal imports, docs, examples, notebooks, scripts, and basic bot usage.
 - Async clients should be explicit alternatives named with an `Async` prefix, such as `AsyncPublicClient` and `AsyncSecureClient`.
-- Keep sync and async method names the same where possible: sync methods return values directly, async methods return awaitables and are called with `await`.
+- WebSocket-backed features are intentionally async-only. This includes realtime subscriptions and any Perps or combo workflow that requires a persistent WebSocket connection or session. Expose these workflows through the `Async` clients and use the async clients in their docs and examples.
+- Do not add synchronous facades, placeholder methods, or event-loop bridges solely to create sync parity for WebSocket-only features.
+- Keep sync and async method names the same for features implemented in both modes: sync methods return values directly, async methods return awaitables and are called with `await`. Async-only WebSocket features do not require a matching sync method.
 - Avoid mixed-mode clients with flags such as `async_mode=True`, and avoid adding `_async` method variants to synchronous clients by default.
 - Share business logic between sync and async implementations. Request construction, URL/path selection, auth/signing, serialization, validation, response parsing, models, and endpoint namespace structure should be reusable.
 - Keep the transport boundary separate: synchronous clients should use a synchronous transport, and async clients should use an asynchronous transport.

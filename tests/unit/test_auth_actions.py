@@ -1,3 +1,7 @@
+import inspect
+from datetime import UTC, datetime
+from typing import get_type_hints
+
 import pytest
 
 from polymarket._internal.actions.auth import (
@@ -10,6 +14,7 @@ from polymarket._internal.actions.auth import (
 from polymarket._internal.l1_auth import ApiKeyAuthSignature
 from polymarket.auth import BuilderApiKey
 from polymarket.errors import UnexpectedResponseError
+from polymarket.models.clob.api_key import BuilderApiKeyInfo
 
 
 def _sig() -> ApiKeyAuthSignature:
@@ -91,6 +96,31 @@ def test_parse_builder_api_keys_response_parses_records() -> None:
     assert keys[0].key == "k"
     assert keys[0].created_at is not None
     assert keys[0].revoked_at is None
+
+
+def test_builder_api_key_info_annotations_and_signature_expose_datetimes() -> None:
+    hints = get_type_hints(BuilderApiKeyInfo, include_extras=True)
+    assert hints["created_at"] == (datetime | None)
+    assert hints["revoked_at"] == (datetime | None)
+
+    parameters = inspect.signature(BuilderApiKeyInfo).parameters
+    assert parameters["createdAt"].annotation == (datetime | None)
+    assert parameters["revokedAt"].annotation == (datetime | None)
+
+
+def test_parse_builder_api_keys_response_preserves_timestamp_formats() -> None:
+    keys = parse_builder_api_keys_response(
+        [
+            {
+                "key": "k",
+                "createdAt": 1700000000000,
+                "revokedAt": "2023-11-14T22:13:25Z",
+            }
+        ]
+    )
+
+    assert keys[0].created_at == datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC)
+    assert keys[0].revoked_at == datetime(2023, 11, 14, 22, 13, 25, tzinfo=UTC)
 
 
 def test_parse_builder_api_keys_response_normalizes_bare_string_elements() -> None:

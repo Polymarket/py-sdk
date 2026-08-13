@@ -5,14 +5,17 @@ import pytest
 from polymarket import (
     ComboTradeActivity,
     ConversionActivity,
+    DepositActivity,
     MakerRebateActivity,
     MergeActivity,
     RedeemActivity,
     ReferralRewardActivity,
     RewardActivity,
     SplitActivity,
+    TakerRebateActivity,
     TradeActivity,
     UnknownActivity,
+    WithdrawalActivity,
     YieldActivity,
 )
 from polymarket.errors import UnexpectedResponseError
@@ -193,7 +196,10 @@ def test_market_event_missing_condition_raises() -> None:
 def test_account_credit_variants_parse() -> None:
     for activity_type, expected_class in [
         ("REWARD", RewardActivity),
+        ("DEPOSIT", DepositActivity),
+        ("WITHDRAWAL", WithdrawalActivity),
         ("MAKER_REBATE", MakerRebateActivity),
+        ("TAKER_REBATE", TakerRebateActivity),
         ("REFERRAL_REWARD", ReferralRewardActivity),
         ("YIELD", YieldActivity),
     ]:

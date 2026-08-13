@@ -6,8 +6,17 @@ from contextlib import asynccontextmanager
 
 import pytest
 
-from polymarket import ApiKeyCreds, AsyncSecureClient, BuilderApiKey, GaslessTransaction
-from polymarket.environments import PRODUCTION
+from polymarket import (
+    ApiKeyCreds,
+    AsyncSecureClient,
+    BuilderApiKey,
+    GaslessTransaction,
+    PublicClient,
+    TradingApprovalsState,
+)
+from polymarket._internal.environment import PRODUCTION_CONFIG
+
+_READ_ONLY_UNAPPROVED_WALLET = "0x0000000000000000000000000000000000000000"
 
 
 def _builder_auth(require_env: Callable[[str], str]) -> BuilderApiKey:
@@ -86,6 +95,17 @@ def test_secure_client_create_defaults_to_deposit_wallet(
     asyncio.run(asyncio.wait_for(run(), timeout=30.0))
 
 
+@pytest.mark.integration
+def test_public_client_reads_trading_approvals_without_a_signer() -> None:
+    with PublicClient() as client:
+        state = client.get_trading_approvals_state(wallet=_READ_ONLY_UNAPPROVED_WALLET)
+
+    assert isinstance(state, TradingApprovalsState)
+    assert len(state.missing.erc20) == 7
+    assert len(state.missing.erc1155) == 8
+    assert state.is_fully_approved is False
+
+
 _SKIP_REASON = (
     "Requires a Builder/Relayer API Key authorized to submit for the test wallet's "
     "signer. Enable when authorized credentials are available."
@@ -101,8 +121,8 @@ def test_approve_erc20_live_against_relayer(
     async def run() -> GaslessTransaction:
         async with _secure_client(require_env) as client:
             handle = await client.approve_erc20(
-                token_address=PRODUCTION.collateral_token,
-                spender_address=PRODUCTION.standard_exchange,
+                token_address=PRODUCTION_CONFIG.collateral_token,
+                spender_address=PRODUCTION_CONFIG.standard_exchange,
                 amount=1,
                 metadata="py-sdk integration test: approve_erc20",
             )
@@ -121,8 +141,8 @@ def test_approve_erc1155_for_all_live(require_env: Callable[[str], str]) -> None
     async def run() -> None:
         async with _secure_client(require_env) as client:
             handle = await client.approve_erc1155_for_all(
-                token_address=PRODUCTION.conditional_tokens,
-                operator_address=PRODUCTION.standard_exchange,
+                token_address=PRODUCTION_CONFIG.conditional_tokens,
+                operator_address=PRODUCTION_CONFIG.standard_exchange,
                 metadata="py-sdk integration test: approve_erc1155_for_all",
             )
             await handle.wait()
@@ -158,7 +178,7 @@ def test_transfer_erc20_live(require_env: Callable[[str], str]) -> None:
     async def run() -> None:
         async with _secure_client(require_env) as client:
             handle = await client.transfer_erc20(
-                token_address=PRODUCTION.collateral_token,
+                token_address=PRODUCTION_CONFIG.collateral_token,
                 recipient_address=str(client.wallet),
                 amount=1,
                 metadata="py-sdk integration test: self-transfer",

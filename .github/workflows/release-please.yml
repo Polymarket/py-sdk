@@ -13,6 +13,7 @@ jobs:
       pull-requests: write
     outputs:
       releases_created: ${{ steps.release.outputs.releases_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
       - name: Create release PR
         id: release
@@ -48,4 +49,44 @@ jobs:
         run: uv build
 
       - name: Publish package
-        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+
+  api-reference:
+    name: Publish API reference
+    needs: [release-please, publish]
+    if: ${{ needs.release-please.outputs.releases_created == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: uv sync --locked --group docs
+
+      - name: Build API reference
+        run: make api-reference
+
+      - name: Upload versioned release artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          version=$(uv run python -c 'from importlib.metadata import version; print(version("polymarket-client"))')
+          artifact="polymarket-client-${version}-sphinx.zip"
+          cp build/api-reference/polymarket-client-sphinx.zip "build/api-reference/${artifact}"
+          gh release upload "$RELEASE_TAG" "build/api-reference/${artifact}" --clobber

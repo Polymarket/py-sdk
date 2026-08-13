@@ -2,13 +2,18 @@ import asyncio
 import json
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from typing import Any
 
 import pytest
 from websockets.asyncio.server import ServerConnection, serve
 
 from polymarket import AsyncPublicClient
-from polymarket.environments import PRODUCTION, Environment, WalletDerivation
+from polymarket._internal.environment import (
+    PRODUCTION_CONFIG,
+    create_environment,
+)
+from polymarket.environments import Environment
 from polymarket.errors import UserInputError
 from polymarket.models.clob.market_events import MarketBookEvent
 from polymarket.streams import MarketSpec
@@ -53,44 +58,20 @@ def _env_with_perps_ws(url: str) -> Environment:
 
 def _env_with(
     *,
-    clob_market_ws_url: str = PRODUCTION.clob_market_ws_url,
-    sports_ws_url: str = PRODUCTION.sports_ws_url,
-    rtds_ws_url: str = PRODUCTION.rtds_ws_url,
-    perps_ws_url: str = PRODUCTION.perps_ws_url,
+    clob_market_ws_url: str = PRODUCTION_CONFIG.clob_market_ws_url,
+    sports_ws_url: str = PRODUCTION_CONFIG.sports_ws_url,
+    rtds_ws_url: str = PRODUCTION_CONFIG.rtds_ws_url,
+    perps_ws_url: str = PRODUCTION_CONFIG.perps_ws_url,
 ) -> Environment:
-    return Environment(
+    return create_environment(
         name="test",
-        chain_id=PRODUCTION.chain_id,
-        wallet_derivation=WalletDerivation(
-            proxy_factory=PRODUCTION.wallet_derivation.proxy_factory,
-            proxy_implementation=PRODUCTION.wallet_derivation.proxy_implementation,
-            safe_factory=PRODUCTION.wallet_derivation.safe_factory,
-            safe_init_code_hash=PRODUCTION.wallet_derivation.safe_init_code_hash,
-            deposit_wallet_factory=PRODUCTION.wallet_derivation.deposit_wallet_factory,
-            deposit_wallet_implementation=PRODUCTION.wallet_derivation.deposit_wallet_implementation,
-            deposit_wallet_beacon=PRODUCTION.wallet_derivation.deposit_wallet_beacon,
+        config=replace(
+            PRODUCTION_CONFIG,
+            clob_market_ws_url=clob_market_ws_url,
+            sports_ws_url=sports_ws_url,
+            rtds_ws_url=rtds_ws_url,
+            perps_ws_url=perps_ws_url,
         ),
-        collateral_token=PRODUCTION.collateral_token,
-        conditional_tokens=PRODUCTION.conditional_tokens,
-        neg_risk_adapter=PRODUCTION.neg_risk_adapter,
-        collateral_adapter=PRODUCTION.collateral_adapter,
-        neg_risk_collateral_adapter=PRODUCTION.neg_risk_collateral_adapter,
-        standard_exchange=PRODUCTION.standard_exchange,
-        neg_risk_exchange=PRODUCTION.neg_risk_exchange,
-        auto_redeem_operator=PRODUCTION.auto_redeem_operator,
-        safe_multisend=PRODUCTION.safe_multisend,
-        relay_hub=PRODUCTION.relay_hub,
-        clob_url=PRODUCTION.clob_url,
-        clob_market_ws_url=clob_market_ws_url,
-        clob_user_ws_url=PRODUCTION.clob_user_ws_url,
-        relayer_url=PRODUCTION.relayer_url,
-        gamma_url=PRODUCTION.gamma_url,
-        data_url=PRODUCTION.data_url,
-        rfq_url=PRODUCTION.rfq_url,
-        rtds_ws_url=rtds_ws_url,
-        sports_ws_url=sports_ws_url,
-        rpc_url=PRODUCTION.rpc_url,
-        perps_ws_url=perps_ws_url,
     )
 
 
@@ -498,6 +479,65 @@ def test_subscribe_with_rtds_spec_returns_rtds_handle() -> None:
     assert asyncio.run(run()) == "btcusdt"
 
 
+def test_subscribe_with_chainlink_twap_spec_returns_twap_handle() -> None:
+    from decimal import Decimal
+
+    from polymarket.models.rtds_events import CryptoPricesChainlinkTwapEvent
+    from polymarket.streams import CryptoPricesChainlinkTwapSpec
+
+    received: list[dict[str, Any]] = []
+
+    async def handler(ws: ServerConnection) -> None:
+        raw = await ws.recv()
+        assert isinstance(raw, str)
+        received.append(json.loads(raw))
+        await ws.send(
+            json.dumps(
+                {
+                    "topic": "crypto_prices_twap_thirty",
+                    "type": "update",
+                    "timestamp": 1772752582004,
+                    "payload": {
+                        "symbol": "btc/usd",
+                        "value": 65000.12345678901,
+                        "full_accuracy_value": "65000123456789012345678",
+                        "timestamp": 1772752581815,
+                        "window_s": 30,
+                    },
+                }
+            )
+        )
+        async for _ in ws:
+            pass
+
+    async def run() -> CryptoPricesChainlinkTwapEvent:
+        async with ws_server(handler) as url:
+            client = AsyncPublicClient(environment=_env_with_rtds_ws(url))
+            try:
+                async with await client.subscribe(
+                    CryptoPricesChainlinkTwapSpec(
+                        window_seconds=30,
+                        symbols=["btc/usd"],
+                    )
+                ) as stream:
+                    event = await asyncio.wait_for(stream.__aiter__().__anext__(), timeout=2.0)
+                    assert isinstance(event, CryptoPricesChainlinkTwapEvent)
+                    return event
+            finally:
+                await client.close()
+
+    event = asyncio.run(run())
+    assert received == [
+        {
+            "action": "subscribe",
+            "subscriptions": [{"topic": "crypto_prices_twap_thirty", "type": "update"}],
+        }
+    ]
+    assert event.topic == "prices.crypto.chainlink.twap"
+    assert event.payload.window_seconds == 30
+    assert event.payload.value == Decimal("65000.123456789012345678")
+
+
 def test_subscribe_with_market_sports_and_rtds_returns_merged_handle() -> None:
     from polymarket.streams import CryptoPricesSpec, SportsSpec
 
@@ -593,6 +633,42 @@ def test_crypto_prices_spec_topic_field_is_caller_required() -> None:
 
     with pytest.raises(TypeError):
         CryptoPricesSpec()  # pyright: ignore[reportCallIssue]
+
+
+def test_chainlink_twap_spec_validates_window_and_symbols_before_subscribe() -> None:
+    from polymarket.streams import CryptoPricesChainlinkTwapSpec
+
+    spec = CryptoPricesChainlinkTwapSpec(
+        window_seconds=30,
+        symbols=["btc/usd", "eth/usd"],
+    )
+    assert spec.topic == "prices.crypto.chainlink.twap"
+    assert spec.symbols == ("btc/usd", "eth/usd")
+
+    with pytest.raises(TypeError):
+        CryptoPricesChainlinkTwapSpec()  # pyright: ignore[reportCallIssue]
+    for invalid_window in (45, "30", 30.0, True):
+        with pytest.raises(UserInputError, match="30 or 60"):
+            CryptoPricesChainlinkTwapSpec(
+                window_seconds=invalid_window  # pyright: ignore[reportArgumentType]
+            )
+    with pytest.raises(UserInputError, match="single string"):
+        CryptoPricesChainlinkTwapSpec(
+            window_seconds=30,
+            symbols="btc/usd",  # pyright: ignore[reportArgumentType]
+        )
+    with pytest.raises(UserInputError, match="non-empty"):
+        CryptoPricesChainlinkTwapSpec(window_seconds=30, symbols=[])
+
+
+def test_chainlink_twap_spec_topic_field_is_not_caller_settable() -> None:
+    from polymarket.streams import CryptoPricesChainlinkTwapSpec
+
+    with pytest.raises(TypeError):
+        CryptoPricesChainlinkTwapSpec(
+            window_seconds=30,
+            topic="prices.crypto.chainlink",  # pyright: ignore[reportCallIssue]
+        )
 
 
 def test_comments_spec_topic_field_is_not_caller_settable() -> None:

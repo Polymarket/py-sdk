@@ -5,6 +5,7 @@ import json
 import httpx
 import pytest
 
+from polymarket._internal.environment import PRODUCTION_CONFIG
 from polymarket._internal.eoa.rpc import JsonRpcCallError, JsonRpcClient
 from polymarket._internal.wallet import (
     derive_beacon_deposit_wallet_address,
@@ -14,10 +15,9 @@ from polymarket._internal.wallet import (
     is_beacon_deposit_wallet_factory,
 )
 from polymarket.clients._transport import AsyncTransport
-from polymarket.environments import PRODUCTION
 
-_FACTORY = PRODUCTION.wallet_derivation.deposit_wallet_factory
-_BEACON = PRODUCTION.wallet_derivation.deposit_wallet_beacon
+_FACTORY = PRODUCTION_CONFIG.wallet_derivation.deposit_wallet_factory
+_BEACON = PRODUCTION_CONFIG.wallet_derivation.deposit_wallet_beacon
 _SIGNER = "0x0000000000000000000000000000000000000001"
 _ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 _FACTORY_BEACON_SELECTOR = "0x49493a4d"
@@ -158,7 +158,7 @@ def test_derive_current_picks_beacon_when_factory_exposes_beacon() -> None:
         rpc = _rpc(handler)
         try:
             return await derive_current_deposit_wallet_address(
-                rpc, _SIGNER, PRODUCTION.wallet_derivation
+                rpc, _SIGNER, PRODUCTION_CONFIG.wallet_derivation
             )
         finally:
             await rpc.close()
@@ -166,7 +166,9 @@ def test_derive_current_picks_beacon_when_factory_exposes_beacon() -> None:
     result = asyncio.run(run())
     assert (
         result.lower()
-        == derive_beacon_deposit_wallet_address(_SIGNER, PRODUCTION.wallet_derivation).lower()
+        == derive_beacon_deposit_wallet_address(
+            _SIGNER, PRODUCTION_CONFIG.wallet_derivation
+        ).lower()
     )
 
 
@@ -177,7 +179,7 @@ def test_derive_current_picks_uups_when_factory_reverts() -> None:
         rpc = _rpc(handler)
         try:
             return await derive_current_deposit_wallet_address(
-                rpc, _SIGNER, PRODUCTION.wallet_derivation
+                rpc, _SIGNER, PRODUCTION_CONFIG.wallet_derivation
             )
         finally:
             await rpc.close()
@@ -185,5 +187,5 @@ def test_derive_current_picks_uups_when_factory_reverts() -> None:
     result = asyncio.run(run())
     assert (
         result.lower()
-        == derive_uups_deposit_wallet_address(_SIGNER, PRODUCTION.wallet_derivation).lower()
+        == derive_uups_deposit_wallet_address(_SIGNER, PRODUCTION_CONFIG.wallet_derivation).lower()
     )

@@ -9,6 +9,7 @@ Metered side effects:
   moves 10 USDC into Perps, and withdraws the same amount.
 - Session tests create (and where noted revoke) delegated Perps credentials.
 - Order tests place resting orders far from the mark price and cancel them.
+- The auto-cancel test arms a 10-minute dead man's switch and disarms it.
 """
 
 import asyncio
@@ -28,6 +29,7 @@ from polymarket import (
     PerpsTpSlTrigger,
     RequestRejectedError,
 )
+from polymarket._internal.environment import get_environment_config
 from polymarket.errors import UnexpectedResponseError
 from polymarket.perps import PerpsSession
 from polymarket.streams import PerpsBookSpec
@@ -133,8 +135,8 @@ async def test_deposits_and_withdraws_the_same_perps_amount(
     client = relayer_enabled_deposit_wallet_client
     approval = await client.approve_erc20(
         amount="max",
-        spender_address=client.environment.perps_deposit_contract,
-        token_address=client.environment.collateral_token,
+        spender_address=get_environment_config(client.environment).perps_deposit_contract,
+        token_address=get_environment_config(client.environment).collateral_token,
     )
     await approval.wait()
 
@@ -275,6 +277,33 @@ async def test_places_and_cancels_one_perps_order_with_tp_sl(
 
         result = await session.cancel_order(order_id=placement.order.id)
         assert result.status == "ok"
+    finally:
+        await session.close()
+
+
+@pytest.mark.integration
+@pytest.mark.metered
+async def test_arms_reads_and_disarms_the_auto_cancel_switch(
+    deposit_wallet_client: AsyncSecureClient,
+) -> None:
+    # Metered side effect: if the run dies between arm and disarm, the switch
+    # cancel-alls the wallet's open orders (test orders only) at the deadline.
+    session = await deposit_wallet_client.open_perps_session()
+    try:
+        # Whole seconds so the echoed deadline compares exactly, and far
+        # enough out that the switch can never fire mid-suite.
+        cancel_at = (datetime.now(tz=UTC) + timedelta(minutes=10)).replace(microsecond=0)
+        try:
+            await session.arm_auto_cancel(cancel_at=cancel_at)
+
+            armed = await session.fetch_auto_cancel_status()
+            assert armed.deadline == cancel_at
+            assert armed.daily_limit > 0
+        finally:
+            await session.disarm_auto_cancel()
+
+        disarmed = await session.fetch_auto_cancel_status()
+        assert disarmed.deadline is None
     finally:
         await session.close()
 

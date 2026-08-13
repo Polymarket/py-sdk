@@ -1,13 +1,16 @@
 """Perps deposit and withdrawal models."""
 
-from pydantic import Field
+from datetime import datetime
+from decimal import Decimal
+
+from pydantic import Field, field_validator
 
 from polymarket.models.base import BaseModel
 from polymarket.models.perps._validators import (
-    OptionalPerpsTimestamp,
-    OptionalTxHash,
-    PerpsTimestamp,
-    _Decimal,
+    _coerce_decimalish,  # pyright: ignore[reportPrivateUsage]
+    _parse_epoch_ms,  # pyright: ignore[reportPrivateUsage]
+    _parse_tx_hash,  # pyright: ignore[reportPrivateUsage]
+    _require_epoch_ms,  # pyright: ignore[reportPrivateUsage]
 )
 from polymarket.models.perps.types import (
     PerpsDepositStatus,
@@ -21,25 +24,48 @@ class PerpsDeposit(BaseModel):
 
     hash: str
     asset: str
-    amount: _Decimal
+    amount: Decimal
     status: PerpsDepositStatus
     from_address: str = Field(validation_alias="from")
     to: str
     confirmations: int
     required_confirmations: int
-    created_at: PerpsTimestamp = Field(validation_alias="created_timestamp")
-    confirmed_at: OptionalPerpsTimestamp = Field(
-        default=None, validation_alias="confirmed_timestamp"
-    )
+    created_at: datetime = Field(validation_alias="created_timestamp")
+    confirmed_at: datetime | None = Field(default=None, validation_alias="confirmed_timestamp")
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def _parse_decimal(cls, value: object) -> object:
+        return _coerce_decimalish(value)
+
+    @field_validator("created_at", mode="before")
+    @classmethod
+    def _parse_created_at(cls, value: object) -> object:
+        return _require_epoch_ms(value)
+
+    @field_validator("confirmed_at", mode="before")
+    @classmethod
+    def _parse_confirmed_at(cls, value: object) -> object:
+        return _parse_epoch_ms(value)
 
 
 class PerpsDepositUpdate(BaseModel):
     """Streaming status update for one Perps deposit."""
 
-    hash: OptionalTxHash = None
+    hash: str | None = None
     asset: str
-    amount: _Decimal
+    amount: Decimal
     status: PerpsDepositStatus
+
+    @field_validator("hash", mode="before")
+    @classmethod
+    def _parse_hash(cls, value: object) -> object:
+        return _parse_tx_hash(value)
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def _parse_decimal(cls, value: object) -> object:
+        return _coerce_decimalish(value)
 
 
 class PerpsWithdrawal(BaseModel):
@@ -47,17 +73,35 @@ class PerpsWithdrawal(BaseModel):
 
     withdrawal_id: PerpsWithdrawalId = Field(validation_alias="withdraw_id")
     asset: str
-    amount: _Decimal
-    fee: _Decimal
+    amount: Decimal
+    fee: Decimal
     status: PerpsWithdrawalStatus
     to: str
-    hash: OptionalTxHash = None
+    hash: str | None = None
     confirmations: int
     required_confirmations: int
-    created_at: PerpsTimestamp = Field(validation_alias="created_timestamp")
-    confirmed_at: OptionalPerpsTimestamp = Field(
-        default=None, validation_alias="confirmed_timestamp"
-    )
+    created_at: datetime = Field(validation_alias="created_timestamp")
+    confirmed_at: datetime | None = Field(default=None, validation_alias="confirmed_timestamp")
+
+    @field_validator("amount", "fee", mode="before")
+    @classmethod
+    def _parse_decimal(cls, value: object) -> object:
+        return _coerce_decimalish(value)
+
+    @field_validator("hash", mode="before")
+    @classmethod
+    def _parse_hash(cls, value: object) -> object:
+        return _parse_tx_hash(value)
+
+    @field_validator("created_at", mode="before")
+    @classmethod
+    def _parse_created_at(cls, value: object) -> object:
+        return _require_epoch_ms(value)
+
+    @field_validator("confirmed_at", mode="before")
+    @classmethod
+    def _parse_confirmed_at(cls, value: object) -> object:
+        return _parse_epoch_ms(value)
 
 
 class PerpsWithdrawalUpdate(BaseModel):
@@ -65,11 +109,21 @@ class PerpsWithdrawalUpdate(BaseModel):
 
     withdrawal_id: PerpsWithdrawalId = Field(validation_alias="withdraw_id")
     asset: str
-    amount: _Decimal
-    fee: _Decimal
+    amount: Decimal
+    fee: Decimal
     status: PerpsWithdrawalStatus
     to: str
-    hash: OptionalTxHash = None
+    hash: str | None = None
+
+    @field_validator("amount", "fee", mode="before")
+    @classmethod
+    def _parse_decimal(cls, value: object) -> object:
+        return _coerce_decimalish(value)
+
+    @field_validator("hash", mode="before")
+    @classmethod
+    def _parse_hash(cls, value: object) -> object:
+        return _parse_tx_hash(value)
 
 
 __all__ = [

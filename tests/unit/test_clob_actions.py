@@ -1,7 +1,9 @@
 from decimal import Decimal
+from types import MappingProxyType
 from typing import assert_type
 
 import pytest
+from pydantic import ValidationError
 
 from polymarket._internal.actions.clob import (
     build_last_trade_price_request,
@@ -28,7 +30,7 @@ from polymarket._internal.actions.clob import (
     parse_spreads,
 )
 from polymarket.errors import UnexpectedResponseError, UserInputError
-from polymarket.models import OrderSide, PriceRequest, TokenId
+from polymarket.models import LastTradePrice, OrderSide, PriceRequest, TokenId
 
 
 def test_build_midpoint_request_targets_midpoint_path_with_token_id() -> None:
@@ -143,6 +145,28 @@ def test_parse_midpoints_rejects_numeric_value() -> None:
         parse_midpoints({"1": 0.5})  # type: ignore[dict-item]
 
 
+def test_parse_midpoints_rejects_numeric_value_in_generic_mapping() -> None:
+    with pytest.raises(UnexpectedResponseError):
+        parse_midpoints(MappingProxyType({"1": 0.5}))
+
+
+def test_parse_midpoints_accepts_string_value_in_generic_mapping() -> None:
+    assert parse_midpoints(MappingProxyType({"1": "0.5"})) == {TokenId("1"): Decimal("0.5")}
+
+
+def test_parse_midpoints_preserves_element_validation_errors() -> None:
+    with pytest.raises(UnexpectedResponseError) as captured:
+        parse_midpoints({"1": 0.5, "2": True})
+
+    cause = captured.value.__cause__
+    assert isinstance(cause, ValidationError)
+    assert [error["loc"] for error in cause.errors()] == [("1",), ("2",)]
+
+
+def test_parse_midpoints_accepts_existing_decimal_value() -> None:
+    assert parse_midpoints({"1": Decimal("0.5")}) == {TokenId("1"): Decimal("0.5")}
+
+
 def test_parse_midpoint_rejects_numeric_mid_value() -> None:
     with pytest.raises(UnexpectedResponseError):
         parse_midpoint({"mid": 0.5})
@@ -233,6 +257,33 @@ def test_parse_prices_returns_nested_decimal_dict() -> None:
     assert result == {TokenId("1"): {"BUY": Decimal("0.52"), "SELL": Decimal("0.53")}}
 
 
+def test_parse_prices_rejects_numeric_value() -> None:
+    with pytest.raises(UnexpectedResponseError):
+        parse_prices({"1": {"BUY": 0.52}})  # type: ignore[dict-item]
+
+
+def test_parse_prices_rejects_numeric_value_in_nested_generic_mapping() -> None:
+    prices = MappingProxyType({"BUY": 0.52})
+    with pytest.raises(UnexpectedResponseError):
+        parse_prices(MappingProxyType({"1": prices}))
+
+
+def test_parse_prices_preserves_nested_element_validation_errors() -> None:
+    with pytest.raises(UnexpectedResponseError) as captured:
+        parse_prices({"1": {"BUY": 0.52, "SELL": True}})
+
+    cause = captured.value.__cause__
+    assert isinstance(cause, ValidationError)
+    assert [error["loc"] for error in cause.errors()] == [
+        ("1", "BUY"),
+        ("1", "SELL"),
+    ]
+
+
+def test_parse_prices_accepts_existing_decimal_value() -> None:
+    assert parse_prices({"1": {"BUY": Decimal("0.52")}}) == {TokenId("1"): {"BUY": Decimal("0.52")}}
+
+
 def test_parse_prices_rejects_invalid_side_key() -> None:
     with pytest.raises(UnexpectedResponseError):
         parse_prices({"1": {"HOLD": "0.5"}})
@@ -285,6 +336,12 @@ def test_parse_order_book_accepts_null_timestamp_and_null_last_trade_price() -> 
     assert book.last_trade_price is None
 
 
+def test_parse_order_book_accepts_empty_last_trade_price() -> None:
+    book = parse_order_book({**_ORDER_BOOK_PAYLOAD, "last_trade_price": ""})
+
+    assert book.last_trade_price is None
+
+
 def test_parse_order_book_accepts_missing_timestamp_and_last_trade_price() -> None:
     payload = {
         k: v for k, v in _ORDER_BOOK_PAYLOAD.items() if k not in ("timestamp", "last_trade_price")
@@ -305,6 +362,14 @@ def test_parse_order_book_rejects_malformed_timestamp() -> None:
 
 @pytest.mark.parametrize("bad_value", [" 1716000000000", "1716000000000 ", "+1", "-1"])
 def test_parse_order_book_rejects_loose_numeric_timestamp_strings(bad_value: str) -> None:
+    payload = {**_ORDER_BOOK_PAYLOAD, "timestamp": bad_value}
+
+    with pytest.raises(UnexpectedResponseError):
+        parse_order_book(payload)
+
+
+@pytest.mark.parametrize("bad_value", [1716000000000, 1716000000000.0, True])
+def test_parse_order_book_rejects_non_string_timestamp_values(bad_value: object) -> None:
     payload = {**_ORDER_BOOK_PAYLOAD, "timestamp": bad_value}
 
     with pytest.raises(UnexpectedResponseError):
@@ -412,6 +477,15 @@ def test_parse_spreads_returns_decimal_keyed_by_token_id() -> None:
     assert result == {TokenId("1"): Decimal("0.02")}
 
 
+def test_parse_spreads_rejects_numeric_value() -> None:
+    with pytest.raises(UnexpectedResponseError):
+        parse_spreads({"1": 0.02})  # type: ignore[dict-item]
+
+
+def test_parse_spreads_accepts_existing_decimal_value() -> None:
+    assert parse_spreads({"1": Decimal("0.02")}) == {TokenId("1"): Decimal("0.02")}
+
+
 def test_build_last_trade_price_request_targets_last_trade_price_path() -> None:
     path, params = build_last_trade_price_request(token_id="123")
 
@@ -422,8 +496,21 @@ def test_build_last_trade_price_request_targets_last_trade_price_path() -> None:
 def test_parse_last_trade_price_returns_model() -> None:
     result = parse_last_trade_price({"price": "0.53", "side": "BUY"})
 
+    assert result is not None
     assert result.price == Decimal("0.53")
     assert result.side == "BUY"
+
+
+def test_parse_last_trade_price_returns_none_without_trades() -> None:
+    result = parse_last_trade_price({"price": "0.5", "side": ""})
+
+    assert_type(result, LastTradePrice | None)
+    assert result is None
+
+
+def test_parse_last_trade_price_rejects_numeric_price() -> None:
+    with pytest.raises(UnexpectedResponseError):
+        parse_last_trade_price({"price": 0.53, "side": "BUY"})
 
 
 def test_parse_last_trade_price_rejects_invalid_side() -> None:

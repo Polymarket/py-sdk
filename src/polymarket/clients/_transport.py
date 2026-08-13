@@ -218,6 +218,17 @@ class AsyncTransport:
         )
         return _read_json(response)
 
+    async def patch_json(
+        self,
+        path: str,
+        *,
+        json: object | None = None,
+        params: Mapping[str, QueryParamValue | None] | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> Any:
+        response = await self._request("PATCH", path, params=params, json=json, headers=headers)
+        return _read_json(response)
+
     async def delete_json(
         self,
         path: str,
@@ -331,6 +342,7 @@ def _raise_for_response_status(response: httpx.Response) -> None:
     raise RequestRejectedError(
         _extract_response_error_message(response),
         status=response.status_code,
+        code=_extract_response_error_code(response),
         retry_after=_extract_retry_after(response),
         restriction=_detect_trading_restriction(response),
     )
@@ -398,6 +410,18 @@ def _read_json(response: httpx.Response) -> Any:
         return response.json()
     except ValueError as error:
         raise UnexpectedResponseError(f"Received non-JSON response from {response.url}") from error
+
+
+def _extract_response_error_code(response: httpx.Response) -> str | None:
+    if "application/json" not in response.headers.get("content-type", "").lower():
+        return None
+    try:
+        code = response.json().get("code")
+    except (AttributeError, ValueError):
+        return None
+    if isinstance(code, str) and code:
+        return code
+    return None
 
 
 def _extract_response_error_message(response: httpx.Response) -> str:
