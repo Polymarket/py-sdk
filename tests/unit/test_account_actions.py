@@ -1,3 +1,4 @@
+from decimal import Decimal
 from typing import Any
 
 import pytest
@@ -19,6 +20,12 @@ from polymarket._internal.actions.account import (
     parse_open_orders_page,
 )
 from polymarket.errors import UnexpectedResponseError, UserInputError
+from polymarket.models import (
+    AutoRedeemedNotification,
+    ComboAutoRedeemedNotification,
+    NotificationType,
+    YieldPayoutNotification,
+)
 
 _OPEN_ORDER_PAYLOAD: dict[str, Any] = {
     "asset_id": "8501497",
@@ -209,21 +216,85 @@ def test_build_notifications_request_includes_signature_type() -> None:
     assert params == {"signature_type": 3}
 
 
-def test_parse_notifications_decodes_payload() -> None:
+_NOTIFICATION_TRANSACTION_HASH = "0x" + "dd" * 32
+_NOTIFICATION_PROXY_WALLET = "0x" + "ee" * 20
+
+
+def test_parse_notifications_decodes_typed_payloads() -> None:
+    def notification(type_: int, payload: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": type_,
+            "owner": "f4f247b7-4ac7-ff29-a152-04fda0a8755a",
+            "payload": payload,
+            "timestamp": 1700000000000,
+            "type": type_,
+        }
+
     result = parse_notifications(
         [
-            {
-                "id": 7,
-                "owner": "0xOWNER",
-                "type": 1,
-                "payload": {"order_id": "x"},
-                "timestamp": 1700000000000,
-            }
+            notification(
+                7,
+                {
+                    "amount": 3.21,
+                    "proxyWallet": _NOTIFICATION_PROXY_WALLET,
+                    "txnHash": _NOTIFICATION_TRANSACTION_HASH,
+                },
+            ),
+            notification(
+                9,
+                {
+                    "amount": 25,
+                    "conditionId": "0x" + "cc" * 32,
+                    "image": "https://example.com/image.png",
+                    "marketUrl": "https://polymarket.com/market/market-slug",
+                    "negRisk": False,
+                    "portfolioUrl": "https://polymarket.com/portfolio",
+                    "position": "Yes",
+                    "proxyWallet": _NOTIFICATION_PROXY_WALLET,
+                    "question": "Will it happen?",
+                    "slug": "market-slug",
+                    "txnHash": _NOTIFICATION_TRANSACTION_HASH,
+                },
+            ),
+            notification(
+                10,
+                {
+                    "amount": 10,
+                    "conditionId": "0x03" + "aa" * 30,
+                    "legs": 2,
+                    "outcomeIndex": 0,
+                    "portfolioUrl": "https://polymarket.com/portfolio",
+                    "positionId": "123456789",
+                    "proxyWallet": _NOTIFICATION_PROXY_WALLET,
+                    "txnHash": _NOTIFICATION_TRANSACTION_HASH,
+                },
+            ),
         ]
     )
-    assert len(result) == 1
-    assert result[0].id == 7
-    assert result[0].type == 1
+    assert [item.type for item in result] == [
+        NotificationType.YIELD_PAYOUT,
+        NotificationType.AUTO_REDEEMED,
+        NotificationType.COMBO_AUTO_REDEEMED,
+    ]
+    yield_payout, auto_redeemed, combo_auto_redeemed = result
+    assert isinstance(yield_payout, YieldPayoutNotification)
+    assert yield_payout.payload.amount == Decimal("3.21")
+    assert isinstance(auto_redeemed, AutoRedeemedNotification)
+    assert auto_redeemed.payload.market_slug == "market-slug"
+    assert isinstance(combo_auto_redeemed, ComboAutoRedeemedNotification)
+    assert combo_auto_redeemed.payload.legs == 2
+
+
+def test_parse_notifications_rejects_unknown_type() -> None:
+    unknown: dict[str, Any] = {
+        "id": 7,
+        "owner": "0xOWNER",
+        "type": 99,
+        "payload": {},
+        "timestamp": 1700000000000,
+    }
+    with pytest.raises(UnexpectedResponseError):
+        parse_notifications([unknown])
 
 
 def test_parse_notifications_rejects_non_list() -> None:

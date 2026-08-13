@@ -4,16 +4,26 @@ from decimal import Decimal
 from typing import get_type_hints
 
 import pytest
+from pydantic import TypeAdapter, ValidationError
 
 from polymarket.errors import UnexpectedResponseError
+from polymarket.models import Notification, NotificationType
 from polymarket.models.clob.account import (
     BalanceAllowance,
     ClobTrade,
     MakerOrder,
-    Notification,
     OpenOrder,
     TradeStatus,
 )
+from polymarket.models.clob.notifications import (
+    ChildCommentCreatedNotification,
+    MarketResolvedNotification,
+    OrderCancellationNotification,
+    OrderFillNotification,
+    RewardPayoutNotification,
+)
+
+_NOTIFICATION_ADAPTER: TypeAdapter[Notification] = TypeAdapter(Notification)
 
 
 def _open_order_payload(**overrides: object) -> dict[str, object]:
@@ -101,7 +111,7 @@ def test_account_model_annotations_are_canonical() -> None:
             "matched_at": datetime,
             "updated_at": datetime,
         },
-        Notification: {"timestamp": datetime},
+        OrderFillNotification: {"timestamp": datetime},
     }
 
     for model, fields in expected.items():
@@ -133,7 +143,7 @@ def test_account_model_signatures_use_canonical_annotations() -> None:
             "match_time": datetime,
             "last_update": datetime,
         },
-        Notification: {"timestamp": datetime},
+        OrderFillNotification: {"timestamp": datetime},
     }
 
     for model, fields in expected.items():
@@ -198,9 +208,13 @@ def test_clob_trade_requires_timestamps(field: str, value: object) -> None:
 
 @pytest.mark.parametrize("timestamp", [None, ""])
 def test_notification_requires_timestamp(timestamp: object) -> None:
-    with pytest.raises(UnexpectedResponseError):
-        Notification.parse_response(
-            {"id": 1, "owner": "0xOWNER", "type": 0, "payload": None, "timestamp": timestamp}
+    with pytest.raises(ValidationError):
+        _NOTIFICATION_ADAPTER.validate_python(
+            _notification(
+                NotificationType.ORDER_FILL,
+                _order_notification_payload(),
+                timestamp=timestamp,
+            )
         )
 
 
@@ -298,58 +312,226 @@ def test_clob_trade_parses_nested_maker_orders() -> None:
     assert trade.maker_orders[0].order_id == "order-1"
 
 
-def test_notification_parses_epoch_ms_timestamp() -> None:
-    notification = Notification.parse_response(
-        {
-            "id": 1,
-            "owner": "0xOWNER",
-            "type": 0,
-            "payload": {"key": "value"},
-            "timestamp": 1700000000000,
-        }
+_CONDITION_ID = "0x" + "cc" * 32
+_TRANSACTION_HASH = "0x" + "dd" * 32
+_PROXY_WALLET = "0x" + "ee" * 20
+
+
+def _order_notification_payload(**overrides: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "asset_id": "8501497",
+        "eventSlug": "event-slug",
+        "icon": "https://example.com/icon.png",
+        "image": "https://example.com/image.png",
+        "market": _CONDITION_ID,
+        "market_slug": "market-slug",
+        "matched_size": "10",
+        "order_id": "0x" + "ab" * 32,
+        "original_size": "100",
+        "outcome": "YES",
+        "outcome_index": 0,
+        "owner": "f4f247b7-4ac7-ff29-a152-04fda0a8755a",
+        "price": "0.6",
+        "question": "Will it happen?",
+        "remaining_size": "90",
+        "seriesSlug": "",
+        "side": "SELL",
+        "trade_id": "trade-1",
+        "transaction_hash": _TRANSACTION_HASH,
+        "type": "GTC",
+    }
+    base.update(overrides)
+    return base
+
+
+def _notification(type_: int, payload: object, **overrides: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "id": type_,
+        "owner": "f4f247b7-4ac7-ff29-a152-04fda0a8755a",
+        "payload": payload,
+        "timestamp": 1700000000000,
+        "type": type_,
+    }
+    base.update(overrides)
+    return base
+
+
+def test_order_fill_notification_normalizes_payload() -> None:
+    notification = _NOTIFICATION_ADAPTER.validate_python(
+        _notification(NotificationType.ORDER_FILL, _order_notification_payload())
     )
-    assert notification.id == 1
+    assert isinstance(notification, OrderFillNotification)
+    assert notification.type == NotificationType.ORDER_FILL
     assert notification.timestamp == datetime.fromtimestamp(1700000000, tz=UTC)
-    assert notification.payload == {"key": "value"}
+    assert notification.payload.token_id == "8501497"
+    assert notification.payload.condition_id == _CONDITION_ID
+    assert notification.payload.order_type == "GTC"
+    assert notification.payload.matched_size == Decimal("10")
+    assert notification.payload.transaction_hash == _TRANSACTION_HASH
 
 
-def test_notification_accepts_numeric_string_id() -> None:
-    notification = Notification.parse_response(
-        {
-            "id": "42",
-            "owner": "0xOWNER",
-            "type": 1,
-            "payload": None,
-            "timestamp": 1700000000000,
-        }
+def test_order_cancellation_notification_maps_empty_transaction_fields_to_none() -> None:
+    notification = _NOTIFICATION_ADAPTER.validate_python(
+        _notification(
+            NotificationType.ORDER_CANCELLATION,
+            _order_notification_payload(trade_id="", transaction_hash="", type=""),
+            id="42",
+        )
     )
+    assert isinstance(notification, OrderCancellationNotification)
     assert notification.id == 42
+    assert notification.payload.transaction_hash is None
+    assert notification.payload.trade_id is None
+    assert notification.payload.order_type is None
 
 
-def test_notification_rejects_non_numeric_id() -> None:
-    with pytest.raises(UnexpectedResponseError):
-        Notification.parse_response(
-            {
-                "id": "not-a-number",
-                "owner": "0xOWNER",
-                "type": 1,
-                "payload": None,
-                "timestamp": 1700000000000,
-            }
+def _market_notification_payload(**overrides: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "accepting_order_timestamp": None,
+        "accepting_orders": True,
+        "active": True,
+        "archived": False,
+        "closed": False,
+        "condition_id": _CONDITION_ID,
+        "description": "Resolves YES if it happens.",
+        "enable_order_book": True,
+        "end_date_iso": "2026-08-24",
+        "eventSlug": "event-slug",
+        "fpmm": "",
+        "game_start_time": None,
+        "icon": "https://example.com/icon.png",
+        "image": "https://example.com/image.png",
+        "is_50_50_outcome": False,
+        "maker_base_fee": 0,
+        "market_slug": "market-slug",
+        "minimum_order_size": "15",
+        "minimum_tick_size": "0.01",
+        "neg_risk": False,
+        "neg_risk_market_id": "",
+        "neg_risk_request_id": "",
+        "notifications_enabled": True,
+        "question": "Will it happen?",
+        "question_id": "0x" + "ab" * 32,
+        "rewards": {
+            "max_spread": 3.5,
+            "min_size": 50,
+            "rates": [
+                {"asset_address": _PROXY_WALLET, "rewards_daily_rate": 5},
+            ],
+        },
+        "seconds_delay": 0,
+        "tags": ["Sports"],
+        "taker_base_fee": 0,
+        "tokens": [
+            {"outcome": "Yes", "price": 0.6, "token_id": "1", "winner": False},
+            {"outcome": "No", "price": 0.4, "token_id": "2", "winner": True},
+        ],
+    }
+    base.update(overrides)
+    return base
+
+
+def test_market_resolved_notification_parses_market_payload() -> None:
+    notification = _NOTIFICATION_ADAPTER.validate_python(
+        _notification(NotificationType.MARKET_RESOLVED, _market_notification_payload())
+    )
+    assert isinstance(notification, MarketResolvedNotification)
+    assert notification.payload.condition_id == _CONDITION_ID
+    assert notification.payload.end_date == datetime(2026, 8, 24, tzinfo=UTC)
+    assert notification.payload.tokens[1].winner is True
+    assert notification.payload.rewards is not None
+    assert notification.payload.rewards.rates is not None
+    assert notification.payload.rewards.rates[0].daily_rate == Decimal("5")
+    assert notification.payload.minimum_tick_size == Decimal("0.01")
+
+
+@pytest.mark.parametrize("fee_field", ["maker_base_fee", "taker_base_fee"])
+def test_market_notification_requires_base_fees(fee_field: str) -> None:
+    payload = _market_notification_payload()
+    del payload[fee_field]
+
+    with pytest.raises(ValidationError):
+        _NOTIFICATION_ADAPTER.validate_python(
+            _notification(NotificationType.MARKET_RESOLVED, payload)
         )
 
 
-def test_notification_allows_null_payload() -> None:
-    notification = Notification.parse_response(
-        {
-            "id": 99,
-            "owner": "0xOWNER",
-            "type": 1,
-            "payload": None,
-            "timestamp": 1700000000000,
-        }
+def test_market_notification_allows_null_base_fees() -> None:
+    notification = _NOTIFICATION_ADAPTER.validate_python(
+        _notification(
+            NotificationType.MARKET_RESOLVED,
+            _market_notification_payload(maker_base_fee=None, taker_base_fee=None),
+        )
     )
-    assert notification.payload is None
+    assert isinstance(notification, MarketResolvedNotification)
+    assert notification.payload.maker_base_fee is None
+    assert notification.payload.taker_base_fee is None
+
+
+def test_reward_payout_notification_parses_payload() -> None:
+    notification = _NOTIFICATION_ADAPTER.validate_python(
+        _notification(
+            NotificationType.REWARD_PAYOUT,
+            {
+                "owner": "f4f247b7-4ac7-ff29-a152-04fda0a8755a",
+                "proxyWallet": _PROXY_WALLET,
+                "reward": 12.5,
+                "txnHash": _TRANSACTION_HASH,
+            },
+        )
+    )
+    assert isinstance(notification, RewardPayoutNotification)
+    assert notification.payload.proxy_wallet == _PROXY_WALLET
+    assert notification.payload.reward == Decimal("12.5")
+    assert notification.payload.transaction_hash == _TRANSACTION_HASH
+
+
+def test_child_comment_notification_normalizes_profile_wallet() -> None:
+    notification = _NOTIFICATION_ADAPTER.validate_python(
+        _notification(
+            NotificationType.CHILD_COMMENT_CREATED,
+            {
+                "body": "Nice call!",
+                "createdAt": "2026-07-01T10:00:00Z",
+                "eventSlug": "event-slug",
+                "eventTitle": "Event title",
+                "id": "123",
+                "image": "https://example.com/profile.png",
+                "parentCommentID": "99",
+                "parentEntityID": 42,
+                "parentEntityType": "Event",
+                "profile": {
+                    "baseAddress": _PROXY_WALLET,
+                    "isCreator": False,
+                    "isMod": False,
+                    "name": "trader",
+                    "proxyWallet": _PROXY_WALLET,
+                },
+                "userAddress": _PROXY_WALLET,
+            },
+        )
+    )
+    assert isinstance(notification, ChildCommentCreatedNotification)
+    assert notification.payload.parent_comment_id == "99"
+    assert notification.payload.parent_entity_type == "Event"
+    assert notification.payload.profile is not None
+    assert notification.payload.profile.wallet == _PROXY_WALLET
+
+
+def test_notification_rejects_non_numeric_id() -> None:
+    with pytest.raises(ValidationError):
+        _NOTIFICATION_ADAPTER.validate_python(
+            _notification(
+                NotificationType.ORDER_FILL,
+                _order_notification_payload(),
+                id="not-a-number",
+            )
+        )
+
+
+def test_notification_rejects_unknown_type() -> None:
+    with pytest.raises(ValidationError):
+        _NOTIFICATION_ADAPTER.validate_python(_notification(99, {}))
 
 
 def test_open_order_assumes_utc_for_naive_iso_string() -> None:
