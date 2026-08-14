@@ -77,7 +77,7 @@ def _parse_evm_address(value: object) -> EvmAddress:
 
 def _parse_epoch_milliseconds(value: object) -> datetime:
     if isinstance(value, datetime):
-        return value
+        return value if value.utcoffset() is not None else value.replace(tzinfo=UTC)
     milliseconds = _parse_nonnegative_integer(value)
     try:
         return datetime.fromtimestamp(milliseconds / 1000, tz=UTC)

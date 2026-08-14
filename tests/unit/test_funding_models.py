@@ -119,6 +119,14 @@ def test_transaction_normalizes_known_status_amount_and_timestamp() -> None:
     assert result.created_at == datetime.fromtimestamp(1_757_531_217_339 / 1000, tz=UTC)
 
 
+def test_transaction_assumes_utc_for_naive_datetime() -> None:
+    result = FundingTransaction.parse_response(
+        _transaction_payload(createdTimeMs=datetime(2026, 1, 1))
+    )
+
+    assert result.created_at == datetime(2026, 1, 1, tzinfo=UTC)
+
+
 def test_transaction_preserves_unknown_status_for_forward_compatibility() -> None:
     result = FundingTransaction.parse_response(_transaction_payload(status="COMPLIANCE_REVIEW"))
 
