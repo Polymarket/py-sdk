@@ -575,13 +575,13 @@ class SecureClient:
             self._ctx.bridge.post_json(path, json=body, headers=headers)
         )
 
-    def get_supported_funding_assets(self) -> FundingAssetCatalog:
-        """Get the chain and token pairs supported for account funding."""
+    def fetch_supported_funding_assets(self) -> FundingAssetCatalog:
+        """Fetch the chain and token pairs supported for account funding."""
         return _funding_actions.parse_funding_asset_catalog(
             self._ctx.bridge.get_json("/supported-assets")
         )
 
-    def get_funding_quote(
+    def fetch_funding_quote(
         self,
         *,
         amount: int,

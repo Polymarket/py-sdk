@@ -1012,13 +1012,13 @@ class AsyncSecureClient:
             await self._ctx.bridge.post_json(path, json=body, headers=headers)
         )
 
-    async def get_supported_funding_assets(self) -> FundingAssetCatalog:
-        """Get the chain and token pairs supported for account funding."""
+    async def fetch_supported_funding_assets(self) -> FundingAssetCatalog:
+        """Fetch the chain and token pairs supported for account funding."""
         return _funding_actions.parse_funding_asset_catalog(
             await self._ctx.bridge.get_json("/supported-assets")
         )
 
-    async def get_funding_quote(
+    async def fetch_funding_quote(
         self,
         *,
         amount: int,
