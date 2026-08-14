@@ -116,6 +116,17 @@ async def test_public_perps_reads() -> None:
 
 
 @pytest.mark.integration
+async def test_get_server_time() -> None:
+    before = datetime.now(UTC) - timedelta(seconds=5)
+    async with AsyncPublicClient() as client:
+        server_time = await client.get_server_time()
+    after = datetime.now(UTC) + timedelta(seconds=5)
+
+    assert server_time.tzinfo is not None
+    assert before <= server_time <= after
+
+
+@pytest.mark.integration
 async def test_perps_book_subscription_receives_an_event() -> None:
     async with AsyncPublicClient() as client:
         instruments = await client.fetch_perps_instruments()

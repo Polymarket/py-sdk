@@ -5,6 +5,8 @@ import time
 from datetime import datetime
 from typing import Any, cast
 
+from pydantic import field_validator
+
 from polymarket._internal.actions.perps.paging import (
     ONE_DAY_MS,
     as_json_dict,
@@ -18,6 +20,10 @@ from polymarket._internal.actions.perps.paging import (
 )
 from polymarket.clients._transport import AsyncTransport
 from polymarket.errors import UnexpectedResponseError, UserInputError
+from polymarket.models.base import BaseModel
+from polymarket.models.perps._validators import (
+    _require_epoch_ms,  # pyright: ignore[reportPrivateUsage]
+)
 from polymarket.models.perps.market import (
     PerpsBook,
     PerpsCandle,
@@ -40,6 +46,15 @@ _CATEGORIES = ("equity", "commodity", "index", "crypto")
 _KLINE_INTERVALS = ("1s", "1m", "5m", "15m", "1h", "4h", "1d", "1w")
 
 
+class _PerpsServerTimeResponse(BaseModel):
+    time: datetime
+
+    @field_validator("time", mode="before")
+    @classmethod
+    def _parse_time(cls, value: object) -> object:
+        return _require_epoch_ms(value)
+
+
 def _validate_instrument_id(instrument_id: object, *, optional: bool = False) -> int | None:
     if instrument_id is None and optional:
         return None
@@ -48,6 +63,12 @@ def _validate_instrument_id(instrument_id: object, *, optional: bool = False) ->
     if instrument_id < 0:
         raise UserInputError("instrument_id must be non-negative")
     return instrument_id
+
+
+async def get_server_time(perps: AsyncTransport) -> datetime:
+    """Return the Perps server clock as an aware UTC datetime."""
+    response = _PerpsServerTimeResponse.parse_response(await perps.get_json("/v1/info/time"))
+    return response.time
 
 
 async def fetch_instruments(

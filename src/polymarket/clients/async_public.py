@@ -1427,6 +1427,14 @@ class AsyncPublicClient:
             self._ctx.perps, instrument_id=instrument_id, category=category
         )
 
+    async def get_server_time(self) -> "datetime":
+        """Experimental: This API may change in a breaking way in any release,
+        including patch releases.
+
+        Get the current Perps server time as an aware UTC datetime.
+        """
+        return await _perps_actions.get_server_time(self._ctx.perps)
+
     async def fetch_perps_ticker(self, *, instrument_id: int) -> PerpsTicker:
         """Experimental: This API may change in a breaking way in any release,
         including patch releases.
