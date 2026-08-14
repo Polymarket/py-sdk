@@ -4,14 +4,16 @@ import asyncio
 import base64
 import json
 from collections.abc import Callable
+from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, get_type_hints
 from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
 
 from polymarket._internal.actions.perps import public as perps_public
+from polymarket.clients import AsyncPublicClient, AsyncSecureClient
 from polymarket.clients._transport import AsyncTransport
 from polymarket.errors import UnexpectedResponseError, UserInputError
 
@@ -56,6 +58,11 @@ def test_get_server_time_parses_only_epoch_milliseconds(time: object) -> None:
 
     asyncio.run(run())
     assert [request.url.path for request in requests] == ["/v1/info/time"]
+
+
+def test_get_server_time_public_return_types_are_runtime_resolvable() -> None:
+    assert get_type_hints(AsyncPublicClient.get_server_time)["return"] is datetime
+    assert get_type_hints(AsyncSecureClient.get_server_time)["return"] is datetime
 
 
 def test_list_candles_steps_forward_by_interval() -> None:
