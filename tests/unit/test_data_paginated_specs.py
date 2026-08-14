@@ -291,15 +291,15 @@ def test_list_trader_leaderboard_spec_validates_category() -> None:
 
 
 @pytest.mark.parametrize(
-    ("spec", "expected_max"),
+    ("spec", "expected_page_size", "expected_offset"),
     [
-        (data_actions.list_positions_spec(user="0xWALLET"), 500),
-        (data_actions.list_closed_positions_spec(user="0xWALLET"), 50),
-        (data_actions.list_market_positions_spec(market="0xabc"), 500),
-        (data_actions.list_trades_spec(), 10_000),
-        (data_actions.list_activity_spec(user="0xWALLET"), 500),
-        (data_actions.list_builder_leaderboard_spec(), 50),
-        (data_actions.list_trader_leaderboard_spec(), 50),
+        (data_actions.list_positions_spec(user="0xWALLET"), 500, None),
+        (data_actions.list_closed_positions_spec(user="0xWALLET"), 50, None),
+        (data_actions.list_market_positions_spec(market="0xabc"), 500, None),
+        (data_actions.list_trades_spec(), 10_000, 10_000),
+        (data_actions.list_activity_spec(user="0xWALLET"), 500, 5_000),
+        (data_actions.list_builder_leaderboard_spec(), 50, None),
+        (data_actions.list_trader_leaderboard_spec(), 50, None),
     ],
     ids=[
         "positions",
@@ -311,9 +311,14 @@ def test_list_trader_leaderboard_spec_validates_category() -> None:
         "trader-leaderboard",
     ],
 )
-def test_offset_specs_cap_page_size_at_server_limit(spec: object, expected_max: int) -> None:
+def test_offset_specs_match_server_pagination_limits(
+    spec: object,
+    expected_page_size: int,
+    expected_offset: int | None,
+) -> None:
     # Each cap matches the server-side limit cap. Page sizes past the cap fail
     # fast instead of the server clamping or rejecting the request and
     # pagination silently misbehaving.
     assert isinstance(spec, data_actions.OffsetPaginatedSpec)
-    assert spec.max_page_size == expected_max
+    assert spec.max_page_size == expected_page_size
+    assert spec.max_offset == expected_offset

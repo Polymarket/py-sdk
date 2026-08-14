@@ -94,6 +94,11 @@ def sync_paginate_offset(
             if cursor is not None
             else (0, page_size)
         )
+        if spec.max_offset is not None and offset > spec.max_offset:
+            raise UserInputError(
+                f"Pagination cannot continue past the maximum offset of {spec.max_offset}. "
+                "Narrow the query before resuming."
+            )
         params: dict[str, QueryParamValue] = {
             **(spec.base_params or {}),
             "limit": effective_size,
@@ -137,6 +142,11 @@ def async_paginate_offset(
             if cursor is not None
             else (0, page_size)
         )
+        if spec.max_offset is not None and offset > spec.max_offset:
+            raise UserInputError(
+                f"Pagination cannot continue past the maximum offset of {spec.max_offset}. "
+                "Narrow the query before resuming."
+            )
         params: dict[str, QueryParamValue] = {
             **(spec.base_params or {}),
             "limit": effective_size,

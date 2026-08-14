@@ -237,6 +237,8 @@ class ComboPosition(BaseModel):
     shares: Decimal = Field(validation_alias="shares_balance")
     entry_avg_price_usdc: Decimal | None = None
     entry_cost_usdc: Decimal | None = None
+    gross_entry_cost_usdc: Decimal | None = None
+    entry_fees_usdc: Decimal | None = None
     realized_payout_usdc: Decimal | None = None
     total_cost_usdc: Decimal | None = None
     status: ComboPositionStatus
@@ -258,6 +260,8 @@ class ComboPosition(BaseModel):
         "shares",
         "entry_avg_price_usdc",
         "entry_cost_usdc",
+        "gross_entry_cost_usdc",
+        "entry_fees_usdc",
         "realized_payout_usdc",
         "total_cost_usdc",
         mode="before",

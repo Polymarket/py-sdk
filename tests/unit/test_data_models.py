@@ -34,6 +34,8 @@ def _combo_position_payload(*, condition_id: str = _COMBO_CONDITION_ID) -> dict[
         "shares_balance": "42.5",
         "entry_avg_price_usdc": "0.12",
         "entry_cost_usdc": "5.1",
+        "gross_entry_cost_usdc": "5.123456",
+        "entry_fees_usdc": "0.023456",
         "realized_payout_usdc": "6.25",
         "total_cost_usdc": "5.1",
         "status": "OPEN",
@@ -228,6 +230,8 @@ def test_combo_position_parses_payload() -> None:
     assert combo.outcome == "YES"
     assert combo.wallet == "0x0000000000000000000000000000000000000001"
     assert combo.shares == Decimal("42.5")
+    assert combo.gross_entry_cost_usdc == Decimal("5.123456")
+    assert combo.entry_fees_usdc == Decimal("0.023456")
     assert combo.realized_payout_usdc == Decimal("6.25")
     assert combo.total_cost_usdc == Decimal("5.1")
     assert combo.status == "OPEN"
