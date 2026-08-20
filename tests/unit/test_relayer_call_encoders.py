@@ -7,6 +7,7 @@ from eth_utils.crypto import keccak
 from polymarket._internal.actions.relayer.calls import (
     MAX_UINT256,
     TransactionCall,
+    authorize_session_signer_call,
     combinatorial_prepare_condition_call,
     ctf_redeem_positions_call,
     decode_erc1155_balance_of_batch_result,
@@ -30,6 +31,7 @@ _CTF = EvmAddress("0x4D97DCd97eC945f40cF65F87097ACe5EA0476045")
 _NEG_RISK_ADAPTER = EvmAddress("0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296")
 _STANDARD_EXCHANGE = EvmAddress("0xE111180000d2663C0091e4f400237545B87B996B")
 _RECIPIENT = EvmAddress("0x000000000000000000000000000000000000dEaD")
+_DEPOSIT_WALLET = EvmAddress("0x57ffbc34de23124faeb8387fcd689d314e57accd")
 _CONDITION_ID = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 _COMBO_CONDITION_ID = "0x032def24bfb0c5c57fb236fac08b94236a0000000000000000000000000000"
 _ZERO_BYTES32 = b"\x00" * 32
@@ -53,6 +55,24 @@ def test_erc20_transfer_call_golden_calldata() -> None:
         ).hex()
     )
     assert call.to == _USDC
+    assert call.value == 0
+    assert call.data == expected
+
+
+def test_authorize_session_signer_call_golden_calldata() -> None:
+    call = authorize_session_signer_call(
+        wallet_address=_DEPOSIT_WALLET,
+        session_signer=_RECIPIENT,
+        valid_until=1_787_220_000,
+    )
+    expected = (
+        "0x"
+        + (
+            _sel("authorizeSessionSigner(address,uint256)")
+            + abi_encode(["address", "uint256"], [str(_RECIPIENT), 1_787_220_000])
+        ).hex()
+    )
+    assert call.to == _DEPOSIT_WALLET
     assert call.value == 0
     assert call.data == expected
 

@@ -31,14 +31,9 @@ from polymarket.transactions import GaslessTransactionHandle, SyncGaslessTransac
 from polymarket.types import EvmAddress, TransactionHash
 
 _AUTHORIZATIONS_PATH = "/v1/session-signers/authorizations"
+_EVM_ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 _ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 _TRANSACTION_HASH_RE = re.compile(r"^0x[0-9a-fA-F]{64}$")
-_SCOPE_ORDER = (
-    SessionKeyScope.ALL,
-    SessionKeyScope.CLOB,
-    SessionKeyScope.COMBOSRFQ,
-    SessionKeyScope.BLOCKTRADE,
-)
 
 _SecureContext = AsyncSecureClientContext | SyncSecureClientContext
 
@@ -177,7 +172,7 @@ def _parse_authorize_session_key_request(
 
 
 def _parse_session_address(address: object, *, wallet: EvmAddress) -> EvmAddress:
-    if not isinstance(address, str):
+    if not isinstance(address, str) or _EVM_ADDRESS_RE.fullmatch(address) is None:
         raise UserInputError("Session key address must be a valid EVM address.")
     try:
         normalized = to_checksum_address(address)
@@ -200,7 +195,7 @@ def _parse_scopes(scopes: object) -> tuple[SessionKeyScope, ...]:
         if not isinstance(scope, SessionKeyScope):
             raise UserInputError("Session key scopes must contain SessionKeyScope values.")
         scope_values.add(scope)
-    normalized = tuple(scope for scope in _SCOPE_ORDER if scope in scope_values)
+    normalized = tuple(scope for scope in SessionKeyScope if scope in scope_values)
     if SessionKeyScope.ALL in normalized and len(normalized) > 1:
         raise UserInputError("Session key scope ALL cannot be combined with another scope.")
     return normalized

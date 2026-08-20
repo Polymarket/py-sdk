@@ -528,7 +528,10 @@ class SecureClient:
         Raises:
             UserInputError: If the client or authorization input is invalid.
             RequestRejectedError: If the authorization request is rejected.
+            RateLimitError: If the authorization or transaction request is rate-limited.
             SigningError: If the owner signature cannot be produced.
+            TransportError: If a network request fails.
+            UnexpectedResponseError: If an authorization or transaction response is malformed.
             TimeoutError: If transaction confirmation exceeds the wait budget.
             TransactionFailedError: If the authorization transaction fails.
         """

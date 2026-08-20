@@ -14,16 +14,26 @@ class SessionKeyScope(StrEnum):
     """Venue authorization attached to a session-key grant."""
 
     ALL = "ALL"
-    """All current and future venues. Cannot be combined with another scope."""
+    """All current and future venues. Cannot be combined with another scope.
+
+    Authorization does not imply that every venue is already available through
+    session-key client actions in this SDK version.
+    """
 
     CLOB = "CLOB"
     """Central limit order book trading."""
 
     COMBOSRFQ = "COMBOSRFQ"
-    """Combos request-for-quote trading."""
+    """Combos request-for-quote authorization.
+
+    Session-key combo actions are not yet supported by this SDK version.
+    """
 
     BLOCKTRADE = "BLOCKTRADE"
-    """Block trading."""
+    """Block-trading authorization.
+
+    The SDK does not yet expose block-trading actions.
+    """
 
 
 class AuthorizeSessionKeyRequest(TypedDict):
@@ -44,7 +54,10 @@ class AuthorizeSessionKeyRequest(TypedDict):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AuthorizedSessionKey:
-    """Public metadata for a confirmed session-key authorization."""
+    """Normalized request metadata after authorization transaction confirmation.
+
+    This snapshot does not report a separate discovery or readiness status.
+    """
 
     address: EvmAddress
     """Public EVM address of the externally managed session signer."""
@@ -58,7 +71,7 @@ class AuthorizedSessionKey:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AuthorizeSessionKeyResult:
-    """Result of a confirmed session-key authorization."""
+    """Result returned after the authorization transaction is confirmed."""
 
     operation_id: str
     """Identifier assigned to the accepted authorization operation."""
