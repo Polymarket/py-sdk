@@ -21,7 +21,10 @@ from polymarket._internal.actions.orders.typed_data import (
 )
 from polymarket._internal.actions.orders.types import BYTES32_ZERO, UnsignedOrder
 from polymarket._internal.context import AsyncSecureClientContext, SyncSecureClientContext
-from polymarket._internal.wallet import signature_type_for
+from polymarket._internal.wallet import (
+    resolve_deposit_wallet_session_signer,
+    signature_type_for,
+)
 from polymarket.auth import BuilderApiKey
 from polymarket.errors import (
     RequestRejectedError,
@@ -84,6 +87,7 @@ async def request_combo_quote(
     size: Decimal | int | float | str | None = None,
     side: RfqSide | str = RfqSide.YES,
 ) -> ComboQuoteResult:
+    assert_combos_supported(ctx)
     _, body = build_combo_quote_request_body(
         ctx,
         leg_position_ids=leg_position_ids,
@@ -111,6 +115,7 @@ def request_combo_quote_sync(
     size: Decimal | int | float | str | None = None,
     side: RfqSide | str = RfqSide.YES,
 ) -> ComboQuoteResult:
+    assert_combos_supported(ctx)
     _, body = build_combo_quote_request_body(
         ctx,
         leg_position_ids=leg_position_ids,
@@ -132,6 +137,7 @@ def request_combo_quote_sync(
 async def accept_combo_quote(
     ctx: AsyncSecureClientContext, quote: ComboQuote | Mapping[str, object]
 ) -> ComboQuoteAcceptance:
+    assert_combos_supported(ctx)
     quote = _parse_combo_quote_input(quote)
     _require_builder_api_key(ctx)
     body = _build_accept_request_body(ctx, quote)
@@ -173,6 +179,7 @@ async def accept_combo_quote(
 def accept_combo_quote_sync(
     ctx: SyncSecureClientContext, quote: ComboQuote | Mapping[str, object]
 ) -> ComboQuoteAcceptance:
+    assert_combos_supported(ctx)
     quote = _parse_combo_quote_input(quote)
     _require_builder_api_key(ctx)
     body = _build_accept_request_body(ctx, quote)
@@ -214,6 +221,7 @@ async def wait_for_combo_fill(
     timeout: float = _DEFAULT_FILL_TIMEOUT_S,
     polling_interval: float = _DEFAULT_FILL_POLL_INTERVAL_S,
 ) -> ComboFillResult:
+    assert_combos_supported(ctx)
     _validate_wait_params(timeout=timeout, polling_interval=polling_interval)
     deadline = time.monotonic() + timeout
     while True:
@@ -235,6 +243,7 @@ def wait_for_combo_fill_sync(
     timeout: float = _DEFAULT_FILL_TIMEOUT_S,
     polling_interval: float = _DEFAULT_FILL_POLL_INTERVAL_S,
 ) -> ComboFillResult:
+    assert_combos_supported(ctx)
     _validate_wait_params(timeout=timeout, polling_interval=polling_interval)
     deadline = time.monotonic() + timeout
     while True:
@@ -250,6 +259,7 @@ def wait_for_combo_fill_sync(
 
 
 async def fetch_rfq_status(ctx: AsyncSecureClientContext, *, rfq_id: str) -> RfqStatusResult:
+    assert_combos_supported(ctx)
     _require_rfq_id(rfq_id)
     try:
         data = await ctx.builder_gateway.get_json(
@@ -261,6 +271,7 @@ async def fetch_rfq_status(ctx: AsyncSecureClientContext, *, rfq_id: str) -> Rfq
 
 
 def fetch_rfq_status_sync(ctx: SyncSecureClientContext, *, rfq_id: str) -> RfqStatusResult:
+    assert_combos_supported(ctx)
     _require_rfq_id(rfq_id)
     try:
         data = ctx.builder_gateway.get_json(f"{_REQUESTS_PATH}/{_encode_path_segment(rfq_id)}")
@@ -811,9 +822,23 @@ def _expect_int(payload: dict[str, object], key: str) -> int:
     return value
 
 
+def assert_combos_supported(ctx: _SecureContext) -> None:
+    if (
+        resolve_deposit_wallet_session_signer(
+            signer=ctx.signer.address,
+            wallet=str(ctx.wallet),
+            wallet_type=ctx.wallet_type,
+            config=ctx.environment_config.wallet_derivation,
+        )
+        is not None
+    ):
+        raise UserInputError("Combos is not supported with Session Keys")
+
+
 __all__ = [
     "accept_combo_quote",
     "accept_combo_quote_sync",
+    "assert_combos_supported",
     "build_combo_quote_request_body",
     "fetch_rfq_status",
     "fetch_rfq_status_sync",

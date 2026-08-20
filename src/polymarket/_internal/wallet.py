@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal, TypeAlias
+from typing import Literal, TypeAlias, cast
 
 from eth_abi.abi import encode as abi_encode
 from eth_abi.packed import encode_packed
@@ -14,6 +14,7 @@ from polymarket._internal.eoa.rpc import (
     is_json_rpc_contract_revert,
 )
 from polymarket.errors import UserInputError
+from polymarket.types import EvmAddress, HexString
 
 WalletType: TypeAlias = Literal["EOA", "POLY_PROXY", "GNOSIS_SAFE", "DEPOSIT_WALLET"]
 
@@ -49,6 +50,10 @@ _ERC1967_BEACON_PREFIX_BASE = 0x6100523D8160233D3973
 
 _FACTORY_BEACON_SELECTOR = "0x49493a4d"
 _ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
+_ZERO_BYTES32 = b"\x00" * 32
+_SESSION_SIGNER_MAGIC_BYTES = bytes.fromhex(
+    "6492649264926492649264926492649264926492649264926492649264926492"
+)
 
 
 def signature_type_for(wallet_type: WalletType) -> int:
@@ -134,6 +139,21 @@ def derive_current_deposit_wallet_address_sync(
 
 
 def classify_wallet_type(*, signer: str, wallet: str, config: WalletDerivationConfig) -> WalletType:
+    wallet_type = try_classify_wallet_type(signer=signer, wallet=wallet, config=config)
+    if wallet_type is not None:
+        return wallet_type
+
+    signer_checksum = to_checksum_address(signer)
+    wallet_checksum = to_checksum_address(wallet)
+    raise UserInputError(
+        f"Wallet {wallet_checksum} does not match the signer {signer_checksum} "
+        "or any supported deterministic wallet address."
+    )
+
+
+def try_classify_wallet_type(
+    *, signer: str, wallet: str, config: WalletDerivationConfig
+) -> WalletType | None:
     try:
         signer_checksum = to_checksum_address(signer)
     except ValueError as error:
@@ -154,10 +174,44 @@ def classify_wallet_type(*, signer: str, wallet: str, config: WalletDerivationCo
     if wallet_checksum == derive_safe_wallet_address(signer_checksum, config):
         return "GNOSIS_SAFE"
 
-    raise UserInputError(
-        f"Wallet {wallet_checksum} does not match the signer {signer_checksum} "
-        "or any supported deterministic wallet address."
+    return None
+
+
+def is_deposit_wallet_owner(
+    *, signer: str, wallet: str, wallet_type: WalletType, config: WalletDerivationConfig
+) -> bool:
+    if wallet_type != "DEPOSIT_WALLET":
+        return False
+    wallet_lower = wallet.lower()
+    return wallet_lower in {
+        derive_beacon_deposit_wallet_address(signer, config).lower(),
+        derive_uups_deposit_wallet_address(signer, config).lower(),
+    }
+
+
+def resolve_deposit_wallet_session_signer(
+    *, signer: str, wallet: str, wallet_type: WalletType, config: WalletDerivationConfig
+) -> EvmAddress | None:
+    if wallet_type != "DEPOSIT_WALLET" or is_deposit_wallet_owner(
+        signer=signer,
+        wallet=wallet,
+        wallet_type=wallet_type,
+        config=config,
+    ):
+        return None
+    return EvmAddress(to_checksum_address(signer))
+
+
+def wrap_deposit_wallet_session_signer_signature(
+    session_signer: EvmAddress, signature: HexString
+) -> HexString:
+    signer_id = bytes.fromhex(_strip_0x(str(session_signer))).rjust(32, b"\x00")
+    signature_bytes = bytes.fromhex(_strip_0x(str(signature)))
+    payload = abi_encode(
+        ["bytes32", "bytes32", "bytes"],
+        [signer_id, _ZERO_BYTES32, signature_bytes],
     )
+    return cast(HexString, "0x" + (payload + _SESSION_SIGNER_MAGIC_BYTES).hex())
 
 
 def _deposit_wallet_args(signer: str, config: WalletDerivationConfig) -> bytes:
@@ -223,7 +277,11 @@ __all__ = [
     "derive_uups_deposit_wallet_address",
     "get_deposit_wallet_factory_beacon",
     "get_deposit_wallet_factory_beacon_sync",
+    "is_deposit_wallet_owner",
     "is_beacon_deposit_wallet_factory",
     "is_beacon_deposit_wallet_factory_sync",
+    "resolve_deposit_wallet_session_signer",
     "signature_type_for",
+    "try_classify_wallet_type",
+    "wrap_deposit_wallet_session_signer_signature",
 ]

@@ -218,6 +218,12 @@ from polymarket.rfq import (
     RfqStatusResult,
     RfqTradeEvent,
 )
+from polymarket.session_keys import (
+    AuthorizedSessionKey,
+    AuthorizeSessionKeyRequest,
+    AuthorizeSessionKeyResult,
+    SessionKeyScope,
+)
 from polymarket.transactions import (
     EoaTransactionHandle,
     GaslessTransactionHandle,
@@ -246,6 +252,9 @@ __all__ = [
     "AsyncPublicClient",
     "AsyncSecureClient",
     "AutoCancelDailyLimitError",
+    "AuthorizedSessionKey",
+    "AuthorizeSessionKeyRequest",
+    "AuthorizeSessionKeyResult",
     "BalanceAllowance",
     "BuilderApiKey",
     "BuilderApiKeyInfo",
@@ -430,6 +439,7 @@ __all__ = [
     "SearchResults",
     "SearchTag",
     "SecureClient",
+    "SessionKeyScope",
     "Series",
     "SeriesId",
     "SignedOrder",

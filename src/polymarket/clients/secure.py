@@ -3,6 +3,7 @@
 import logging
 import time
 from collections.abc import Mapping, Sequence
+from datetime import datetime
 from decimal import Decimal
 from types import TracebackType
 from typing import TYPE_CHECKING, Literal, Self, cast, overload
@@ -21,6 +22,7 @@ from polymarket._internal.actions import data as _data_actions
 from polymarket._internal.actions import gamma as _gamma_actions
 from polymarket._internal.actions import rewards as _rewards_actions
 from polymarket._internal.actions import rfq as _rfq_actions
+from polymarket._internal.actions import session_keys as _session_key_actions
 from polymarket._internal.actions.data import (
     ActivitySortBy,
     ActivityTypeFilter,
@@ -129,7 +131,9 @@ from polymarket._internal.wallet import (
     classify_wallet_type,
     derive_beacon_deposit_wallet_address,
     derive_uups_deposit_wallet_address,
+    resolve_deposit_wallet_session_signer,
     signature_type_for,
+    try_classify_wallet_type,
 )
 from polymarket.auth import ApiKey, BuilderApiKey
 from polymarket.clients._transport import SyncHeaderResolver, SyncTransport
@@ -216,6 +220,7 @@ from polymarket.rfq import (
     RfqSide,
     RfqStatusResult,
 )
+from polymarket.session_keys import AuthorizeSessionKeyResult, SessionKeyScope
 from polymarket.transactions import (
     MergePositionRequest,
     SyncDeprecatedTransactionHandle,
@@ -348,6 +353,20 @@ class SecureClient:
             config=config,
             logger=logger,
         )
+        wallet_type = (
+            _resolve_authentication_wallet_type_sync(
+                signer=signer,
+                wallet=resolved_wallet,
+                config=config,
+                logger=logger,
+            )
+            if validate_credentials
+            else classify_wallet_type(
+                signer=signer.address,
+                wallet=resolved_wallet,
+                config=config.wallet_derivation,
+            )
+        )
 
         bootstrap_clob = SyncTransport(base_url=config.clob_url, logger=logger)
         try:
@@ -366,6 +385,7 @@ class SecureClient:
         return cls._construct_for_wallet(
             signer=signer,
             wallet=resolved_wallet,
+            wallet_type=wallet_type,
             environment=environment,
             config=config,
             credentials=resolved_credentials,
@@ -380,6 +400,7 @@ class SecureClient:
         *,
         signer: LocalAccount,
         wallet: str,
+        wallet_type: WalletType,
         environment: Environment,
         config: EnvironmentConfig,
         credentials: ApiKeyCreds,
@@ -391,11 +412,6 @@ class SecureClient:
             wallet_checksum = to_checksum_address(wallet)
         except ValueError as error:
             raise UserInputError(f"Invalid wallet address: {error}") from error
-        wallet_type = classify_wallet_type(
-            signer=signer.address,
-            wallet=wallet_checksum,
-            config=config.wallet_derivation,
-        )
         branded_wallet = cast(EvmAddress, wallet_checksum)
 
         gamma = SyncTransport(base_url=config.gamma_url, logger=logger)
@@ -490,6 +506,39 @@ class SecureClient:
     def credentials(self) -> ApiKeyCreds:
         """API credentials used for authenticated requests."""
         return self._ctx.credentials
+
+    def authorize_session_key(
+        self,
+        *,
+        address: str,
+        scopes: Sequence[SessionKeyScope],
+        valid_until: datetime,
+        idempotency_key: str | None = None,
+    ) -> AuthorizeSessionKeyResult:
+        """Authorize an externally managed signer for selected venues.
+
+        The SDK receives only the public address. The application remains
+        responsible for generating, storing, and protecting the private key.
+        Requires a Builder API Key or Relayer API Key passed as ``api_key=``
+        when constructing the client.
+
+        This temporary implementation resolves after the submitted transaction
+        is confirmed. A separate discovery/readiness check is not yet available.
+
+        Raises:
+            UserInputError: If the client or authorization input is invalid.
+            RequestRejectedError: If the authorization request is rejected.
+            SigningError: If the owner signature cannot be produced.
+            TimeoutError: If transaction confirmation exceeds the wait budget.
+            TransactionFailedError: If the authorization transaction fails.
+        """
+        return _session_key_actions.authorize_session_key_sync(
+            self._ctx,
+            address=address,
+            scopes=scopes,
+            valid_until=valid_until,
+            idempotency_key=idempotency_key,
+        )
 
     def __enter__(self) -> Self:
         return self
@@ -2035,7 +2084,16 @@ class SecureClient:
             raise SigningError(f"Failed to sign order: {error}") from error
         raw_hex = signed_message.signature.hex()
         signature_hex = HexString(raw_hex if raw_hex.startswith("0x") else "0x" + raw_hex)
-        final_signature = build_order_signature(unsigned, signature_hex)
+        final_signature = build_order_signature(
+            unsigned,
+            signature_hex,
+            session_signer=resolve_deposit_wallet_session_signer(
+                signer=self._ctx.signer.address,
+                wallet=str(self._ctx.wallet),
+                wallet_type=self._ctx.wallet_type,
+                config=self._ctx.environment_config.wallet_derivation,
+            ),
+        )
         return create_signed_order(unsigned, final_signature, post_only=post_only)
 
     def get_order_scoring(self, *, order_id: str) -> bool:
@@ -2897,6 +2955,39 @@ def _resolve_requested_wallet_sync(
         return derive_beacon_deposit_wallet_address(signer.address, config.wallet_derivation)
     finally:
         relayer.close()
+
+
+def _resolve_authentication_wallet_type_sync(
+    *,
+    signer: LocalAccount,
+    wallet: str,
+    config: EnvironmentConfig,
+    logger: logging.Logger | None,
+) -> WalletType:
+    wallet_type = try_classify_wallet_type(
+        signer=signer.address,
+        wallet=wallet,
+        config=config.wallet_derivation,
+    )
+    if wallet_type is not None:
+        return wallet_type
+
+    wallet_checksum = to_checksum_address(wallet)
+    relayer = SyncTransport(base_url=config.relayer_url, logger=logger)
+    try:
+        if fetch_deployed_sync(
+            relayer,
+            address=wallet_checksum,
+            type=RelayerTransactionType.WALLET,
+        ):
+            return "DEPOSIT_WALLET"
+    finally:
+        relayer.close()
+
+    raise UserInputError(
+        f"Wallet {wallet_checksum} does not match the signer {signer.address} "
+        "or a deployed Deposit Wallet."
+    )
 
 
 def _relayer_transaction_type_for_wallet(

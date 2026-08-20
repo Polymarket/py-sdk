@@ -33,3 +33,31 @@ RfqErrorCode
 .. autoclass:: polymarket.RfqErrorCode
    :members:
    :undoc-members:
+
+SessionKeyScope
+---------------
+
+.. autoclass:: polymarket.SessionKeyScope
+   :members:
+   :undoc-members:
+
+AuthorizeSessionKeyRequest
+--------------------------
+
+.. autoclass:: polymarket.AuthorizeSessionKeyRequest
+   :members:
+   :undoc-members:
+
+AuthorizedSessionKey
+--------------------
+
+.. autoclass:: polymarket.AuthorizedSessionKey
+   :members:
+   :undoc-members:
+
+AuthorizeSessionKeyResult
+-------------------------
+
+.. autoclass:: polymarket.AuthorizeSessionKeyResult
+   :members:
+   :undoc-members:

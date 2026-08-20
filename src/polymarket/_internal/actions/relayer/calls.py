@@ -20,6 +20,9 @@ def _selector(signature: str) -> bytes:
 
 
 _ERC20_APPROVE_SELECTOR = _selector("approve(address,uint256)")
+_DEPOSIT_WALLET_AUTHORIZE_SESSION_SIGNER_SELECTOR = _selector(
+    "authorizeSessionSigner(address,uint256)"
+)
 _ERC20_ALLOWANCE_SELECTOR = _selector("allowance(address,address)")
 _ERC20_TRANSFER_SELECTOR = _selector("transfer(address,uint256)")
 _ERC1155_BALANCE_OF_SELECTOR = _selector("balanceOf(address,uint256)")
@@ -58,6 +61,19 @@ def erc20_approval_call(
     payload = _ERC20_APPROVE_SELECTOR + abi_encode(["address", "uint256"], [str(spender), amount])
     return TransactionCall(
         to=token_address,
+        data=cast(HexString, "0x" + payload.hex()),
+    )
+
+
+def authorize_session_signer_call(
+    *, wallet_address: EvmAddress, session_signer: EvmAddress, valid_until: int
+) -> TransactionCall:
+    _expect_uint256(valid_until, "Session key expiry")
+    payload = _DEPOSIT_WALLET_AUTHORIZE_SESSION_SIGNER_SELECTOR + abi_encode(
+        ["address", "uint256"], [str(session_signer), valid_until]
+    )
+    return TransactionCall(
+        to=wallet_address,
         data=cast(HexString, "0x" + payload.hex()),
     )
 
@@ -328,6 +344,7 @@ def encode_safe_multisend_call(calls: list[TransactionCall]) -> HexString:
 __all__ = [
     "MAX_UINT256",
     "TransactionCall",
+    "authorize_session_signer_call",
     "combinatorial_prepare_condition_call",
     "ctf_redeem_positions_call",
     "decode_erc1155_balance_of_batch_result",
