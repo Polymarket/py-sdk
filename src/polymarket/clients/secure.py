@@ -224,6 +224,7 @@ from polymarket.session_keys import (
     AuthorizedSessionKey,
     AuthorizeSessionKeyResult,
     RevokeSessionKeyResult,
+    SessionKeyKnownScope,
     SessionKeyScope,
 )
 from polymarket.transactions import (
@@ -516,7 +517,7 @@ class SecureClient:
         self,
         *,
         address: str,
-        scopes: Sequence[SessionKeyScope],
+        scopes: Sequence[SessionKeyScope] = (SessionKeyKnownScope.ALL,),
         valid_until: datetime,
         idempotency_key: str | None = None,
     ) -> AuthorizeSessionKeyResult:
@@ -525,6 +526,7 @@ class SecureClient:
         The SDK receives only the public address. The application remains
         responsible for generating, storing, and protecting the private key.
         Requires ``api_key=`` to be passed when constructing the client.
+        When scopes are omitted, authorization defaults to ``ALL``.
 
         Resolves after the submitted transaction is confirmed and the session
         key appears in the active session-key list.

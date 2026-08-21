@@ -33,6 +33,7 @@ from polymarket import (
     RevokeSessionKeyResult,
     SecureClient,
     SessionKeyKnownScope,
+    SessionKeyScope,
     UnexpectedResponseError,
     UserInputError,
 )
@@ -208,17 +209,14 @@ def _assert_authorization_result_and_request(
     result: AuthorizeSessionKeyResult,
     captured: list[httpx.Request],
     *,
+    expected_scopes: tuple[SessionKeyScope, ...],
     requested_expiry: datetime,
     wallet: str,
 ) -> None:
     expected_expiry = requested_expiry.astimezone(UTC).replace(microsecond=0)
     assert result.operation_id == "operation-1"
     assert result.session_key.address.lower() == _SESSION_ADDRESS.lower()
-    assert result.session_key.scopes == (
-        SessionKeyKnownScope.CLOB,
-        SessionKeyKnownScope.COMBOSRFQ,
-        _NEWER_SCOPE,
-    )
+    assert result.session_key.scopes == expected_scopes
     assert result.session_key.valid_until == expected_expiry
     assert result.transaction.transaction_hash == _TRANSACTION_HASH
     assert result.transaction.transaction_id == _TRANSACTION_ID
@@ -231,7 +229,7 @@ def _assert_authorization_result_and_request(
     assert request.headers["Idempotency-Key"] == "authorization-1"
     body = cast(dict[str, object], request_json(request))
     assert body["nonce"] == "7"
-    assert body["scopes"] == ["CLOB", "COMBOSRFQ", _NEWER_SCOPE]
+    assert body["scopes"] == [str(scope) for scope in expected_scopes]
     session_signer_address = body["sessionSignerAddress"]
     assert isinstance(session_signer_address, str)
     assert session_signer_address.lower() == _SESSION_ADDRESS.lower()
@@ -275,12 +273,17 @@ def test_authorize_session_key_async_normalizes_and_submits_request() -> None:
     _assert_authorization_result_and_request(
         result,
         captured,
+        expected_scopes=(
+            SessionKeyKnownScope.CLOB,
+            SessionKeyKnownScope.COMBOSRFQ,
+            _NEWER_SCOPE,
+        ),
         requested_expiry=requested_expiry,
         wallet=wallet,
     )
 
 
-def test_authorize_session_key_sync_normalizes_and_submits_request() -> None:
+def test_authorize_session_key_sync_uses_default_scopes() -> None:
     captured: list[httpx.Request] = []
     requested_expiry = datetime.now(UTC) + timedelta(minutes=15, microseconds=123_456)
 
@@ -291,13 +294,6 @@ def test_authorize_session_key_sync_normalizes_and_submits_request() -> None:
         _install_sync_secure_clob_handler(client, handler)
         result = client.authorize_session_key(
             address=_SESSION_ADDRESS,
-            scopes=(
-                _NEWER_SCOPE,
-                SessionKeyKnownScope.COMBOSRFQ,
-                SessionKeyKnownScope.CLOB,
-                _NEWER_SCOPE,
-                SessionKeyKnownScope.CLOB,
-            ),
             valid_until=requested_expiry,
             idempotency_key=" authorization-1 ",
         )
@@ -305,6 +301,7 @@ def test_authorize_session_key_sync_normalizes_and_submits_request() -> None:
     _assert_authorization_result_and_request(
         result,
         captured,
+        expected_scopes=(SessionKeyKnownScope.ALL,),
         requested_expiry=requested_expiry,
         wallet=wallet,
     )

@@ -48,8 +48,8 @@ class AuthorizeSessionKeyRequest(TypedDict):
     address: str
     """Public EVM address of the externally managed session signer."""
 
-    scopes: Sequence[SessionKeyScope]
-    """Non-empty requested scopes. Newer scopes may be strings; ``ALL`` must appear alone."""
+    scopes: NotRequired[Sequence[SessionKeyScope]]
+    """Requested scopes. Defaults to ``ALL``, which must appear alone."""
 
     valid_until: datetime
     """Timezone-aware future expiry, normalized to UTC by the SDK."""

@@ -27,8 +27,8 @@ async def test_session_key_authorizes_lists_trades_and_revokes(
     relayer_api_key: RelayerApiKey,
     tradable_market: Market,
 ) -> None:
-    # Live side effects: authorizes an ephemeral CLOB session key, places one
-    # post-only order, cancels it, and revokes the key.
+    # Live side effects: authorizes an ephemeral session key with the default
+    # scopes, places one post-only order, cancels it, and revokes the key.
     session_account = Account.create()
     session_private_key = "0x" + session_account.key.hex().removeprefix("0x")
     requested_expiry = datetime.now(UTC) + timedelta(minutes=15)
@@ -36,7 +36,6 @@ async def test_session_key_authorizes_lists_trades_and_revokes(
 
     authorization = await deposit_wallet_client.authorize_session_key(
         address=session_account.address,
-        scopes=(SessionKeyKnownScope.CLOB,),
         valid_until=requested_expiry,
     )
 
@@ -44,7 +43,7 @@ async def test_session_key_authorizes_lists_trades_and_revokes(
     assert authorization.transaction.transaction_id is not None
     assert re.fullmatch(r"0x[0-9a-fA-F]{64}", str(authorization.transaction.transaction_hash))
     assert authorization.session_key.address.lower() == session_account.address.lower()
-    assert authorization.session_key.scopes == (SessionKeyKnownScope.CLOB,)
+    assert authorization.session_key.scopes == (SessionKeyKnownScope.ALL,)
     assert authorization.session_key.valid_until == expected_expiry
 
     active_session_keys = await deposit_wallet_client.fetch_session_keys()
