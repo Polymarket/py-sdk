@@ -26,7 +26,7 @@ from _relayer_helpers import (
 from eth_abi.abi import decode as abi_decode
 from eth_account import Account
 
-from polymarket import AuthorizeSessionKeyResult, SessionKeyScope, UserInputError
+from polymarket import AuthorizeSessionKeyResult, SessionKeyKnownScope, UserInputError
 
 _AUTHORIZATIONS_PATH = "/v1/session-signers/authorizations"
 _EXECUTE_PARAMS_PATH = "/v1/account/transactions/params"
@@ -35,6 +35,7 @@ _SESSION_ADDRESS = _SESSION_ACCOUNT.address
 _TRANSACTION_HASH = "0x" + "ab" * 32
 _TRANSACTION_ID = "tx-session-key"
 _SESSION_SIGNER_MAGIC_BYTES = bytes.fromhex("6492" * 16)
+_NEWER_SCOPE = "NEWER_SCOPE"
 
 
 def _authorization_handler(
@@ -86,8 +87,9 @@ def _assert_authorization_result_and_request(
     assert result.operation_id == "operation-1"
     assert result.session_key.address.lower() == _SESSION_ADDRESS.lower()
     assert result.session_key.scopes == (
-        SessionKeyScope.CLOB,
-        SessionKeyScope.BLOCKTRADE,
+        SessionKeyKnownScope.CLOB,
+        SessionKeyKnownScope.COMBOSRFQ,
+        _NEWER_SCOPE,
     )
     assert result.session_key.valid_until == expected_expiry
     assert result.transaction.transaction_hash == _TRANSACTION_HASH
@@ -101,7 +103,7 @@ def _assert_authorization_result_and_request(
     assert request.headers["Idempotency-Key"] == "authorization-1"
     body = cast(dict[str, object], request_json(request))
     assert body["nonce"] == "7"
-    assert body["scopes"] == ["CLOB", "BLOCKTRADE"]
+    assert body["scopes"] == ["CLOB", "COMBOSRFQ", _NEWER_SCOPE]
     session_signer_address = body["sessionSignerAddress"]
     assert isinstance(session_signer_address, str)
     assert session_signer_address.lower() == _SESSION_ADDRESS.lower()
@@ -125,9 +127,11 @@ def test_authorize_session_key_async_normalizes_and_submits_request() -> None:
             result = await client.authorize_session_key(
                 address=_SESSION_ADDRESS,
                 scopes=(
-                    SessionKeyScope.BLOCKTRADE,
-                    SessionKeyScope.CLOB,
-                    SessionKeyScope.CLOB,
+                    _NEWER_SCOPE,
+                    SessionKeyKnownScope.COMBOSRFQ,
+                    SessionKeyKnownScope.CLOB,
+                    _NEWER_SCOPE,
+                    SessionKeyKnownScope.CLOB,
                 ),
                 valid_until=requested_expiry,
                 idempotency_key=" authorization-1 ",
@@ -154,9 +158,11 @@ def test_authorize_session_key_sync_normalizes_and_submits_request() -> None:
         result = client.authorize_session_key(
             address=_SESSION_ADDRESS,
             scopes=(
-                SessionKeyScope.BLOCKTRADE,
-                SessionKeyScope.CLOB,
-                SessionKeyScope.CLOB,
+                _NEWER_SCOPE,
+                SessionKeyKnownScope.COMBOSRFQ,
+                SessionKeyKnownScope.CLOB,
+                _NEWER_SCOPE,
+                SessionKeyKnownScope.CLOB,
             ),
             valid_until=requested_expiry,
             idempotency_key=" authorization-1 ",
@@ -178,7 +184,7 @@ def test_authorize_session_key_rejects_address_without_0x_prefix() -> None:
     ):
         client.authorize_session_key(
             address=_SESSION_ADDRESS.removeprefix("0x"),
-            scopes=(SessionKeyScope.CLOB,),
+            scopes=(SessionKeyKnownScope.CLOB,),
             valid_until=datetime.now(UTC) + timedelta(minutes=15),
         )
 
@@ -190,21 +196,28 @@ def test_authorize_session_key_rejects_invalid_cross_field_combinations() -> Non
         with pytest.raises(UserInputError, match="must differ from the Deposit Wallet"):
             client.authorize_session_key(
                 address=str(client.wallet),
-                scopes=(SessionKeyScope.CLOB,),
+                scopes=(SessionKeyKnownScope.CLOB,),
                 valid_until=valid_expiry,
             )
 
         with pytest.raises(UserInputError, match="ALL cannot be combined"):
             client.authorize_session_key(
                 address=_SESSION_ADDRESS,
-                scopes=(SessionKeyScope.ALL, SessionKeyScope.CLOB),
+                scopes=(SessionKeyKnownScope.ALL, SessionKeyKnownScope.CLOB),
+                valid_until=valid_expiry,
+            )
+
+        with pytest.raises(UserInputError, match="non-empty strings"):
+            client.authorize_session_key(
+                address=_SESSION_ADDRESS,
+                scopes=("",),
                 valid_until=valid_expiry,
             )
 
         with pytest.raises(UserInputError, match="timezone-aware datetime"):
             client.authorize_session_key(
                 address=_SESSION_ADDRESS,
-                scopes=(SessionKeyScope.CLOB,),
+                scopes=(SessionKeyKnownScope.CLOB,),
                 valid_until=datetime.now(),
             )
     finally:

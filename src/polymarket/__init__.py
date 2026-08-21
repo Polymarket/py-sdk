@@ -222,6 +222,7 @@ from polymarket.session_keys import (
     AuthorizedSessionKey,
     AuthorizeSessionKeyRequest,
     AuthorizeSessionKeyResult,
+    SessionKeyKnownScope,
     SessionKeyScope,
 )
 from polymarket.transactions import (
@@ -439,6 +440,7 @@ __all__ = [
     "SearchResults",
     "SearchTag",
     "SecureClient",
+    "SessionKeyKnownScope",
     "SessionKeyScope",
     "Series",
     "SeriesId",

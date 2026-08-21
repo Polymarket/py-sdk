@@ -34,12 +34,17 @@ RfqErrorCode
    :members:
    :undoc-members:
 
+SessionKeyKnownScope
+--------------------
+
+.. autoclass:: polymarket.SessionKeyKnownScope
+   :members:
+   :undoc-members:
+
 SessionKeyScope
 ---------------
 
-.. autoclass:: polymarket.SessionKeyScope
-   :members:
-   :undoc-members:
+.. autodata:: polymarket.SessionKeyScope
 
 AuthorizeSessionKeyRequest
 --------------------------

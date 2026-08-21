@@ -12,7 +12,7 @@ from polymarket import (
     AsyncSecureClient,
     Market,
     RelayerApiKey,
-    SessionKeyScope,
+    SessionKeyKnownScope,
     UserInputError,
 )
 
@@ -37,7 +37,7 @@ async def test_session_key_authorizes_places_limit_order_and_cancels(
 
     authorization = await deposit_wallet_client.authorize_session_key(
         address=session_account.address,
-        scopes=(SessionKeyScope.CLOB,),
+        scopes=(SessionKeyKnownScope.CLOB,),
         valid_until=requested_expiry,
     )
 
@@ -45,7 +45,7 @@ async def test_session_key_authorizes_places_limit_order_and_cancels(
     assert authorization.transaction.transaction_id is not None
     assert re.fullmatch(r"0x[0-9a-fA-F]{64}", str(authorization.transaction.transaction_hash))
     assert authorization.session_key.address.lower() == session_account.address.lower()
-    assert authorization.session_key.scopes == (SessionKeyScope.CLOB,)
+    assert authorization.session_key.scopes == (SessionKeyKnownScope.CLOB,)
     assert authorization.session_key.valid_until == expected_expiry
 
     session_client = await AsyncSecureClient.create(

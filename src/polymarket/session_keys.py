@@ -4,14 +4,18 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import NotRequired, TypedDict
+from typing import NotRequired, TypeAlias, TypedDict
 
 from polymarket.models.clob.relayer import TransactionOutcome
 from polymarket.types import EvmAddress
 
 
-class SessionKeyScope(StrEnum):
-    """Venue authorization attached to a session-key grant."""
+class SessionKeyKnownScope(StrEnum):
+    """Known venue authorizations attached to session-key grants.
+
+    Session-key authorization also accepts newer scopes as plain strings; see
+    :data:`SessionKeyScope`.
+    """
 
     ALL = "ALL"
     """All current and future venues. Cannot be combined with another scope.
@@ -29,11 +33,13 @@ class SessionKeyScope(StrEnum):
     Session-key combo actions are not yet supported by this SDK version.
     """
 
-    BLOCKTRADE = "BLOCKTRADE"
-    """Block-trading authorization.
 
-    The SDK does not yet expose block-trading actions.
-    """
+SessionKeyScope: TypeAlias = SessionKeyKnownScope | str
+"""A session-key scope.
+
+Known scopes are enumerated in :class:`SessionKeyKnownScope`. Newly introduced
+scopes remain usable as plain strings before an SDK release enumerates them.
+"""
 
 
 class AuthorizeSessionKeyRequest(TypedDict):
@@ -43,7 +49,7 @@ class AuthorizeSessionKeyRequest(TypedDict):
     """Public EVM address of the externally managed session signer."""
 
     scopes: Sequence[SessionKeyScope]
-    """Non-empty requested scopes. ``ALL`` must appear alone."""
+    """Non-empty requested scopes. Newer scopes may be strings; ``ALL`` must appear alone."""
 
     valid_until: datetime
     """Timezone-aware future expiry, normalized to UTC by the SDK."""
@@ -63,7 +69,7 @@ class AuthorizedSessionKey:
     """Public EVM address of the externally managed session signer."""
 
     scopes: tuple[SessionKeyScope, ...]
-    """Granted venue scopes in canonical enum order."""
+    """Granted venue scopes, including newer values not yet known to this SDK."""
 
     valid_until: datetime
     """Timezone-aware UTC expiry."""
@@ -87,5 +93,6 @@ __all__ = [
     "AuthorizedSessionKey",
     "AuthorizeSessionKeyRequest",
     "AuthorizeSessionKeyResult",
+    "SessionKeyKnownScope",
     "SessionKeyScope",
 ]

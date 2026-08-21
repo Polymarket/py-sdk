@@ -25,6 +25,7 @@ from polymarket.models.clob.relayer import TransactionOutcome
 from polymarket.session_keys import (
     AuthorizedSessionKey,
     AuthorizeSessionKeyResult,
+    SessionKeyKnownScope,
     SessionKeyScope,
 )
 from polymarket.transactions import GaslessTransactionHandle, SyncGaslessTransactionHandle
@@ -190,15 +191,20 @@ def _parse_scopes(scopes: object) -> tuple[SessionKeyScope, ...]:
         raise UserInputError("Session key scopes must be a non-empty sequence.")
     if not scopes:
         raise UserInputError("Session key scopes must be a non-empty sequence.")
-    scope_values: set[SessionKeyScope] = set()
+    scope_values: dict[str, None] = {}
     for scope in cast(Sequence[object], scopes):
-        if not isinstance(scope, SessionKeyScope):
-            raise UserInputError("Session key scopes must contain SessionKeyScope values.")
-        scope_values.add(scope)
-    normalized = tuple(scope for scope in SessionKeyScope if scope in scope_values)
-    if SessionKeyScope.ALL in normalized and len(normalized) > 1:
+        if not isinstance(scope, str) or not scope:
+            raise UserInputError("Session key scopes must contain non-empty strings.")
+        scope_values.setdefault(scope, None)
+
+    known_values = {scope.value for scope in SessionKeyKnownScope}
+    normalized: list[SessionKeyScope] = [
+        scope for scope in SessionKeyKnownScope if scope.value in scope_values
+    ]
+    normalized.extend(scope for scope in scope_values if scope not in known_values)
+    if SessionKeyKnownScope.ALL in normalized and len(normalized) > 1:
         raise UserInputError("Session key scope ALL cannot be combined with another scope.")
-    return normalized
+    return tuple(normalized)
 
 
 def _parse_valid_until(valid_until: object) -> datetime:
@@ -249,7 +255,7 @@ def _build_authorization_payload(
     return {
         "deadline": batch.deadline,
         "nonce": batch.nonce,
-        "scopes": [scope.value for scope in request.scopes],
+        "scopes": [str(scope) for scope in request.scopes],
         "sessionSignerAddress": str(request.address),
         "signature": batch.signature,
         "validUntil": str(request.valid_until_epoch),
