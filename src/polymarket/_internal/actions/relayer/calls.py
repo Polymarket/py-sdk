@@ -23,6 +23,7 @@ _ERC20_APPROVE_SELECTOR = _selector("approve(address,uint256)")
 _DEPOSIT_WALLET_AUTHORIZE_SESSION_SIGNER_SELECTOR = _selector(
     "authorizeSessionSigner(address,uint256)"
 )
+_DEPOSIT_WALLET_REVOKE_SESSION_SIGNER_SELECTOR = _selector("revokeSessionSigner(address)")
 _ERC20_ALLOWANCE_SELECTOR = _selector("allowance(address,address)")
 _ERC20_TRANSFER_SELECTOR = _selector("transfer(address,uint256)")
 _ERC1155_BALANCE_OF_SELECTOR = _selector("balanceOf(address,uint256)")
@@ -71,6 +72,18 @@ def authorize_session_signer_call(
     _expect_uint256(valid_until, "Session key expiry")
     payload = _DEPOSIT_WALLET_AUTHORIZE_SESSION_SIGNER_SELECTOR + abi_encode(
         ["address", "uint256"], [str(session_signer), valid_until]
+    )
+    return TransactionCall(
+        to=wallet_address,
+        data=cast(HexString, "0x" + payload.hex()),
+    )
+
+
+def revoke_session_signer_call(
+    *, wallet_address: EvmAddress, session_signer: EvmAddress
+) -> TransactionCall:
+    payload = _DEPOSIT_WALLET_REVOKE_SESSION_SIGNER_SELECTOR + abi_encode(
+        ["address"], [str(session_signer)]
     )
     return TransactionCall(
         to=wallet_address,
@@ -363,6 +376,7 @@ __all__ = [
     "merge_positions_call",
     "merge_v2_call",
     "redeem_v2_call",
+    "revoke_session_signer_call",
     "split_position_call",
     "split_v2_call",
 ]

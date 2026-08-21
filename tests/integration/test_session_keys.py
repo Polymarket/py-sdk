@@ -21,15 +21,14 @@ pytestmark = pytest.mark.anyio
 
 @pytest.mark.integration
 @pytest.mark.metered
-async def test_session_key_authorizes_places_limit_order_and_cancels(
+async def test_session_key_authorizes_lists_trades_and_revokes(
     deposit_wallet_client: AsyncSecureClient,
     deposit_wallet_address: str,
     relayer_api_key: RelayerApiKey,
     tradable_market: Market,
 ) -> None:
     # Live side effects: authorizes an ephemeral CLOB session key, places one
-    # post-only order, and cancels it. Revocation is not available yet, so the
-    # grant remains active until this short expiry.
+    # post-only order, cancels it, and revokes the key.
     session_account = Account.create()
     session_private_key = "0x" + session_account.key.hex().removeprefix("0x")
     requested_expiry = datetime.now(UTC) + timedelta(minutes=15)
@@ -48,6 +47,9 @@ async def test_session_key_authorizes_places_limit_order_and_cancels(
     assert authorization.session_key.scopes == (SessionKeyKnownScope.CLOB,)
     assert authorization.session_key.valid_until == expected_expiry
 
+    active_session_keys = await deposit_wallet_client.fetch_session_keys()
+    assert authorization.session_key in active_session_keys
+
     session_client = await AsyncSecureClient.create(
         private_key=session_private_key,
         wallet=deposit_wallet_address,
@@ -55,6 +57,7 @@ async def test_session_key_authorizes_places_limit_order_and_cancels(
         api_key=relayer_api_key,
     )
     order_id: str | None = None
+    revoked = False
     try:
         with pytest.raises(
             UserInputError,
@@ -87,8 +90,23 @@ async def test_session_key_authorizes_places_limit_order_and_cancels(
         cancellation = await session_client.cancel_order(order_id=order_id)
         assert order_id in cancellation.canceled
         order_id = None
+
+        revocation = await deposit_wallet_client.revoke_session_key(address=session_account.address)
+        revoked = True
+        assert revocation.operation_id
+        assert revocation.transaction.transaction_id is not None
+        assert re.fullmatch(r"0x[0-9a-fA-F]{64}", str(revocation.transaction.transaction_hash))
+
+        remaining_session_keys = await deposit_wallet_client.fetch_session_keys()
+        assert all(
+            session_key.address.lower() != session_account.address.lower()
+            for session_key in remaining_session_keys
+        )
     finally:
         if order_id is not None:
             with contextlib.suppress(Exception):
                 await session_client.cancel_order(order_id=order_id)
+        if not revoked:
+            with contextlib.suppress(Exception):
+                await deposit_wallet_client.revoke_session_key(address=session_account.address)
         await session_client.close()

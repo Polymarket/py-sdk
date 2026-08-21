@@ -1,4 +1,4 @@
-"""Scoped session-key authorization types."""
+"""Scoped session-key management types."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -60,10 +60,7 @@ class AuthorizeSessionKeyRequest(TypedDict):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AuthorizedSessionKey:
-    """Normalized request metadata after authorization transaction confirmation.
-
-    This snapshot does not report a separate discovery or readiness status.
-    """
+    """A scoped session key authorized for the Deposit Wallet."""
 
     address: EvmAddress
     """Public EVM address of the externally managed session signer."""
@@ -89,10 +86,33 @@ class AuthorizeSessionKeyResult:
     """Confirmed transaction that applied the authorization."""
 
 
+class RevokeSessionKeyRequest(TypedDict):
+    """Reusable keyword arguments for revoking a session key."""
+
+    address: str
+    """Public EVM address of the session signer to revoke."""
+
+    idempotency_key: NotRequired[str | None]
+    """Stable key to reuse when retrying the same logical revocation."""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RevokeSessionKeyResult:
+    """Result returned after the revocation transaction is confirmed."""
+
+    operation_id: str
+    """Identifier assigned to the accepted revocation operation."""
+
+    transaction: TransactionOutcome
+    """Confirmed transaction that applied the revocation."""
+
+
 __all__ = [
     "AuthorizedSessionKey",
     "AuthorizeSessionKeyRequest",
     "AuthorizeSessionKeyResult",
+    "RevokeSessionKeyRequest",
+    "RevokeSessionKeyResult",
     "SessionKeyKnownScope",
     "SessionKeyScope",
 ]

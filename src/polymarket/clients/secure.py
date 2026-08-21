@@ -220,7 +220,12 @@ from polymarket.rfq import (
     RfqSide,
     RfqStatusResult,
 )
-from polymarket.session_keys import AuthorizeSessionKeyResult, SessionKeyScope
+from polymarket.session_keys import (
+    AuthorizedSessionKey,
+    AuthorizeSessionKeyResult,
+    RevokeSessionKeyResult,
+    SessionKeyScope,
+)
 from polymarket.transactions import (
     MergePositionRequest,
     SyncDeprecatedTransactionHandle,
@@ -519,11 +524,10 @@ class SecureClient:
 
         The SDK receives only the public address. The application remains
         responsible for generating, storing, and protecting the private key.
-        Requires a Builder API Key or Relayer API Key passed as ``api_key=``
-        when constructing the client.
+        Requires ``api_key=`` to be passed when constructing the client.
 
-        This temporary implementation resolves after the submitted transaction
-        is confirmed. A separate discovery/readiness check is not yet available.
+        Resolves after the submitted transaction is confirmed and the session
+        key appears in the active session-key list.
 
         Raises:
             UserInputError: If the client or authorization input is invalid.
@@ -540,6 +544,47 @@ class SecureClient:
             address=address,
             scopes=scopes,
             valid_until=valid_until,
+            idempotency_key=idempotency_key,
+        )
+
+    def fetch_session_keys(self) -> tuple[AuthorizedSessionKey, ...]:
+        """Fetch active session keys authorized for the Deposit Wallet.
+
+        Raises:
+            UserInputError: If this client is not the Deposit Wallet owner.
+            RequestRejectedError: If the request is rejected.
+            RateLimitError: If the request is rate-limited.
+            SigningError: If request authentication cannot be produced.
+            TransportError: If the network request fails.
+            UnexpectedResponseError: If the response is malformed.
+        """
+        return _session_key_actions.fetch_session_keys_sync(self._ctx)
+
+    def revoke_session_key(
+        self,
+        *,
+        address: str,
+        idempotency_key: str | None = None,
+    ) -> RevokeSessionKeyResult:
+        """Revoke a session key authorized for the Deposit Wallet.
+
+        Revocation may take several minutes while existing activity is canceled
+        and the on-chain revocation is confirmed. Requires ``api_key=`` to be
+        passed when constructing the client.
+
+        Raises:
+            UserInputError: If the client or revocation input is invalid.
+            RequestRejectedError: If the revocation request is rejected.
+            RateLimitError: If the revocation or transaction request is rate-limited.
+            SigningError: If the owner signature cannot be produced.
+            TransportError: If a network request fails.
+            UnexpectedResponseError: If a revocation or transaction response is malformed.
+            TimeoutError: If transaction confirmation exceeds the wait budget.
+            TransactionFailedError: If the revocation transaction fails.
+        """
+        return _session_key_actions.revoke_session_key_sync(
+            self._ctx,
+            address=address,
             idempotency_key=idempotency_key,
         )
 

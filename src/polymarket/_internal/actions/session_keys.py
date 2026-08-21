@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 import time
 from collections.abc import Sequence
@@ -11,7 +12,10 @@ from uuid import uuid4
 from eth_utils.address import to_checksum_address
 from pydantic import Field, field_validator
 
-from polymarket._internal.actions.relayer.calls import authorize_session_signer_call
+from polymarket._internal.actions.relayer.calls import (
+    authorize_session_signer_call,
+    revoke_session_signer_call,
+)
 from polymarket._internal.actions.relayer.gasless import (
     SignedDepositWalletBatch,
     build_signed_deposit_wallet_batch,
@@ -19,12 +23,13 @@ from polymarket._internal.actions.relayer.gasless import (
 )
 from polymarket._internal.context import AsyncSecureClientContext, SyncSecureClientContext
 from polymarket._internal.wallet import is_deposit_wallet_owner
-from polymarket.errors import UserInputError
+from polymarket.errors import TimeoutError, UnexpectedResponseError, UserInputError
 from polymarket.models.base import BaseModel
 from polymarket.models.clob.relayer import TransactionOutcome
 from polymarket.session_keys import (
     AuthorizedSessionKey,
     AuthorizeSessionKeyResult,
+    RevokeSessionKeyResult,
     SessionKeyKnownScope,
     SessionKeyScope,
 )
@@ -32,6 +37,8 @@ from polymarket.transactions import GaslessTransactionHandle, SyncGaslessTransac
 from polymarket.types import EvmAddress, TransactionHash
 
 _AUTHORIZATIONS_PATH = "/v1/session-signers/authorizations"
+_REVOCATIONS_PATH = "/v1/session-signers/revocations"
+_SESSION_KEYS_PATH = "/v1/user/session-signers"
 _EVM_ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 _ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 _TRANSACTION_HASH_RE = re.compile(r"^0x[0-9a-fA-F]{64}$")
@@ -57,6 +64,61 @@ class _AuthorizeSessionKeyResponse(BaseModel):
         return value
 
 
+class _SessionKeyResponse(BaseModel):
+    address: EvmAddress
+    scopes: tuple[str, ...]
+    valid_until: datetime
+
+    @field_validator("address", mode="before")
+    @classmethod
+    def _normalize_address(cls, value: object) -> EvmAddress:
+        return _normalize_response_address(value)
+
+    @field_validator("scopes", mode="before")
+    @classmethod
+    def _validate_scopes(cls, value: object) -> object:
+        if not isinstance(value, list) or not value:
+            raise ValueError("session key scopes must be a non-empty array")
+        scopes = cast(list[object], value)
+        if any(not isinstance(scope, str) or not scope for scope in scopes):
+            raise ValueError("session key scopes must contain non-empty strings")
+        return scopes
+
+    @field_validator("valid_until", mode="before")
+    @classmethod
+    def _normalize_valid_until(cls, value: object) -> datetime:
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError("session key expiry must be non-negative Unix seconds")
+        try:
+            return datetime.fromtimestamp(value, tz=UTC)
+        except (OSError, OverflowError, ValueError) as error:
+            raise ValueError("session key expiry is outside the supported range") from error
+
+
+class _FetchSessionKeysResponse(BaseModel):
+    signers: tuple[_SessionKeyResponse, ...]
+    wallet: EvmAddress
+
+    @field_validator("signers", mode="before")
+    @classmethod
+    def _validate_signers(cls, value: object) -> object:
+        if not isinstance(value, list):
+            raise ValueError("session keys must be an array")
+        return cast(list[object], value)
+
+    @field_validator("wallet", mode="before")
+    @classmethod
+    def _normalize_wallet(cls, value: object) -> EvmAddress:
+        return _normalize_response_address(value)
+
+
+class _RevokeSessionKeyResponse(BaseModel):
+    fenced: bool = Field(strict=True)
+    operation_id: str = Field(validation_alias="operationId", min_length=1)
+    status: str = Field(min_length=1)
+    transaction_id: str = Field(validation_alias="transactionId", min_length=1)
+
+
 @dataclass(frozen=True, slots=True)
 class _ParsedAuthorizeSessionKeyRequest:
     address: EvmAddress
@@ -64,6 +126,32 @@ class _ParsedAuthorizeSessionKeyRequest:
     valid_until: datetime
     valid_until_epoch: int
     idempotency_key: str
+
+
+@dataclass(frozen=True, slots=True)
+class _ParsedRevokeSessionKeyRequest:
+    address: EvmAddress
+    idempotency_key: str
+
+
+async def fetch_session_keys(
+    ctx: AsyncSecureClientContext,
+) -> tuple[AuthorizedSessionKey, ...]:
+    _assert_owner_deposit_wallet(ctx)
+    response = _FetchSessionKeysResponse.parse_response(
+        await ctx.secure_clob.get_json(_SESSION_KEYS_PATH)
+    )
+    return _build_session_keys(ctx, response=response)
+
+
+def fetch_session_keys_sync(
+    ctx: SyncSecureClientContext,
+) -> tuple[AuthorizedSessionKey, ...]:
+    _assert_owner_deposit_wallet(ctx)
+    response = _FetchSessionKeysResponse.parse_response(
+        ctx.secure_clob.get_json(_SESSION_KEYS_PATH)
+    )
+    return _build_session_keys(ctx, response=response)
 
 
 async def authorize_session_key(
@@ -75,7 +163,7 @@ async def authorize_session_key(
     idempotency_key: str | None,
 ) -> AuthorizeSessionKeyResult:
     _assert_owner_deposit_wallet(ctx)
-    _require_api_key(ctx)
+    _require_api_key(ctx, operation="authorization")
     request = _parse_authorize_session_key_request(
         ctx,
         address=address,
@@ -97,8 +185,6 @@ async def authorize_session_key(
         )
     )
 
-    # TODO(TRA-354): Session-key listing is still pending; poll it for authoritative
-    # readiness once available.
     transaction = await GaslessTransactionHandle(
         transaction_id=response.transaction_id,
         transaction_hash=response.transaction_hash,
@@ -106,7 +192,12 @@ async def authorize_session_key(
         _max_polls=ctx.environment_config.relayer_max_polls,
         _poll_delay_s=ctx.environment_config.relayer_poll_frequency_ms / 1000,
     ).wait()
-    return _build_authorization_result(request=request, response=response, transaction=transaction)
+    session_key = await _wait_for_authorized_session_key(ctx, expected=request)
+    return _build_authorization_result(
+        session_key=session_key,
+        response=response,
+        transaction=transaction,
+    )
 
 
 def authorize_session_key_sync(
@@ -118,7 +209,7 @@ def authorize_session_key_sync(
     idempotency_key: str | None,
 ) -> AuthorizeSessionKeyResult:
     _assert_owner_deposit_wallet(ctx)
-    _require_api_key(ctx)
+    _require_api_key(ctx, operation="authorization")
     request = _parse_authorize_session_key_request(
         ctx,
         address=address,
@@ -140,8 +231,6 @@ def authorize_session_key_sync(
         )
     )
 
-    # TODO(TRA-354): Session-key listing is still pending; poll it for authoritative
-    # readiness once available.
     transaction = SyncGaslessTransactionHandle(
         transaction_id=response.transaction_id,
         transaction_hash=response.transaction_hash,
@@ -149,7 +238,88 @@ def authorize_session_key_sync(
         _max_polls=ctx.environment_config.relayer_max_polls,
         _poll_delay_s=ctx.environment_config.relayer_poll_frequency_ms / 1000,
     ).wait()
-    return _build_authorization_result(request=request, response=response, transaction=transaction)
+    session_key = _wait_for_authorized_session_key_sync(ctx, expected=request)
+    return _build_authorization_result(
+        session_key=session_key,
+        response=response,
+        transaction=transaction,
+    )
+
+
+async def revoke_session_key(
+    ctx: AsyncSecureClientContext,
+    *,
+    address: str,
+    idempotency_key: str | None,
+) -> RevokeSessionKeyResult:
+    _assert_owner_deposit_wallet(ctx)
+    _require_api_key(ctx, operation="revocation")
+    request = _parse_revoke_session_key_request(
+        ctx,
+        address=address,
+        idempotency_key=idempotency_key,
+    )
+    call = revoke_session_signer_call(
+        wallet_address=ctx.wallet,
+        session_signer=request.address,
+    )
+    batch = await build_signed_deposit_wallet_batch(ctx, calls=[call])
+    response = _RevokeSessionKeyResponse.parse_response(
+        await ctx.relayer.post_json(
+            _REVOCATIONS_PATH,
+            json=_build_revocation_payload(ctx, request=request, batch=batch),
+            headers={"Idempotency-Key": request.idempotency_key},
+        )
+    )
+    transaction = await GaslessTransactionHandle(
+        transaction_id=response.transaction_id,
+        transaction_hash=None,
+        _relayer=ctx.relayer,
+        _max_polls=ctx.environment_config.relayer_max_polls,
+        _poll_delay_s=ctx.environment_config.relayer_poll_frequency_ms / 1000,
+    ).wait()
+    return RevokeSessionKeyResult(
+        operation_id=response.operation_id,
+        transaction=transaction,
+    )
+
+
+def revoke_session_key_sync(
+    ctx: SyncSecureClientContext,
+    *,
+    address: str,
+    idempotency_key: str | None,
+) -> RevokeSessionKeyResult:
+    _assert_owner_deposit_wallet(ctx)
+    _require_api_key(ctx, operation="revocation")
+    request = _parse_revoke_session_key_request(
+        ctx,
+        address=address,
+        idempotency_key=idempotency_key,
+    )
+    call = revoke_session_signer_call(
+        wallet_address=ctx.wallet,
+        session_signer=request.address,
+    )
+    batch = build_signed_deposit_wallet_batch_sync(ctx, calls=[call])
+    response = _RevokeSessionKeyResponse.parse_response(
+        ctx.relayer.post_json(
+            _REVOCATIONS_PATH,
+            json=_build_revocation_payload(ctx, request=request, batch=batch),
+            headers={"Idempotency-Key": request.idempotency_key},
+        )
+    )
+    transaction = SyncGaslessTransactionHandle(
+        transaction_id=response.transaction_id,
+        transaction_hash=None,
+        _relayer=ctx.relayer,
+        _max_polls=ctx.environment_config.relayer_max_polls,
+        _poll_delay_s=ctx.environment_config.relayer_poll_frequency_ms / 1000,
+    ).wait()
+    return RevokeSessionKeyResult(
+        operation_id=response.operation_id,
+        transaction=transaction,
+    )
 
 
 def _parse_authorize_session_key_request(
@@ -172,6 +342,18 @@ def _parse_authorize_session_key_request(
     )
 
 
+def _parse_revoke_session_key_request(
+    ctx: _SecureContext,
+    *,
+    address: object,
+    idempotency_key: object,
+) -> _ParsedRevokeSessionKeyRequest:
+    return _ParsedRevokeSessionKeyRequest(
+        address=_parse_session_address(address, wallet=ctx.wallet),
+        idempotency_key=_parse_idempotency_key(idempotency_key),
+    )
+
+
 def _parse_session_address(address: object, *, wallet: EvmAddress) -> EvmAddress:
     if not isinstance(address, str) or _EVM_ADDRESS_RE.fullmatch(address) is None:
         raise UserInputError("Session key address must be a valid EVM address.")
@@ -184,6 +366,15 @@ def _parse_session_address(address: object, *, wallet: EvmAddress) -> EvmAddress
     if normalized.lower() == str(wallet).lower():
         raise UserInputError("Session key address must differ from the Deposit Wallet.")
     return EvmAddress(normalized)
+
+
+def _normalize_response_address(value: object) -> EvmAddress:
+    if not isinstance(value, str) or _EVM_ADDRESS_RE.fullmatch(value) is None:
+        raise ValueError("invalid EVM address")
+    try:
+        return EvmAddress(to_checksum_address(value))
+    except (TypeError, ValueError) as error:
+        raise ValueError("invalid EVM address") from error
 
 
 def _parse_scopes(scopes: object) -> tuple[SessionKeyScope, ...]:
@@ -228,20 +419,20 @@ def _parse_idempotency_key(idempotency_key: object) -> str:
 
 def _assert_owner_deposit_wallet(ctx: _SecureContext) -> None:
     if ctx.wallet_type != "DEPOSIT_WALLET":
-        raise UserInputError("Session keys can only be authorized for a Deposit Wallet.")
+        raise UserInputError("Session keys can only be managed for a Deposit Wallet.")
     if not is_deposit_wallet_owner(
         signer=ctx.signer.address,
         wallet=str(ctx.wallet),
         wallet_type=ctx.wallet_type,
         config=ctx.environment_config.wallet_derivation,
     ):
-        raise UserInputError("Session keys can only be authorized by the Deposit Wallet owner.")
+        raise UserInputError("Session keys can only be managed by the Deposit Wallet owner.")
 
 
-def _require_api_key(ctx: _SecureContext) -> None:
+def _require_api_key(ctx: _SecureContext, *, operation: str) -> None:
     if ctx.api_key is None:
         raise UserInputError(
-            "Session-key authorization requires a Builder API Key or Relayer API Key. "
+            f"Session-key {operation} requires a Builder API Key or Relayer API Key. "
             "Pass api_key= when constructing the client."
         )
 
@@ -263,21 +454,107 @@ def _build_authorization_payload(
     }
 
 
+def _build_revocation_payload(
+    ctx: _SecureContext,
+    *,
+    request: _ParsedRevokeSessionKeyRequest,
+    batch: SignedDepositWalletBatch,
+) -> dict[str, object]:
+    return {
+        "deadline": batch.deadline,
+        "nonce": batch.nonce,
+        "sessionSignerAddress": str(request.address),
+        "signature": batch.signature,
+        "walletAddress": str(ctx.wallet),
+    }
+
+
+def _build_session_keys(
+    ctx: _SecureContext,
+    *,
+    response: _FetchSessionKeysResponse,
+) -> tuple[AuthorizedSessionKey, ...]:
+    if response.wallet.lower() != str(ctx.wallet).lower():
+        raise UnexpectedResponseError(
+            f"Session-key response wallet {response.wallet} does not match authenticated "
+            f"wallet {ctx.wallet}"
+        )
+    return tuple(
+        AuthorizedSessionKey(
+            address=signer.address,
+            scopes=tuple(_normalize_response_scope(scope) for scope in signer.scopes),
+            valid_until=signer.valid_until,
+        )
+        for signer in response.signers
+    )
+
+
+def _normalize_response_scope(scope: str) -> SessionKeyScope:
+    try:
+        return SessionKeyKnownScope(scope)
+    except ValueError:
+        return scope
+
+
+async def _wait_for_authorized_session_key(
+    ctx: AsyncSecureClientContext,
+    *,
+    expected: _ParsedAuthorizeSessionKeyRequest,
+) -> AuthorizedSessionKey:
+    for _ in range(ctx.environment_config.relayer_max_polls):
+        for session_key in await fetch_session_keys(ctx):
+            if _is_expected_session_key(session_key, expected=expected):
+                return session_key
+        await asyncio.sleep(ctx.environment_config.relayer_poll_frequency_ms / 1000)
+    raise TimeoutError(f"Timed out waiting for session key {expected.address} to become active")
+
+
+def _wait_for_authorized_session_key_sync(
+    ctx: SyncSecureClientContext,
+    *,
+    expected: _ParsedAuthorizeSessionKeyRequest,
+) -> AuthorizedSessionKey:
+    for _ in range(ctx.environment_config.relayer_max_polls):
+        for session_key in fetch_session_keys_sync(ctx):
+            if _is_expected_session_key(session_key, expected=expected):
+                return session_key
+        time.sleep(ctx.environment_config.relayer_poll_frequency_ms / 1000)
+    raise TimeoutError(f"Timed out waiting for session key {expected.address} to become active")
+
+
+def _is_expected_session_key(
+    session_key: AuthorizedSessionKey,
+    *,
+    expected: _ParsedAuthorizeSessionKeyRequest,
+) -> bool:
+    actual_scopes = tuple(str(scope) for scope in session_key.scopes)
+    expected_scopes = tuple(str(scope) for scope in expected.scopes)
+    return (
+        session_key.address.lower() == expected.address.lower()
+        and session_key.valid_until == expected.valid_until
+        and len(actual_scopes) == len(expected_scopes)
+        and set(actual_scopes) == set(expected_scopes)
+    )
+
+
 def _build_authorization_result(
     *,
-    request: _ParsedAuthorizeSessionKeyRequest,
+    session_key: AuthorizedSessionKey,
     response: _AuthorizeSessionKeyResponse,
     transaction: TransactionOutcome,
 ) -> AuthorizeSessionKeyResult:
     return AuthorizeSessionKeyResult(
         operation_id=response.operation_id,
-        session_key=AuthorizedSessionKey(
-            address=request.address,
-            scopes=request.scopes,
-            valid_until=request.valid_until,
-        ),
+        session_key=session_key,
         transaction=transaction,
     )
 
 
-__all__ = ["authorize_session_key", "authorize_session_key_sync"]
+__all__ = [
+    "authorize_session_key",
+    "authorize_session_key_sync",
+    "fetch_session_keys",
+    "fetch_session_keys_sync",
+    "revoke_session_key",
+    "revoke_session_key_sync",
+]

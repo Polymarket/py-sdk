@@ -20,6 +20,7 @@ from polymarket._internal.actions.relayer.calls import (
     merge_positions_call,
     merge_v2_call,
     redeem_v2_call,
+    revoke_session_signer_call,
     split_position_call,
     split_v2_call,
 )
@@ -71,6 +72,20 @@ def test_authorize_session_signer_call_golden_calldata() -> None:
             _sel("authorizeSessionSigner(address,uint256)")
             + abi_encode(["address", "uint256"], [str(_RECIPIENT), 1_787_220_000])
         ).hex()
+    )
+    assert call.to == _DEPOSIT_WALLET
+    assert call.value == 0
+    assert call.data == expected
+
+
+def test_revoke_session_signer_call_golden_calldata() -> None:
+    call = revoke_session_signer_call(
+        wallet_address=_DEPOSIT_WALLET,
+        session_signer=_RECIPIENT,
+    )
+    expected = (
+        "0x"
+        + (_sel("revokeSessionSigner(address)") + abi_encode(["address"], [str(_RECIPIENT)])).hex()
     )
     assert call.to == _DEPOSIT_WALLET
     assert call.value == 0
