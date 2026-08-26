@@ -93,23 +93,11 @@ class RevokeSessionKeyRequest(TypedDict):
     """Operation key reused by the SDK's built-in exact-payload retries."""
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class RevokeSessionKeyResult:
-    """Result returned after the revocation transaction is confirmed."""
-
-    operation_id: str
-    """Durable identifier for the revocation operation."""
-
-    transaction: TransactionOutcome
-    """Confirmed transaction that applied the revocation."""
-
-
 __all__ = [
     "AuthorizedSessionKey",
     "AuthorizeSessionKeyRequest",
     "AuthorizeSessionKeyResult",
     "RevokeSessionKeyRequest",
-    "RevokeSessionKeyResult",
     "SessionKeyKnownScope",
     "SessionKeyScope",
 ]

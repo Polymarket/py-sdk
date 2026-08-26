@@ -223,7 +223,6 @@ from polymarket.session_keys import (
     AuthorizeSessionKeyRequest,
     AuthorizeSessionKeyResult,
     RevokeSessionKeyRequest,
-    RevokeSessionKeyResult,
     SessionKeyKnownScope,
     SessionKeyScope,
 )
@@ -440,7 +439,6 @@ __all__ = [
     "RfqStatusResult",
     "RfqTradeEvent",
     "RevokeSessionKeyRequest",
-    "RevokeSessionKeyResult",
     "SearchResults",
     "SearchTag",
     "SecureClient",

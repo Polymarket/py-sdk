@@ -73,10 +73,3 @@ RevokeSessionKeyRequest
 .. autoclass:: polymarket.RevokeSessionKeyRequest
    :members:
    :undoc-members:
-
-RevokeSessionKeyResult
-----------------------
-
-.. autoclass:: polymarket.RevokeSessionKeyResult
-   :members:
-   :undoc-members:

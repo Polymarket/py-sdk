@@ -38,7 +38,6 @@ from polymarket.models.clob.relayer import TransactionOutcome
 from polymarket.session_keys import (
     AuthorizedSessionKey,
     AuthorizeSessionKeyResult,
-    RevokeSessionKeyResult,
     SessionKeyKnownScope,
     SessionKeyScope,
 )
@@ -141,7 +140,6 @@ class _FetchSessionKeysResponse(BaseModel):
 
 
 class _RevokeSessionKeyResponse(BaseModel):
-    operation_id: str = Field(validation_alias="operationId", min_length=1)
     status: _RevokeSessionSignerStatus
     fenced: StrictBool
     transaction_id: str = Field(validation_alias="transactionId", min_length=1)
@@ -279,7 +277,7 @@ async def revoke_session_key(
     *,
     address: str,
     idempotency_key: str | None,
-) -> RevokeSessionKeyResult:
+) -> TransactionOutcome:
     _assert_owner_deposit_wallet(ctx)
     _require_gasless_api_key(ctx)
     request = _parse_revoke_session_key_request(
@@ -300,17 +298,13 @@ async def revoke_session_key(
         parse=_RevokeSessionKeyResponse.parse_response,
     )
     _assert_revocation_accepted(response.status)
-    transaction = await GaslessTransactionHandle(
+    return await GaslessTransactionHandle(
         transaction_id=response.transaction_id,
         transaction_hash=None,
         _relayer=ctx.relayer,
         _max_polls=ctx.environment_config.relayer_max_polls,
         _poll_delay_s=ctx.environment_config.relayer_poll_frequency_ms / 1000,
     ).wait()
-    return RevokeSessionKeyResult(
-        operation_id=response.operation_id,
-        transaction=transaction,
-    )
 
 
 def revoke_session_key_sync(
@@ -318,7 +312,7 @@ def revoke_session_key_sync(
     *,
     address: str,
     idempotency_key: str | None,
-) -> RevokeSessionKeyResult:
+) -> TransactionOutcome:
     _assert_owner_deposit_wallet(ctx)
     _require_gasless_api_key(ctx)
     request = _parse_revoke_session_key_request(
@@ -339,17 +333,13 @@ def revoke_session_key_sync(
         parse=_RevokeSessionKeyResponse.parse_response,
     )
     _assert_revocation_accepted(response.status)
-    transaction = SyncGaslessTransactionHandle(
+    return SyncGaslessTransactionHandle(
         transaction_id=response.transaction_id,
         transaction_hash=None,
         _relayer=ctx.relayer,
         _max_polls=ctx.environment_config.relayer_max_polls,
         _poll_delay_s=ctx.environment_config.relayer_poll_frequency_ms / 1000,
     ).wait()
-    return RevokeSessionKeyResult(
-        operation_id=response.operation_id,
-        transaction=transaction,
-    )
 
 
 def _parse_authorize_session_key_request(
