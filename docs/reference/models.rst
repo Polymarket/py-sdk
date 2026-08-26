@@ -46,13 +46,6 @@ SessionKeyScope
 
 .. autodata:: polymarket.SessionKeyScope
 
-SessionKeyRevocationStatus
---------------------------
-
-.. autoclass:: polymarket.SessionKeyRevocationStatus
-   :members:
-   :undoc-members:
-
 AuthorizeSessionKeyRequest
 --------------------------
 

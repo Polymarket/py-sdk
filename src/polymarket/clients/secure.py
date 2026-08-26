@@ -560,23 +560,22 @@ class SecureClient:
         *,
         address: str,
         idempotency_key: str | None = None,
-    ) -> RevokeSessionKeyResult[SyncGaslessTransactionHandle]:
+    ) -> RevokeSessionKeyResult:
         """Revoke a session key authorized for the Deposit Wallet.
 
-        Returns as soon as the revocation operation is accepted. Inspect
-        ``result.fenced`` to learn whether the key is already blocked from new
-        activity, and call ``result.transaction.wait()`` when on-chain
-        confirmation is required. Requires an ``api_key=`` that supports
-        gasless transactions.
+        Returns after order cleanup and on-chain confirmation. The result
+        includes the revocation operation identifier and confirmed transaction.
+        Requires an ``api_key=`` that supports gasless transactions.
 
         Raises:
             UserInputError: If the client or revocation input is invalid.
             RequestRejectedError: If the revocation request is rejected.
-            RateLimitError: If the revocation request remains rate-limited after retries.
+            RateLimitError: If a revocation or transaction request remains rate-limited.
             SigningError: If the owner signature cannot be produced.
             TransportError: If a network request fails.
-            UnexpectedResponseError: If the revocation response is malformed.
-            TransactionFailedError: If the revocation is immediately reported as failed.
+            UnexpectedResponseError: If a revocation or transaction response is malformed.
+            TimeoutError: If transaction confirmation exceeds the wait budget.
+            TransactionFailedError: If the revocation transaction fails.
         """
         return _session_key_actions.revoke_session_key_sync(
             self._ctx,

@@ -4,10 +4,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Generic, NotRequired, TypeAlias, TypedDict, TypeVar
+from typing import NotRequired, TypeAlias, TypedDict
 
 from polymarket.models.clob.relayer import TransactionOutcome
-from polymarket.transactions import GaslessTransactionHandle, SyncGaslessTransactionHandle
 from polymarket.types import EvmAddress
 
 
@@ -94,50 +93,15 @@ class RevokeSessionKeyRequest(TypedDict):
     """Operation key reused by the SDK's built-in exact-payload retries."""
 
 
-class SessionKeyRevocationStatus(StrEnum):
-    """Lifecycle state reported when a session-key revocation is accepted."""
-
-    PENDING = "PENDING"
-    """The revocation operation has been accepted for processing."""
-
-    FENCED = "FENCED"
-    """The session key has been blocked from submitting new activity."""
-
-    SWEPT = "SWEPT"
-    """Existing session-key activity has been canceled."""
-
-    CHAIN_SUBMITTED = "CHAIN_SUBMITTED"
-    """The on-chain revocation transaction has been submitted."""
-
-    CONFIRMED = "CONFIRMED"
-    """The on-chain revocation transaction has been confirmed."""
-
-    FAILED = "FAILED"
-    """The revocation operation reached a terminal failure."""
-
-
-_TransactionHandleT = TypeVar(
-    "_TransactionHandleT",
-    GaslessTransactionHandle,
-    SyncGaslessTransactionHandle,
-)
-
-
 @dataclass(frozen=True, slots=True, kw_only=True)
-class RevokeSessionKeyResult(Generic[_TransactionHandleT]):
-    """Accepted revocation lifecycle and its relayed transaction handle."""
+class RevokeSessionKeyResult:
+    """Result returned after the revocation transaction is confirmed."""
 
     operation_id: str
     """Durable identifier for the revocation operation."""
 
-    status: SessionKeyRevocationStatus
-    """Lifecycle state returned when the operation was accepted."""
-
-    fenced: bool
-    """Whether the session key is already blocked from new activity."""
-
-    transaction: _TransactionHandleT
-    """Relayed transaction handle; call ``wait()`` when confirmation is needed."""
+    transaction: TransactionOutcome
+    """Confirmed transaction that applied the revocation."""
 
 
 __all__ = [
@@ -147,6 +111,5 @@ __all__ = [
     "RevokeSessionKeyRequest",
     "RevokeSessionKeyResult",
     "SessionKeyKnownScope",
-    "SessionKeyRevocationStatus",
     "SessionKeyScope",
 ]

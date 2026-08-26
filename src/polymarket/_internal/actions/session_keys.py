@@ -41,7 +41,6 @@ from polymarket.session_keys import (
     AuthorizeSessionKeyResult,
     RevokeSessionKeyResult,
     SessionKeyKnownScope,
-    SessionKeyRevocationStatus,
     SessionKeyScope,
 )
 from polymarket.transactions import GaslessTransactionHandle, SyncGaslessTransactionHandle
@@ -66,6 +65,15 @@ class _AuthorizeSessionSignerStatus(StrEnum):
     FAILED = "FAILED"
     SUPERSEDED = "SUPERSEDED"
     REPAIR_REQUIRED = "REPAIR_REQUIRED"
+
+
+class _RevokeSessionSignerStatus(StrEnum):
+    PENDING = "PENDING"
+    FENCED = "FENCED"
+    SWEPT = "SWEPT"
+    CHAIN_SUBMITTED = "CHAIN_SUBMITTED"
+    CONFIRMED = "CONFIRMED"
+    FAILED = "FAILED"
 
 
 class _AuthorizeSessionKeyResponse(BaseModel):
@@ -135,7 +143,7 @@ class _FetchSessionKeysResponse(BaseModel):
 
 class _RevokeSessionKeyResponse(BaseModel):
     operation_id: str = Field(validation_alias="operationId", min_length=1)
-    status: SessionKeyRevocationStatus
+    status: _RevokeSessionSignerStatus
     fenced: StrictBool
     transaction_id: str = Field(validation_alias="transactionId", min_length=1)
 
@@ -272,7 +280,7 @@ async def revoke_session_key(
     *,
     address: str,
     idempotency_key: str | None,
-) -> RevokeSessionKeyResult[GaslessTransactionHandle]:
+) -> RevokeSessionKeyResult:
     _assert_owner_deposit_wallet(ctx)
     _require_gasless_api_key(ctx)
     request = _parse_revoke_session_key_request(
@@ -293,17 +301,16 @@ async def revoke_session_key(
         parse=_RevokeSessionKeyResponse.parse_response,
     )
     _assert_revocation_accepted(response.status)
+    transaction = await GaslessTransactionHandle(
+        transaction_id=response.transaction_id,
+        transaction_hash=None,
+        _relayer=ctx.relayer,
+        _max_polls=ctx.environment_config.relayer_max_polls,
+        _poll_delay_s=ctx.environment_config.relayer_poll_frequency_ms / 1000,
+    ).wait()
     return RevokeSessionKeyResult(
         operation_id=response.operation_id,
-        status=response.status,
-        fenced=response.fenced,
-        transaction=GaslessTransactionHandle(
-            transaction_id=response.transaction_id,
-            transaction_hash=None,
-            _relayer=ctx.relayer,
-            _max_polls=ctx.environment_config.relayer_max_polls,
-            _poll_delay_s=ctx.environment_config.relayer_poll_frequency_ms / 1000,
-        ),
+        transaction=transaction,
     )
 
 
@@ -312,7 +319,7 @@ def revoke_session_key_sync(
     *,
     address: str,
     idempotency_key: str | None,
-) -> RevokeSessionKeyResult[SyncGaslessTransactionHandle]:
+) -> RevokeSessionKeyResult:
     _assert_owner_deposit_wallet(ctx)
     _require_gasless_api_key(ctx)
     request = _parse_revoke_session_key_request(
@@ -333,17 +340,16 @@ def revoke_session_key_sync(
         parse=_RevokeSessionKeyResponse.parse_response,
     )
     _assert_revocation_accepted(response.status)
+    transaction = SyncGaslessTransactionHandle(
+        transaction_id=response.transaction_id,
+        transaction_hash=None,
+        _relayer=ctx.relayer,
+        _max_polls=ctx.environment_config.relayer_max_polls,
+        _poll_delay_s=ctx.environment_config.relayer_poll_frequency_ms / 1000,
+    ).wait()
     return RevokeSessionKeyResult(
         operation_id=response.operation_id,
-        status=response.status,
-        fenced=response.fenced,
-        transaction=SyncGaslessTransactionHandle(
-            transaction_id=response.transaction_id,
-            transaction_hash=None,
-            _relayer=ctx.relayer,
-            _max_polls=ctx.environment_config.relayer_max_polls,
-            _poll_delay_s=ctx.environment_config.relayer_poll_frequency_ms / 1000,
-        ),
+        transaction=transaction,
     )
 
 
@@ -478,8 +484,8 @@ def _assert_authorization_accepted(status: _AuthorizeSessionSignerStatus) -> Non
         raise TransactionFailedError(f"Session-key authorization reached terminal status {status}")
 
 
-def _assert_revocation_accepted(status: SessionKeyRevocationStatus) -> None:
-    if status is SessionKeyRevocationStatus.FAILED:
+def _assert_revocation_accepted(status: _RevokeSessionSignerStatus) -> None:
+    if status is _RevokeSessionSignerStatus.FAILED:
         raise TransactionFailedError(f"Session-key revocation reached terminal status {status}")
 
 

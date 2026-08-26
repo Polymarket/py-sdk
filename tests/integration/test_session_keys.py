@@ -108,8 +108,7 @@ async def test_session_key_authorizes_lists_trades_and_revokes(
             )
             revocation_accepted = True
             assert revocation.operation_id
-            assert revocation.fenced is True
-            revocation_transaction = await revocation.transaction.wait()
+            revocation_transaction = revocation.transaction
             assert revocation_transaction.transaction_id is not None
             assert re.fullmatch(
                 r"0x[0-9a-fA-F]{64}",
@@ -130,8 +129,5 @@ async def test_session_key_authorizes_lists_trades_and_revokes(
     finally:
         if authorization_attempted and not revocation_accepted:
             with contextlib.suppress(Exception):
-                cleanup = await deposit_wallet_client.revoke_session_key(
-                    address=session_account.address
-                )
-                await cleanup.transaction.wait()
+                await deposit_wallet_client.revoke_session_key(address=session_account.address)
         await deposit_wallet_client.close()

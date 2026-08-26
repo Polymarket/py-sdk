@@ -33,14 +33,12 @@ from polymarket import (
     RevokeSessionKeyResult,
     SecureClient,
     SessionKeyKnownScope,
-    SessionKeyRevocationStatus,
     SessionKeyScope,
     TransactionFailedError,
     UnexpectedResponseError,
     UserInputError,
 )
 from polymarket.clients._transport import AsyncTransport, SyncTransport
-from polymarket.transactions import GaslessTransactionHandle, SyncGaslessTransactionHandle
 
 _AUTHORIZATIONS_PATH = "/v1/session-signers/authorizations"
 _EXECUTE_PARAMS_PATH = "/v1/account/transactions/params"
@@ -377,15 +375,10 @@ def test_authorize_session_key_sync_uses_default_scopes(authorization_status: st
 
 def _assert_fetch_and_revocation(
     session_keys: tuple[AuthorizedSessionKey, ...],
-    revocation: (
-        RevokeSessionKeyResult[GaslessTransactionHandle]
-        | RevokeSessionKeyResult[SyncGaslessTransactionHandle]
-    ),
+    revocation: RevokeSessionKeyResult,
     captured: list[httpx.Request],
     *,
     wallet: str,
-    expected_status: SessionKeyRevocationStatus = SessionKeyRevocationStatus.FENCED,
-    expected_fenced: bool = True,
 ) -> None:
     assert len(session_keys) == 1
     session_key = session_keys[0]
@@ -394,9 +387,7 @@ def _assert_fetch_and_revocation(
     assert session_key.valid_until == datetime.fromtimestamp(_LISTED_EXPIRY, tz=UTC)
 
     assert revocation.operation_id == _REVOCATION_OPERATION_ID
-    assert revocation.status is expected_status
-    assert revocation.fenced is expected_fenced
-    assert revocation.transaction.transaction_hash is None
+    assert revocation.transaction.transaction_hash == _TRANSACTION_HASH
     assert revocation.transaction.transaction_id == _REVOCATION_TRANSACTION_ID
 
     revocation_requests = [
@@ -419,7 +410,7 @@ def _assert_fetch_and_revocation(
     assert len(signature) == 2 + 65 * 2
 
     paths = [urlparse(str(request.url)).path for request in captured]
-    assert f"/v1/account/transactions/{_REVOCATION_TRANSACTION_ID}" not in paths
+    assert f"/v1/account/transactions/{_REVOCATION_TRANSACTION_ID}" in paths
 
 
 def test_fetch_and_revoke_session_key_async() -> None:
@@ -427,7 +418,7 @@ def test_fetch_and_revoke_session_key_async() -> None:
 
     async def run() -> tuple[
         tuple[AuthorizedSessionKey, ...],
-        RevokeSessionKeyResult[GaslessTransactionHandle],
+        RevokeSessionKeyResult,
         str,
     ]:
         client = await make_deposit_client()
@@ -481,8 +472,6 @@ def test_fetch_and_revoke_session_key_sync(revocation_status: str) -> None:
         revocation,
         captured,
         wallet=wallet,
-        expected_status=SessionKeyRevocationStatus(revocation_status),
-        expected_fenced=revocation_status != "PENDING",
     )
 
 
@@ -524,17 +513,24 @@ def test_revoke_session_key_sync_retries_the_exact_signed_payload() -> None:
     assert sum(urlparse(str(request.url)).path == _EXECUTE_PARAMS_PATH for request in captured) == 1
 
 
-def test_revoke_session_key_handle_can_wait_for_confirmation() -> None:
+def test_revoke_session_key_waits_for_confirmation_before_returning() -> None:
     captured: list[httpx.Request] = []
 
     with make_sync_deposit_client() as client:
         handler = _management_handler(captured, wallet=str(client.wallet))
         install_sync_relayer_handler(client, handler)
         revocation = client.revoke_session_key(address=_SESSION_ADDRESS)
-        transaction = revocation.transaction.wait()
 
-    assert transaction.transaction_id == _REVOCATION_TRANSACTION_ID
-    assert transaction.transaction_hash == _TRANSACTION_HASH
+    assert revocation.transaction.transaction_id == _REVOCATION_TRANSACTION_ID
+    assert revocation.transaction.transaction_hash == _TRANSACTION_HASH
+    assert (
+        sum(
+            urlparse(str(request.url)).path
+            == f"/v1/account/transactions/{_REVOCATION_TRANSACTION_ID}"
+            for request in captured
+        )
+        == 1
+    )
 
 
 def test_authorize_session_key_retries_transient_registry_read_failure() -> None:
