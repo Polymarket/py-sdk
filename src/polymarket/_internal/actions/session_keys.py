@@ -23,7 +23,6 @@ from polymarket._internal.actions.relayer.gasless import (
     build_signed_deposit_wallet_batch_sync,
 )
 from polymarket._internal.context import AsyncSecureClientContext, SyncSecureClientContext
-from polymarket._internal.wallet import is_deposit_wallet_owner
 from polymarket.auth import BuilderApiKey
 from polymarket.errors import (
     RateLimitError,
@@ -109,7 +108,7 @@ class _SessionKeyResponse(BaseModel):
         if not isinstance(value, list) or not value:
             raise ValueError("session key scopes must be a non-empty array")
         scopes = cast(list[object], value)
-        if any(not isinstance(scope, str) or not scope.strip() for scope in scopes):
+        if any(not isinstance(scope, str) or not scope for scope in scopes):
             raise ValueError("session key scopes must contain non-empty strings")
         return scopes
 
@@ -410,18 +409,13 @@ def _parse_scopes(scopes: object) -> tuple[SessionKeyScope, ...]:
     if not scopes:
         raise UserInputError("Session key scopes must be a non-empty sequence.")
     normalized: list[SessionKeyScope] = []
-    seen: set[str] = set()
     for scope in cast(Sequence[object], scopes):
-        if not isinstance(scope, str) or not scope.strip():
+        if not isinstance(scope, str) or not scope:
             raise UserInputError("Session key scopes must contain non-empty strings.")
-        canonical = scope.strip().upper()
         try:
-            normalized_scope: SessionKeyScope = SessionKeyKnownScope(canonical)
+            normalized_scope: SessionKeyScope = SessionKeyKnownScope(scope)
         except ValueError:
-            normalized_scope = canonical
-        if canonical in seen:
-            continue
-        seen.add(canonical)
+            normalized_scope = scope
         normalized.append(normalized_scope)
 
     if SessionKeyKnownScope.ALL in normalized and any(
@@ -453,12 +447,7 @@ def _parse_idempotency_key(idempotency_key: object) -> str:
 def _assert_owner_deposit_wallet(ctx: _SecureContext) -> None:
     if ctx.wallet_type != "DEPOSIT_WALLET":
         raise UserInputError("Session keys can only be managed for a Deposit Wallet.")
-    if not is_deposit_wallet_owner(
-        signer=ctx.signer.address,
-        wallet=str(ctx.wallet),
-        wallet_type=ctx.wallet_type,
-        config=ctx.environment_config.wallet_derivation,
-    ):
+    if ctx.signer_type != "OWNER":
         raise UserInputError("Session keys can only be managed by the Deposit Wallet owner.")
 
 
@@ -606,11 +595,10 @@ def _build_session_keys(
 
 
 def _normalize_response_scope(scope: str) -> SessionKeyScope:
-    canonical = scope.strip().upper()
     try:
-        return SessionKeyKnownScope(canonical)
+        return SessionKeyKnownScope(scope)
     except ValueError:
-        return canonical
+        return scope
 
 
 async def _wait_for_authorized_session_key(

@@ -123,17 +123,12 @@ def _make_client() -> SecureClient:
 def _make_session_client() -> SecureClient:
     owner = Account.from_key(PRIVATE_KEY)
     wallet = derive_uups_deposit_wallet_address(owner.address, PRODUCTION_CONFIG.wallet_derivation)
-    client = SecureClient._create(
-        private_key=PRIVATE_KEY,
+    return SecureClient._create(
+        private_key=SESSION_PRIVATE_KEY,
         wallet=wallet,
         credentials=FAKE_CREDS,
         validate_credentials=False,
     )
-    client._ctx = dataclasses.replace(
-        client._ctx,
-        signer=Account.from_key(SESSION_PRIVATE_KEY),
-    )
-    return client
 
 
 def test_create_limit_order_signs_and_returns_signed_order() -> None:
@@ -158,6 +153,7 @@ def test_session_client_wraps_limit_order_signature_for_the_deposit_wallet() -> 
     session_address = Account.from_key(SESSION_PRIVATE_KEY).address
 
     with _make_session_client() as client:
+        assert client._ctx.signer_type == "SESSION_KEY"
         _install_clob(client, _routed_handler(public_captured, _public_routes()))
         signed = client.create_limit_order(
             token_id="8501497",

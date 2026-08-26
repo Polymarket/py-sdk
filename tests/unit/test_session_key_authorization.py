@@ -20,7 +20,9 @@ from _relayer_helpers import (
     install_relayer_routes,
     install_sync_relayer_handler,
     make_deposit_client,
+    make_session_client,
     make_sync_deposit_client,
+    make_sync_session_client,
     request_json,
 )
 from eth_account import Account
@@ -52,6 +54,7 @@ _REVOCATION_TRANSACTION_ID = "tx-session-key-revocation"
 _REVOCATION_OPERATION_ID = "op-session-key-revocation"
 _NEWER_SCOPE = "NEWER_SCOPE"
 _LISTED_EXPIRY = 1_900_000_000
+_SESSION_SIGNER_MAGIC_HEX = "6492" * 16
 
 
 def _authorization_handler(
@@ -103,7 +106,7 @@ def _authorization_handler(
             assert isinstance(address, str)
             assert isinstance(scopes, list)
             assert isinstance(valid_until, str)
-            listed_scopes = list(dict.fromkeys(cast(list[str], scopes)))
+            listed_scopes = list(cast(list[str], scopes))
             return httpx.Response(
                 200,
                 json={
@@ -248,7 +251,7 @@ def _assert_authorization_result_and_request(
     assert len(signature) == 2 + 65 * 2
 
 
-def test_authorize_session_key_async_normalizes_and_submits_request() -> None:
+def test_authorize_session_key_async_preserves_scopes_and_submits_request() -> None:
     captured: list[httpx.Request] = []
     requested_expiry = datetime.now(UTC) + timedelta(minutes=15, microseconds=123_456)
 
@@ -266,6 +269,7 @@ def test_authorize_session_key_async_normalizes_and_submits_request() -> None:
                     SessionKeyKnownScope.COMBOSRFQ,
                     " clob ",
                     _NEWER_SCOPE,
+                    _NEWER_SCOPE,
                     SessionKeyKnownScope.CLOB,
                 ),
                 valid_until=requested_expiry,
@@ -280,13 +284,19 @@ def test_authorize_session_key_async_normalizes_and_submits_request() -> None:
         result,
         captured,
         expected_request_scopes=(
-            _NEWER_SCOPE,
+            f" {_NEWER_SCOPE.lower()} ",
             SessionKeyKnownScope.COMBOSRFQ,
+            " clob ",
+            _NEWER_SCOPE,
+            _NEWER_SCOPE,
             SessionKeyKnownScope.CLOB,
         ),
         expected_session_scopes=(
-            _NEWER_SCOPE,
+            f" {_NEWER_SCOPE.lower()} ",
             SessionKeyKnownScope.COMBOSRFQ,
+            " clob ",
+            _NEWER_SCOPE,
+            _NEWER_SCOPE,
             SessionKeyKnownScope.CLOB,
         ),
         requested_expiry=requested_expiry,
@@ -383,7 +393,7 @@ def _assert_fetch_and_revocation(
     assert len(session_keys) == 1
     session_key = session_keys[0]
     assert session_key.address.lower() == _SESSION_ADDRESS.lower()
-    assert session_key.scopes == (SessionKeyKnownScope.CLOB, _NEWER_SCOPE)
+    assert session_key.scopes == ("clob", f" {_NEWER_SCOPE.lower()} ")
     assert session_key.valid_until == datetime.fromtimestamp(_LISTED_EXPIRY, tz=UTC)
 
     assert revocation.operation_id == _REVOCATION_OPERATION_ID
@@ -762,12 +772,12 @@ def test_revoke_session_key_rejects_unknown_response_status() -> None:
             client.revoke_session_key(address=_SESSION_ADDRESS)
 
 
-def test_session_signer_rejects_unsupported_gasless_wallet_action() -> None:
+def test_session_signer_wraps_gasless_wallet_action_signature() -> None:
     captured: list[httpx.Request] = []
 
     async def run() -> None:
-        client = await make_deposit_client()
-        client._ctx = dataclasses.replace(client._ctx, signer=_SESSION_ACCOUNT)
+        client = await make_session_client()
+        assert client._ctx.signer_type == "SESSION_KEY"
         install_relayer_routes(
             client,
             captured,
@@ -781,40 +791,59 @@ def test_session_signer_rejects_unsupported_gasless_wallet_action() -> None:
             },
         )
         try:
-            with pytest.raises(
-                UserInputError,
-                match=r"^Gasless wallet actions are not supported with Session Keys$",
-            ):
-                await client.approve_erc20(
-                    token_address=TOKEN,
-                    spender_address=SPENDER,
-                    amount=1,
-                )
-        finally:
-            await client.close()
-
-    asyncio.run(run())
-    assert captured == []
-
-
-def test_session_signer_rejects_unsupported_gasless_wallet_action_sync() -> None:
-    captured: list[httpx.Request] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured.append(request)
-        return httpx.Response(500, json={"error": "unexpected request"}, request=request)
-
-    with make_sync_deposit_client() as client:
-        client._ctx = dataclasses.replace(client._ctx, signer=_SESSION_ACCOUNT)
-        install_sync_relayer_handler(client, handler)
-        with pytest.raises(
-            UserInputError,
-            match=r"^Gasless wallet actions are not supported with Session Keys$",
-        ):
-            client.approve_erc20(
+            await client.approve_erc20(
                 token_address=TOKEN,
                 spender_address=SPENDER,
                 amount=1,
             )
+        finally:
+            await client.close()
 
-    assert captured == []
+    asyncio.run(run())
+    submit = next(request for request in captured if urlparse(str(request.url)).path == "/submit")
+    body = cast(dict[str, object], request_json(submit))
+    signature = body["signature"]
+    assert isinstance(signature, str)
+    assert signature.startswith("0x" + _SESSION_ADDRESS[2:].lower().rjust(64, "0"))
+    assert signature.endswith(_SESSION_SIGNER_MAGIC_HEX)
+
+
+def test_session_signer_wraps_gasless_wallet_action_signature_sync() -> None:
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        path = urlparse(str(request.url)).path
+        if path == _EXECUTE_PARAMS_PATH:
+            return httpx.Response(
+                200,
+                json={"address": _SESSION_ADDRESS, "nonce": "11"},
+                request=request,
+            )
+        if path == "/submit":
+            return httpx.Response(
+                200,
+                json={
+                    "state": "STATE_NEW",
+                    "transactionHash": None,
+                    "transactionID": "tx-gasless-sync",
+                },
+                request=request,
+            )
+        return httpx.Response(404, json={"error": "not mocked"}, request=request)
+
+    with make_sync_session_client() as client:
+        assert client._ctx.signer_type == "SESSION_KEY"
+        install_sync_relayer_handler(client, handler)
+        client.approve_erc20(
+            token_address=TOKEN,
+            spender_address=SPENDER,
+            amount=1,
+        )
+
+    submit = next(request for request in captured if urlparse(str(request.url)).path == "/submit")
+    body = cast(dict[str, object], request_json(submit))
+    signature = body["signature"]
+    assert isinstance(signature, str)
+    assert signature.startswith("0x" + _SESSION_ADDRESS[2:].lower().rjust(64, "0"))
+    assert signature.endswith(_SESSION_SIGNER_MAGIC_HEX)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Literal, TypeAlias, cast
 
 from eth_abi.abi import encode as abi_encode
@@ -17,6 +18,14 @@ from polymarket.errors import UserInputError
 from polymarket.types import EvmAddress, HexString
 
 WalletType: TypeAlias = Literal["EOA", "POLY_PROXY", "GNOSIS_SAFE", "DEPOSIT_WALLET"]
+SignerType: TypeAlias = Literal["OWNER", "SESSION_KEY"]
+
+
+@dataclass(frozen=True, slots=True)
+class AccountClassification:
+    signer_type: SignerType
+    wallet_type: WalletType
+
 
 _SIGNATURE_TYPE_BY_WALLET: dict[WalletType, int] = {
     "EOA": 0,
@@ -139,13 +148,19 @@ def derive_current_deposit_wallet_address_sync(
 
 
 def classify_wallet_type(*, signer: str, wallet: str, config: WalletDerivationConfig) -> WalletType:
+    return classify_account(signer=signer, wallet=wallet, config=config).wallet_type
+
+
+def classify_account(
+    *, signer: str, wallet: str, config: WalletDerivationConfig
+) -> AccountClassification:
     wallet_type = try_classify_wallet_type(signer=signer, wallet=wallet, config=config)
     if wallet_type is not None:
-        return wallet_type
+        return AccountClassification(signer_type="OWNER", wallet_type=wallet_type)
 
     # TEMP: Default to the Deposit Wallet session-signature path when the
     # wallet cannot be derived from the signer, to support session keys.
-    return "DEPOSIT_WALLET"
+    return AccountClassification(signer_type="SESSION_KEY", wallet_type="DEPOSIT_WALLET")
 
 
 def try_classify_wallet_type(
@@ -174,29 +189,14 @@ def try_classify_wallet_type(
     return None
 
 
-def is_deposit_wallet_owner(
-    *, signer: str, wallet: str, wallet_type: WalletType, config: WalletDerivationConfig
-) -> bool:
-    if wallet_type != "DEPOSIT_WALLET":
-        return False
-    wallet_lower = wallet.lower()
-    return wallet_lower in {
-        derive_beacon_deposit_wallet_address(signer, config).lower(),
-        derive_uups_deposit_wallet_address(signer, config).lower(),
-    }
-
-
-def resolve_deposit_wallet_session_signer(
-    *, signer: str, wallet: str, wallet_type: WalletType, config: WalletDerivationConfig
-) -> EvmAddress | None:
-    if wallet_type != "DEPOSIT_WALLET" or is_deposit_wallet_owner(
-        signer=signer,
-        wallet=wallet,
-        wallet_type=wallet_type,
-        config=config,
-    ):
-        return None
-    return EvmAddress(to_checksum_address(signer))
+def wrap_deposit_wallet_signature(
+    *, signer: str, signer_type: SignerType, signature: HexString
+) -> HexString:
+    if signer_type == "OWNER":
+        return signature
+    return wrap_deposit_wallet_session_signer_signature(
+        EvmAddress(to_checksum_address(signer)), signature
+    )
 
 
 def wrap_deposit_wallet_session_signer_signature(
@@ -264,7 +264,10 @@ def _strip_0x(value: str) -> str:
 
 
 __all__ = [
+    "AccountClassification",
+    "SignerType",
     "WalletType",
+    "classify_account",
     "classify_wallet_type",
     "derive_beacon_deposit_wallet_address",
     "derive_current_deposit_wallet_address",
@@ -274,11 +277,10 @@ __all__ = [
     "derive_uups_deposit_wallet_address",
     "get_deposit_wallet_factory_beacon",
     "get_deposit_wallet_factory_beacon_sync",
-    "is_deposit_wallet_owner",
     "is_beacon_deposit_wallet_factory",
     "is_beacon_deposit_wallet_factory_sync",
-    "resolve_deposit_wallet_session_signer",
     "signature_type_for",
     "try_classify_wallet_type",
+    "wrap_deposit_wallet_signature",
     "wrap_deposit_wallet_session_signer_signature",
 ]

@@ -35,9 +35,7 @@ from polymarket._internal.actions.relayer.submit import (
 )
 from polymarket._internal.context import AsyncSecureClientContext, SyncSecureClientContext
 from polymarket._internal.environment import PRODUCTION_CONFIG
-from polymarket._internal.wallet import (
-    resolve_deposit_wallet_session_signer,
-)
+from polymarket._internal.wallet import wrap_deposit_wallet_signature
 from polymarket.errors import RequestRejectedError, UserInputError
 from polymarket.models.clob.relayer import (
     RelayerExecuteResponse,
@@ -61,9 +59,6 @@ class SignedDepositWalletBatch:
     nonce: str
     deadline: str
     signature: HexString
-
-
-_SecureContext = AsyncSecureClientContext | SyncSecureClientContext
 
 
 async def prepare_gasless_transaction(
@@ -162,7 +157,6 @@ async def build_signed_deposit_wallet_payload(
     metadata: str,
     nonce: str | None = None,
 ) -> RelayerEnvelope:
-    _assert_deposit_wallet_gasless_supported(ctx)
     batch = await build_signed_deposit_wallet_batch(ctx, calls=calls, nonce=nonce)
     return build_deposit_wallet_payload(
         signer_address=ctx.signer.address,
@@ -196,6 +190,11 @@ async def build_signed_deposit_wallet_batch(
         deadline=deadline,
         chain_id=ctx.environment_config.chain_id,
     )
+    signature = wrap_deposit_wallet_signature(
+        signer=ctx.signer.address,
+        signer_type=ctx.signer_type,
+        signature=signature,
+    )
     return SignedDepositWalletBatch(
         nonce=nonce,
         deadline=deadline,
@@ -208,19 +207,6 @@ async def _deposit_wallet_deadline(ctx: AsyncSecureClientContext) -> str:
     if ctx.environment_config.rpc_url != PRODUCTION_CONFIG.rpc_url:
         timestamp = max(timestamp, await ctx.rpc.eth_get_latest_block_timestamp())
     return str(timestamp + _DEPOSIT_WALLET_DEADLINE_S)
-
-
-def _assert_deposit_wallet_gasless_supported(ctx: _SecureContext) -> None:
-    if (
-        resolve_deposit_wallet_session_signer(
-            signer=ctx.signer.address,
-            wallet=str(ctx.wallet),
-            wallet_type=ctx.wallet_type,
-            config=ctx.environment_config.wallet_derivation,
-        )
-        is not None
-    ):
-        raise UserInputError("Gasless wallet actions are not supported with Session Keys")
 
 
 def build_deposit_wallet_payload(
@@ -551,7 +537,6 @@ def build_signed_deposit_wallet_payload_sync(
     metadata: str,
     nonce: str | None = None,
 ) -> RelayerEnvelope:
-    _assert_deposit_wallet_gasless_supported(ctx)
     batch = build_signed_deposit_wallet_batch_sync(ctx, calls=calls, nonce=nonce)
     return build_deposit_wallet_payload(
         signer_address=ctx.signer.address,
@@ -584,6 +569,11 @@ def build_signed_deposit_wallet_batch_sync(
         nonce=nonce,
         deadline=deadline,
         chain_id=ctx.environment_config.chain_id,
+    )
+    signature = wrap_deposit_wallet_signature(
+        signer=ctx.signer.address,
+        signer_type=ctx.signer_type,
+        signature=signature,
     )
     return SignedDepositWalletBatch(
         nonce=nonce,

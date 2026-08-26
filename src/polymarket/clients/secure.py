@@ -127,12 +127,13 @@ from polymarket._internal.eoa.rpc import SyncJsonRpcClient
 from polymarket._internal.hmac import build_hmac_signature
 from polymarket._internal.l1_auth import sign_api_key_auth
 from polymarket._internal.wallet import (
+    SignerType,
     WalletType,
-    classify_wallet_type,
+    classify_account,
     derive_beacon_deposit_wallet_address,
     derive_uups_deposit_wallet_address,
-    resolve_deposit_wallet_session_signer,
     signature_type_for,
+    wrap_deposit_wallet_signature,
 )
 from polymarket.auth import ApiKey, BuilderApiKey
 from polymarket.clients._transport import SyncHeaderResolver, SyncTransport
@@ -358,7 +359,7 @@ class SecureClient:
             config=config,
             logger=logger,
         )
-        wallet_type = classify_wallet_type(
+        account = classify_account(
             signer=signer.address,
             wallet=resolved_wallet,
             config=config.wallet_derivation,
@@ -381,7 +382,8 @@ class SecureClient:
         return cls._construct_for_wallet(
             signer=signer,
             wallet=resolved_wallet,
-            wallet_type=wallet_type,
+            wallet_type=account.wallet_type,
+            signer_type=account.signer_type,
             environment=environment,
             config=config,
             credentials=resolved_credentials,
@@ -397,6 +399,7 @@ class SecureClient:
         signer: LocalAccount,
         wallet: str,
         wallet_type: WalletType,
+        signer_type: SignerType,
         environment: Environment,
         config: EnvironmentConfig,
         credentials: ApiKeyCreds,
@@ -469,6 +472,7 @@ class SecureClient:
             secure_clob=secure_clob,
             wallet=branded_wallet,
             wallet_type=wallet_type,
+            signer_type=signer_type,
             relayer=relayer,
             combos=combos,
             builder_gateway=builder_gateway,
@@ -2127,15 +2131,10 @@ class SecureClient:
             raise SigningError(f"Failed to sign order: {error}") from error
         raw_hex = signed_message.signature.hex()
         signature_hex = HexString(raw_hex if raw_hex.startswith("0x") else "0x" + raw_hex)
-        final_signature = build_order_signature(
-            unsigned,
-            signature_hex,
-            session_signer=resolve_deposit_wallet_session_signer(
-                signer=self._ctx.signer.address,
-                wallet=str(self._ctx.wallet),
-                wallet_type=self._ctx.wallet_type,
-                config=self._ctx.environment_config.wallet_derivation,
-            ),
+        final_signature = wrap_deposit_wallet_signature(
+            signer=self._ctx.signer.address,
+            signer_type=self._ctx.signer_type,
+            signature=build_order_signature(unsigned, signature_hex),
         )
         return create_signed_order(unsigned, final_signature, post_only=post_only)
 

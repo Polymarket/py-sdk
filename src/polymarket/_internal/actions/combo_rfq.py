@@ -21,10 +21,7 @@ from polymarket._internal.actions.orders.typed_data import (
 )
 from polymarket._internal.actions.orders.types import BYTES32_ZERO, UnsignedOrder
 from polymarket._internal.context import AsyncSecureClientContext, SyncSecureClientContext
-from polymarket._internal.wallet import (
-    resolve_deposit_wallet_session_signer,
-    signature_type_for,
-)
+from polymarket._internal.wallet import signature_type_for
 from polymarket.auth import BuilderApiKey
 from polymarket.errors import (
     RequestRejectedError,
@@ -823,15 +820,7 @@ def _expect_int(payload: dict[str, object], key: str) -> int:
 
 
 def assert_combos_supported(ctx: _SecureContext) -> None:
-    if (
-        resolve_deposit_wallet_session_signer(
-            signer=ctx.signer.address,
-            wallet=str(ctx.wallet),
-            wallet_type=ctx.wallet_type,
-            config=ctx.environment_config.wallet_derivation,
-        )
-        is not None
-    ):
+    if ctx.signer_type == "SESSION_KEY":
         raise UserInputError("Combos is not supported with Session Keys")
 
 

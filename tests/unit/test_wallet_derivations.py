@@ -1,5 +1,6 @@
 from polymarket._internal.environment import PRODUCTION_CONFIG
 from polymarket._internal.wallet import (
+    classify_account,
     classify_wallet_type,
     derive_beacon_deposit_wallet_address,
     derive_proxy_wallet_address,
@@ -94,11 +95,12 @@ def test_classify_wallet_type_is_case_insensitive() -> None:
     assert result == "DEPOSIT_WALLET"
 
 
-def test_classify_wallet_type_treats_unrelated_wallet_as_session_key_wallet() -> None:
-    result = classify_wallet_type(
+def test_classify_account_treats_unrelated_wallet_as_session_key_wallet() -> None:
+    result = classify_account(
         signer=SIGNER,
         wallet="0x0000000000000000000000000000000000000002",
         config=PRODUCTION_CONFIG.wallet_derivation,
     )
 
-    assert result == "DEPOSIT_WALLET"
+    assert result.wallet_type == "DEPOSIT_WALLET"
+    assert result.signer_type == "SESSION_KEY"

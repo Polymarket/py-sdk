@@ -8,6 +8,7 @@ from polymarket._internal.actions.orders.typed_data import (
     build_order_typed_data,
 )
 from polymarket._internal.actions.orders.types import BYTES32_ZERO, UnsignedOrder
+from polymarket._internal.wallet import wrap_deposit_wallet_signature
 from polymarket.models.types import TokenId
 from polymarket.types import EvmAddress, HexString
 
@@ -101,13 +102,13 @@ def test_build_order_signature_appends_erc7739_trailer_for_1271() -> None:
     assert len(result) == expected_len
 
 
-def test_build_order_signature_wraps_erc7739_signature_for_session_signer() -> None:
+def test_wrap_deposit_wallet_signature_wraps_erc7739_order_signature() -> None:
     order = _fixture(signature_type=3)
     owner_signature = build_order_signature(order, EVM_SIGNATURE)
-    result = build_order_signature(
-        order,
-        EVM_SIGNATURE,
-        session_signer=SESSION_SIGNER_ADDRESS,
+    result = wrap_deposit_wallet_signature(
+        signer=SESSION_SIGNER_ADDRESS,
+        signer_type="SESSION_KEY",
+        signature=owner_signature,
     )
 
     raw = bytes.fromhex(result.removeprefix("0x"))
