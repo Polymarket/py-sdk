@@ -63,6 +63,7 @@ class SyncTransport:
         self._logger = logger
         self._header_resolver = header_resolver
         self._on_rate_limit_update = on_rate_limit_update
+        self._base_url = base_url
 
     def get_json(
         self,
@@ -150,7 +151,7 @@ class SyncTransport:
         try:
             response = self._client.request(
                 method,
-                path,
+                self._base_url if path == "" else path,
                 params=_clean_params(params),
                 content=content,
                 headers=merged_headers or None,
@@ -189,6 +190,7 @@ class AsyncTransport:
         self._logger = logger
         self._header_resolver = header_resolver
         self._on_rate_limit_update = on_rate_limit_update
+        self._base_url = base_url
 
     async def get_json(
         self,
@@ -287,7 +289,7 @@ class AsyncTransport:
         try:
             response = await self._client.request(
                 method,
-                path,
+                self._base_url if path == "" else path,
                 params=_clean_params(params),
                 content=content,
                 headers=merged_headers or None,

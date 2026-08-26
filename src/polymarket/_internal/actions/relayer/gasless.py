@@ -34,6 +34,7 @@ from polymarket._internal.actions.relayer.submit import (
     submit_gasless_sync,
 )
 from polymarket._internal.context import AsyncSecureClientContext, SyncSecureClientContext
+from polymarket._internal.environment import PRODUCTION_CONFIG
 from polymarket._internal.wallet import (
     resolve_deposit_wallet_session_signer,
 )
@@ -186,7 +187,7 @@ async def build_signed_deposit_wallet_batch(
             ctx.relayer, address=ctx.signer.address, type=RelayerTransactionType.WALLET
         )
         nonce = params.nonce
-    deadline = str(int(time.time()) + _DEPOSIT_WALLET_DEADLINE_S)
+    deadline = await _deposit_wallet_deadline(ctx)
     signature = sign_deposit_wallet_batch(
         ctx.signer,
         wallet=ctx.wallet,
@@ -200,6 +201,13 @@ async def build_signed_deposit_wallet_batch(
         deadline=deadline,
         signature=signature,
     )
+
+
+async def _deposit_wallet_deadline(ctx: AsyncSecureClientContext) -> str:
+    timestamp = int(time.time())
+    if ctx.environment_config.rpc_url != PRODUCTION_CONFIG.rpc_url:
+        timestamp = max(timestamp, await ctx.rpc.eth_get_latest_block_timestamp())
+    return str(timestamp + _DEPOSIT_WALLET_DEADLINE_S)
 
 
 def _assert_deposit_wallet_gasless_supported(ctx: _SecureContext) -> None:
@@ -568,7 +576,7 @@ def build_signed_deposit_wallet_batch_sync(
             ctx.relayer, address=ctx.signer.address, type=RelayerTransactionType.WALLET
         )
         nonce = params.nonce
-    deadline = str(int(time.time()) + _DEPOSIT_WALLET_DEADLINE_S)
+    deadline = _deposit_wallet_deadline_sync(ctx)
     signature = sign_deposit_wallet_batch(
         ctx.signer,
         wallet=ctx.wallet,
@@ -582,6 +590,13 @@ def build_signed_deposit_wallet_batch_sync(
         deadline=deadline,
         signature=signature,
     )
+
+
+def _deposit_wallet_deadline_sync(ctx: SyncSecureClientContext) -> str:
+    timestamp = int(time.time())
+    if ctx.environment_config.rpc_url != PRODUCTION_CONFIG.rpc_url:
+        timestamp = max(timestamp, ctx.rpc.eth_get_latest_block_timestamp())
+    return str(timestamp + _DEPOSIT_WALLET_DEADLINE_S)
 
 
 def build_signed_proxy_payload_sync(
