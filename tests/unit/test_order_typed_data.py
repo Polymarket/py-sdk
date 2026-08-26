@@ -1,15 +1,20 @@
 import dataclasses
+from typing import cast
+
+from eth_abi.abi import decode as abi_decode
 
 from polymarket._internal.actions.orders.typed_data import (
     build_order_signature,
     build_order_typed_data,
 )
 from polymarket._internal.actions.orders.types import BYTES32_ZERO, UnsignedOrder
+from polymarket._internal.wallet import wrap_deposit_wallet_signature
 from polymarket.models.types import TokenId
 from polymarket.types import EvmAddress, HexString
 
 EXCHANGE_ADDRESS = EvmAddress("0x4bfb41d5b3570defd03c39a9a4d8de6bd8b8982e")
 DEPOSIT_WALLET_ADDRESS = EvmAddress("0x57ffbc34de23124faeb8387fcd689d314e57accd")
+SESSION_SIGNER_ADDRESS = EvmAddress("0x000000000000000000000000000000000000dEaD")
 EVM_SIGNATURE = HexString(
     "0x111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111b"
 )
@@ -18,6 +23,7 @@ ORDER_TYPE_STRING = (
     "uint256 makerAmount,uint256 takerAmount,uint8 side,uint8 signatureType,"
     "uint256 timestamp,bytes32 metadata,bytes32 builder)"
 )
+SESSION_SIGNER_MAGIC_BYTES = bytes.fromhex("6492" * 16)
 
 
 def _fixture(signature_type: int) -> UnsignedOrder:
@@ -94,3 +100,23 @@ def test_build_order_signature_appends_erc7739_trailer_for_1271() -> None:
     assert result.endswith(contents_type_hex + contents_type_length)
     expected_len = 2 + 65 * 2 + 32 * 2 + 32 * 2 + len(ORDER_TYPE_STRING) * 2 + 2 * 2
     assert len(result) == expected_len
+
+
+def test_wrap_deposit_wallet_signature_wraps_erc7739_order_signature() -> None:
+    order = _fixture(signature_type=3)
+    owner_signature = build_order_signature(order, EVM_SIGNATURE)
+    result = wrap_deposit_wallet_signature(
+        signer=SESSION_SIGNER_ADDRESS,
+        signer_type="SESSION_KEY",
+        signature=owner_signature,
+    )
+
+    raw = bytes.fromhex(result.removeprefix("0x"))
+    assert raw[-32:] == SESSION_SIGNER_MAGIC_BYTES
+    signer_id, salt, wrapped_signature = cast(
+        tuple[bytes, bytes, bytes],
+        abi_decode(["bytes32", "bytes32", "bytes"], raw[:-32]),
+    )
+    assert signer_id == bytes.fromhex(SESSION_SIGNER_ADDRESS[2:]).rjust(32, b"\x00")
+    assert salt == b"\x00" * 32
+    assert wrapped_signature == bytes.fromhex(owner_signature.removeprefix("0x"))

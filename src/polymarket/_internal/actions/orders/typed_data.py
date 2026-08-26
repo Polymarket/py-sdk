@@ -96,18 +96,26 @@ def build_order_typed_data(
 
 
 def build_order_signature(
-    order: UnsignedOrder, signature: HexString, *, protocol_version: str = _PROTOCOL_VERSION
+    order: UnsignedOrder,
+    signature: HexString,
+    *,
+    protocol_version: str = _PROTOCOL_VERSION,
 ) -> HexString:
-    if order.signature_type != _POLY_1271_SIGNATURE_TYPE:
-        return signature
-    app_domain_separator = _app_domain_separator(order, protocol_version=protocol_version)
-    contents_hash = _order_contents_hash(order)
-    contents_type = _ORDER_TYPE_STRING.encode("utf-8").hex()
-    contents_type_length = f"{len(_ORDER_TYPE_STRING):04x}"
-    trailer = (
-        _strip_0x(app_domain_separator) + contents_hash.hex() + contents_type + contents_type_length
-    )
-    return HexString(signature + trailer)
+    order_signature = signature
+    if order.signature_type == _POLY_1271_SIGNATURE_TYPE:
+        app_domain_separator = _app_domain_separator(order, protocol_version=protocol_version)
+        contents_hash = _order_contents_hash(order)
+        contents_type = _ORDER_TYPE_STRING.encode("utf-8").hex()
+        contents_type_length = f"{len(_ORDER_TYPE_STRING):04x}"
+        trailer = (
+            _strip_0x(app_domain_separator)
+            + contents_hash.hex()
+            + contents_type
+            + contents_type_length
+        )
+        order_signature = HexString(signature + trailer)
+
+    return order_signature
 
 
 def _build_standard_typed_data(order: UnsignedOrder, *, protocol_version: str) -> dict[str, Any]:

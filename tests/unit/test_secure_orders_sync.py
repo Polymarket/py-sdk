@@ -8,17 +8,22 @@ from urllib.parse import urlparse
 
 import httpx
 import pytest
+from eth_account import Account
 
 from polymarket import ApiKeyCreds, SecureClient
+from polymarket._internal.environment import PRODUCTION_CONFIG
+from polymarket._internal.wallet import derive_uups_deposit_wallet_address
 from polymarket.clients._transport import SyncTransport
 from polymarket.errors import RequestRejectedError, UserInputError
 from polymarket.models.clob.order_response import AcceptedOrder
 from polymarket.models.types import TokenId
 
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+SESSION_PRIVATE_KEY = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 SIGNER_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 FAKE_CREDS = ApiKeyCreds(key="test-key", passphrase="test-passphrase", secret="dGVzdA==")
 _CONDITION_ID = "0x5c19f205507ce03ff5f3be08a8090a5969ea6870cc07b902a4ca2e61dfe48fdd"
+_SESSION_SIGNER_MAGIC_HEX = "6492" * 16
 
 
 def _public_routes() -> dict[str, Any]:
@@ -115,6 +120,17 @@ def _make_client() -> SecureClient:
     )
 
 
+def _make_session_client() -> SecureClient:
+    owner = Account.from_key(PRIVATE_KEY)
+    wallet = derive_uups_deposit_wallet_address(owner.address, PRODUCTION_CONFIG.wallet_derivation)
+    return SecureClient._create(
+        private_key=SESSION_PRIVATE_KEY,
+        wallet=wallet,
+        credentials=FAKE_CREDS,
+        validate_credentials=False,
+    )
+
+
 def test_create_limit_order_signs_and_returns_signed_order() -> None:
     public_captured: list[httpx.Request] = []
     secure_captured: list[httpx.Request] = []
@@ -130,6 +146,28 @@ def test_create_limit_order_signs_and_returns_signed_order() -> None:
     assert signed.taker_amount == 10_000_000
     assert signed.order_type == "GTC"
     assert signed.post_only is False
+
+
+def test_session_client_wraps_limit_order_signature_for_the_deposit_wallet() -> None:
+    public_captured: list[httpx.Request] = []
+    session_address = Account.from_key(SESSION_PRIVATE_KEY).address
+
+    with _make_session_client() as client:
+        assert client._ctx.signer_type == "SESSION_KEY"
+        _install_clob(client, _routed_handler(public_captured, _public_routes()))
+        signed = client.create_limit_order(
+            token_id="8501497",
+            price="0.5",
+            size="10",
+            side="BUY",
+        )
+        wallet = str(client.wallet)
+
+    expected_signer_id = session_address[2:].lower().rjust(64, "0")
+    assert signed.signature.startswith("0x" + expected_signer_id)
+    assert signed.signature.endswith(_SESSION_SIGNER_MAGIC_HEX)
+    assert signed.signature_type == 3
+    assert signed.signer.lower() == wallet.lower()
 
 
 def test_limit_and_protected_market_orders_reuse_cached_metadata() -> None:
