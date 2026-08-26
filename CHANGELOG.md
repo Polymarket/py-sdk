@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.7.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.6.0...polymarket-client-v0.7.0) (2026-08-26)
+
+
+### Features
+
+* add scoped session keys ([#276](https://github.com/Polymarket/py-sdk/issues/276)) ([aca3b8f](https://github.com/Polymarket/py-sdk/commit/aca3b8fc7bc9a486d8dbc9ca9faaafacca4ed5ef))
+* **errors:** expose typed trading restrictions for engine restarts and restricted modes ([#214](https://github.com/Polymarket/py-sdk/issues/214)) ([c8fb84b](https://github.com/Polymarket/py-sdk/commit/c8fb84bb51e60f790239056be7be0f5cc337d2e0))
+* expose trading approvals state (DEV-565) ([#262](https://github.com/Polymarket/py-sdk/issues/262)) ([1f1bd63](https://github.com/Polymarket/py-sdk/commit/1f1bd63e32351819c89414c76e41b0490cd444c2))
+* **models:** type notification payloads per notification kind ([fcace0e](https://github.com/Polymarket/py-sdk/commit/fcace0e6bd4c5388a3656a11700df70c1510a6ca))
+* surface Poly-RateLimit state on rate-limit errors and via on_rate_limit_update ([#221](https://github.com/Polymarket/py-sdk/issues/221)) ([9fec251](https://github.com/Polymarket/py-sdk/commit/9fec25132d0b98525580650b3089946d3803e7d5))
+
+
+### Bug Fixes
+
+* **ci:** resolve release in explicit repository ([#267](https://github.com/Polymarket/py-sdk/issues/267)) ([075b848](https://github.com/Polymarket/py-sdk/commit/075b84864511f23b6ac93f0ac74fdd659abebfe3))
+* **models:** align notification payload contracts ([54d5bc7](https://github.com/Polymarket/py-sdk/commit/54d5bc71b6e4953dc0f3388824b2e86430aabde9))
+
 ## [0.6.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.5.0...polymarket-client-v0.6.0) (2026-08-13)
 
 
