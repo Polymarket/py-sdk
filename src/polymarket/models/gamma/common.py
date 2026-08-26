@@ -244,6 +244,7 @@ class Team(BaseModel):
     updated_at: datetime | None = Field(default=None, validation_alias="updatedAt")
     provider_id: int | None = Field(default=None, validation_alias="providerId")
     color: str | None = None
+    ordering: str | None = None
 
     @field_validator("created_at", "updated_at", mode="before")
     @classmethod

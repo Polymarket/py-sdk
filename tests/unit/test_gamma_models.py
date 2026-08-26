@@ -288,7 +288,7 @@ def test_event_normalizes_groups_from_flat_payload() -> None:
         gameId=999,
         homeTeamName="Home",
         awayTeamName="Away",
-        teams=[],
+        teams=[{"id": 114315, "name": "Paris Saint-Germain FC", "ordering": "home"}],
         bestLines=[],
         markets=[],
         externalPartners=[
@@ -343,6 +343,7 @@ def test_event_normalizes_groups_from_flat_payload() -> None:
     assert event.estimation.estimated_value == Decimal("123.45")
     assert event.sports.series_slug == "sport-series"
     assert event.sports.game_id == 999
+    assert event.sports.teams[0].ordering == "home"
     assert len(event.partners) == 1
     assert event.partners[0].external_id == "EXT-7"
     assert event.partners[0].partner is not None
