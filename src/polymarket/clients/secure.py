@@ -517,7 +517,9 @@ class SecureClient:
         responsible for generating, storing, and protecting the private key.
         Requires a :class:`BuilderApiKey` passed as ``api_key=`` when
         constructing the client.
-        When scopes are omitted, authorization defaults to ``ALL``.
+        Scope names are normalized to uppercase. Unknown names remain usable
+        before this SDK enumerates them. When scopes are omitted,
+        authorization defaults to ``ALL``.
 
         Resolves after the submitted transaction is confirmed and the session
         key appears in the active session-key list.
@@ -558,22 +560,23 @@ class SecureClient:
         *,
         address: str,
         idempotency_key: str | None = None,
-    ) -> RevokeSessionKeyResult:
+    ) -> RevokeSessionKeyResult[SyncGaslessTransactionHandle]:
         """Revoke a session key authorized for the Deposit Wallet.
 
-        Revocation may take several minutes while existing activity is canceled
-        and the on-chain revocation is confirmed. Requires an ``api_key=`` that
-        supports gasless transactions.
+        Returns as soon as the revocation operation is accepted. Inspect
+        ``result.fenced`` to learn whether the key is already blocked from new
+        activity, and call ``result.transaction.wait()`` when on-chain
+        confirmation is required. Requires an ``api_key=`` that supports
+        gasless transactions.
 
         Raises:
             UserInputError: If the client or revocation input is invalid.
             RequestRejectedError: If the revocation request is rejected.
-            RateLimitError: If the revocation or transaction request is rate-limited.
+            RateLimitError: If the revocation request remains rate-limited after retries.
             SigningError: If the owner signature cannot be produced.
             TransportError: If a network request fails.
-            UnexpectedResponseError: If a revocation or transaction response is malformed.
-            TimeoutError: If transaction confirmation exceeds the wait budget.
-            TransactionFailedError: If the revocation transaction fails.
+            UnexpectedResponseError: If the revocation response is malformed.
+            TransactionFailedError: If the revocation is immediately reported as failed.
         """
         return _session_key_actions.revoke_session_key_sync(
             self._ctx,

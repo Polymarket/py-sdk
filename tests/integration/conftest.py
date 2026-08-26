@@ -5,9 +5,20 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
+from _environment import (
+    INTEGRATION_ENVIRONMENT_CONFIG_ENV_VAR,
+    load_integration_environment,
+)
 from dotenv import load_dotenv
 
-from polymarket import AsyncPublicClient, AsyncSecureClient, BuilderApiKey, Market, RelayerApiKey
+from polymarket import (
+    AsyncPublicClient,
+    AsyncSecureClient,
+    BuilderApiKey,
+    Environment,
+    Market,
+    RelayerApiKey,
+)
 from polymarket.models.types import TokenId
 
 _DOTENV_PATH = Path(__file__).resolve().parents[2] / ".env"
@@ -116,16 +127,29 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
+@pytest.fixture(scope="session")
+def integration_environment() -> Environment:
+    _load_dotenv()
+    try:
+        return load_integration_environment(os.environ.get(INTEGRATION_ENVIRONMENT_CONFIG_ENV_VAR))
+    except ValueError as error:
+        raise pytest.UsageError(
+            f"Invalid {INTEGRATION_ENVIRONMENT_CONFIG_ENV_VAR}: {error}"
+        ) from error
+
+
 @pytest.fixture
 async def deposit_wallet_client(
     deposit_wallet_private_key: str,
     deposit_wallet_address: str,
     relayer_api_key: RelayerApiKey,
+    integration_environment: Environment,
 ) -> AsyncGenerator[AsyncSecureClient, None]:
     client = await AsyncSecureClient.create(
         private_key=deposit_wallet_private_key,
         wallet=deposit_wallet_address,
         api_key=relayer_api_key,
+        environment=integration_environment,
     )
     try:
         yield client
@@ -134,15 +158,17 @@ async def deposit_wallet_client(
 
 
 @pytest.fixture
-async def public_client() -> AsyncGenerator[AsyncPublicClient, None]:
-    async with AsyncPublicClient() as client:
+async def public_client(
+    integration_environment: Environment,
+) -> AsyncGenerator[AsyncPublicClient, None]:
+    async with AsyncPublicClient(environment=integration_environment) as client:
         yield client
 
 
 @pytest.fixture(scope="session")
-def active_clob_token() -> TokenId:
+def active_clob_token(integration_environment: Environment) -> TokenId:
     async def find() -> TokenId:
-        async with AsyncPublicClient() as client:
+        async with AsyncPublicClient(environment=integration_environment) as client:
             paginator = client.list_markets(closed=False, page_size=20)
             pages_seen = 0
             async for page in paginator:
@@ -164,9 +190,9 @@ def active_clob_token() -> TokenId:
 
 
 @pytest.fixture(scope="session")
-def tradable_market() -> Market:
+def tradable_market(integration_environment: Environment) -> Market:
     async def find() -> Market:
-        async with AsyncPublicClient() as client:
+        async with AsyncPublicClient(environment=integration_environment) as client:
             paginator = client.list_markets(
                 ascending=False,
                 closed=False,

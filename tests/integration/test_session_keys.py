@@ -11,6 +11,7 @@ from polymarket import (
     AcceptedOrder,
     AsyncSecureClient,
     BuilderApiKey,
+    Environment,
     Market,
     RelayerApiKey,
     SessionKeyKnownScope,
@@ -28,6 +29,7 @@ async def test_session_key_authorizes_lists_trades_and_revokes(
     builder_api_key: BuilderApiKey,
     relayer_api_key: RelayerApiKey,
     tradable_market: Market,
+    integration_environment: Environment,
 ) -> None:
     # Live side effects: authorizes an ephemeral session key with the default
     # scopes, places one post-only order, cancels it, and revokes the key.
@@ -40,15 +42,16 @@ async def test_session_key_authorizes_lists_trades_and_revokes(
         private_key=deposit_wallet_private_key,
         wallet=deposit_wallet_address,
         api_key=builder_api_key,
+        environment=integration_environment,
     )
-    authorized = False
-    revoked = False
+    authorization_attempted = False
+    revocation_accepted = False
     try:
+        authorization_attempted = True
         authorization = await deposit_wallet_client.authorize_session_key(
             address=session_account.address,
             valid_until=requested_expiry,
         )
-        authorized = True
 
         assert authorization.transaction.transaction_id is not None
         assert re.fullmatch(r"0x[0-9a-fA-F]{64}", str(authorization.transaction.transaction_hash))
@@ -103,9 +106,15 @@ async def test_session_key_authorizes_lists_trades_and_revokes(
             revocation = await deposit_wallet_client.revoke_session_key(
                 address=session_account.address
             )
-            revoked = True
-            assert revocation.transaction.transaction_id is not None
-            assert re.fullmatch(r"0x[0-9a-fA-F]{64}", str(revocation.transaction.transaction_hash))
+            revocation_accepted = True
+            assert revocation.operation_id
+            assert revocation.fenced is True
+            revocation_transaction = await revocation.transaction.wait()
+            assert revocation_transaction.transaction_id is not None
+            assert re.fullmatch(
+                r"0x[0-9a-fA-F]{64}",
+                str(revocation_transaction.transaction_hash),
+            )
 
             remaining_session_keys = await deposit_wallet_client.fetch_session_keys()
             assert all(
@@ -119,7 +128,10 @@ async def test_session_key_authorizes_lists_trades_and_revokes(
             if session_client is not None:
                 await session_client.close()
     finally:
-        if authorized and not revoked:
+        if authorization_attempted and not revocation_accepted:
             with contextlib.suppress(Exception):
-                await deposit_wallet_client.revoke_session_key(address=session_account.address)
+                cleanup = await deposit_wallet_client.revoke_session_key(
+                    address=session_account.address
+                )
+                await cleanup.transaction.wait()
         await deposit_wallet_client.close()

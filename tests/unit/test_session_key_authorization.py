@@ -23,7 +23,6 @@ from _relayer_helpers import (
     make_sync_deposit_client,
     request_json,
 )
-from eth_abi.abi import decode as abi_decode
 from eth_account import Account
 
 from polymarket import (
@@ -34,12 +33,14 @@ from polymarket import (
     RevokeSessionKeyResult,
     SecureClient,
     SessionKeyKnownScope,
+    SessionKeyRevocationStatus,
     SessionKeyScope,
     TransactionFailedError,
     UnexpectedResponseError,
     UserInputError,
 )
 from polymarket.clients._transport import AsyncTransport, SyncTransport
+from polymarket.transactions import GaslessTransactionHandle, SyncGaslessTransactionHandle
 
 _AUTHORIZATIONS_PATH = "/v1/session-signers/authorizations"
 _EXECUTE_PARAMS_PATH = "/v1/account/transactions/params"
@@ -50,7 +51,7 @@ _SESSION_ADDRESS = _SESSION_ACCOUNT.address
 _TRANSACTION_HASH = "0x" + "ab" * 32
 _TRANSACTION_ID = "tx-session-key"
 _REVOCATION_TRANSACTION_ID = "tx-session-key-revocation"
-_SESSION_SIGNER_MAGIC_BYTES = bytes.fromhex("6492" * 16)
+_REVOCATION_OPERATION_ID = "op-session-key-revocation"
 _NEWER_SCOPE = "NEWER_SCOPE"
 _LISTED_EXPIRY = 1_900_000_000
 
@@ -158,7 +159,7 @@ def _management_handler(
     captured: list[httpx.Request],
     *,
     wallet: str,
-    revocation_status: str = "PENDING",
+    revocation_status: str = "FENCED",
 ) -> Callable[[httpx.Request], httpx.Response]:
     def handler(request: httpx.Request) -> httpx.Response:
         captured.append(request)
@@ -171,7 +172,7 @@ def _management_handler(
                     "signers": [
                         {
                             "address": _SESSION_ADDRESS.lower(),
-                            "scopes": [SessionKeyKnownScope.CLOB.value, _NEWER_SCOPE],
+                            "scopes": ["clob", f" {_NEWER_SCOPE.lower()} "],
                             "valid_until": _LISTED_EXPIRY,
                         }
                     ],
@@ -188,8 +189,9 @@ def _management_handler(
             return httpx.Response(
                 200,
                 json={
-                    "fenced": "submission-only-snapshot",
-                    "operationId": "",
+                    "fenced": revocation_status
+                    in {"FENCED", "SWEPT", "CHAIN_SUBMITTED", "CONFIRMED"},
+                    "operationId": _REVOCATION_OPERATION_ID,
                     "status": revocation_status,
                     "transactionId": _REVOCATION_TRANSACTION_ID,
                 },
@@ -262,9 +264,9 @@ def test_authorize_session_key_async_normalizes_and_submits_request() -> None:
             result = await client.authorize_session_key(
                 address=_SESSION_ADDRESS,
                 scopes=(
-                    _NEWER_SCOPE,
+                    f" {_NEWER_SCOPE.lower()} ",
                     SessionKeyKnownScope.COMBOSRFQ,
-                    SessionKeyKnownScope.CLOB,
+                    " clob ",
                     _NEWER_SCOPE,
                     SessionKeyKnownScope.CLOB,
                 ),
@@ -283,8 +285,6 @@ def test_authorize_session_key_async_normalizes_and_submits_request() -> None:
             _NEWER_SCOPE,
             SessionKeyKnownScope.COMBOSRFQ,
             SessionKeyKnownScope.CLOB,
-            _NEWER_SCOPE,
-            SessionKeyKnownScope.CLOB,
         ),
         expected_session_scopes=(
             _NEWER_SCOPE,
@@ -294,6 +294,52 @@ def test_authorize_session_key_async_normalizes_and_submits_request() -> None:
         requested_expiry=requested_expiry,
         wallet=wallet,
     )
+
+
+def test_authorize_session_key_async_retries_the_exact_signed_payload() -> None:
+    captured: list[httpx.Request] = []
+
+    async def run() -> None:
+        client = await make_deposit_client()
+        stable_handler = _authorization_handler(captured, wallet=str(client.wallet))
+        lost_response = False
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal lost_response
+            if urlparse(str(request.url)).path == _AUTHORIZATIONS_PATH and not lost_response:
+                lost_response = True
+                captured.append(request)
+                raise httpx.ReadTimeout("response lost after submission", request=request)
+            return stable_handler(request)
+
+        config = dataclasses.replace(
+            client._ctx.environment_config,
+            relayer_poll_frequency_ms=0,
+        )
+        client._ctx = dataclasses.replace(client._ctx, _resolved_environment_config=config)
+        install_relayer_handler(client, handler)
+        _install_secure_clob_handler(client, handler)
+        try:
+            await client.authorize_session_key(
+                address=_SESSION_ADDRESS,
+                scopes=("clob",),
+                valid_until=datetime.now(UTC) + timedelta(minutes=15),
+                idempotency_key="exact-authorization",
+            )
+        finally:
+            await client.close()
+
+    asyncio.run(run())
+
+    authorization_requests = [
+        request for request in captured if urlparse(str(request.url)).path == _AUTHORIZATIONS_PATH
+    ]
+    assert len(authorization_requests) == 2
+    first, second = authorization_requests
+    assert first.content == second.content
+    assert first.headers["Idempotency-Key"] == second.headers["Idempotency-Key"]
+    assert first.headers["Idempotency-Key"] == "exact-authorization"
+    assert sum(urlparse(str(request.url)).path == _EXECUTE_PARAMS_PATH for request in captured) == 1
 
 
 @pytest.mark.parametrize(
@@ -331,10 +377,15 @@ def test_authorize_session_key_sync_uses_default_scopes(authorization_status: st
 
 def _assert_fetch_and_revocation(
     session_keys: tuple[AuthorizedSessionKey, ...],
-    revocation: RevokeSessionKeyResult,
+    revocation: (
+        RevokeSessionKeyResult[GaslessTransactionHandle]
+        | RevokeSessionKeyResult[SyncGaslessTransactionHandle]
+    ),
     captured: list[httpx.Request],
     *,
     wallet: str,
+    expected_status: SessionKeyRevocationStatus = SessionKeyRevocationStatus.FENCED,
+    expected_fenced: bool = True,
 ) -> None:
     assert len(session_keys) == 1
     session_key = session_keys[0]
@@ -342,8 +393,10 @@ def _assert_fetch_and_revocation(
     assert session_key.scopes == (SessionKeyKnownScope.CLOB, _NEWER_SCOPE)
     assert session_key.valid_until == datetime.fromtimestamp(_LISTED_EXPIRY, tz=UTC)
 
-    assert not hasattr(revocation, "operation_id")
-    assert revocation.transaction.transaction_hash == _TRANSACTION_HASH
+    assert revocation.operation_id == _REVOCATION_OPERATION_ID
+    assert revocation.status is expected_status
+    assert revocation.fenced is expected_fenced
+    assert revocation.transaction.transaction_hash is None
     assert revocation.transaction.transaction_id == _REVOCATION_TRANSACTION_ID
 
     revocation_requests = [
@@ -365,11 +418,18 @@ def _assert_fetch_and_revocation(
     assert isinstance(signature, str)
     assert len(signature) == 2 + 65 * 2
 
+    paths = [urlparse(str(request.url)).path for request in captured]
+    assert f"/v1/account/transactions/{_REVOCATION_TRANSACTION_ID}" not in paths
+
 
 def test_fetch_and_revoke_session_key_async() -> None:
     captured: list[httpx.Request] = []
 
-    async def run() -> tuple[tuple[AuthorizedSessionKey, ...], RevokeSessionKeyResult, str]:
+    async def run() -> tuple[
+        tuple[AuthorizedSessionKey, ...],
+        RevokeSessionKeyResult[GaslessTransactionHandle],
+        str,
+    ]:
         client = await make_deposit_client()
         wallet = str(client.wallet)
         handler = _management_handler(captured, wallet=wallet)
@@ -421,7 +481,98 @@ def test_fetch_and_revoke_session_key_sync(revocation_status: str) -> None:
         revocation,
         captured,
         wallet=wallet,
+        expected_status=SessionKeyRevocationStatus(revocation_status),
+        expected_fenced=revocation_status != "PENDING",
     )
+
+
+def test_revoke_session_key_sync_retries_the_exact_signed_payload() -> None:
+    captured: list[httpx.Request] = []
+
+    with make_sync_deposit_client() as client:
+        stable_handler = _management_handler(captured, wallet=str(client.wallet))
+        lost_response = False
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal lost_response
+            if urlparse(str(request.url)).path == _REVOCATIONS_PATH and not lost_response:
+                lost_response = True
+                captured.append(request)
+                raise httpx.ReadTimeout("response lost after submission", request=request)
+            return stable_handler(request)
+
+        config = dataclasses.replace(
+            client._ctx.environment_config,
+            relayer_poll_frequency_ms=0,
+        )
+        client._ctx = dataclasses.replace(client._ctx, _resolved_environment_config=config)
+        install_sync_relayer_handler(client, handler)
+        revocation = client.revoke_session_key(
+            address=_SESSION_ADDRESS,
+            idempotency_key="exact-revocation",
+        )
+
+    assert revocation.operation_id == _REVOCATION_OPERATION_ID
+    revocation_requests = [
+        request for request in captured if urlparse(str(request.url)).path == _REVOCATIONS_PATH
+    ]
+    assert len(revocation_requests) == 2
+    first, second = revocation_requests
+    assert first.content == second.content
+    assert first.headers["Idempotency-Key"] == second.headers["Idempotency-Key"]
+    assert first.headers["Idempotency-Key"] == "exact-revocation"
+    assert sum(urlparse(str(request.url)).path == _EXECUTE_PARAMS_PATH for request in captured) == 1
+
+
+def test_revoke_session_key_handle_can_wait_for_confirmation() -> None:
+    captured: list[httpx.Request] = []
+
+    with make_sync_deposit_client() as client:
+        handler = _management_handler(captured, wallet=str(client.wallet))
+        install_sync_relayer_handler(client, handler)
+        revocation = client.revoke_session_key(address=_SESSION_ADDRESS)
+        transaction = revocation.transaction.wait()
+
+    assert transaction.transaction_id == _REVOCATION_TRANSACTION_ID
+    assert transaction.transaction_hash == _TRANSACTION_HASH
+
+
+def test_authorize_session_key_retries_transient_registry_read_failure() -> None:
+    captured: list[httpx.Request] = []
+
+    async def run() -> AuthorizeSessionKeyResult:
+        client = await make_deposit_client()
+        stable_handler = _authorization_handler(captured, wallet=str(client.wallet))
+        registry_unavailable = True
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal registry_unavailable
+            if urlparse(str(request.url)).path == _SESSION_KEYS_PATH and registry_unavailable:
+                registry_unavailable = False
+                captured.append(request)
+                return httpx.Response(503, json={"error": "registry unavailable"}, request=request)
+            return stable_handler(request)
+
+        config = dataclasses.replace(
+            client._ctx.environment_config,
+            relayer_max_polls=3,
+            relayer_poll_frequency_ms=0,
+        )
+        client._ctx = dataclasses.replace(client._ctx, _resolved_environment_config=config)
+        install_relayer_handler(client, handler)
+        _install_secure_clob_handler(client, handler)
+        try:
+            return await client.authorize_session_key(
+                address=_SESSION_ADDRESS,
+                valid_until=datetime.now(UTC) + timedelta(minutes=15),
+            )
+        finally:
+            await client.close()
+
+    result = asyncio.run(run())
+
+    assert result.session_key.address.lower() == _SESSION_ADDRESS.lower()
+    assert sum(urlparse(str(request.url)).path == _SESSION_KEYS_PATH for request in captured) == 2
 
 
 def test_fetch_session_keys_rejects_a_different_response_wallet() -> None:
@@ -615,7 +766,7 @@ def test_revoke_session_key_rejects_unknown_response_status() -> None:
             client.revoke_session_key(address=_SESSION_ADDRESS)
 
 
-def test_session_signer_gasless_payload_wraps_the_owner_signature() -> None:
+def test_session_signer_rejects_unsupported_gasless_wallet_action() -> None:
     captured: list[httpx.Request] = []
 
     async def run() -> None:
@@ -634,28 +785,40 @@ def test_session_signer_gasless_payload_wraps_the_owner_signature() -> None:
             },
         )
         try:
-            await client.approve_erc20(token_address=TOKEN, spender_address=SPENDER, amount=1)
+            with pytest.raises(
+                UserInputError,
+                match=r"^Gasless wallet actions are not supported with Session Keys$",
+            ):
+                await client.approve_erc20(
+                    token_address=TOKEN,
+                    spender_address=SPENDER,
+                    amount=1,
+                )
         finally:
             await client.close()
 
     asyncio.run(run())
+    assert captured == []
 
-    submit_requests = [
-        request for request in captured if urlparse(str(request.url)).path == "/submit"
-    ]
-    assert len(submit_requests) == 1
-    body = cast(dict[str, object], request_json(submit_requests[0]))
-    from_address = body["from"]
-    assert isinstance(from_address, str)
-    assert from_address.lower() == _SESSION_ADDRESS.lower()
-    signature = body["signature"]
-    assert isinstance(signature, str)
-    raw = bytes.fromhex(signature.removeprefix("0x"))
-    assert raw[-32:] == _SESSION_SIGNER_MAGIC_BYTES
-    signer_id, salt, owner_signature = cast(
-        tuple[bytes, bytes, bytes],
-        abi_decode(["bytes32", "bytes32", "bytes"], raw[:-32]),
-    )
-    assert signer_id == bytes.fromhex(_SESSION_ADDRESS[2:]).rjust(32, b"\x00")
-    assert salt == b"\x00" * 32
-    assert len(owner_signature) == 65
+
+def test_session_signer_rejects_unsupported_gasless_wallet_action_sync() -> None:
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(500, json={"error": "unexpected request"}, request=request)
+
+    with make_sync_deposit_client() as client:
+        client._ctx = dataclasses.replace(client._ctx, signer=_SESSION_ACCOUNT)
+        install_sync_relayer_handler(client, handler)
+        with pytest.raises(
+            UserInputError,
+            match=r"^Gasless wallet actions are not supported with Session Keys$",
+        ):
+            client.approve_erc20(
+                token_address=TOKEN,
+                spender_address=SPENDER,
+                amount=1,
+            )
+
+    assert captured == []
