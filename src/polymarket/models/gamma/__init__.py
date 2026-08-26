@@ -19,6 +19,7 @@ from polymarket.models.gamma.common import (
     SportsMetadata,
     TagReference,
     Team,
+    TeamOrdering,
     TemplateReference,
 )
 from polymarket.models.gamma.event import (
@@ -110,6 +111,7 @@ __all__ = [
     "Tag",
     "TagReference",
     "Team",
+    "TeamOrdering",
     "TemplateReference",
     "UmaResolutionStatus",
 ]
