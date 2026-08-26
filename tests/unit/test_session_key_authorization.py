@@ -30,10 +30,12 @@ from polymarket import (
     AsyncSecureClient,
     AuthorizedSessionKey,
     AuthorizeSessionKeyResult,
+    RelayerApiKey,
     RevokeSessionKeyResult,
     SecureClient,
     SessionKeyKnownScope,
     SessionKeyScope,
+    TransactionFailedError,
     UnexpectedResponseError,
     UserInputError,
 )
@@ -57,6 +59,7 @@ def _authorization_handler(
     captured: list[httpx.Request],
     *,
     wallet: str,
+    status: str = "SUBMITTED",
 ) -> Callable[[httpx.Request], httpx.Response]:
     def handler(request: httpx.Request) -> httpx.Response:
         captured.append(request)
@@ -71,8 +74,8 @@ def _authorization_handler(
             return httpx.Response(
                 200,
                 json={
-                    "operationId": "operation-1",
-                    "status": "PENDING",
+                    "operationId": "",
+                    "status": status,
                     "transactionHash": None,
                     "transactionId": _TRANSACTION_ID,
                 },
@@ -101,6 +104,7 @@ def _authorization_handler(
             assert isinstance(address, str)
             assert isinstance(scopes, list)
             assert isinstance(valid_until, str)
+            listed_scopes = list(dict.fromkeys(cast(list[str], scopes)))
             return httpx.Response(
                 200,
                 json={
@@ -108,7 +112,7 @@ def _authorization_handler(
                     "signers": [
                         {
                             "address": address,
-                            "scopes": scopes,
+                            "scopes": listed_scopes,
                             "valid_until": int(valid_until),
                         }
                     ],
@@ -154,6 +158,7 @@ def _management_handler(
     captured: list[httpx.Request],
     *,
     wallet: str,
+    revocation_status: str = "PENDING",
 ) -> Callable[[httpx.Request], httpx.Response]:
     def handler(request: httpx.Request) -> httpx.Response:
         captured.append(request)
@@ -183,9 +188,9 @@ def _management_handler(
             return httpx.Response(
                 200,
                 json={
-                    "fenced": True,
-                    "operationId": "revocation-1",
-                    "status": "PENDING",
+                    "fenced": "submission-only-snapshot",
+                    "operationId": "",
+                    "status": revocation_status,
                     "transactionId": _REVOCATION_TRANSACTION_ID,
                 },
                 request=request,
@@ -209,14 +214,15 @@ def _assert_authorization_result_and_request(
     result: AuthorizeSessionKeyResult,
     captured: list[httpx.Request],
     *,
-    expected_scopes: tuple[SessionKeyScope, ...],
+    expected_request_scopes: tuple[SessionKeyScope, ...],
+    expected_session_scopes: tuple[SessionKeyScope, ...],
     requested_expiry: datetime,
     wallet: str,
 ) -> None:
     expected_expiry = requested_expiry.astimezone(UTC).replace(microsecond=0)
-    assert result.operation_id == "operation-1"
+    assert not hasattr(result, "operation_id")
     assert result.session_key.address.lower() == _SESSION_ADDRESS.lower()
-    assert result.session_key.scopes == expected_scopes
+    assert result.session_key.scopes == expected_session_scopes
     assert result.session_key.valid_until == expected_expiry
     assert result.transaction.transaction_hash == _TRANSACTION_HASH
     assert result.transaction.transaction_id == _TRANSACTION_ID
@@ -229,7 +235,7 @@ def _assert_authorization_result_and_request(
     assert request.headers["Idempotency-Key"] == "authorization-1"
     body = cast(dict[str, object], request_json(request))
     assert body["nonce"] == "7"
-    assert body["scopes"] == [str(scope) for scope in expected_scopes]
+    assert body["scopes"] == [str(scope) for scope in expected_request_scopes]
     session_signer_address = body["sessionSignerAddress"]
     assert isinstance(session_signer_address, str)
     assert session_signer_address.lower() == _SESSION_ADDRESS.lower()
@@ -273,23 +279,38 @@ def test_authorize_session_key_async_normalizes_and_submits_request() -> None:
     _assert_authorization_result_and_request(
         result,
         captured,
-        expected_scopes=(
-            SessionKeyKnownScope.CLOB,
-            SessionKeyKnownScope.COMBOSRFQ,
+        expected_request_scopes=(
             _NEWER_SCOPE,
+            SessionKeyKnownScope.COMBOSRFQ,
+            SessionKeyKnownScope.CLOB,
+            _NEWER_SCOPE,
+            SessionKeyKnownScope.CLOB,
+        ),
+        expected_session_scopes=(
+            _NEWER_SCOPE,
+            SessionKeyKnownScope.COMBOSRFQ,
+            SessionKeyKnownScope.CLOB,
         ),
         requested_expiry=requested_expiry,
         wallet=wallet,
     )
 
 
-def test_authorize_session_key_sync_uses_default_scopes() -> None:
+@pytest.mark.parametrize(
+    "authorization_status",
+    ("SUBMITTED", "REGISTRY_PENDING", "REGISTERED"),
+)
+def test_authorize_session_key_sync_uses_default_scopes(authorization_status: str) -> None:
     captured: list[httpx.Request] = []
     requested_expiry = datetime.now(UTC) + timedelta(minutes=15, microseconds=123_456)
 
     with make_sync_deposit_client() as client:
         wallet = str(client.wallet)
-        handler = _authorization_handler(captured, wallet=wallet)
+        handler = _authorization_handler(
+            captured,
+            wallet=wallet,
+            status=authorization_status,
+        )
         install_sync_relayer_handler(client, handler)
         _install_sync_secure_clob_handler(client, handler)
         result = client.authorize_session_key(
@@ -301,7 +322,8 @@ def test_authorize_session_key_sync_uses_default_scopes() -> None:
     _assert_authorization_result_and_request(
         result,
         captured,
-        expected_scopes=(SessionKeyKnownScope.ALL,),
+        expected_request_scopes=(SessionKeyKnownScope.ALL,),
+        expected_session_scopes=(SessionKeyKnownScope.ALL,),
         requested_expiry=requested_expiry,
         wallet=wallet,
     )
@@ -320,7 +342,7 @@ def _assert_fetch_and_revocation(
     assert session_key.scopes == (SessionKeyKnownScope.CLOB, _NEWER_SCOPE)
     assert session_key.valid_until == datetime.fromtimestamp(_LISTED_EXPIRY, tz=UTC)
 
-    assert revocation.operation_id == "revocation-1"
+    assert not hasattr(revocation, "operation_id")
     assert revocation.transaction.transaction_hash == _TRANSACTION_HASH
     assert revocation.transaction.transaction_id == _REVOCATION_TRANSACTION_ID
 
@@ -372,12 +394,20 @@ def test_fetch_and_revoke_session_key_async() -> None:
     )
 
 
-def test_fetch_and_revoke_session_key_sync() -> None:
+@pytest.mark.parametrize(
+    "revocation_status",
+    ("PENDING", "FENCED", "SWEPT", "CHAIN_SUBMITTED", "CONFIRMED"),
+)
+def test_fetch_and_revoke_session_key_sync(revocation_status: str) -> None:
     captured: list[httpx.Request] = []
 
     with make_sync_deposit_client() as client:
         wallet = str(client.wallet)
-        handler = _management_handler(captured, wallet=wallet)
+        handler = _management_handler(
+            captured,
+            wallet=wallet,
+            revocation_status=revocation_status,
+        )
         install_sync_relayer_handler(client, handler)
         _install_sync_secure_clob_handler(client, handler)
         session_keys = client.fetch_session_keys()
@@ -420,17 +450,36 @@ def test_authorize_session_key_rejects_address_without_0x_prefix() -> None:
         )
 
 
+def test_authorize_session_key_allows_wallet_address_to_reach_service() -> None:
+    captured: list[httpx.Request] = []
+    requested_expiry = datetime.now(UTC) + timedelta(minutes=15)
+
+    with make_sync_deposit_client() as client:
+        wallet = str(client.wallet)
+        handler = _authorization_handler(captured, wallet=wallet)
+        install_sync_relayer_handler(client, handler)
+        _install_sync_secure_clob_handler(client, handler)
+
+        result = client.authorize_session_key(
+            address=wallet,
+            scopes=(SessionKeyKnownScope.CLOB,),
+            valid_until=requested_expiry,
+        )
+
+    assert result.session_key.address.lower() == wallet.lower()
+    authorization_request = next(
+        request for request in captured if urlparse(str(request.url)).path == _AUTHORIZATIONS_PATH
+    )
+    body = cast(dict[str, object], request_json(authorization_request))
+    session_signer_address = body["sessionSignerAddress"]
+    assert isinstance(session_signer_address, str)
+    assert session_signer_address.lower() == wallet.lower()
+
+
 def test_authorize_session_key_rejects_invalid_cross_field_combinations() -> None:
     valid_expiry = datetime.now(UTC) + timedelta(minutes=15)
     client = make_sync_deposit_client()
     try:
-        with pytest.raises(UserInputError, match="must differ from the Deposit Wallet"):
-            client.authorize_session_key(
-                address=str(client.wallet),
-                scopes=(SessionKeyKnownScope.CLOB,),
-                valid_until=valid_expiry,
-            )
-
         with pytest.raises(UserInputError, match="ALL cannot be combined"):
             client.authorize_session_key(
                 address=_SESSION_ADDRESS,
@@ -453,6 +502,117 @@ def test_authorize_session_key_rejects_invalid_cross_field_combinations() -> Non
             )
     finally:
         client.close()
+
+
+def test_authorize_session_key_requires_builder_api_key() -> None:
+    valid_expiry = datetime.now(UTC) + timedelta(minutes=15)
+
+    with make_sync_deposit_client() as client:
+        client._ctx = dataclasses.replace(client._ctx, api_key=None)
+        with pytest.raises(
+            UserInputError,
+            match="Session-key authorization requires builder API-key authentication",
+        ):
+            client.authorize_session_key(
+                address=_SESSION_ADDRESS,
+                valid_until=valid_expiry,
+            )
+
+
+def test_authorize_session_key_rejects_relayer_api_key() -> None:
+    valid_expiry = datetime.now(UTC) + timedelta(minutes=15)
+    relayer_api_key = RelayerApiKey(
+        key="relayer-key",
+        address="0x0000000000000000000000000000000000000001",
+    )
+
+    with make_sync_deposit_client() as client:
+        client._ctx = dataclasses.replace(client._ctx, api_key=relayer_api_key)
+        with pytest.raises(
+            UserInputError,
+            match="Session-key authorization requires builder API-key authentication",
+        ):
+            client.authorize_session_key(
+                address=_SESSION_ADDRESS,
+                valid_until=valid_expiry,
+            )
+
+
+def test_revoke_session_key_requires_gasless_api_key() -> None:
+    with make_sync_deposit_client() as client:
+        client._ctx = dataclasses.replace(client._ctx, api_key=None)
+        with pytest.raises(
+            UserInputError,
+            match="Session-key revocation requires API-key authentication",
+        ):
+            client.revoke_session_key(address=_SESSION_ADDRESS)
+
+
+@pytest.mark.parametrize("status", ("FAILED", "SUPERSEDED", "REPAIR_REQUIRED"))
+def test_authorize_session_key_rejects_terminal_status_before_polling(status: str) -> None:
+    captured: list[httpx.Request] = []
+
+    with make_sync_deposit_client() as client:
+        handler = _authorization_handler(captured, wallet=str(client.wallet), status=status)
+        install_sync_relayer_handler(client, handler)
+        with pytest.raises(
+            TransactionFailedError,
+            match=rf"Session-key authorization reached terminal status {status}",
+        ):
+            client.authorize_session_key(
+                address=_SESSION_ADDRESS,
+                valid_until=datetime.now(UTC) + timedelta(minutes=15),
+            )
+
+    paths = [urlparse(str(request.url)).path for request in captured]
+    assert f"/v1/account/transactions/{_TRANSACTION_ID}" not in paths
+
+
+def test_revoke_session_key_rejects_terminal_status_before_polling() -> None:
+    captured: list[httpx.Request] = []
+
+    with make_sync_deposit_client() as client:
+        handler = _management_handler(
+            captured,
+            wallet=str(client.wallet),
+            revocation_status="FAILED",
+        )
+        install_sync_relayer_handler(client, handler)
+        with pytest.raises(
+            TransactionFailedError,
+            match="Session-key revocation reached terminal status FAILED",
+        ):
+            client.revoke_session_key(address=_SESSION_ADDRESS)
+
+    paths = [urlparse(str(request.url)).path for request in captured]
+    assert f"/v1/account/transactions/{_REVOCATION_TRANSACTION_ID}" not in paths
+
+
+def test_authorize_session_key_rejects_unknown_response_status() -> None:
+    captured: list[httpx.Request] = []
+
+    with make_sync_deposit_client() as client:
+        handler = _authorization_handler(captured, wallet=str(client.wallet), status="PENDING")
+        install_sync_relayer_handler(client, handler)
+        with pytest.raises(UnexpectedResponseError, match="did not match expected shape"):
+            client.authorize_session_key(
+                address=_SESSION_ADDRESS,
+                valid_until=datetime.now(UTC) + timedelta(minutes=15),
+            )
+
+
+def test_revoke_session_key_rejects_unknown_response_status() -> None:
+    captured: list[httpx.Request] = []
+
+    with make_sync_deposit_client() as client:
+        handler = _management_handler(
+            captured,
+            wallet=str(client.wallet),
+            revocation_status="SUBMITTED",
+        )
+        install_sync_relayer_handler(client, handler)
+        with pytest.raises(UnexpectedResponseError, match="did not match expected shape"):
+            client.revoke_session_key(address=_SESSION_ADDRESS)
 
 
 def test_session_signer_gasless_payload_wraps_the_owner_signature() -> None:

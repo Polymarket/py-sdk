@@ -143,12 +143,9 @@ def classify_wallet_type(*, signer: str, wallet: str, config: WalletDerivationCo
     if wallet_type is not None:
         return wallet_type
 
-    signer_checksum = to_checksum_address(signer)
-    wallet_checksum = to_checksum_address(wallet)
-    raise UserInputError(
-        f"Wallet {wallet_checksum} does not match the signer {signer_checksum} "
-        "or any supported deterministic wallet address."
-    )
+    # TEMP: Default to the Deposit Wallet session-signature path when the
+    # wallet cannot be derived from the signer, to support session keys.
+    return "DEPOSIT_WALLET"
 
 
 def try_classify_wallet_type(

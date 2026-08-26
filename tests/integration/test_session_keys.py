@@ -10,6 +10,7 @@ from eth_account import Account
 from polymarket import (
     AcceptedOrder,
     AsyncSecureClient,
+    BuilderApiKey,
     Market,
     RelayerApiKey,
     SessionKeyKnownScope,
@@ -22,8 +23,9 @@ pytestmark = pytest.mark.anyio
 @pytest.mark.integration
 @pytest.mark.metered
 async def test_session_key_authorizes_lists_trades_and_revokes(
-    deposit_wallet_client: AsyncSecureClient,
+    deposit_wallet_private_key: str,
     deposit_wallet_address: str,
+    builder_api_key: BuilderApiKey,
     relayer_api_key: RelayerApiKey,
     tradable_market: Market,
 ) -> None:
@@ -31,81 +33,93 @@ async def test_session_key_authorizes_lists_trades_and_revokes(
     # scopes, places one post-only order, cancels it, and revokes the key.
     session_account = Account.create()
     session_private_key = "0x" + session_account.key.hex().removeprefix("0x")
-    requested_expiry = datetime.now(UTC) + timedelta(minutes=15)
+    requested_expiry = datetime.now(UTC) + timedelta(hours=2)
     expected_expiry = requested_expiry.replace(microsecond=0)
 
-    authorization = await deposit_wallet_client.authorize_session_key(
-        address=session_account.address,
-        valid_until=requested_expiry,
-    )
-
-    assert authorization.operation_id
-    assert authorization.transaction.transaction_id is not None
-    assert re.fullmatch(r"0x[0-9a-fA-F]{64}", str(authorization.transaction.transaction_hash))
-    assert authorization.session_key.address.lower() == session_account.address.lower()
-    assert authorization.session_key.scopes == (SessionKeyKnownScope.ALL,)
-    assert authorization.session_key.valid_until == expected_expiry
-
-    active_session_keys = await deposit_wallet_client.fetch_session_keys()
-    assert authorization.session_key in active_session_keys
-
-    session_client = await AsyncSecureClient.create(
-        private_key=session_private_key,
+    deposit_wallet_client = await AsyncSecureClient.create(
+        private_key=deposit_wallet_private_key,
         wallet=deposit_wallet_address,
-        environment=deposit_wallet_client.environment,
-        api_key=relayer_api_key,
+        api_key=builder_api_key,
     )
-    order_id: str | None = None
+    authorized = False
     revoked = False
     try:
-        with pytest.raises(
-            UserInputError,
-            match=r"^Combos is not supported with Session Keys$",
-        ):
-            await session_client.request_combo_quote(
-                leg_position_ids=("1", "2"),
-                direction="BUY",
-                amount=1,
+        authorization = await deposit_wallet_client.authorize_session_key(
+            address=session_account.address,
+            valid_until=requested_expiry,
+        )
+        authorized = True
+
+        assert authorization.transaction.transaction_id is not None
+        assert re.fullmatch(r"0x[0-9a-fA-F]{64}", str(authorization.transaction.transaction_hash))
+        assert authorization.session_key.address.lower() == session_account.address.lower()
+        assert authorization.session_key.scopes == (SessionKeyKnownScope.ALL,)
+        assert authorization.session_key.valid_until == expected_expiry
+
+        active_session_keys = await deposit_wallet_client.fetch_session_keys()
+        assert authorization.session_key in active_session_keys
+
+        session_client: AsyncSecureClient | None = None
+        order_id: str | None = None
+        try:
+            session_client = await AsyncSecureClient.create(
+                private_key=session_private_key,
+                wallet=deposit_wallet_address,
+                environment=deposit_wallet_client.environment,
+                api_key=relayer_api_key,
             )
+            with pytest.raises(
+                UserInputError,
+                match=r"^Combos is not supported with Session Keys$",
+            ):
+                await session_client.request_combo_quote(
+                    leg_position_ids=("1", "2"),
+                    direction="BUY",
+                    amount=1,
+                )
 
-        token_id = tradable_market.outcomes.yes.token_id
-        price = tradable_market.trading.minimum_tick_size
-        size = tradable_market.trading.minimum_order_size
-        assert token_id is not None
-        assert price is not None
-        assert size is not None
+            token_id = tradable_market.outcomes.yes.token_id
+            price = tradable_market.trading.minimum_tick_size
+            size = tradable_market.trading.minimum_order_size
+            assert token_id is not None
+            assert price is not None
+            assert size is not None
 
-        placed = await session_client.place_limit_order(
-            token_id=str(token_id),
-            price=price,
-            size=size,
-            side="BUY",
-            post_only=True,
-        )
-        assert isinstance(placed, AcceptedOrder)
-        order_id = str(placed.order_id)
-        assert placed.status == "live"
+            placed = await session_client.place_limit_order(
+                token_id=str(token_id),
+                price=price,
+                size=size,
+                side="BUY",
+                post_only=True,
+            )
+            assert isinstance(placed, AcceptedOrder)
+            order_id = str(placed.order_id)
+            assert placed.status == "live"
 
-        cancellation = await session_client.cancel_order(order_id=order_id)
-        assert order_id in cancellation.canceled
-        order_id = None
+            cancellation = await session_client.cancel_order(order_id=order_id)
+            assert order_id in cancellation.canceled
+            order_id = None
 
-        revocation = await deposit_wallet_client.revoke_session_key(address=session_account.address)
-        revoked = True
-        assert revocation.operation_id
-        assert revocation.transaction.transaction_id is not None
-        assert re.fullmatch(r"0x[0-9a-fA-F]{64}", str(revocation.transaction.transaction_hash))
+            revocation = await deposit_wallet_client.revoke_session_key(
+                address=session_account.address
+            )
+            revoked = True
+            assert revocation.transaction.transaction_id is not None
+            assert re.fullmatch(r"0x[0-9a-fA-F]{64}", str(revocation.transaction.transaction_hash))
 
-        remaining_session_keys = await deposit_wallet_client.fetch_session_keys()
-        assert all(
-            session_key.address.lower() != session_account.address.lower()
-            for session_key in remaining_session_keys
-        )
+            remaining_session_keys = await deposit_wallet_client.fetch_session_keys()
+            assert all(
+                session_key.address.lower() != session_account.address.lower()
+                for session_key in remaining_session_keys
+            )
+        finally:
+            if order_id is not None and session_client is not None:
+                with contextlib.suppress(Exception):
+                    await session_client.cancel_order(order_id=order_id)
+            if session_client is not None:
+                await session_client.close()
     finally:
-        if order_id is not None:
-            with contextlib.suppress(Exception):
-                await session_client.cancel_order(order_id=order_id)
-        if not revoked:
+        if authorized and not revoked:
             with contextlib.suppress(Exception):
                 await deposit_wallet_client.revoke_session_key(address=session_account.address)
-        await session_client.close()
+        await deposit_wallet_client.close()

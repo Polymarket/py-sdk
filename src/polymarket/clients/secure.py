@@ -133,7 +133,6 @@ from polymarket._internal.wallet import (
     derive_uups_deposit_wallet_address,
     resolve_deposit_wallet_session_signer,
     signature_type_for,
-    try_classify_wallet_type,
 )
 from polymarket.auth import ApiKey, BuilderApiKey
 from polymarket.clients._transport import SyncHeaderResolver, SyncTransport
@@ -359,19 +358,10 @@ class SecureClient:
             config=config,
             logger=logger,
         )
-        wallet_type = (
-            _resolve_authentication_wallet_type_sync(
-                signer=signer,
-                wallet=resolved_wallet,
-                config=config,
-                logger=logger,
-            )
-            if validate_credentials
-            else classify_wallet_type(
-                signer=signer.address,
-                wallet=resolved_wallet,
-                config=config.wallet_derivation,
-            )
+        wallet_type = classify_wallet_type(
+            signer=signer.address,
+            wallet=resolved_wallet,
+            config=config.wallet_derivation,
         )
 
         bootstrap_clob = SyncTransport(base_url=config.clob_url, logger=logger)
@@ -525,7 +515,8 @@ class SecureClient:
 
         The SDK receives only the public address. The application remains
         responsible for generating, storing, and protecting the private key.
-        Requires ``api_key=`` to be passed when constructing the client.
+        Requires a :class:`BuilderApiKey` passed as ``api_key=`` when
+        constructing the client.
         When scopes are omitted, authorization defaults to ``ALL``.
 
         Resolves after the submitted transaction is confirmed and the session
@@ -571,8 +562,8 @@ class SecureClient:
         """Revoke a session key authorized for the Deposit Wallet.
 
         Revocation may take several minutes while existing activity is canceled
-        and the on-chain revocation is confirmed. Requires ``api_key=`` to be
-        passed when constructing the client.
+        and the on-chain revocation is confirmed. Requires an ``api_key=`` that
+        supports gasless transactions.
 
         Raises:
             UserInputError: If the client or revocation input is invalid.
@@ -3005,39 +2996,6 @@ def _resolve_requested_wallet_sync(
         return derive_beacon_deposit_wallet_address(signer.address, config.wallet_derivation)
     finally:
         relayer.close()
-
-
-def _resolve_authentication_wallet_type_sync(
-    *,
-    signer: LocalAccount,
-    wallet: str,
-    config: EnvironmentConfig,
-    logger: logging.Logger | None,
-) -> WalletType:
-    wallet_type = try_classify_wallet_type(
-        signer=signer.address,
-        wallet=wallet,
-        config=config.wallet_derivation,
-    )
-    if wallet_type is not None:
-        return wallet_type
-
-    wallet_checksum = to_checksum_address(wallet)
-    relayer = SyncTransport(base_url=config.relayer_url, logger=logger)
-    try:
-        if fetch_deployed_sync(
-            relayer,
-            address=wallet_checksum,
-            type=RelayerTransactionType.WALLET,
-        ):
-            return "DEPOSIT_WALLET"
-    finally:
-        relayer.close()
-
-    raise UserInputError(
-        f"Wallet {wallet_checksum} does not match the signer {signer.address} "
-        "or a deployed Deposit Wallet."
-    )
 
 
 def _relayer_transaction_type_for_wallet(

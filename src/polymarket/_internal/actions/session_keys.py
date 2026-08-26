@@ -6,6 +6,7 @@ import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import cast
 from uuid import uuid4
 
@@ -23,7 +24,13 @@ from polymarket._internal.actions.relayer.gasless import (
 )
 from polymarket._internal.context import AsyncSecureClientContext, SyncSecureClientContext
 from polymarket._internal.wallet import is_deposit_wallet_owner
-from polymarket.errors import TimeoutError, UnexpectedResponseError, UserInputError
+from polymarket.auth import BuilderApiKey
+from polymarket.errors import (
+    TimeoutError,
+    TransactionFailedError,
+    UnexpectedResponseError,
+    UserInputError,
+)
 from polymarket.models.base import BaseModel
 from polymarket.models.clob.relayer import TransactionOutcome
 from polymarket.session_keys import (
@@ -46,9 +53,26 @@ _TRANSACTION_HASH_RE = re.compile(r"^0x[0-9a-fA-F]{64}$")
 _SecureContext = AsyncSecureClientContext | SyncSecureClientContext
 
 
+class _AuthorizeSessionSignerStatus(StrEnum):
+    SUBMITTED = "SUBMITTED"
+    REGISTRY_PENDING = "REGISTRY_PENDING"
+    REGISTERED = "REGISTERED"
+    FAILED = "FAILED"
+    SUPERSEDED = "SUPERSEDED"
+    REPAIR_REQUIRED = "REPAIR_REQUIRED"
+
+
+class _RevokeSessionSignerStatus(StrEnum):
+    PENDING = "PENDING"
+    FENCED = "FENCED"
+    SWEPT = "SWEPT"
+    CHAIN_SUBMITTED = "CHAIN_SUBMITTED"
+    CONFIRMED = "CONFIRMED"
+    FAILED = "FAILED"
+
+
 class _AuthorizeSessionKeyResponse(BaseModel):
-    operation_id: str = Field(validation_alias="operationId", min_length=1)
-    status: str = Field(min_length=1)
+    status: _AuthorizeSessionSignerStatus
     transaction_hash: TransactionHash | None = Field(
         default=None, validation_alias="transactionHash"
     )
@@ -113,9 +137,7 @@ class _FetchSessionKeysResponse(BaseModel):
 
 
 class _RevokeSessionKeyResponse(BaseModel):
-    fenced: bool = Field(strict=True)
-    operation_id: str = Field(validation_alias="operationId", min_length=1)
-    status: str = Field(min_length=1)
+    status: _RevokeSessionSignerStatus
     transaction_id: str = Field(validation_alias="transactionId", min_length=1)
 
 
@@ -163,9 +185,8 @@ async def authorize_session_key(
     idempotency_key: str | None,
 ) -> AuthorizeSessionKeyResult:
     _assert_owner_deposit_wallet(ctx)
-    _require_api_key(ctx, operation="authorization")
+    _require_builder_api_key(ctx)
     request = _parse_authorize_session_key_request(
-        ctx,
         address=address,
         scopes=scopes,
         valid_until=valid_until,
@@ -184,6 +205,7 @@ async def authorize_session_key(
             headers={"Idempotency-Key": request.idempotency_key},
         )
     )
+    _assert_authorization_accepted(response.status)
 
     transaction = await GaslessTransactionHandle(
         transaction_id=response.transaction_id,
@@ -195,7 +217,6 @@ async def authorize_session_key(
     session_key = await _wait_for_authorized_session_key(ctx, expected=request)
     return _build_authorization_result(
         session_key=session_key,
-        response=response,
         transaction=transaction,
     )
 
@@ -209,9 +230,8 @@ def authorize_session_key_sync(
     idempotency_key: str | None,
 ) -> AuthorizeSessionKeyResult:
     _assert_owner_deposit_wallet(ctx)
-    _require_api_key(ctx, operation="authorization")
+    _require_builder_api_key(ctx)
     request = _parse_authorize_session_key_request(
-        ctx,
         address=address,
         scopes=scopes,
         valid_until=valid_until,
@@ -230,6 +250,7 @@ def authorize_session_key_sync(
             headers={"Idempotency-Key": request.idempotency_key},
         )
     )
+    _assert_authorization_accepted(response.status)
 
     transaction = SyncGaslessTransactionHandle(
         transaction_id=response.transaction_id,
@@ -241,7 +262,6 @@ def authorize_session_key_sync(
     session_key = _wait_for_authorized_session_key_sync(ctx, expected=request)
     return _build_authorization_result(
         session_key=session_key,
-        response=response,
         transaction=transaction,
     )
 
@@ -253,9 +273,8 @@ async def revoke_session_key(
     idempotency_key: str | None,
 ) -> RevokeSessionKeyResult:
     _assert_owner_deposit_wallet(ctx)
-    _require_api_key(ctx, operation="revocation")
+    _require_gasless_api_key(ctx)
     request = _parse_revoke_session_key_request(
-        ctx,
         address=address,
         idempotency_key=idempotency_key,
     )
@@ -271,6 +290,7 @@ async def revoke_session_key(
             headers={"Idempotency-Key": request.idempotency_key},
         )
     )
+    _assert_revocation_accepted(response.status)
     transaction = await GaslessTransactionHandle(
         transaction_id=response.transaction_id,
         transaction_hash=None,
@@ -278,10 +298,7 @@ async def revoke_session_key(
         _max_polls=ctx.environment_config.relayer_max_polls,
         _poll_delay_s=ctx.environment_config.relayer_poll_frequency_ms / 1000,
     ).wait()
-    return RevokeSessionKeyResult(
-        operation_id=response.operation_id,
-        transaction=transaction,
-    )
+    return RevokeSessionKeyResult(transaction=transaction)
 
 
 def revoke_session_key_sync(
@@ -291,9 +308,8 @@ def revoke_session_key_sync(
     idempotency_key: str | None,
 ) -> RevokeSessionKeyResult:
     _assert_owner_deposit_wallet(ctx)
-    _require_api_key(ctx, operation="revocation")
+    _require_gasless_api_key(ctx)
     request = _parse_revoke_session_key_request(
-        ctx,
         address=address,
         idempotency_key=idempotency_key,
     )
@@ -309,6 +325,7 @@ def revoke_session_key_sync(
             headers={"Idempotency-Key": request.idempotency_key},
         )
     )
+    _assert_revocation_accepted(response.status)
     transaction = SyncGaslessTransactionHandle(
         transaction_id=response.transaction_id,
         transaction_hash=None,
@@ -316,21 +333,17 @@ def revoke_session_key_sync(
         _max_polls=ctx.environment_config.relayer_max_polls,
         _poll_delay_s=ctx.environment_config.relayer_poll_frequency_ms / 1000,
     ).wait()
-    return RevokeSessionKeyResult(
-        operation_id=response.operation_id,
-        transaction=transaction,
-    )
+    return RevokeSessionKeyResult(transaction=transaction)
 
 
 def _parse_authorize_session_key_request(
-    ctx: _SecureContext,
     *,
     address: object,
     scopes: object,
     valid_until: object,
     idempotency_key: object,
 ) -> _ParsedAuthorizeSessionKeyRequest:
-    session_address = _parse_session_address(address, wallet=ctx.wallet)
+    session_address = _parse_session_address(address)
     normalized_scopes = _parse_scopes(scopes)
     normalized_expiry = _parse_valid_until(valid_until)
     return _ParsedAuthorizeSessionKeyRequest(
@@ -343,18 +356,17 @@ def _parse_authorize_session_key_request(
 
 
 def _parse_revoke_session_key_request(
-    ctx: _SecureContext,
     *,
     address: object,
     idempotency_key: object,
 ) -> _ParsedRevokeSessionKeyRequest:
     return _ParsedRevokeSessionKeyRequest(
-        address=_parse_session_address(address, wallet=ctx.wallet),
+        address=_parse_session_address(address),
         idempotency_key=_parse_idempotency_key(idempotency_key),
     )
 
 
-def _parse_session_address(address: object, *, wallet: EvmAddress) -> EvmAddress:
+def _parse_session_address(address: object) -> EvmAddress:
     if not isinstance(address, str) or _EVM_ADDRESS_RE.fullmatch(address) is None:
         raise UserInputError("Session key address must be a valid EVM address.")
     try:
@@ -363,8 +375,6 @@ def _parse_session_address(address: object, *, wallet: EvmAddress) -> EvmAddress
         raise UserInputError("Session key address must be a valid EVM address.") from error
     if normalized.lower() == _ZERO_ADDRESS:
         raise UserInputError("Session key address must not be the zero address.")
-    if normalized.lower() == str(wallet).lower():
-        raise UserInputError("Session key address must differ from the Deposit Wallet.")
     return EvmAddress(normalized)
 
 
@@ -382,18 +392,18 @@ def _parse_scopes(scopes: object) -> tuple[SessionKeyScope, ...]:
         raise UserInputError("Session key scopes must be a non-empty sequence.")
     if not scopes:
         raise UserInputError("Session key scopes must be a non-empty sequence.")
-    scope_values: dict[str, None] = {}
+    normalized: list[SessionKeyScope] = []
     for scope in cast(Sequence[object], scopes):
         if not isinstance(scope, str) or not scope:
             raise UserInputError("Session key scopes must contain non-empty strings.")
-        scope_values.setdefault(scope, None)
+        try:
+            normalized.append(SessionKeyKnownScope(scope))
+        except ValueError:
+            normalized.append(scope)
 
-    known_values = {scope.value for scope in SessionKeyKnownScope}
-    normalized: list[SessionKeyScope] = [
-        scope for scope in SessionKeyKnownScope if scope.value in scope_values
-    ]
-    normalized.extend(scope for scope in scope_values if scope not in known_values)
-    if SessionKeyKnownScope.ALL in normalized and len(normalized) > 1:
+    if SessionKeyKnownScope.ALL in normalized and any(
+        scope != SessionKeyKnownScope.ALL for scope in normalized
+    ):
         raise UserInputError("Session key scope ALL cannot be combined with another scope.")
     return tuple(normalized)
 
@@ -429,12 +439,31 @@ def _assert_owner_deposit_wallet(ctx: _SecureContext) -> None:
         raise UserInputError("Session keys can only be managed by the Deposit Wallet owner.")
 
 
-def _require_api_key(ctx: _SecureContext, *, operation: str) -> None:
+def _require_builder_api_key(ctx: _SecureContext) -> None:
+    if not isinstance(ctx.api_key, BuilderApiKey):
+        raise UserInputError("Session-key authorization requires builder API-key authentication.")
+
+
+def _require_gasless_api_key(ctx: _SecureContext) -> None:
     if ctx.api_key is None:
         raise UserInputError(
-            f"Session-key {operation} requires a Builder API Key or Relayer API Key. "
-            "Pass api_key= when constructing the client."
+            "Session-key revocation requires API-key authentication that supports "
+            "gasless transactions."
         )
+
+
+def _assert_authorization_accepted(status: _AuthorizeSessionSignerStatus) -> None:
+    if status in {
+        _AuthorizeSessionSignerStatus.FAILED,
+        _AuthorizeSessionSignerStatus.SUPERSEDED,
+        _AuthorizeSessionSignerStatus.REPAIR_REQUIRED,
+    }:
+        raise TransactionFailedError(f"Session-key authorization reached terminal status {status}")
+
+
+def _assert_revocation_accepted(status: _RevokeSessionSignerStatus) -> None:
+    if status is _RevokeSessionSignerStatus.FAILED:
+        raise TransactionFailedError(f"Session-key revocation reached terminal status {status}")
 
 
 def _build_authorization_payload(
@@ -532,7 +561,6 @@ def _is_expected_session_key(
     return (
         session_key.address.lower() == expected.address.lower()
         and session_key.valid_until == expected.valid_until
-        and len(actual_scopes) == len(expected_scopes)
         and set(actual_scopes) == set(expected_scopes)
     )
 
@@ -540,11 +568,9 @@ def _is_expected_session_key(
 def _build_authorization_result(
     *,
     session_key: AuthorizedSessionKey,
-    response: _AuthorizeSessionKeyResponse,
     transaction: TransactionOutcome,
 ) -> AuthorizeSessionKeyResult:
     return AuthorizeSessionKeyResult(
-        operation_id=response.operation_id,
         session_key=session_key,
         transaction=transaction,
     )

@@ -76,9 +76,6 @@ class AuthorizedSessionKey:
 class AuthorizeSessionKeyResult:
     """Result returned after the authorization transaction is confirmed."""
 
-    operation_id: str
-    """Identifier assigned to the accepted authorization operation."""
-
     session_key: AuthorizedSessionKey
     """Session-key metadata associated with the confirmed authorization."""
 
@@ -99,9 +96,6 @@ class RevokeSessionKeyRequest(TypedDict):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class RevokeSessionKeyResult:
     """Result returned after the revocation transaction is confirmed."""
-
-    operation_id: str
-    """Identifier assigned to the accepted revocation operation."""
 
     transaction: TransactionOutcome
     """Confirmed transaction that applied the revocation."""
