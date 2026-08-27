@@ -356,7 +356,7 @@ def test_authorize_session_key_async_retries_the_exact_signed_payload() -> None:
 )
 def test_authorize_session_key_sync_uses_default_scopes(authorization_status: str) -> None:
     captured: list[httpx.Request] = []
-    requested_expiry = datetime.now(UTC) + timedelta(minutes=15, microseconds=123_456)
+    earliest_default_expiry = datetime.now(UTC).replace(microsecond=0) + timedelta(hours=4_315)
 
     with make_sync_deposit_client() as client:
         wallet = str(client.wallet)
@@ -369,9 +369,12 @@ def test_authorize_session_key_sync_uses_default_scopes(authorization_status: st
         _install_sync_secure_clob_handler(client, handler)
         result = client.authorize_session_key(
             address=_SESSION_ADDRESS,
-            valid_until=requested_expiry,
             idempotency_key=" authorization-1 ",
         )
+    latest_default_expiry = datetime.now(UTC).replace(microsecond=0) + timedelta(hours=4_315)
+    requested_expiry = result.session_key.valid_until
+
+    assert earliest_default_expiry <= requested_expiry <= latest_default_expiry
 
     _assert_authorization_result_and_request(
         result,

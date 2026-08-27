@@ -51,6 +51,7 @@ _EVM_ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 _ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 _TRANSACTION_HASH_RE = re.compile(r"^0x[0-9a-fA-F]{64}$")
 _SESSION_KEY_SUBMISSION_MAX_RETRIES = 2
+_DEFAULT_SESSION_KEY_LIFETIME_SECONDS = 4_315 * 60 * 60
 
 _SecureContext = AsyncSecureClientContext | SyncSecureClientContext
 _ResponseT = TypeVar("_ResponseT")
@@ -185,7 +186,7 @@ async def authorize_session_key(
     *,
     address: str,
     scopes: Sequence[SessionKeyScope],
-    valid_until: datetime,
+    valid_until: datetime | None,
     idempotency_key: str | None,
 ) -> AuthorizeSessionKeyResult:
     _assert_owner_deposit_wallet(ctx)
@@ -231,7 +232,7 @@ def authorize_session_key_sync(
     *,
     address: str,
     scopes: Sequence[SessionKeyScope],
-    valid_until: datetime,
+    valid_until: datetime | None,
     idempotency_key: str | None,
 ) -> AuthorizeSessionKeyResult:
     _assert_owner_deposit_wallet(ctx)
@@ -416,6 +417,11 @@ def _parse_scopes(scopes: object) -> tuple[SessionKeyScope, ...]:
 
 
 def _parse_valid_until(valid_until: object) -> datetime:
+    if valid_until is None:
+        return datetime.fromtimestamp(
+            int(time.time()) + _DEFAULT_SESSION_KEY_LIFETIME_SECONDS,
+            tz=UTC,
+        )
     if not isinstance(valid_until, datetime):
         raise UserInputError("Session key expiry must be a timezone-aware datetime.")
     if valid_until.tzinfo is None or valid_until.utcoffset() is None:

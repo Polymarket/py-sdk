@@ -581,7 +581,7 @@ class AsyncSecureClient:
         *,
         address: str,
         scopes: Sequence[SessionKeyScope] = (SessionKeyKnownScope.ALL,),
-        valid_until: datetime,
+        valid_until: datetime | None = None,
         idempotency_key: str | None = None,
     ) -> AuthorizeSessionKeyResult:
         """Authorize an externally managed signer for selected venues.
@@ -593,6 +593,8 @@ class AsyncSecureClient:
         Scope names are normalized to uppercase. Unknown names remain usable
         before this SDK enumerates them. When scopes are omitted,
         authorization defaults to ``ALL``.
+        When ``valid_until`` is omitted, the authorization expires 4,315 hours
+        from the current time.
 
         Resolves after the submitted transaction is confirmed and the session
         key appears in the active session-key list.
