@@ -38,6 +38,7 @@ from polymarket.models.gamma.event import (
 )
 from polymarket.models.gamma.market import (
     ClobReward,
+    ComboKnownStatus,
     ComboStatus,
     FeeSchedule,
     Market,
@@ -64,6 +65,7 @@ __all__ = [
     "CategoryReference",
     "Chat",
     "ClobReward",
+    "ComboKnownStatus",
     "ComboStatus",
     "CollectionReference",
     "Comment",
