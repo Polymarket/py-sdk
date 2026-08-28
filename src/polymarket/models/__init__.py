@@ -124,6 +124,7 @@ from polymarket.models.data import (
     YieldActivity,
 )
 from polymarket.models.gamma import (
+    ComboStatus,
     Comment,
     Event,
     Market,
@@ -328,6 +329,7 @@ __all__ = [
     "ComboPositionMarketEvent",
     "ComboPositionOutcome",
     "ComboPositionStatus",
+    "ComboStatus",
     "ComboRedeemActivity",
     "ComboSplitActivity",
     "ComboTradeActivity",

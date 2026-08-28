@@ -6,6 +6,7 @@ import pytest
 
 from polymarket.errors import UnexpectedResponseError
 from polymarket.models.gamma import (
+    ComboStatus,
     Comment,
     CommentMedia,
     CommentPosition,
@@ -66,6 +67,7 @@ def test_market_normalizes_groups_from_flat_payload() -> None:
         active=True,
         closed=False,
         archived=False,
+        comboStatus="enabled",
         acceptingOrders=True,
         enableOrderBook=True,
         negRisk=False,
@@ -111,6 +113,7 @@ def test_market_normalizes_groups_from_flat_payload() -> None:
     assert market.condition_id == _CONDITION_ID
     assert market.group_item_title == "Rain tomorrow"
     assert market.state.active is True
+    assert market.state.combo_status is ComboStatus.ENABLED
     assert market.state.start_date == datetime(2026, 5, 1, tzinfo=UTC)
     assert market.state.end_date == datetime(2026, 6, 1, tzinfo=UTC)
     assert market.metrics.volume == Decimal("100")

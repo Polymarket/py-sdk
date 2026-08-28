@@ -36,6 +36,14 @@ from polymarket.models.types import (
 from polymarket.types import EvmAddress
 
 
+class ComboStatus(StrEnum):
+    """Combo eligibility state for a market."""
+
+    PENDING = "pending"
+    ENABLED = "enabled"
+    DISABLED = "disabled"
+
+
 class UmaResolutionStatus(StrEnum):
     """Resolution lifecycle state for a market."""
 
@@ -52,6 +60,10 @@ class MarketState(BaseModel):
     active: bool | None = None
     closed: bool | None = None
     archived: bool | None = None
+    combo_status: ComboStatus | None = Field(
+        default=None,
+        validation_alias="comboStatus",
+    )
     accepting_orders: bool | None = Field(
         default=None,
         validation_alias="acceptingOrders",
@@ -468,6 +480,7 @@ class Market(BaseModel):
                 "active": data.get("active"),
                 "closed": data.get("closed"),
                 "archived": data.get("archived"),
+                "combo_status": data.get("comboStatus"),
                 "accepting_orders": data.get("acceptingOrders"),
                 "enable_order_book": data.get("enableOrderBook"),
                 "neg_risk": data.get("negRisk"),
@@ -565,6 +578,7 @@ class Market(BaseModel):
 
 __all__ = [
     "ClobReward",
+    "ComboStatus",
     "FeeSchedule",
     "Market",
     "MarketEvent",
