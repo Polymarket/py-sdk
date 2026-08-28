@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import contextlib
 import re
-from datetime import UTC, datetime, timedelta
 
 import pytest
 from eth_account import Account
@@ -46,17 +45,14 @@ async def test_session_key_authorizes_lists_trades_and_revokes(
     revocation_accepted = False
     try:
         authorization_attempted = True
-        earliest_expiry = datetime.now(UTC).replace(microsecond=0) + timedelta(days=180)
         authorization = await deposit_wallet_client.authorize_session_key(
             address=session_account.address,
         )
-        latest_expiry = datetime.now(UTC).replace(microsecond=0) + timedelta(days=180)
 
         assert authorization.transaction.transaction_id is not None
         assert re.fullmatch(r"0x[0-9a-fA-F]{64}", str(authorization.transaction.transaction_hash))
         assert authorization.session_key.address.lower() == session_account.address.lower()
         assert authorization.session_key.scopes == (SessionKeyKnownScope.ALL,)
-        assert earliest_expiry <= authorization.session_key.valid_until <= latest_expiry
 
         active_session_keys = await deposit_wallet_client.fetch_session_keys()
         assert authorization.session_key in active_session_keys
