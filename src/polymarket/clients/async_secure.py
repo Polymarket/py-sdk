@@ -3,7 +3,6 @@ import contextlib
 import logging
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from datetime import datetime
 from decimal import Decimal
 from types import TracebackType
 from typing import (
@@ -581,7 +580,6 @@ class AsyncSecureClient:
         *,
         address: str,
         scopes: Sequence[SessionKeyScope] = (SessionKeyKnownScope.ALL,),
-        valid_until: datetime | None = None,
         idempotency_key: str | None = None,
     ) -> AuthorizeSessionKeyResult:
         """Authorize an externally managed signer for selected venues.
@@ -593,8 +591,7 @@ class AsyncSecureClient:
         Scope names are normalized to uppercase. Unknown names remain usable
         before this SDK enumerates them. When scopes are omitted,
         authorization defaults to ``ALL``.
-        When ``valid_until`` is omitted, the authorization expires 4,315 hours
-        from the current time.
+        Authorizations expire 180 days after they are created.
 
         Resolves after the submitted transaction is confirmed and the session
         key appears in the active session-key list.
@@ -613,7 +610,6 @@ class AsyncSecureClient:
             self._ctx,
             address=address,
             scopes=scopes,
-            valid_until=valid_until,
             idempotency_key=idempotency_key,
         )
 
