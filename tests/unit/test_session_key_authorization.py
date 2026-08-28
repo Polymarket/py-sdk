@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import cast
 from urllib.parse import urlparse
 
@@ -253,6 +253,7 @@ def _assert_authorization_result_and_request(
 
 def test_authorize_session_key_async_preserves_scopes_and_submits_request() -> None:
     captured: list[httpx.Request] = []
+    earliest_expiry = datetime.now(UTC).replace(microsecond=0) + timedelta(hours=4_315)
 
     async def run() -> tuple[AuthorizeSessionKeyResult, str]:
         client = await make_deposit_client()
@@ -278,6 +279,8 @@ def test_authorize_session_key_async_preserves_scopes_and_submits_request() -> N
             await client.close()
 
     result, wallet = asyncio.run(run())
+    latest_expiry = datetime.now(UTC).replace(microsecond=0) + timedelta(hours=4_315)
+    assert earliest_expiry <= result.session_key.valid_until <= latest_expiry
     _assert_authorization_result_and_request(
         result,
         captured,
@@ -353,6 +356,7 @@ def test_authorize_session_key_async_retries_the_exact_signed_payload() -> None:
 )
 def test_authorize_session_key_sync_uses_default_scopes(authorization_status: str) -> None:
     captured: list[httpx.Request] = []
+    earliest_expiry = datetime.now(UTC).replace(microsecond=0) + timedelta(hours=4_315)
 
     with make_sync_deposit_client() as client:
         wallet = str(client.wallet)
@@ -367,7 +371,10 @@ def test_authorize_session_key_sync_uses_default_scopes(authorization_status: st
             address=_SESSION_ADDRESS,
             idempotency_key=" authorization-1 ",
         )
+    latest_expiry = datetime.now(UTC).replace(microsecond=0) + timedelta(hours=4_315)
     requested_expiry = result.session_key.valid_until
+
+    assert earliest_expiry <= requested_expiry <= latest_expiry
 
     _assert_authorization_result_and_request(
         result,

@@ -51,7 +51,7 @@ _EVM_ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 _ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 _TRANSACTION_HASH_RE = re.compile(r"^0x[0-9a-fA-F]{64}$")
 _SESSION_KEY_SUBMISSION_MAX_RETRIES = 2
-_SESSION_KEY_LIFETIME_SECONDS = 180 * 24 * 60 * 60
+_SESSION_KEY_LIFETIME_SECONDS = 4_315 * 60 * 60
 
 _SecureContext = AsyncSecureClientContext | SyncSecureClientContext
 _ResponseT = TypeVar("_ResponseT")
