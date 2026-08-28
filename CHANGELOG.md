@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.7.1](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.7.0...polymarket-client-v0.7.1) (2026-08-28)
+
+
+### Bug Fixes
+
+* **session-keys:** default session key expiration ([f8fd790](https://github.com/Polymarket/py-sdk/commit/f8fd7903dc8b3b42adb027e3b23283aabb4b4cff))
+* **session-keys:** default session key expiration ([c24567c](https://github.com/Polymarket/py-sdk/commit/c24567c1130a1ad3142523f1774d4aa8761b69bd))
+* **session-keys:** hide authorization expiration ([fd93408](https://github.com/Polymarket/py-sdk/commit/fd93408329fd86704d3ee287ead67f69d81616cd))
+* **session-keys:** restore expiration buffer ([c8b4346](https://github.com/Polymarket/py-sdk/commit/c8b4346447bc4b2b1532485f7dd9cd270363b3fa))
+
 ## [0.7.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.6.0...polymarket-client-v0.7.0) (2026-08-26)
 
 
