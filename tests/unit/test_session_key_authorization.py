@@ -253,7 +253,7 @@ def _assert_authorization_result_and_request(
 
 def test_authorize_session_key_async_preserves_scopes_and_submits_request() -> None:
     captured: list[httpx.Request] = []
-    requested_expiry = datetime.now(UTC) + timedelta(minutes=15, microseconds=123_456)
+    earliest_expiry = datetime.now(UTC).replace(microsecond=0) + timedelta(hours=4_315)
 
     async def run() -> tuple[AuthorizeSessionKeyResult, str]:
         client = await make_deposit_client()
@@ -272,7 +272,6 @@ def test_authorize_session_key_async_preserves_scopes_and_submits_request() -> N
                     _NEWER_SCOPE,
                     SessionKeyKnownScope.CLOB,
                 ),
-                valid_until=requested_expiry,
                 idempotency_key=" authorization-1 ",
             )
             return result, wallet
@@ -280,6 +279,8 @@ def test_authorize_session_key_async_preserves_scopes_and_submits_request() -> N
             await client.close()
 
     result, wallet = asyncio.run(run())
+    latest_expiry = datetime.now(UTC).replace(microsecond=0) + timedelta(hours=4_315)
+    assert earliest_expiry <= result.session_key.valid_until <= latest_expiry
     _assert_authorization_result_and_request(
         result,
         captured,
@@ -299,7 +300,7 @@ def test_authorize_session_key_async_preserves_scopes_and_submits_request() -> N
             _NEWER_SCOPE,
             SessionKeyKnownScope.CLOB,
         ),
-        requested_expiry=requested_expiry,
+        requested_expiry=result.session_key.valid_until,
         wallet=wallet,
     )
 
@@ -331,7 +332,6 @@ def test_authorize_session_key_async_retries_the_exact_signed_payload() -> None:
             await client.authorize_session_key(
                 address=_SESSION_ADDRESS,
                 scopes=("clob",),
-                valid_until=datetime.now(UTC) + timedelta(minutes=15),
                 idempotency_key="exact-authorization",
             )
         finally:
@@ -356,7 +356,7 @@ def test_authorize_session_key_async_retries_the_exact_signed_payload() -> None:
 )
 def test_authorize_session_key_sync_uses_default_scopes(authorization_status: str) -> None:
     captured: list[httpx.Request] = []
-    requested_expiry = datetime.now(UTC) + timedelta(minutes=15, microseconds=123_456)
+    earliest_expiry = datetime.now(UTC).replace(microsecond=0) + timedelta(hours=4_315)
 
     with make_sync_deposit_client() as client:
         wallet = str(client.wallet)
@@ -369,9 +369,12 @@ def test_authorize_session_key_sync_uses_default_scopes(authorization_status: st
         _install_sync_secure_clob_handler(client, handler)
         result = client.authorize_session_key(
             address=_SESSION_ADDRESS,
-            valid_until=requested_expiry,
             idempotency_key=" authorization-1 ",
         )
+    latest_expiry = datetime.now(UTC).replace(microsecond=0) + timedelta(hours=4_315)
+    requested_expiry = result.session_key.valid_until
+
+    assert earliest_expiry <= requested_expiry <= latest_expiry
 
     _assert_authorization_result_and_request(
         result,
@@ -570,7 +573,6 @@ def test_authorize_session_key_retries_transient_registry_read_failure() -> None
         try:
             return await client.authorize_session_key(
                 address=_SESSION_ADDRESS,
-                valid_until=datetime.now(UTC) + timedelta(minutes=15),
             )
         finally:
             await client.close()
@@ -603,13 +605,11 @@ def test_authorize_session_key_rejects_address_without_0x_prefix() -> None:
         client.authorize_session_key(
             address=_SESSION_ADDRESS.removeprefix("0x"),
             scopes=(SessionKeyKnownScope.CLOB,),
-            valid_until=datetime.now(UTC) + timedelta(minutes=15),
         )
 
 
 def test_authorize_session_key_allows_wallet_address_to_reach_service() -> None:
     captured: list[httpx.Request] = []
-    requested_expiry = datetime.now(UTC) + timedelta(minutes=15)
 
     with make_sync_deposit_client() as client:
         wallet = str(client.wallet)
@@ -620,7 +620,6 @@ def test_authorize_session_key_allows_wallet_address_to_reach_service() -> None:
         result = client.authorize_session_key(
             address=wallet,
             scopes=(SessionKeyKnownScope.CLOB,),
-            valid_until=requested_expiry,
         )
 
     assert result.session_key.address.lower() == wallet.lower()
@@ -633,37 +632,25 @@ def test_authorize_session_key_allows_wallet_address_to_reach_service() -> None:
     assert session_signer_address.lower() == wallet.lower()
 
 
-def test_authorize_session_key_rejects_invalid_cross_field_combinations() -> None:
-    valid_expiry = datetime.now(UTC) + timedelta(minutes=15)
+def test_authorize_session_key_rejects_invalid_scope_combinations() -> None:
     client = make_sync_deposit_client()
     try:
         with pytest.raises(UserInputError, match="ALL cannot be combined"):
             client.authorize_session_key(
                 address=_SESSION_ADDRESS,
                 scopes=(SessionKeyKnownScope.ALL, SessionKeyKnownScope.CLOB),
-                valid_until=valid_expiry,
             )
 
         with pytest.raises(UserInputError, match="non-empty strings"):
             client.authorize_session_key(
                 address=_SESSION_ADDRESS,
                 scopes=("",),
-                valid_until=valid_expiry,
-            )
-
-        with pytest.raises(UserInputError, match="timezone-aware datetime"):
-            client.authorize_session_key(
-                address=_SESSION_ADDRESS,
-                scopes=(SessionKeyKnownScope.CLOB,),
-                valid_until=datetime.now(),
             )
     finally:
         client.close()
 
 
 def test_authorize_session_key_requires_builder_api_key() -> None:
-    valid_expiry = datetime.now(UTC) + timedelta(minutes=15)
-
     with make_sync_deposit_client() as client:
         client._ctx = dataclasses.replace(client._ctx, api_key=None)
         with pytest.raises(
@@ -672,12 +659,10 @@ def test_authorize_session_key_requires_builder_api_key() -> None:
         ):
             client.authorize_session_key(
                 address=_SESSION_ADDRESS,
-                valid_until=valid_expiry,
             )
 
 
 def test_authorize_session_key_rejects_relayer_api_key() -> None:
-    valid_expiry = datetime.now(UTC) + timedelta(minutes=15)
     relayer_api_key = RelayerApiKey(
         key="relayer-key",
         address="0x0000000000000000000000000000000000000001",
@@ -691,7 +676,6 @@ def test_authorize_session_key_rejects_relayer_api_key() -> None:
         ):
             client.authorize_session_key(
                 address=_SESSION_ADDRESS,
-                valid_until=valid_expiry,
             )
 
 
@@ -718,7 +702,6 @@ def test_authorize_session_key_rejects_terminal_status_before_polling(status: st
         ):
             client.authorize_session_key(
                 address=_SESSION_ADDRESS,
-                valid_until=datetime.now(UTC) + timedelta(minutes=15),
             )
 
     paths = [urlparse(str(request.url)).path for request in captured]
@@ -754,7 +737,6 @@ def test_authorize_session_key_rejects_unknown_response_status() -> None:
         with pytest.raises(UnexpectedResponseError, match="did not match expected shape"):
             client.authorize_session_key(
                 address=_SESSION_ADDRESS,
-                valid_until=datetime.now(UTC) + timedelta(minutes=15),
             )
 
 

@@ -51,6 +51,7 @@ _EVM_ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 _ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 _TRANSACTION_HASH_RE = re.compile(r"^0x[0-9a-fA-F]{64}$")
 _SESSION_KEY_SUBMISSION_MAX_RETRIES = 2
+_SESSION_KEY_LIFETIME_SECONDS = 4_315 * 60 * 60
 
 _SecureContext = AsyncSecureClientContext | SyncSecureClientContext
 _ResponseT = TypeVar("_ResponseT")
@@ -185,7 +186,6 @@ async def authorize_session_key(
     *,
     address: str,
     scopes: Sequence[SessionKeyScope],
-    valid_until: datetime,
     idempotency_key: str | None,
 ) -> AuthorizeSessionKeyResult:
     _assert_owner_deposit_wallet(ctx)
@@ -193,7 +193,6 @@ async def authorize_session_key(
     request = _parse_authorize_session_key_request(
         address=address,
         scopes=scopes,
-        valid_until=valid_until,
         idempotency_key=idempotency_key,
     )
     call = authorize_session_signer_call(
@@ -231,7 +230,6 @@ def authorize_session_key_sync(
     *,
     address: str,
     scopes: Sequence[SessionKeyScope],
-    valid_until: datetime,
     idempotency_key: str | None,
 ) -> AuthorizeSessionKeyResult:
     _assert_owner_deposit_wallet(ctx)
@@ -239,7 +237,6 @@ def authorize_session_key_sync(
     request = _parse_authorize_session_key_request(
         address=address,
         scopes=scopes,
-        valid_until=valid_until,
         idempotency_key=idempotency_key,
     )
     call = authorize_session_signer_call(
@@ -346,17 +343,19 @@ def _parse_authorize_session_key_request(
     *,
     address: object,
     scopes: object,
-    valid_until: object,
     idempotency_key: object,
 ) -> _ParsedAuthorizeSessionKeyRequest:
     session_address = _parse_session_address(address)
     normalized_scopes = _parse_scopes(scopes)
-    normalized_expiry = _parse_valid_until(valid_until)
+    valid_until = datetime.fromtimestamp(
+        int(time.time()) + _SESSION_KEY_LIFETIME_SECONDS,
+        tz=UTC,
+    )
     return _ParsedAuthorizeSessionKeyRequest(
         address=session_address,
         scopes=normalized_scopes,
-        valid_until=normalized_expiry,
-        valid_until_epoch=int(normalized_expiry.timestamp()),
+        valid_until=valid_until,
+        valid_until_epoch=int(valid_until.timestamp()),
         idempotency_key=_parse_idempotency_key(idempotency_key),
     )
 
@@ -413,17 +412,6 @@ def _parse_scopes(scopes: object) -> tuple[SessionKeyScope, ...]:
     ):
         raise UserInputError("Session key scope ALL cannot be combined with another scope.")
     return tuple(normalized)
-
-
-def _parse_valid_until(valid_until: object) -> datetime:
-    if not isinstance(valid_until, datetime):
-        raise UserInputError("Session key expiry must be a timezone-aware datetime.")
-    if valid_until.tzinfo is None or valid_until.utcoffset() is None:
-        raise UserInputError("Session key expiry must be a timezone-aware datetime.")
-    normalized = valid_until.astimezone(UTC).replace(microsecond=0)
-    if int(normalized.timestamp()) <= int(time.time()):
-        raise UserInputError("Session key expiry must be in the future.")
-    return normalized
 
 
 def _parse_idempotency_key(idempotency_key: object) -> str:

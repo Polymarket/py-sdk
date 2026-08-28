@@ -51,9 +51,6 @@ class AuthorizeSessionKeyRequest(TypedDict):
     scopes: NotRequired[Sequence[SessionKeyScope]]
     """Requested scopes. Defaults to ``ALL``, which must appear alone."""
 
-    valid_until: datetime
-    """Timezone-aware future expiry, normalized to UTC by the SDK."""
-
     idempotency_key: NotRequired[str | None]
     """Operation key reused by the SDK's built-in exact-payload retries."""
 

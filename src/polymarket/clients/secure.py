@@ -3,7 +3,6 @@
 import logging
 import time
 from collections.abc import Mapping, Sequence
-from datetime import datetime
 from decimal import Decimal
 from types import TracebackType
 from typing import TYPE_CHECKING, Literal, Self, cast, overload
@@ -511,7 +510,6 @@ class SecureClient:
         *,
         address: str,
         scopes: Sequence[SessionKeyScope] = (SessionKeyKnownScope.ALL,),
-        valid_until: datetime,
         idempotency_key: str | None = None,
     ) -> AuthorizeSessionKeyResult:
         """Authorize an externally managed signer for selected venues.
@@ -523,6 +521,7 @@ class SecureClient:
         Scope names are normalized to uppercase. Unknown names remain usable
         before this SDK enumerates them. When scopes are omitted,
         authorization defaults to ``ALL``.
+        Authorizations expire 180 days after they are created.
 
         Resolves after the submitted transaction is confirmed and the session
         key appears in the active session-key list.
@@ -541,7 +540,6 @@ class SecureClient:
             self._ctx,
             address=address,
             scopes=scopes,
-            valid_until=valid_until,
             idempotency_key=idempotency_key,
         )
 
