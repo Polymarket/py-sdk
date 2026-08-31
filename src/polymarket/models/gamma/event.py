@@ -57,10 +57,6 @@ class EventState(BaseModel):
     ended: bool | None = None
     automatically_active: bool | None = Field(default=None, validation_alias="automaticallyActive")
     comments_enabled: bool | None = Field(default=None, validation_alias="commentsEnabled")
-    requires_translation: bool | None = Field(
-        default=None,
-        validation_alias="requiresTranslation",
-    )
 
 
 class EventSchedule(BaseModel):
@@ -94,7 +90,6 @@ class EventSchedule(BaseModel):
 
 class EventMetrics(BaseModel):
     liquidity: Decimal | None = None
-    liquidity_amm: Decimal | None = Field(default=None, validation_alias="liquidityAmm")
     liquidity_clob: Decimal | None = Field(default=None, validation_alias="liquidityClob")
     volume: Decimal | None = None
     volume_24hr: Decimal | None = Field(default=None, validation_alias="volume24hr")
@@ -108,7 +103,6 @@ class EventMetrics(BaseModel):
 
     @field_validator(
         "liquidity",
-        "liquidity_amm",
         "liquidity_clob",
         "volume",
         "volume_24hr",
@@ -358,7 +352,6 @@ class Event(BaseModel):
                 "ended": data.get("ended"),
                 "automatically_active": data.get("automaticallyActive"),
                 "comments_enabled": data.get("commentsEnabled"),
-                "requires_translation": data.get("requiresTranslation"),
             },
             "schedule": {
                 "start_date": data.get("startDate"),
@@ -372,7 +365,6 @@ class Event(BaseModel):
             },
             "metrics": {
                 "liquidity": data.get("liquidity"),
-                "liquidity_amm": data.get("liquidityAmm"),
                 "liquidity_clob": data.get("liquidityClob"),
                 "volume": data.get("volume"),
                 "volume_24hr": data.get("volume24hr"),

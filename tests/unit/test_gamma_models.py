@@ -34,7 +34,6 @@ def _minimal_market_payload(**overrides: object) -> dict[str, object]:
         "outcomePrices": ["0.6", "0.4"],
         "clobTokenIds": ["TOKEN-YES", "TOKEN-NO"],
         "positionIds": ["POSITION-YES", "POSITION-NO"],
-        "marketMakerAddress": "0xMM",
     }
     payload.update(overrides)
     return payload
@@ -51,6 +50,24 @@ def test_market_parses_minimal_payload() -> None:
     assert market.outcomes.no.token_id == "TOKEN-NO"
     assert market.outcomes.no.price == Decimal("0.4")
     assert market.position_ids == ("POSITION-YES", "POSITION-NO")
+
+
+def test_market_ignores_legacy_fields_still_present_in_responses() -> None:
+    # The API stopped returning these fields, but historical AMM markets and
+    # not-yet-migrated responses may still carry them.
+    market = Market.parse_response(
+        _minimal_market_payload(
+            marketMakerAddress="0xMM",
+            ammType="fpmm",
+            fpmmLive=True,
+            volumeAmm="123.45",
+            liquidityAmm="67.89",
+            pagerDutyNotificationEnabled=True,
+            requiresTranslation=True,
+        )
+    )
+
+    assert market.id == "MARKET-1"
 
 
 def test_market_normalizes_groups_from_flat_payload() -> None:
@@ -365,14 +382,12 @@ def test_event_skips_markets_with_non_binary_outcomes() -> None:
                     "outcomes": ["Yes", "No"],
                     "outcomePrices": ["0.5", "0.5"],
                     "clobTokenIds": ["A", "B"],
-                    "marketMakerAddress": "0xMM",
                 },
                 {
                     "id": "M2",
                     "outcomes": ["Only"],
                     "outcomePrices": ["1"],
                     "clobTokenIds": ["X"],
-                    "marketMakerAddress": "0xMM",
                 },
             ],
         )

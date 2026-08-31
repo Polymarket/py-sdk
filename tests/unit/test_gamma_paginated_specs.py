@@ -16,7 +16,6 @@ def _minimal_market_payload(**overrides: object) -> dict[str, object]:
         "outcomePrices": ["0.6", "0.4"],
         "clobTokenIds": ["TOKEN-YES", "TOKEN-NO"],
         "positionIds": ["POSITION-YES", "POSITION-NO"],
-        "marketMakerAddress": "0xMM",
     }
     payload.update(overrides)
     return payload
@@ -72,14 +71,12 @@ def test_list_markets_spec_default_has_no_params() -> None:
 def test_list_markets_spec_collects_array_params() -> None:
     spec = gamma_actions.list_markets_spec(
         clob_token_ids=["A", "B"],
-        market_maker_addresses=["0xMM"],
         ids=[1, 2],
         position_ids=["P1", "P2"],
     )
 
     assert spec.base_params == {
         "clob_token_ids": ("A", "B"),
-        "market_maker_address": ("0xMM",),
         "id": (1, 2),
         "position_ids": ("P1", "P2"),
     }
