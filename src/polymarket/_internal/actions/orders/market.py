@@ -62,7 +62,6 @@ def validate_market_order_params(
     builder_code: str | None = None,
 ) -> PrepareMarketOrderParams:
     validated_asset = resolve_asset_id(asset_id=asset_id, token_id=token_id)
-    assert validated_asset is not None
     if side not in ("BUY", "SELL"):
         raise UserInputError(f"side must be 'BUY' or 'SELL', got {side!r}.")
     if order_type not in ("FAK", "FOK"):

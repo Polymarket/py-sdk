@@ -2040,7 +2040,7 @@ class AsyncSecureClient:
     ) -> LastTradePrice | None:
         """Get the most recent trade price for a CLOB asset.
 
-        Returns ``None`` when the token has not traded.
+        Returns ``None`` when the CLOB asset has not traded.
         """
         path, params = _clob_actions.build_last_trade_price_request(
             asset_id=asset_id, token_id=token_id
@@ -2079,6 +2079,7 @@ class AsyncSecureClient:
     ) -> tuple[PriceHistoryPoint, ...]:
         """Get historical price points for a CLOB asset."""
         path, params = _clob_actions.build_price_history_request(
+            asset_id=asset_id,
             token_id=token_id,
             start_ts=start_ts,
             end_ts=end_ts,

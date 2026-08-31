@@ -286,6 +286,28 @@ def test_async_get_price_history_maps_token_id_to_market_param() -> None:
     assert parse_qs(parsed.query) == {"market": ["123"]}
 
 
+def test_async_secure_get_price_history_maps_asset_id_to_market_param() -> None:
+    captured: list[httpx.Request] = []
+
+    async def run() -> tuple[PriceHistoryPoint, ...]:
+        client = await AsyncSecureClient._create(
+            private_key=PRIVATE_KEY,
+            wallet=SIGNER_ADDRESS,
+            credentials=FAKE_CREDS,
+            validate_credentials=False,
+        )
+        try:
+            _install_async_clob(client, _clob_handler(captured, {"history": []}))
+            return await client.get_price_history(asset_id="123")
+        finally:
+            await client.close()
+
+    assert asyncio.run(run()) == ()
+    parsed = urlparse(str(captured[0].url))
+    assert parsed.path == "/prices-history"
+    assert parse_qs(parsed.query) == {"market": ["123"]}
+
+
 def test_async_get_price_history_preserves_camelcase_optional_params_on_wire() -> None:
     captured: list[httpx.Request] = []
 

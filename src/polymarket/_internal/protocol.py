@@ -11,7 +11,7 @@ _UINT256_MAX = (1 << 256) - 1
 _UINT256_BYTE_LENGTH = 32
 _V2_RESERVED_BITS_MASK = ((1 << 64) - 1) << 40
 _SUPPORTED_V2_MODULE_IDS = frozenset((1, 2, 3))
-_POSITION_ID_PATTERN = re.compile(r"(?:0[xX][0-9a-fA-F]+|[0-9]+)\Z")
+_POSITION_ID_PATTERN = re.compile(r"(?:0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|[0-9]+)\Z")
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,7 +50,9 @@ def _parse_position_id(position_id: str) -> int:
     raw = position_id.strip()
     if _POSITION_ID_PATTERN.fullmatch(raw) is None:
         raise UserInputError("Position ID must be a uint256 value")
-    value = int(raw, 16 if raw.lower().startswith("0x") else 10)
+    prefix = raw[:2].lower()
+    base = {"0x": 16, "0b": 2, "0o": 8}.get(prefix, 10)
+    value = int(raw, base)
     if value < 0 or value > _UINT256_MAX:
         raise UserInputError("Position ID must be a uint256 value")
     return value

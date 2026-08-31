@@ -9,7 +9,7 @@ from polymarket.errors import UserInputError
 from polymarket.models.types import ClobAssetId, OrderSide
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True, init=False, eq=False)
 class PriceRequest:
     asset_id: ClobAssetId
     side: OrderSide
@@ -46,6 +46,16 @@ class PriceRequest:
 
     def __getitem__(self, index: int | slice) -> ClobAssetId | OrderSide | tuple[object, ...]:
         return (self.asset_id, self.side)[index]
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, PriceRequest):
+            return self.asset_id == other.asset_id and self.side == other.side
+        if isinstance(other, tuple):
+            return (self.asset_id, self.side) == other
+        return NotImplemented
+
+    def __hash__(self) -> int:
+        return hash((self.asset_id, self.side))
 
     @property
     def token_id(self) -> ClobAssetId:

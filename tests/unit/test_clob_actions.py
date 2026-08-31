@@ -228,6 +228,10 @@ def test_price_request_preserves_named_tuple_access_patterns() -> None:
     assert request[0] == "1"
     assert request[1] == "BUY"
     assert len(request) == 2
+    legacy_tuple = ("1", "BUY")
+    assert request == legacy_tuple
+    assert legacy_tuple == request
+    assert hash(request) == hash(legacy_tuple)
 
 
 def test_price_request_raises_user_input_error_for_conflicting_ids() -> None:

@@ -55,7 +55,6 @@ def validate_limit_order_params(
     builder_code: str | None = None,
 ) -> PrepareLimitOrderParams:
     validated_asset = resolve_asset_id(asset_id=asset_id, token_id=token_id)
-    assert validated_asset is not None
     validated_price = coerce_positive_decimal("price", price)
     validated_size = coerce_positive_decimal("size", size)
     if side not in ("BUY", "SELL"):

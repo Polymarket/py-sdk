@@ -29,7 +29,6 @@ def _validate_estimate_inputs(
     order_type: MarketOrderType,
 ) -> tuple[ClobAssetId, Decimal]:
     validated_asset = resolve_asset_id(asset_id=asset_id, token_id=token_id)
-    assert validated_asset is not None
     if side == "BUY":
         if amount is None:
             raise UserInputError("amount is required for BUY estimates.")

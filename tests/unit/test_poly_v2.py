@@ -20,6 +20,8 @@ _YES_POSITION_ID = PositionId(str(int(_BINARY_CONDITION_ID + "00", 16)))
 
 def test_protocol_v2_position_ids_use_reserved_bit_namespace() -> None:
     assert is_v2_position_id(_YES_POSITION_ID)
+    assert is_v2_position_id(bin(int(_YES_POSITION_ID)))
+    assert is_v2_position_id(oct(int(_YES_POSITION_ID)))
     assert not is_v2_position_id(str(1 << 40))
     assert not is_v2_position_id("not-an-id")
     assert not is_v2_position_id("1_0")
