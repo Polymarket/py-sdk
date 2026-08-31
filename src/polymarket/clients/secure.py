@@ -176,7 +176,7 @@ from polymarket.models.clob import BuilderApiKeyInfo, BuilderTrade
 from polymarket.models.clob.cancel import CancelOrdersResponse
 from polymarket.models.clob.order_response import AcceptedOrder, OrderResponse
 from polymarket.models.clob.orders import MarketOrderType, SignedOrder
-from polymarket.models.clob.relayer import RelayerTransactionType, TransactionOutcome
+from polymarket.models.clob.relayer import RelayerTransactionType
 from polymarket.models.clob.rewards import (
     CurrentReward,
     MarketReward,
@@ -561,21 +561,21 @@ class SecureClient:
         *,
         address: str,
         idempotency_key: str | None = None,
-    ) -> TransactionOutcome:
+    ) -> SyncTransactionHandle:
         """Revoke a session key authorized for the Deposit Wallet.
 
-        Returns the confirmed transaction after order cleanup and on-chain
-        confirmation. Requires an ``api_key=`` that supports gasless transactions.
+        Returns once the key is absent from the active-key registry and unusable.
+        Call ``wait()`` on the returned transaction to await on-chain confirmation.
+        Requires an ``api_key=`` that supports gasless transactions.
 
         Raises:
             UserInputError: If the client or revocation input is invalid.
             RequestRejectedError: If the revocation request is rejected.
-            RateLimitError: If a revocation or transaction request remains rate-limited.
+            RateLimitError: If a revocation or registry request remains rate-limited.
             SigningError: If the owner signature cannot be produced.
             TransportError: If a network request fails.
-            UnexpectedResponseError: If a revocation or transaction response is malformed.
-            TimeoutError: If transaction confirmation exceeds the wait budget.
-            TransactionFailedError: If the revocation transaction fails.
+            UnexpectedResponseError: If a revocation or registry response is malformed.
+            TimeoutError: If registry removal exceeds the wait budget.
         """
         return _session_key_actions.revoke_session_key_sync(
             self._ctx,
