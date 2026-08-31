@@ -1,5 +1,6 @@
 """Protocol-version inference and protocol v2 identifier helpers."""
 
+import re
 from dataclasses import dataclass
 from typing import Literal
 
@@ -10,6 +11,7 @@ _UINT256_MAX = (1 << 256) - 1
 _UINT256_BYTE_LENGTH = 32
 _V2_RESERVED_BITS_MASK = ((1 << 64) - 1) << 40
 _SUPPORTED_V2_MODULE_IDS = frozenset((1, 2, 3))
+_POSITION_ID_PATTERN = re.compile(r"(?:0[xX][0-9a-fA-F]+|[0-9]+)\Z")
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,15 +48,9 @@ def decode_v2_outcome_position_id(position_id: PositionId | str) -> DecodedV2Out
 
 def _parse_position_id(position_id: str) -> int:
     raw = position_id.strip()
-    if not raw:
+    if _POSITION_ID_PATTERN.fullmatch(raw) is None:
         raise UserInputError("Position ID must be a uint256 value")
-    try:
-        value = int(raw, 0)
-    except ValueError:
-        try:
-            value = int(raw, 10)
-        except ValueError as error:
-            raise UserInputError("Position ID must be a uint256 value") from error
+    value = int(raw, 16 if raw.lower().startswith("0x") else 10)
     if value < 0 or value > _UINT256_MAX:
         raise UserInputError("Position ID must be a uint256 value")
     return value

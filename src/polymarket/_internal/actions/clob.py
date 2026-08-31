@@ -12,7 +12,7 @@ from polymarket.models._validators import parse_decimal_string
 from polymarket.models.base import BaseModel
 from polymarket.models.clob import (
     LastTradePrice,
-    LastTradePriceForToken,
+    LastTradePriceForAsset,
     OrderBook,
     PriceHistoryInterval,
     PriceHistoryPoint,
@@ -67,14 +67,14 @@ _MidpointsAdapter = TypeAdapter(dict[ClobAssetId, _StrictDecimalValue])
 _SpreadsAdapter = TypeAdapter(dict[ClobAssetId, _StrictDecimalValue])
 _PricesAdapter = TypeAdapter(dict[ClobAssetId, dict[OrderSide, _StrictDecimalValue]])
 _OrderBookListAdapter = TypeAdapter(tuple[OrderBook, ...])
-_LastTradePriceListAdapter = TypeAdapter(tuple[LastTradePriceForToken, ...])
+_LastTradePriceListAdapter = TypeAdapter(tuple[LastTradePriceForAsset, ...])
 _PriceHistoryListAdapter = TypeAdapter(tuple[PriceHistoryPoint, ...])
 
 
-def _require_string_token_id(token_id: object) -> str:
-    if not isinstance(token_id, str):
-        raise UserInputError(f"token_id must be a string, got {type(token_id).__name__}.")
-    return require_nonempty("token_id", token_id)
+def _require_string_asset_id(asset_id: object) -> str:
+    if not isinstance(asset_id, str):
+        raise UserInputError(f"asset_id must be a string, got {type(asset_id).__name__}.")
+    return require_nonempty("asset_id", asset_id)
 
 
 def _validate_side(side: object) -> None:
@@ -109,7 +109,7 @@ def _require_nonempty_price_requests(requests: Sequence[PriceRequest]) -> tuple[
     for raw in cast(Sequence[object], requests):
         if not isinstance(raw, PriceRequest):
             raise UserInputError(f"each entry must be a PriceRequest, got {type(raw).__name__}.")
-        asset_id = _require_string_token_id(raw.asset_id)
+        asset_id = _require_string_asset_id(raw.asset_id)
         _validate_side(raw.side)
         result.append(PriceRequest(asset_id, raw.side))
     return tuple(result)
@@ -119,7 +119,6 @@ def build_midpoint_request(
     *, asset_id: str | None = None, token_id: str | None = None
 ) -> tuple[str, dict[str, str]]:
     resolved = resolve_asset_id(asset_id=asset_id, token_id=token_id)
-    assert resolved is not None
     return "/midpoint", {"token_id": resolved}
 
 
@@ -145,7 +144,6 @@ def build_price_request(
     *, asset_id: str | None = None, token_id: str | None = None, side: OrderSide
 ) -> tuple[str, dict[str, str]]:
     validated = resolve_asset_id(asset_id=asset_id, token_id=token_id)
-    assert validated is not None
     _validate_side(side)
     return "/price", {"token_id": validated, "side": side}
 
@@ -170,7 +168,6 @@ def build_order_book_request(
     *, asset_id: str | None = None, token_id: str | None = None
 ) -> tuple[str, dict[str, str]]:
     resolved = resolve_asset_id(asset_id=asset_id, token_id=token_id)
-    assert resolved is not None
     return "/book", {"token_id": resolved}
 
 
@@ -198,7 +195,6 @@ def build_spread_request(
     *, asset_id: str | None = None, token_id: str | None = None
 ) -> tuple[str, dict[str, str]]:
     resolved = resolve_asset_id(asset_id=asset_id, token_id=token_id)
-    assert resolved is not None
     return "/spread", {"token_id": resolved}
 
 
@@ -224,7 +220,6 @@ def build_last_trade_price_request(
     *, asset_id: str | None = None, token_id: str | None = None
 ) -> tuple[str, dict[str, str]]:
     resolved = resolve_asset_id(asset_id=asset_id, token_id=token_id)
-    assert resolved is not None
     return "/last-trade-price", {"token_id": resolved}
 
 
@@ -242,7 +237,7 @@ def build_last_trade_prices_request(
     return "/last-trades-prices", [{"token_id": tid} for tid in validated]
 
 
-def parse_last_trade_prices(data: object) -> tuple[LastTradePriceForToken, ...]:
+def parse_last_trade_prices(data: object) -> tuple[LastTradePriceForAsset, ...]:
     try:
         return _LastTradePriceListAdapter.validate_python(data)
     except ValidationError as error:
@@ -261,7 +256,6 @@ def build_price_history_request(
     interval: PriceHistoryInterval | None = None,
 ) -> tuple[str, dict[str, QueryParamValue]]:
     validated_token_id = resolve_asset_id(asset_id=asset_id, token_id=token_id)
-    assert validated_token_id is not None
     _require_nonneg_int("start_ts", start_ts)
     _require_nonneg_int("end_ts", end_ts)
     _require_positive_int("fidelity", fidelity)

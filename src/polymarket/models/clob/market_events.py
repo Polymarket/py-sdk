@@ -198,9 +198,7 @@ class MarketBestBidAskPayload(BaseModel):
 class NewMarketPayload(BaseModel):
     id: str
     condition_id: ConditionId | None = None
-    market: ConditionId = Field(
-        validation_alias="market", description="Deprecated: use condition_id."
-    )
+    market: str
     question: str | None = None
     slug: str | None = None
     description: str | None = None

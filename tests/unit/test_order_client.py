@@ -581,7 +581,7 @@ def test_cancel_market_orders_sends_filters_in_body() -> None:
     assert "asset_id" in body
 
 
-def test_cancel_market_orders_requires_condition_or_asset() -> None:
+def test_cancel_market_orders_requires_market_or_asset() -> None:
     async def run() -> None:
         client = await _make_client()
         try:
@@ -589,5 +589,5 @@ def test_cancel_market_orders_requires_condition_or_asset() -> None:
         finally:
             await client.close()
 
-    with pytest.raises(UserInputError, match="condition_id or asset_id"):
+    with pytest.raises(UserInputError, match="market or asset_id"):
         asyncio.run(run())

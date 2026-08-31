@@ -1,4 +1,5 @@
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 
@@ -11,14 +12,17 @@ from polymarket._internal.actions.relayer.positions import (
     derive_combo_position_context,
     expect_binary_positions,
     expect_negative_risk_flag,
+    normalize_market_position_context,
     resolve_binary_positions_condition_id,
     resolve_merge_amount,
 )
 from polymarket.errors import UnexpectedResponseError, UserInputError
 from polymarket.models.data.portfolio import Position
+from polymarket.types import EvmAddress
 
 _CONDITION_ID = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 _COMBO_CONDITION_ID = "0x032def24bfb0c5c57fb236fac08b94236a0000000000000000000000000000"
+_ADDRESS = EvmAddress("0x0000000000000000000000000000000000000001")
 
 
 def _pos(
@@ -44,6 +48,40 @@ def test_expect_binary_positions_returns_yes_no_tuple() -> None:
     yes, no = expect_binary_positions([yes_pos, no_pos])
     assert yes is yes_pos
     assert no is no_pos
+
+
+@pytest.mark.parametrize(
+    ("yes_position_id", "no_position_id", "message"),
+    [
+        ("101", None, "Incomplete market position IDs"),
+        (None, None, "Missing tradeable outcome IDs"),
+    ],
+)
+def test_normalize_market_position_context_distinguishes_v2_id_failures(
+    yes_position_id: str | None,
+    no_position_id: str | None,
+    message: str,
+) -> None:
+    market = SimpleNamespace(
+        id="1",
+        condition_id=_CONDITION_ID,
+        state=SimpleNamespace(neg_risk=None),
+        outcomes=SimpleNamespace(
+            yes=SimpleNamespace(token_id=None, position_id=yes_position_id),
+            no=SimpleNamespace(token_id=None, position_id=no_position_id),
+        ),
+    )
+
+    with pytest.raises(UnexpectedResponseError, match=message):
+        normalize_market_position_context(
+            market,  # type: ignore[arg-type]
+            context="test market",
+            collateral_adapter=_ADDRESS,
+            neg_risk_collateral_adapter=_ADDRESS,
+            conditional_tokens=_ADDRESS,
+            neg_risk_adapter=_ADDRESS,
+            position_manager=_ADDRESS,
+        )
 
 
 def test_expect_binary_positions_handles_only_yes() -> None:

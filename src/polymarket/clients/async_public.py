@@ -58,7 +58,7 @@ from polymarket.models import (
     Comment,
     Event,
     LastTradePrice,
-    LastTradePriceForToken,
+    LastTradePriceForAsset,
     Market,
     OrderBook,
     OrderSide,
@@ -1252,7 +1252,7 @@ class AsyncPublicClient:
     async def get_midpoint(
         self, *, asset_id: str | None = None, token_id: str | None = None
     ) -> Decimal:
-        """Get the midpoint price for a token."""
+        """Get the midpoint price for a CLOB asset."""
         path, params = _clob_actions.build_midpoint_request(asset_id=asset_id, token_id=token_id)
         return _clob_actions.parse_midpoint(await self._ctx.clob.get_json(path, params=params))
 
@@ -1262,7 +1262,7 @@ class AsyncPublicClient:
         asset_ids: Sequence[str] | None = None,
         token_ids: Sequence[str] | None = None,
     ) -> dict[ClobAssetId, Decimal]:
-        """Get midpoint prices for multiple tokens."""
+        """Get midpoint prices for multiple CLOB assets."""
         path, body = _clob_actions.build_midpoints_request(asset_ids=asset_ids, token_ids=token_ids)
         return _clob_actions.parse_midpoints(await self._ctx.clob.post_json(path, json=body))
 
@@ -1273,7 +1273,7 @@ class AsyncPublicClient:
         token_id: str | None = None,
         side: OrderSide,
     ) -> Decimal:
-        """Get the executable price for a token side."""
+        """Get the executable price for a CLOB asset side."""
         path, params = _clob_actions.build_price_request(
             asset_id=asset_id, token_id=token_id, side=side
         )
@@ -1282,14 +1282,14 @@ class AsyncPublicClient:
     async def get_prices(
         self, *, requests: Sequence[PriceRequest]
     ) -> dict[ClobAssetId, dict[OrderSide, Decimal]]:
-        """Get executable prices for multiple token-side requests."""
+        """Get executable prices for multiple CLOB asset-side requests."""
         path, body = _clob_actions.build_prices_request(requests=requests)
         return _clob_actions.parse_prices(await self._ctx.clob.post_json(path, json=body))
 
     async def get_order_book(
         self, *, asset_id: str | None = None, token_id: str | None = None
     ) -> OrderBook:
-        """Get the order book for a token."""
+        """Get the order book for a CLOB asset."""
         path, params = _clob_actions.build_order_book_request(asset_id=asset_id, token_id=token_id)
         return _clob_actions.parse_order_book(await self._ctx.clob.get_json(path, params=params))
 
@@ -1299,7 +1299,7 @@ class AsyncPublicClient:
         asset_ids: Sequence[str] | None = None,
         token_ids: Sequence[str] | None = None,
     ) -> tuple[OrderBook, ...]:
-        """Get order books for multiple tokens."""
+        """Get order books for multiple CLOB assets."""
         path, body = _clob_actions.build_order_books_request(
             asset_ids=asset_ids, token_ids=token_ids
         )
@@ -1308,7 +1308,7 @@ class AsyncPublicClient:
     async def get_spread(
         self, *, asset_id: str | None = None, token_id: str | None = None
     ) -> Decimal:
-        """Get the bid-ask spread for a token."""
+        """Get the bid-ask spread for a CLOB asset."""
         path, params = _clob_actions.build_spread_request(asset_id=asset_id, token_id=token_id)
         return _clob_actions.parse_spread(await self._ctx.clob.get_json(path, params=params))
 
@@ -1318,14 +1318,14 @@ class AsyncPublicClient:
         asset_ids: Sequence[str] | None = None,
         token_ids: Sequence[str] | None = None,
     ) -> dict[ClobAssetId, Decimal]:
-        """Get bid-ask spreads for multiple tokens."""
+        """Get bid-ask spreads for multiple CLOB assets."""
         path, body = _clob_actions.build_spreads_request(asset_ids=asset_ids, token_ids=token_ids)
         return _clob_actions.parse_spreads(await self._ctx.clob.post_json(path, json=body))
 
     async def get_last_trade_price(
         self, *, asset_id: str | None = None, token_id: str | None = None
     ) -> LastTradePrice | None:
-        """Get the most recent trade price for a token.
+        """Get the most recent trade price for a CLOB asset.
 
         Returns ``None`` when the token has not traded.
         """
@@ -1341,11 +1341,11 @@ class AsyncPublicClient:
         *,
         asset_ids: Sequence[str] | None = None,
         token_ids: Sequence[str] | None = None,
-    ) -> tuple[LastTradePriceForToken, ...]:
-        """Get the most recent trade prices for multiple tokens.
+    ) -> tuple[LastTradePriceForAsset, ...]:
+        """Get the most recent trade prices for multiple CLOB assets.
 
-        Tokens without trades are omitted. Match returned entries by ``token_id``;
-        the result is not positionally aligned with ``token_ids``.
+        Assets without trades are omitted. Match returned entries by ``asset_id``;
+        the result is not positionally aligned with ``asset_ids``.
         """
         path, body = _clob_actions.build_last_trade_prices_request(
             asset_ids=asset_ids, token_ids=token_ids
@@ -1364,7 +1364,7 @@ class AsyncPublicClient:
         fidelity: int | None = None,
         interval: PriceHistoryInterval | None = None,
     ) -> tuple[PriceHistoryPoint, ...]:
-        """Get historical price points for a token."""
+        """Get historical price points for a CLOB asset."""
         path, params = _clob_actions.build_price_history_request(
             asset_id=asset_id,
             token_id=token_id,

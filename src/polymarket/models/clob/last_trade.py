@@ -34,4 +34,8 @@ class LastTradePriceForToken(BaseModel):
         return parse_decimal_string(value)
 
 
-__all__ = ["LastTradePrice", "LastTradePriceForToken"]
+LastTradePriceForAsset = LastTradePriceForToken
+"""Canonical name for an asset-specific last-trade price response."""
+
+
+__all__ = ["LastTradePrice", "LastTradePriceForAsset", "LastTradePriceForToken"]

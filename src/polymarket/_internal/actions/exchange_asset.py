@@ -12,17 +12,26 @@ def resolve_asset_id(
     *,
     asset_id: str | None,
     token_id: str | None,
-    required: bool = True,
-) -> ClobAssetId | None:
+) -> ClobAssetId:
     if asset_id is not None and token_id is not None:
         raise UserInputError("asset_id and token_id are mutually exclusive")
     value = asset_id if asset_id is not None else token_id
     if value is None:
-        if required:
-            raise UserInputError("Provide exactly one of asset_id or token_id")
-        return None
+        raise UserInputError("Provide exactly one of asset_id or token_id")
     field = "asset_id" if asset_id is not None else "token_id"
     return cast(ClobAssetId, require_nonempty(field, value))
+
+
+def resolve_optional_asset_id(
+    *,
+    asset_id: str | None,
+    token_id: str | None,
+) -> ClobAssetId | None:
+    if asset_id is not None and token_id is not None:
+        raise UserInputError("asset_id and token_id are mutually exclusive")
+    if asset_id is None and token_id is None:
+        return None
+    return resolve_asset_id(asset_id=asset_id, token_id=token_id)
 
 
 def resolve_asset_ids(
@@ -46,4 +55,4 @@ def resolve_asset_ids(
     )
 
 
-__all__ = ["resolve_asset_id", "resolve_asset_ids"]
+__all__ = ["resolve_asset_id", "resolve_asset_ids", "resolve_optional_asset_id"]

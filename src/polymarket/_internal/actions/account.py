@@ -8,7 +8,7 @@ from polymarket._internal.actions._cursor import (
     next_cursor_or_none,
     validate_cursor,
 )
-from polymarket._internal.actions.exchange_asset import resolve_asset_id
+from polymarket._internal.actions.exchange_asset import resolve_optional_asset_id
 from polymarket._internal.request import QueryParamValue
 from polymarket._internal.validation import require_nonempty
 from polymarket.errors import UnexpectedResponseError, UserInputError
@@ -67,7 +67,7 @@ def build_list_open_orders_request(
     cursor: str | None = None,
 ) -> tuple[str, dict[str, QueryParamValue]]:
     params: dict[str, QueryParamValue] = {}
-    resolved_asset = resolve_asset_id(asset_id=asset_id, token_id=token_id, required=False)
+    resolved_asset = resolve_optional_asset_id(asset_id=asset_id, token_id=token_id)
     if resolved_asset is not None:
         _add_optional(params, "asset_id", resolved_asset)
     if id is not None:
@@ -117,7 +117,7 @@ def build_list_account_trades_request(
     cursor: str | None = None,
 ) -> tuple[str, dict[str, QueryParamValue]]:
     params: dict[str, QueryParamValue] = {}
-    resolved_asset = resolve_asset_id(asset_id=asset_id, token_id=token_id, required=False)
+    resolved_asset = resolve_optional_asset_id(asset_id=asset_id, token_id=token_id)
     if resolved_asset is not None:
         _add_optional(params, "asset_id", resolved_asset)
     if id is not None:
@@ -198,7 +198,7 @@ def build_balance_allowance_request(
         "asset_type": asset_type,
         "signature_type": signature_type,
     }
-    resolved_asset = resolve_asset_id(asset_id=asset_id, token_id=token_id, required=False)
+    resolved_asset = resolve_optional_asset_id(asset_id=asset_id, token_id=token_id)
     if resolved_asset is not None:
         params["token_id"] = resolved_asset
     return "/balance-allowance", params
@@ -220,7 +220,7 @@ def build_update_balance_allowance_request(
         "asset_type": asset_type,
         "signature_type": signature_type,
     }
-    resolved_asset = resolve_asset_id(asset_id=asset_id, token_id=token_id, required=False)
+    resolved_asset = resolve_optional_asset_id(asset_id=asset_id, token_id=token_id)
     if resolved_asset is not None:
         params["token_id"] = resolved_asset
     return "/balance-allowance/update", params

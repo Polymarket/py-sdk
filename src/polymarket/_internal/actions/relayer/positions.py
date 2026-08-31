@@ -113,15 +113,17 @@ def normalize_market_position_context(
 
     yes_position_id = market.outcomes.yes.position_id
     no_position_id = market.outcomes.no.position_id
-    if yes_position_id is None or no_position_id is None:
-        raise UnexpectedResponseError(f"Missing market position IDs for {context}")
-    return MarketPositionContext(
-        protocol="v2",
-        market_id=market.id,
-        condition_id=condition_id,
-        position_erc1155_address=position_manager,
-        token_ids=(yes_position_id, no_position_id),
-    )
+    if (yes_position_id is None) != (no_position_id is None):
+        raise UnexpectedResponseError(f"Incomplete market position IDs for {context}")
+    if yes_position_id is not None and no_position_id is not None:
+        return MarketPositionContext(
+            protocol="v2",
+            market_id=market.id,
+            condition_id=condition_id,
+            position_erc1155_address=position_manager,
+            token_ids=(yes_position_id, no_position_id),
+        )
+    raise UnexpectedResponseError(f"Missing tradeable outcome IDs for {context}")
 
 
 def expect_binary_positions(positions: Sequence[Position]) -> BinaryPositions:
@@ -278,6 +280,8 @@ def derive_combo_position_context(legs: CanonicalComboLegs) -> ComboPositionCont
 
 def derive_combo_outcome_position_ids(condition_id: str) -> tuple[PositionId, PositionId]:
     normalized_condition_id = to_condition_id(condition_id)
+    if len(normalized_condition_id) != 64:
+        raise UserInputError("Protocol v2 condition ID must be a 31-byte hex string")
     return (
         PositionId(str(int(f"{normalized_condition_id}00", 16))),
         PositionId(str(int(f"{normalized_condition_id}01", 16))),

@@ -397,5 +397,5 @@ def test_cancel_market_orders_sends_filters_in_body() -> None:
 
 
 def test_cancel_market_orders_requires_market_or_token() -> None:
-    with pytest.raises(UserInputError, match="condition_id or asset_id"), _make_client() as client:
+    with pytest.raises(UserInputError, match="market or asset_id"), _make_client() as client:
         client.cancel_market_orders()

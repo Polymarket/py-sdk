@@ -168,6 +168,46 @@ def test_redeem_market_position_emits_one_v2_call_per_nonzero_outcome() -> None:
     assert all(call["data"].startswith(selector) for call in calls)
 
 
+@pytest.mark.parametrize("balances", ([12], [12, 34, 56]))
+def test_redeem_market_position_requires_two_v2_balances(balances: list[int]) -> None:
+    condition_id = "0x01" + "77" * 30
+
+    async def run() -> None:
+        client = await make_deposit_client()
+        client.list_markets = _async_list_markets_stub(  # type: ignore[method-assign]
+            [], (_stub_v2_market(condition_id),)
+        )
+        install_rpc_handler(client, _eth_call_result("uint256[]", balances))
+        try:
+            await client.redeem_positions(condition_id=condition_id)
+        finally:
+            await client.close()
+
+    with pytest.raises(UnexpectedResponseError, match="Expected two position balances"):
+        asyncio.run(run())
+
+
+def test_redeem_market_position_reports_empty_v2_market_balances() -> None:
+    condition_id = "0x02" + "88" * 30
+
+    async def run() -> None:
+        client = await make_deposit_client()
+        client.list_markets = _async_list_markets_stub(  # type: ignore[method-assign]
+            [], (_stub_v2_market(condition_id),)
+        )
+        install_rpc_handler(client, _eth_call_result("uint256[]", [0, 0]))
+        try:
+            await client.redeem_positions(condition_id=condition_id)
+        finally:
+            await client.close()
+
+    with pytest.raises(
+        UserInputError,
+        match=f"Market positions have no balance to redeem for condition {condition_id}",
+    ):
+        asyncio.run(run())
+
+
 def test_execute_transaction_async_batches_custom_calls() -> None:
     captured: list[httpx.Request] = []
     router = EvmAddress(PRODUCTION_CONFIG.protocol_v2_router)

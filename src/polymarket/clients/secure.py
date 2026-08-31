@@ -140,6 +140,7 @@ from polymarket.environments import PRODUCTION, Environment
 from polymarket.errors import (
     RequestRejectedError,
     SigningError,
+    UnexpectedResponseError,
     UserInputError,
 )
 from polymarket.models import (
@@ -152,7 +153,7 @@ from polymarket.models import (
     Comment,
     Event,
     LastTradePrice,
-    LastTradePriceForToken,
+    LastTradePriceForAsset,
     Market,
     Notification,
     OpenOrder,
@@ -1511,7 +1512,7 @@ class SecureClient:
         token_id: str | None = None,
         side: OrderSide,
     ) -> Decimal:
-        """Get the executable price for a token side."""
+        """Get the executable price for a CLOB asset side."""
         path, params = _clob_actions.build_price_request(
             asset_id=asset_id, token_id=token_id, side=side
         )
@@ -1520,14 +1521,14 @@ class SecureClient:
     def get_prices(
         self, *, requests: Sequence[PriceRequest]
     ) -> dict[ClobAssetId, dict[OrderSide, Decimal]]:
-        """Get executable prices for multiple token-side requests."""
+        """Get executable prices for multiple CLOB asset-side requests."""
         path, body = _clob_actions.build_prices_request(requests=requests)
         return _clob_actions.parse_prices(self._ctx.clob.post_json(path, json=body))
 
     def get_order_book(
         self, *, asset_id: str | None = None, token_id: str | None = None
     ) -> OrderBook:
-        """Get the order book for a token."""
+        """Get the order book for a CLOB asset."""
         path, params = _clob_actions.build_order_book_request(asset_id=asset_id, token_id=token_id)
         return _clob_actions.parse_order_book(self._ctx.clob.get_json(path, params=params))
 
@@ -1537,14 +1538,14 @@ class SecureClient:
         asset_ids: Sequence[str] | None = None,
         token_ids: Sequence[str] | None = None,
     ) -> tuple[OrderBook, ...]:
-        """Get order books for multiple tokens."""
+        """Get order books for multiple CLOB assets."""
         path, body = _clob_actions.build_order_books_request(
             asset_ids=asset_ids, token_ids=token_ids
         )
         return _clob_actions.parse_order_books(self._ctx.clob.post_json(path, json=body))
 
     def get_spread(self, *, asset_id: str | None = None, token_id: str | None = None) -> Decimal:
-        """Get the bid-ask spread for a token."""
+        """Get the bid-ask spread for a CLOB asset."""
         path, params = _clob_actions.build_spread_request(asset_id=asset_id, token_id=token_id)
         return _clob_actions.parse_spread(self._ctx.clob.get_json(path, params=params))
 
@@ -1554,14 +1555,14 @@ class SecureClient:
         asset_ids: Sequence[str] | None = None,
         token_ids: Sequence[str] | None = None,
     ) -> dict[ClobAssetId, Decimal]:
-        """Get bid-ask spreads for multiple tokens."""
+        """Get bid-ask spreads for multiple CLOB assets."""
         path, body = _clob_actions.build_spreads_request(asset_ids=asset_ids, token_ids=token_ids)
         return _clob_actions.parse_spreads(self._ctx.clob.post_json(path, json=body))
 
     def get_last_trade_price(
         self, *, asset_id: str | None = None, token_id: str | None = None
     ) -> LastTradePrice | None:
-        """Get the most recent trade price for a token.
+        """Get the most recent trade price for a CLOB asset.
 
         Returns ``None`` when the token has not traded.
         """
@@ -1575,11 +1576,11 @@ class SecureClient:
         *,
         asset_ids: Sequence[str] | None = None,
         token_ids: Sequence[str] | None = None,
-    ) -> tuple[LastTradePriceForToken, ...]:
-        """Get the most recent trade prices for multiple tokens.
+    ) -> tuple[LastTradePriceForAsset, ...]:
+        """Get the most recent trade prices for multiple CLOB assets.
 
-        Tokens without trades are omitted. Match returned entries by ``token_id``;
-        the result is not positionally aligned with ``token_ids``.
+        Assets without trades are omitted. Match returned entries by ``asset_id``;
+        the result is not positionally aligned with ``asset_ids``.
         """
         path, body = _clob_actions.build_last_trade_prices_request(
             asset_ids=asset_ids, token_ids=token_ids
@@ -1596,7 +1597,7 @@ class SecureClient:
         fidelity: int | None = None,
         interval: PriceHistoryInterval | None = None,
     ) -> tuple[PriceHistoryPoint, ...]:
-        """Get historical price points for a token."""
+        """Get historical price points for a CLOB asset."""
         path, params = _clob_actions.build_price_history_request(
             asset_id=asset_id,
             token_id=token_id,
@@ -2120,14 +2121,12 @@ class SecureClient:
     def cancel_market_orders(
         self,
         *,
-        condition_id: str | None = None,
         market: str | None = None,
         asset_id: str | None = None,
         token_id: str | None = None,
     ) -> CancelOrdersResponse:
-        """Cancel open orders matching a market or token filter."""
+        """Cancel open orders matching a market or CLOB asset filter."""
         path, body = _cancel_actions.build_cancel_market_orders_request(
-            condition_id=condition_id,
             market=market,
             asset_id=asset_id,
             token_id=token_id,
@@ -2782,6 +2781,8 @@ class SecureClient:
             balances = decode_erc1155_balance_of_batch_result(
                 self._ctx.rpc.eth_call(to=str(balance_call.to), data=balance_call.data)
             )
+            if len(balances) != 2:
+                raise UnexpectedResponseError("Expected two position balances")
             calls = [
                 redeem_v2_call(
                     router=cast(EvmAddress, self._ctx.environment_config.protocol_v2_router),
@@ -2793,7 +2794,10 @@ class SecureClient:
                 if balance > 0
             ]
             if not calls:
-                raise UserInputError("Positions have no balance to redeem")
+                raise UserInputError(
+                    f"Market positions have no balance to redeem for condition "
+                    f"{context.condition_id}"
+                )
         resolved_metadata = (
             metadata
             if metadata is not None

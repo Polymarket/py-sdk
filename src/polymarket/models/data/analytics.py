@@ -47,7 +47,9 @@ class LiveVolume(BaseModel):
 
 class OpenInterest(BaseModel):
     condition_id: OpenInterestMarket | None = Field(default=None, validation_alias="market")
-    market: OpenInterestMarket | None = None
+    market: OpenInterestMarket | None = Field(
+        default=None, description="Deprecated: use condition_id."
+    )
     value: Decimal | None = None
 
     @field_validator("condition_id", "market", mode="before")

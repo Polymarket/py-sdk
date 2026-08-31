@@ -55,7 +55,7 @@ from polymarket.models import (
     Comment,
     Event,
     LastTradePrice,
-    LastTradePriceForToken,
+    LastTradePriceForAsset,
     Market,
     OrderBook,
     OrderSide,
@@ -1076,7 +1076,7 @@ class PublicClient:
     def get_prices(
         self, *, requests: Sequence[PriceRequest]
     ) -> dict[ClobAssetId, dict[OrderSide, Decimal]]:
-        """Get executable prices for multiple token-side requests."""
+        """Get executable prices for multiple CLOB asset-side requests."""
         path, body = _clob_actions.build_prices_request(requests=requests)
         return _clob_actions.parse_prices(self._ctx.clob.post_json(path, json=body))
 
@@ -1117,7 +1117,7 @@ class PublicClient:
     def get_last_trade_price(
         self, *, asset_id: str | None = None, token_id: str | None = None
     ) -> LastTradePrice | None:
-        """Get the most recent trade price for a token.
+        """Get the most recent trade price for a CLOB asset.
 
         Returns ``None`` when the token has not traded.
         """
@@ -1131,11 +1131,11 @@ class PublicClient:
         *,
         asset_ids: Sequence[str] | None = None,
         token_ids: Sequence[str] | None = None,
-    ) -> tuple[LastTradePriceForToken, ...]:
-        """Get the most recent trade prices for multiple tokens.
+    ) -> tuple[LastTradePriceForAsset, ...]:
+        """Get the most recent trade prices for multiple CLOB assets.
 
-        Tokens without trades are omitted. Match returned entries by ``token_id``;
-        the result is not positionally aligned with ``token_ids``.
+        Assets without trades are omitted. Match returned entries by ``asset_id``;
+        the result is not positionally aligned with ``asset_ids``.
         """
         path, body = _clob_actions.build_last_trade_prices_request(
             asset_ids=asset_ids, token_ids=token_ids
@@ -1152,7 +1152,7 @@ class PublicClient:
         fidelity: int | None = None,
         interval: PriceHistoryInterval | None = None,
     ) -> tuple[PriceHistoryPoint, ...]:
-        """Get historical price points for a token."""
+        """Get historical price points for a CLOB asset."""
         path, params = _clob_actions.build_price_history_request(
             asset_id=asset_id,
             token_id=token_id,

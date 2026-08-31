@@ -1,8 +1,11 @@
+import pytest
+
 from polymarket._internal.actions.clob import build_midpoint_request
 from polymarket._internal.actions.orders.context import resolve_order_exchange_address
 from polymarket._internal.actions.orders.orders import create_unsigned_order
 from polymarket._internal.actions.orders.typed_data import build_order_typed_data
 from polymarket._internal.actions.orders.types import OrderDraft
+from polymarket._internal.actions.relayer.positions import derive_combo_outcome_position_ids
 from polymarket._internal.environment import PRODUCTION_CONFIG
 from polymarket._internal.protocol import decode_v2_outcome_position_id, is_v2_position_id
 from polymarket.errors import UserInputError
@@ -19,6 +22,7 @@ def test_protocol_v2_position_ids_use_reserved_bit_namespace() -> None:
     assert is_v2_position_id(_YES_POSITION_ID)
     assert not is_v2_position_id(str(1 << 40))
     assert not is_v2_position_id("not-an-id")
+    assert not is_v2_position_id("1_0")
 
 
 def test_protocol_v2_position_decoder_supports_all_v2_modules() -> None:
@@ -28,6 +32,11 @@ def test_protocol_v2_position_decoder_supports_all_v2_modules() -> None:
         decoded = decode_v2_outcome_position_id(position_id)
         assert decoded.condition_id == condition_id
         assert decoded.outcome_index == 1
+
+
+def test_v2_outcome_derivation_rejects_bytes32_condition_id() -> None:
+    with pytest.raises(UserInputError, match="31-byte"):
+        derive_combo_outcome_position_ids("0x" + "ab" * 32)
 
 
 def test_gamma_market_exposes_position_id_per_outcome() -> None:

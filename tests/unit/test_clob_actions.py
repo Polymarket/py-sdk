@@ -220,6 +220,21 @@ def test_build_prices_request_emits_post_body_with_token_id_and_side() -> None:
     ]
 
 
+def test_price_request_preserves_named_tuple_access_patterns() -> None:
+    request = PriceRequest(asset_id="1", side="BUY")
+
+    asset_id, side = request
+    assert (asset_id, side) == ("1", "BUY")
+    assert request[0] == "1"
+    assert request[1] == "BUY"
+    assert len(request) == 2
+
+
+def test_price_request_raises_user_input_error_for_conflicting_ids() -> None:
+    with pytest.raises(UserInputError, match="mutually exclusive"):
+        PriceRequest(asset_id="1", token_id="2", side="BUY")
+
+
 def test_build_prices_request_rejects_empty_sequence() -> None:
     with pytest.raises(UserInputError):
         build_prices_request(requests=[])

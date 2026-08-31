@@ -512,14 +512,16 @@ def _stub_market(
     neg_risk: bool | None = True,
     yes_token_id: str | None = "101",
     no_token_id: str | None = "202",
+    yes_position_id: str | None = None,
+    no_position_id: str | None = None,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         id="123",
         condition_id=condition_id,
         state=SimpleNamespace(neg_risk=neg_risk),
         outcomes=SimpleNamespace(
-            yes=SimpleNamespace(token_id=yes_token_id),
-            no=SimpleNamespace(token_id=no_token_id),
+            yes=SimpleNamespace(token_id=yes_token_id, position_id=yes_position_id),
+            no=SimpleNamespace(token_id=no_token_id, position_id=no_position_id),
         ),
     )
 
@@ -574,6 +576,24 @@ def test_redeem_positions_routes_through_neg_risk_collateral_adapter() -> None:
     body = request_json(submit)
     inner = body["depositWalletParams"]["calls"][0]
     assert inner["target"].lower() == PRODUCTION_CONFIG.neg_risk_collateral_adapter.lower()
+
+
+def test_sync_redeem_market_position_requires_two_v2_balances() -> None:
+    condition_id = "0x01" + "99" * 30
+    market = _stub_market(
+        condition_id,
+        neg_risk=None,
+        yes_token_id=None,
+        no_token_id=None,
+        yes_position_id=_combo_position(condition_id, 0),
+        no_position_id=_combo_position(condition_id, 1),
+    )
+
+    with make_sync_deposit_client() as client:
+        client.list_markets = lambda **_: _stub_page((market,))  # type: ignore[method-assign]
+        install_sync_rpc_handler(client, _eth_call_result("uint256[]", [12]))
+        with pytest.raises(UnexpectedResponseError, match="Expected two position balances"):
+            client.redeem_positions(condition_id=condition_id)
 
 
 def test_redeem_positions_market_id_resolves_condition_before_fetching_positions() -> None:

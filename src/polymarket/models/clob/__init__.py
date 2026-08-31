@@ -9,7 +9,11 @@ from polymarket.models.clob.account import (
 from polymarket.models.clob.api_key import ApiKeyCreds, BuilderApiKeyInfo
 from polymarket.models.clob.builder import BuilderFeeRates, BuilderTrade
 from polymarket.models.clob.cancel import CancelOrdersResponse
-from polymarket.models.clob.last_trade import LastTradePrice, LastTradePriceForToken
+from polymarket.models.clob.last_trade import (
+    LastTradePrice,
+    LastTradePriceForAsset,
+    LastTradePriceForToken,
+)
 from polymarket.models.clob.notifications import (
     AutoRedeemedNotification,
     AutoRedeemedNotificationPayload,
@@ -86,6 +90,7 @@ __all__ = [
     "EarningBreakdown",
     "GaslessTransaction",
     "LastTradePrice",
+    "LastTradePriceForAsset",
     "LastTradePriceForToken",
     "MakerOrder",
     "MarketNotificationPayload",
