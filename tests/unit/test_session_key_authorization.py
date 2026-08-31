@@ -40,7 +40,6 @@ from polymarket import (
     UserInputError,
 )
 from polymarket.clients._transport import AsyncTransport, SyncTransport
-from polymarket.transactions import GaslessTransactionHandle, SyncGaslessTransactionHandle
 
 _AUTHORIZATIONS_PATH = "/v1/session-signers/authorizations"
 _EXECUTE_PARAMS_PATH = "/v1/account/transactions/params"
@@ -394,7 +393,6 @@ def test_authorize_session_key_sync_uses_default_scopes(authorization_status: st
 
 def _assert_fetch_and_revocation(
     session_keys: tuple[AuthorizedSessionKey, ...],
-    transaction: GaslessTransactionHandle | SyncGaslessTransactionHandle,
     captured: list[httpx.Request],
     *,
     wallet: str,
@@ -404,9 +402,6 @@ def _assert_fetch_and_revocation(
     assert session_key.address.lower() == _SESSION_ADDRESS.lower()
     assert session_key.scopes == ("clob", f" {_NEWER_SCOPE.lower()} ")
     assert session_key.valid_until == datetime.fromtimestamp(_LISTED_EXPIRY, tz=UTC)
-
-    assert transaction.transaction_hash is None
-    assert transaction.transaction_id == _REVOCATION_TRANSACTION_ID
 
     revocation_requests = [
         request for request in captured if urlparse(str(request.url)).path == _REVOCATIONS_PATH
@@ -437,7 +432,7 @@ def test_fetch_and_revoke_session_key_async() -> None:
 
     async def run() -> tuple[
         tuple[AuthorizedSessionKey, ...],
-        GaslessTransactionHandle,
+        None,
         str,
     ]:
         client = await make_deposit_client()
@@ -447,18 +442,18 @@ def test_fetch_and_revoke_session_key_async() -> None:
         _install_secure_clob_handler(client, handler)
         try:
             session_keys = await client.fetch_session_keys()
-            transaction = await client.revoke_session_key(
+            result = await client.revoke_session_key(
                 address=_SESSION_ADDRESS,
                 idempotency_key=" revocation-key ",
             )
-            return session_keys, transaction, wallet
+            return session_keys, result, wallet
         finally:
             await client.close()
 
-    session_keys, transaction, wallet = asyncio.run(run())
+    session_keys, result, wallet = asyncio.run(run())
+    assert result is None
     _assert_fetch_and_revocation(
         session_keys,
-        transaction,
         captured,
         wallet=wallet,
     )
@@ -481,14 +476,14 @@ def test_fetch_and_revoke_session_key_sync(revocation_status: str) -> None:
         install_sync_relayer_handler(client, handler)
         _install_sync_secure_clob_handler(client, handler)
         session_keys = client.fetch_session_keys()
-        transaction = client.revoke_session_key(
+        result = client.revoke_session_key(
             address=_SESSION_ADDRESS,
             idempotency_key=" revocation-key ",
         )
 
+    assert result is None
     _assert_fetch_and_revocation(
         session_keys,
-        transaction,
         captured,
         wallet=wallet,
     )
@@ -516,13 +511,12 @@ def test_revoke_session_key_sync_retries_the_exact_signed_payload() -> None:
         client._ctx = dataclasses.replace(client._ctx, _resolved_environment_config=config)
         install_sync_relayer_handler(client, handler)
         _install_sync_secure_clob_handler(client, handler)
-        transaction = client.revoke_session_key(
+        result = client.revoke_session_key(
             address=_SESSION_ADDRESS,
             idempotency_key="exact-revocation",
         )
 
-    assert transaction.transaction_id == _REVOCATION_TRANSACTION_ID
-    assert transaction.transaction_hash is None
+    assert result is None
     revocation_requests = [
         request for request in captured if urlparse(str(request.url)).path == _REVOCATIONS_PATH
     ]
@@ -541,10 +535,9 @@ def test_revoke_session_key_returns_after_registry_removal() -> None:
         handler = _management_handler(captured, wallet=str(client.wallet))
         install_sync_relayer_handler(client, handler)
         _install_sync_secure_clob_handler(client, handler)
-        transaction = client.revoke_session_key(address=_SESSION_ADDRESS)
+        result = client.revoke_session_key(address=_SESSION_ADDRESS)
 
-    assert transaction.transaction_id == _REVOCATION_TRANSACTION_ID
-    assert transaction.transaction_hash is None
+    assert result is None
     assert (
         sum(
             urlparse(str(request.url)).path

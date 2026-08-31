@@ -274,7 +274,7 @@ async def revoke_session_key(
     *,
     address: str,
     idempotency_key: str | None,
-) -> GaslessTransactionHandle:
+) -> None:
     _assert_owner_deposit_wallet(ctx)
     _require_gasless_api_key(ctx)
     request = _parse_revoke_session_key_request(
@@ -295,15 +295,7 @@ async def revoke_session_key(
         parse=_RevokeSessionKeyResponse.parse_response,
     )
     _assert_revocation_accepted(response.status)
-    transaction = GaslessTransactionHandle(
-        transaction_id=response.transaction_id,
-        transaction_hash=None,
-        _relayer=ctx.relayer,
-        _max_polls=ctx.environment_config.relayer_max_polls,
-        _poll_delay_s=ctx.environment_config.relayer_poll_frequency_ms / 1000,
-    )
     await _wait_for_revoked_session_key(ctx, address=request.address)
-    return transaction
 
 
 def revoke_session_key_sync(
@@ -311,7 +303,7 @@ def revoke_session_key_sync(
     *,
     address: str,
     idempotency_key: str | None,
-) -> SyncGaslessTransactionHandle:
+) -> None:
     _assert_owner_deposit_wallet(ctx)
     _require_gasless_api_key(ctx)
     request = _parse_revoke_session_key_request(
@@ -332,15 +324,7 @@ def revoke_session_key_sync(
         parse=_RevokeSessionKeyResponse.parse_response,
     )
     _assert_revocation_accepted(response.status)
-    transaction = SyncGaslessTransactionHandle(
-        transaction_id=response.transaction_id,
-        transaction_hash=None,
-        _relayer=ctx.relayer,
-        _max_polls=ctx.environment_config.relayer_max_polls,
-        _poll_delay_s=ctx.environment_config.relayer_poll_frequency_ms / 1000,
-    )
     _wait_for_revoked_session_key_sync(ctx, address=request.address)
-    return transaction
 
 
 def _parse_authorize_session_key_request(

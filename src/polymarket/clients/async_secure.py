@@ -631,11 +631,10 @@ class AsyncSecureClient:
         *,
         address: str,
         idempotency_key: str | None = None,
-    ) -> TransactionHandle:
+    ) -> None:
         """Revoke a session key authorized for the Deposit Wallet.
 
         Returns once the key is absent from the active-key registry and unusable.
-        Call ``wait()`` on the returned transaction to await on-chain confirmation.
         Requires an ``api_key=`` that supports gasless transactions.
 
         Raises:
