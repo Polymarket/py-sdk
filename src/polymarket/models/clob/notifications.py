@@ -7,7 +7,7 @@ from decimal import Decimal
 from enum import IntEnum
 from typing import Annotated, Literal
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 
 from polymarket.models._validators import parse_decimal_string
 from polymarket.models.base import BaseModel
@@ -20,14 +20,14 @@ from polymarket.models.clob.orders import OrderType
 from polymarket.models.gamma.comment import CommentProfile
 from polymarket.models.types import (
     ApiKey,
+    ClobAssetId,
     ComboConditionId,
     CommentId,
-    CtfConditionId,
+    ConditionId,
     OrderId,
     OrderSide,
     PositionId,
     QuestionId,
-    TokenId,
     validate_combo_condition_id,
 )
 from polymarket.types import EvmAddress, TransactionHash
@@ -65,8 +65,11 @@ class OrderNotificationPayload(BaseModel):
     older notifications may omit them entirely, along with ``order_type``.
     """
 
-    token_id: TokenId = Field(validation_alias="asset_id")
-    condition_id: CtfConditionId = Field(validation_alias="market")
+    asset_id: ClobAssetId = Field(validation_alias="asset_id")
+    token_id: ClobAssetId = Field(
+        validation_alias="asset_id", description="Deprecated: use asset_id."
+    )
+    condition_id: ConditionId = Field(validation_alias="market")
     order_id: OrderId
     side: OrderSide
     order_type: OrderType | None = Field(default=None, validation_alias="type")
@@ -102,7 +105,11 @@ class MarketNotificationToken(BaseModel):
     On a market-resolved notification, ``winner`` marks the winning outcome.
     """
 
-    token_id: TokenId
+    asset_id: ClobAssetId = Field(validation_alias=AliasChoices("asset_id", "token_id"))
+    token_id: ClobAssetId = Field(
+        validation_alias=AliasChoices("asset_id", "token_id"),
+        description="Deprecated: use asset_id.",
+    )
     outcome: str
     price: Decimal | None = None
     winner: bool
@@ -145,7 +152,7 @@ class MarketNotificationPayload(BaseModel):
     Fields that default to ``None`` may be absent on older notifications.
     """
 
-    condition_id: CtfConditionId
+    condition_id: ConditionId
     question_id: QuestionId
     question: str
     description: str
@@ -259,7 +266,7 @@ class AutoRedeemedNotificationPayload(BaseModel):
 
     proxy_wallet: EvmAddress = Field(validation_alias="proxyWallet")
     amount: Decimal
-    condition_id: CtfConditionId = Field(validation_alias="conditionId")
+    condition_id: ConditionId = Field(validation_alias="conditionId")
     question: str
     image: str
     market_slug: str = Field(validation_alias="slug")

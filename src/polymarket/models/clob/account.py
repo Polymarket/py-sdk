@@ -12,7 +12,7 @@ from polymarket.models.clob._validators import (
     _parse_expiration_timestamp,  # pyright: ignore[reportPrivateUsage]
     _require_epoch_or_iso_timestamp,  # pyright: ignore[reportPrivateUsage]
 )
-from polymarket.models.types import CtfConditionId, OrderSide, TokenId
+from polymarket.models.types import ClobAssetId, ConditionId, OrderSide
 
 AssetType: TypeAlias = Literal["COLLATERAL", "CONDITIONAL"]
 
@@ -45,14 +45,17 @@ class OpenOrder(BaseModel):
     """Open order owned by an account."""
 
     id: str
-    market: CtfConditionId = Field(
+    market: ConditionId = Field(
         description="Deprecated: use condition_id. Retained for backward compatibility."
     )
-    condition_id: CtfConditionId = Field(
+    condition_id: ConditionId = Field(
         validation_alias="market",
-        description="CTF condition id for the market associated with this order.",
+        description="Condition ID for the market associated with this order.",
     )
-    token_id: TokenId = Field(validation_alias="asset_id")
+    asset_id: ClobAssetId = Field(validation_alias="asset_id")
+    token_id: ClobAssetId = Field(
+        validation_alias="asset_id", description="Deprecated: use asset_id."
+    )
     owner: str
     maker_address: str = Field(validation_alias="maker_address")
     side: OrderSide
@@ -96,7 +99,10 @@ class MakerOrder(BaseModel):
     """Maker-side fill information attached to a trade."""
 
     order_id: str = Field(validation_alias="order_id")
-    token_id: TokenId = Field(validation_alias="asset_id")
+    asset_id: ClobAssetId = Field(validation_alias="asset_id")
+    token_id: ClobAssetId = Field(
+        validation_alias="asset_id", description="Deprecated: use asset_id."
+    )
     maker_address: str = Field(validation_alias="maker_address")
     owner: str
     side: OrderSide
@@ -119,14 +125,17 @@ class ClobTrade(BaseModel):
     """Executed trade for an account or market."""
 
     id: str
-    market: CtfConditionId = Field(
+    market: ConditionId = Field(
         description="Deprecated: use condition_id. Retained for backward compatibility."
     )
-    condition_id: CtfConditionId = Field(
+    condition_id: ConditionId = Field(
         validation_alias="market",
-        description="CTF condition id for the market associated with this trade.",
+        description="Condition ID for the market associated with this trade.",
     )
-    token_id: TokenId = Field(validation_alias="asset_id")
+    asset_id: ClobAssetId = Field(validation_alias="asset_id")
+    token_id: ClobAssetId = Field(
+        validation_alias="asset_id", description="Deprecated: use asset_id."
+    )
     owner: str
     maker_address: str = Field(validation_alias="maker_address")
     taker_order_id: str = Field(validation_alias="taker_order_id")

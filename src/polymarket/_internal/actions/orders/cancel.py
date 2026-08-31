@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 from typing import Any, cast
 
+from polymarket._internal.actions.exchange_asset import resolve_asset_id
 from polymarket._internal.validation import require_nonempty
 from polymarket.errors import UserInputError
 from polymarket.models.clob.cancel import CancelOrdersResponse
@@ -30,15 +31,24 @@ def build_cancel_all_request() -> tuple[str, None]:
 
 
 def build_cancel_market_orders_request(
-    *, market: str | None = None, token_id: str | None = None
+    *,
+    condition_id: str | None = None,
+    market: str | None = None,
+    asset_id: str | None = None,
+    token_id: str | None = None,
 ) -> tuple[str, dict[str, str]]:
-    if market is None and token_id is None:
-        raise UserInputError("At least one of market or token_id is required.")
+    if condition_id is not None and market is not None:
+        raise UserInputError("condition_id and market are mutually exclusive")
+    resolved_asset = resolve_asset_id(asset_id=asset_id, token_id=token_id, required=False)
+    resolved_condition = condition_id if condition_id is not None else market
+    if resolved_condition is None and resolved_asset is None:
+        raise UserInputError("At least one of condition_id or asset_id is required.")
     body: dict[str, str] = {}
-    if token_id is not None:
-        body["asset_id"] = require_nonempty("token_id", token_id)
-    if market is not None:
-        body["market"] = require_nonempty("market", market)
+    if resolved_asset is not None:
+        body["asset_id"] = resolved_asset
+    if resolved_condition is not None:
+        name = "condition_id" if condition_id is not None else "market"
+        body["market"] = require_nonempty(name, resolved_condition)
     return "/cancel-market-orders", body
 
 

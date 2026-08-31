@@ -218,6 +218,7 @@ from polymarket.models.trading import (
 )
 from polymarket.models.types import (
     ApiKey,
+    ClobAssetId,
     ComboActivityId,
     ComboConditionId,
     CommentId,
@@ -234,6 +235,7 @@ from polymarket.models.types import (
     TagId,
     TokenId,
     to_combo_condition_id,
+    to_condition_id,
     to_ctf_condition_id,
 )
 
@@ -254,6 +256,7 @@ __all__ = [
     "ChildCommentCreatedNotification",
     "ChildCommentNotificationPayload",
     "ClobTrade",
+    "ClobAssetId",
     "ComboAutoRedeemedNotification",
     "ComboAutoRedeemedNotificationPayload",
     "TradeStatus",
@@ -453,6 +456,7 @@ __all__ = [
     "Team",
     "TokenId",
     "to_combo_condition_id",
+    "to_condition_id",
     "to_ctf_condition_id",
     "Trade",
     "TradeActivity",

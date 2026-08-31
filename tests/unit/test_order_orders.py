@@ -23,7 +23,7 @@ def _draft(**overrides: object) -> OrderDraft:
         "side": "BUY",
         "signer": SIGNER,
         "requested_amount": 500_000,
-        "token_id": TokenId("8501497"),
+        "asset_id": TokenId("8501497"),
     }
     base.update(overrides)
     return OrderDraft(**base)  # type: ignore[arg-type]

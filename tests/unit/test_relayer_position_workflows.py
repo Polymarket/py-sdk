@@ -93,7 +93,79 @@ def test_redeem_positions_with_combo_position_id_uses_onchain_balance() -> None:
     assert len(calls) == 1
     assert calls[0]["target"].lower() == PRODUCTION_CONFIG.protocol_v2_router.lower()
     assert calls[0]["data"].startswith("0x" + keccak(b"redeem(bytes31,uint256,uint256)")[:4].hex())
-    assert body["metadata"] == f"Redeem combo position {position_id}"
+    assert body["metadata"] == f"Redeem position {position_id}"
+
+
+def test_split_market_position_routes_position_ids_to_v2_router() -> None:
+    captured: list[httpx.Request] = []
+    condition_id = "0x01" + "44" * 30
+
+    async def run() -> None:
+        client = await make_deposit_client()
+        _setup_relayer(client, captured, "tx-v2-split")
+        client.list_markets = _async_list_markets_stub(  # type: ignore[method-assign]
+            [], (_stub_v2_market(condition_id),)
+        )
+        try:
+            await client.split_position(condition_id=condition_id, amount=5)
+        finally:
+            await client.close()
+
+    asyncio.run(run())
+    calls = _deposit_wallet_calls(_submit_body(captured))
+    assert len(calls) == 1
+    assert calls[0]["target"].lower() == PRODUCTION_CONFIG.protocol_v2_router.lower()
+    assert calls[0]["data"].startswith("0x" + keccak(b"split(bytes31,uint256)")[:4].hex())
+
+
+def test_merge_market_position_routes_position_ids_to_v2_router() -> None:
+    captured: list[httpx.Request] = []
+    condition_id = "0x02" + "55" * 30
+
+    async def run() -> None:
+        client = await make_deposit_client()
+        _setup_relayer(client, captured, "tx-v2-merge")
+        client.list_markets = _async_list_markets_stub(  # type: ignore[method-assign]
+            [], (_stub_v2_market(condition_id),)
+        )
+        install_rpc_handler(client, _eth_call_result("uint256[]", [100, 60]))
+        try:
+            await client.merge_positions(condition_id=condition_id, amount="max")
+        finally:
+            await client.close()
+
+    asyncio.run(run())
+    calls = _deposit_wallet_calls(_submit_body(captured))
+    assert len(calls) == 1
+    assert calls[0]["target"].lower() == PRODUCTION_CONFIG.protocol_v2_router.lower()
+    assert calls[0]["data"].startswith("0x" + keccak(b"merge(bytes31,uint256)")[:4].hex())
+    assert calls[0]["data"][-64:] == f"{60:064x}"
+
+
+def test_redeem_market_position_emits_one_v2_call_per_nonzero_outcome() -> None:
+    captured: list[httpx.Request] = []
+    condition_id = "0x03" + "66" * 30
+
+    async def run() -> None:
+        client = await make_deposit_client()
+        _setup_relayer(client, captured, "tx-v2-redeem")
+        client.list_markets = _async_list_markets_stub(  # type: ignore[method-assign]
+            [], (_stub_v2_market(condition_id),)
+        )
+        install_rpc_handler(client, _eth_call_result("uint256[]", [12, 34]))
+        try:
+            await client.redeem_positions(condition_id=condition_id)
+        finally:
+            await client.close()
+
+    asyncio.run(run())
+    calls = _deposit_wallet_calls(_submit_body(captured))
+    assert len(calls) == 2
+    assert {call["target"].lower() for call in calls} == {
+        PRODUCTION_CONFIG.protocol_v2_router.lower()
+    }
+    selector = "0x" + keccak(b"redeem(bytes31,uint256,uint256)")[:4].hex()
+    assert all(call["data"].startswith(selector) for call in calls)
 
 
 def test_execute_transaction_async_batches_custom_calls() -> None:
@@ -351,6 +423,18 @@ def _stub_market(condition_id: str | None):  # type: ignore[no-untyped-def]
         outcomes=SimpleNamespace(
             yes=SimpleNamespace(token_id="101"),
             no=SimpleNamespace(token_id="202"),
+        ),
+    )
+
+
+def _stub_v2_market(condition_id: str):  # type: ignore[no-untyped-def]
+    return SimpleNamespace(
+        id="123",
+        condition_id=condition_id,
+        state=SimpleNamespace(neg_risk=None),
+        outcomes=SimpleNamespace(
+            yes=SimpleNamespace(token_id=None, position_id=_combo_position(condition_id, 0)),
+            no=SimpleNamespace(token_id=None, position_id=_combo_position(condition_id, 1)),
         ),
     )
 

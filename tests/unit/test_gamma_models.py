@@ -161,9 +161,10 @@ def test_market_treats_empty_condition_id_as_none() -> None:
     assert market.condition_id is None
 
 
-def test_market_rejects_malformed_condition_id() -> None:
-    with pytest.raises(UnexpectedResponseError, match="Market response"):
-        Market.parse_response(_minimal_market_payload(conditionId="0x1234"))
+def test_market_accepts_protocol_neutral_hex_condition_id_response() -> None:
+    market = Market.parse_response(_minimal_market_payload(conditionId="0x1234"))
+
+    assert market.condition_id == "0x1234"
 
 
 def test_market_treats_empty_resolved_by_as_none() -> None:

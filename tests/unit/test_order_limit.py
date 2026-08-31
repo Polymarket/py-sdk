@@ -242,7 +242,7 @@ def test_prepare_limit_order_draft_buy_computes_offered_requested() -> None:
     assert offered == 5_000_000  # 10 * 0.5 USDC base units
     assert requested == 10_000_000  # 10 shares base units
     assert order_type == "GTC"
-    assert exchange == PRODUCTION_CONFIG.standard_exchange
+    assert exchange == PRODUCTION_CONFIG.exchange_v3
 
 
 def test_prepare_limit_order_draft_sell_swaps_amounts() -> None:
@@ -263,7 +263,7 @@ def test_prepare_limit_order_draft_sell_swaps_amounts() -> None:
     offered, requested, exchange = asyncio.run(run())
     assert offered == 10_000_000  # 10 shares
     assert requested == 5_000_000  # 5 USDC
-    assert exchange == PRODUCTION_CONFIG.neg_risk_exchange
+    assert exchange == PRODUCTION_CONFIG.exchange_v3
 
 
 def test_prepare_limit_order_draft_sets_gtd_when_expiration_given() -> None:

@@ -33,6 +33,7 @@ from polymarket.models import (
     BuilderVolumeEntry,
     BuilderVolumeTimePeriod,
     CancelOrdersResponse,
+    ClobAssetId,
     ClobTrade,
     ClosedPosition,
     CollateralReturnOperation,
@@ -178,6 +179,7 @@ from polymarket.models import (
     WithdrawalActivity,
     YieldActivity,
     to_combo_condition_id,
+    to_condition_id,
     to_ctf_condition_id,
 )
 from polymarket.pagination import AsyncPaginator, Page, Paginator
@@ -304,6 +306,7 @@ __all__ = [
     "ComboMarketOutcome",
     "ComboMarketOutcomes",
     "ConditionId",
+    "ClobAssetId",
     "CtfConditionId",
     "ConversionActivity",
     "CurrentReward",
@@ -464,6 +467,7 @@ __all__ = [
     "TokenId",
     "TotalUserEarning",
     "to_combo_condition_id",
+    "to_condition_id",
     "to_ctf_condition_id",
     "Trade",
     "TradeActivity",

@@ -16,7 +16,7 @@ from polymarket.models.clob.account import (
     TradeStatus,
     _normalize_trade_status,  # pyright: ignore[reportPrivateUsage]
 )
-from polymarket.models.types import OrderSide, TokenId
+from polymarket.models.types import ClobAssetId, ConditionId, OrderSide
 
 
 def _uppercase_string(value: object) -> object:
@@ -35,8 +35,14 @@ _OrderType = Literal["GTC", "FOK", "IOC", "GTD", "FAK"]
 class UserOrderPayload(BaseModel):
     id: str
     owner: str
-    market: str
-    token_id: TokenId = Field(validation_alias="asset_id")
+    condition_id: ConditionId = Field(validation_alias="market")
+    market: ConditionId = Field(
+        validation_alias="market", description="Deprecated: use condition_id."
+    )
+    asset_id: ClobAssetId = Field(validation_alias="asset_id")
+    token_id: ClobAssetId = Field(
+        validation_alias="asset_id", description="Deprecated: use asset_id."
+    )
     side: OrderSide
     original_size: Decimal
     size_matched: Decimal
@@ -85,7 +91,10 @@ class UserTradeMakerOrder(BaseModel):
     matched_amount: Decimal
     price: Decimal
     fee_rate_bps: Decimal | None = None
-    token_id: TokenId = Field(validation_alias="asset_id")
+    asset_id: ClobAssetId = Field(validation_alias="asset_id")
+    token_id: ClobAssetId = Field(
+        validation_alias="asset_id", description="Deprecated: use asset_id."
+    )
     side: OrderSide
     outcome: str | None = None
     outcome_index: int | None = None
@@ -109,8 +118,14 @@ class UserTradeMakerOrder(BaseModel):
 class UserTradePayload(BaseModel):
     id: str
     taker_order_id: str
-    market: str
-    token_id: TokenId = Field(validation_alias="asset_id")
+    condition_id: ConditionId = Field(validation_alias="market")
+    market: ConditionId = Field(
+        validation_alias="market", description="Deprecated: use condition_id."
+    )
+    asset_id: ClobAssetId = Field(validation_alias="asset_id")
+    token_id: ClobAssetId = Field(
+        validation_alias="asset_id", description="Deprecated: use asset_id."
+    )
     side: OrderSide
     size: Decimal
     price: Decimal

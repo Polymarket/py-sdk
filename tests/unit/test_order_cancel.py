@@ -48,8 +48,8 @@ def test_build_cancel_all_request_has_no_body() -> None:
     assert body is None
 
 
-def test_build_cancel_market_orders_request_requires_market_or_token() -> None:
-    with pytest.raises(UserInputError, match="market or token_id"):
+def test_build_cancel_market_orders_request_requires_condition_or_asset() -> None:
+    with pytest.raises(UserInputError, match="condition_id or asset_id"):
         build_cancel_market_orders_request()
 
 

@@ -51,7 +51,7 @@ def test_fetch_current_order_allowance_returns_buy_spender_balance() -> None:
             return await fetch_current_order_allowance(
                 client._ctx,
                 side="BUY",
-                token_id=TokenId("8501497"),
+                asset_id=TokenId("8501497"),
                 spender=EXCHANGE,
             )
         finally:
@@ -71,7 +71,7 @@ def test_fetch_current_order_allowance_returns_sell_spender_balance() -> None:
             return await fetch_current_order_allowance(
                 client._ctx,
                 side="SELL",
-                token_id=TokenId("8501497"),
+                asset_id=TokenId("8501497"),
                 spender=EXCHANGE,
             )
         finally:
@@ -88,7 +88,7 @@ def test_fetch_current_order_allowance_returns_zero_when_spender_absent() -> Non
             return await fetch_current_order_allowance(
                 client._ctx,
                 side="BUY",
-                token_id=TokenId("8501497"),
+                asset_id=TokenId("8501497"),
                 spender=EXCHANGE,
             )
         finally:
@@ -108,7 +108,7 @@ def test_fetch_current_order_allowance_spender_lookup_is_case_insensitive() -> N
             return await fetch_current_order_allowance(
                 client._ctx,
                 side="BUY",
-                token_id=TokenId("8501497"),
+                asset_id=TokenId("8501497"),
                 spender=EXCHANGE,
             )
         finally:

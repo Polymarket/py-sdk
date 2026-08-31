@@ -30,7 +30,7 @@ from polymarket._internal.actions.clob import (
     parse_spreads,
 )
 from polymarket.errors import UnexpectedResponseError, UserInputError
-from polymarket.models import LastTradePrice, OrderSide, PriceRequest, TokenId
+from polymarket.models import ClobAssetId, LastTradePrice, OrderSide, PriceRequest, TokenId
 
 
 def test_build_midpoint_request_targets_midpoint_path_with_token_id() -> None:
@@ -119,7 +119,7 @@ def test_build_last_trade_prices_request_rejects_bare_string() -> None:
 def test_parse_midpoints_returns_decimal_keyed_by_token_id() -> None:
     result = parse_midpoints({"1": "0.5", "2": "0.4"})
 
-    assert_type(result, dict[TokenId, Decimal])
+    assert_type(result, dict[ClobAssetId, Decimal])
     assert result == {
         TokenId("1"): Decimal("0.5"),
         TokenId("2"): Decimal("0.4"),
@@ -253,7 +253,7 @@ def test_build_prices_request_rejects_dict_entry() -> None:
 def test_parse_prices_returns_nested_decimal_dict() -> None:
     result = parse_prices({"1": {"BUY": "0.52", "SELL": "0.53"}})
 
-    assert_type(result, dict[TokenId, dict[OrderSide, Decimal]])
+    assert_type(result, dict[ClobAssetId, dict[OrderSide, Decimal]])
     assert result == {TokenId("1"): {"BUY": Decimal("0.52"), "SELL": Decimal("0.53")}}
 
 
@@ -473,7 +473,7 @@ def test_build_spreads_request_emits_post_body() -> None:
 def test_parse_spreads_returns_decimal_keyed_by_token_id() -> None:
     result = parse_spreads({"1": "0.02"})
 
-    assert_type(result, dict[TokenId, Decimal])
+    assert_type(result, dict[ClobAssetId, Decimal])
     assert result == {TokenId("1"): Decimal("0.02")}
 
 

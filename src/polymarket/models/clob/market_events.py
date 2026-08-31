@@ -11,7 +11,11 @@ from polymarket.models.clob._validators import (
     _parse_epoch_ms_timestamp,  # pyright: ignore[reportPrivateUsage]
 )
 from polymarket.models.clob.order_book import OrderBookLevel
-from polymarket.models.types import CtfConditionId, TokenId, validate_optional_ctf_condition_id
+from polymarket.models.types import (
+    ClobAssetId,
+    ConditionId,
+    validate_optional_condition_id,
+)
 
 
 def _uppercase_order_side(value: object) -> object:
@@ -27,7 +31,10 @@ class MarketEventMessage(BaseModel):
 
 
 class PriceChange(BaseModel):
-    token_id: TokenId = Field(validation_alias="asset_id")
+    asset_id: ClobAssetId = Field(validation_alias="asset_id")
+    token_id: ClobAssetId = Field(
+        validation_alias="asset_id", description="Deprecated: use asset_id."
+    )
     price: Decimal
     size: Decimal
     side: Literal["BUY", "SELL"]
@@ -55,8 +62,14 @@ class PriceChange(BaseModel):
 
 
 class MarketBookPayload(BaseModel):
-    market: str
-    token_id: TokenId = Field(validation_alias="asset_id")
+    condition_id: ConditionId = Field(validation_alias="market")
+    market: ConditionId = Field(
+        validation_alias="market", description="Deprecated: use condition_id."
+    )
+    asset_id: ClobAssetId = Field(validation_alias="asset_id")
+    token_id: ClobAssetId = Field(
+        validation_alias="asset_id", description="Deprecated: use asset_id."
+    )
     bids: tuple[OrderBookLevel, ...]
     asks: tuple[OrderBookLevel, ...]
     hash: str | None = None
@@ -78,7 +91,10 @@ class MarketBookPayload(BaseModel):
 
 
 class MarketPriceChangePayload(BaseModel):
-    market: str
+    condition_id: ConditionId = Field(validation_alias="market")
+    market: ConditionId = Field(
+        validation_alias="market", description="Deprecated: use condition_id."
+    )
     price_changes: tuple[PriceChange, ...]
     timestamp: datetime | None = None
 
@@ -89,8 +105,14 @@ class MarketPriceChangePayload(BaseModel):
 
 
 class MarketLastTradePricePayload(BaseModel):
-    market: str
-    token_id: TokenId = Field(validation_alias="asset_id")
+    condition_id: ConditionId = Field(validation_alias="market")
+    market: ConditionId = Field(
+        validation_alias="market", description="Deprecated: use condition_id."
+    )
+    asset_id: ClobAssetId = Field(validation_alias="asset_id")
+    token_id: ClobAssetId = Field(
+        validation_alias="asset_id", description="Deprecated: use asset_id."
+    )
     price: Decimal
     size: Decimal | None = None
     side: Literal["BUY", "SELL"]
@@ -120,8 +142,14 @@ class MarketLastTradePricePayload(BaseModel):
 
 
 class MarketTickSizeChangePayload(BaseModel):
-    market: str
-    token_id: TokenId = Field(validation_alias="asset_id")
+    condition_id: ConditionId = Field(validation_alias="market")
+    market: ConditionId = Field(
+        validation_alias="market", description="Deprecated: use condition_id."
+    )
+    asset_id: ClobAssetId = Field(validation_alias="asset_id")
+    token_id: ClobAssetId = Field(
+        validation_alias="asset_id", description="Deprecated: use asset_id."
+    )
     old_tick_size: Decimal | None = None
     new_tick_size: Decimal
     timestamp: datetime | None = None
@@ -143,8 +171,14 @@ class MarketTickSizeChangePayload(BaseModel):
 
 
 class MarketBestBidAskPayload(BaseModel):
-    market: str
-    token_id: TokenId = Field(validation_alias="asset_id")
+    condition_id: ConditionId = Field(validation_alias="market")
+    market: ConditionId = Field(
+        validation_alias="market", description="Deprecated: use condition_id."
+    )
+    asset_id: ClobAssetId = Field(validation_alias="asset_id")
+    token_id: ClobAssetId = Field(
+        validation_alias="asset_id", description="Deprecated: use asset_id."
+    )
     best_bid: Decimal | None = None
     best_ask: Decimal | None = None
     spread: Decimal | None = None
@@ -163,16 +197,21 @@ class MarketBestBidAskPayload(BaseModel):
 
 class NewMarketPayload(BaseModel):
     id: str
-    market: str
+    condition_id: ConditionId | None = None
+    market: ConditionId = Field(
+        validation_alias="market", description="Deprecated: use condition_id."
+    )
     question: str | None = None
     slug: str | None = None
     description: str | None = None
-    token_ids: tuple[TokenId, ...] | None = Field(default=None, validation_alias="assets_ids")
+    asset_ids: tuple[ClobAssetId, ...] | None = Field(default=None, validation_alias="assets_ids")
+    token_ids: tuple[ClobAssetId, ...] | None = Field(
+        default=None, validation_alias="assets_ids", description="Deprecated: use asset_ids."
+    )
     outcomes: tuple[str, ...] | None = None
     event_message: MarketEventMessage | None = None
     timestamp: datetime | None = None
     tags: tuple[str, ...] | None = None
-    condition_id: CtfConditionId | None = None
     active: bool | None = None
     clob_token_ids: tuple[str, ...] | None = None
     sports_market_type: str | None = None
@@ -186,8 +225,8 @@ class NewMarketPayload(BaseModel):
 
     @field_validator("condition_id", mode="before")
     @classmethod
-    def _validate_condition_id(cls, value: object) -> CtfConditionId | None:
-        return validate_optional_ctf_condition_id(value)
+    def _validate_condition_id(cls, value: object) -> ConditionId | None:
+        return validate_optional_condition_id(value)
 
     @field_validator("line", "order_price_min_tick_size", "taker_base_fee", mode="before")
     @classmethod
@@ -202,9 +241,20 @@ class NewMarketPayload(BaseModel):
 
 class MarketResolvedPayload(BaseModel):
     id: str
-    market: str
-    token_ids: tuple[TokenId, ...] | None = Field(default=None, validation_alias="assets_ids")
-    winning_token_id: TokenId | None = Field(default=None, validation_alias="winning_asset_id")
+    condition_id: ConditionId = Field(validation_alias="market")
+    market: ConditionId = Field(
+        validation_alias="market", description="Deprecated: use condition_id."
+    )
+    asset_ids: tuple[ClobAssetId, ...] | None = Field(default=None, validation_alias="assets_ids")
+    token_ids: tuple[ClobAssetId, ...] | None = Field(
+        default=None, validation_alias="assets_ids", description="Deprecated: use asset_ids."
+    )
+    winning_asset_id: ClobAssetId | None = Field(default=None, validation_alias="winning_asset_id")
+    winning_token_id: ClobAssetId | None = Field(
+        default=None,
+        validation_alias="winning_asset_id",
+        description="Deprecated: use winning_asset_id.",
+    )
     winning_outcome: str | None = None
     event_message: MarketEventMessage | None = None
     timestamp: datetime | None = None

@@ -230,9 +230,11 @@ def test_decode_combo_outcome_position_id() -> None:
     assert decoded.outcome_index == 1
 
 
-def test_decode_combo_outcome_position_id_rejects_non_combo() -> None:
-    with pytest.raises(UserInputError, match="combinatorial module"):
-        decode_combo_outcome_position_id(_leg_position(1, 0))
+def test_deprecated_combo_decoder_accepts_any_v2_module() -> None:
+    decoded = decode_combo_outcome_position_id(_leg_position(1, 0))
+
+    assert decoded.condition_id == f"0x01{'00' * 29}01"
+    assert decoded.outcome_index == 0
 
 
 def _leg_position(marker: int, outcome: int) -> str:

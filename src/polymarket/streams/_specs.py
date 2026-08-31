@@ -52,35 +52,54 @@ def _normalize_crypto_symbols(symbols: Sequence[str] | None) -> tuple[str, ...] 
     return tuple(normalized)
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
+@dataclass(frozen=True, slots=True, kw_only=True, init=False)
 class MarketSpec:
-    """Subscribe to realtime market updates for one or more token ids.
+    """Subscribe to realtime market updates for one or more CLOB asset IDs.
 
     Set ``custom_feature_enabled=True`` to additionally receive
     ``MarketBestBidAskEvent``, ``NewMarketEvent``, and ``MarketResolvedEvent``.
     """
 
-    token_ids: Sequence[str]
-    """Token ids whose market events should be delivered."""
+    asset_ids: Sequence[str]
+    """Asset IDs whose market events should be delivered."""
     custom_feature_enabled: bool = False
     """Whether to enable top-of-book and market lifecycle events."""
     topic: Literal["market"] = field(default="market", init=False)
 
-    def __post_init__(self) -> None:
-        if not isinstance(self.custom_feature_enabled, bool):
+    def __init__(
+        self,
+        *,
+        asset_ids: Sequence[str] | None = None,
+        token_ids: Sequence[str] | None = None,
+        custom_feature_enabled: bool = False,
+    ) -> None:
+        if asset_ids is not None and token_ids is not None:
+            raise UserInputError("asset_ids and token_ids are mutually exclusive")
+        values = asset_ids if asset_ids is not None else token_ids
+        if values is None:
+            raise UserInputError("Provide exactly one of asset_ids or token_ids")
+        if not isinstance(custom_feature_enabled, bool):
             raise UserInputError("custom_feature_enabled must be a bool")
-        if isinstance(self.token_ids, str | bytes):
-            raise UserInputError("token_ids must be a sequence of token ids, not a single string")
+        if isinstance(values, str | bytes):
+            raise UserInputError("asset_ids must be a sequence of asset ids, not a single string")
         normalized: list[str] = []
-        for tid in self.token_ids:
-            if not isinstance(tid, str):
-                raise UserInputError(f"token_id must be a string, got {type(tid).__name__}")
-            if not tid:
-                raise UserInputError("token_id must be non-empty")
-            normalized.append(tid)
+        for asset_id in values:
+            if not isinstance(asset_id, str):
+                raise UserInputError(f"asset_id must be a string, got {type(asset_id).__name__}")
+            if not asset_id:
+                raise UserInputError("asset_id must be non-empty")
+            normalized.append(asset_id)
         if not normalized:
-            raise UserInputError("token_ids must be a non-empty sequence")
-        object.__setattr__(self, "token_ids", tuple(normalized))
+            raise UserInputError("asset_ids must be a non-empty sequence")
+        object.__setattr__(self, "asset_ids", tuple(normalized))
+        object.__setattr__(self, "custom_feature_enabled", custom_feature_enabled)
+        object.__setattr__(self, "topic", "market")
+
+    @property
+    def token_ids(self) -> Sequence[str]:
+        """Deprecated alias for :attr:`asset_ids`."""
+
+        return self.asset_ids
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

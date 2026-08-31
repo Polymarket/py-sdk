@@ -31,7 +31,7 @@ def main() -> None:
                     "curPrice": position.cur_price if position.cur_price is not None else "",
                     "redeemable": position.redeemable if position.redeemable is not None else False,
                     "mergeable": position.mergeable if position.mergeable is not None else False,
-                    "tokenId": position.token_id or "",
+                    "assetId": position.asset_id or "",
                 }
                 for position in positions
             ]

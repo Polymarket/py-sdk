@@ -6,7 +6,7 @@ from pydantic import Field, field_validator
 
 from polymarket.models.base import BaseModel
 from polymarket.models.gamma.common import parse_optional_decimal
-from polymarket.models.types import CtfConditionId, TokenId, validate_optional_ctf_condition_id
+from polymarket.models.types import ClobAssetId, ConditionId, validate_optional_condition_id
 from polymarket.types import EvmAddress
 
 
@@ -15,8 +15,11 @@ class MarketPosition(BaseModel):
     name: str | None = None
     profile_image: str | None = Field(default=None, validation_alias="profileImage")
     verified: bool | None = None
-    token_id: TokenId | None = Field(default=None, validation_alias="asset")
-    condition_id: CtfConditionId | None = Field(default=None, validation_alias="conditionId")
+    asset_id: ClobAssetId | None = Field(default=None, validation_alias="asset")
+    token_id: ClobAssetId | None = Field(
+        default=None, validation_alias="asset", description="Deprecated: use asset_id."
+    )
+    condition_id: ConditionId | None = Field(default=None, validation_alias="conditionId")
     avg_price: Decimal | None = Field(default=None, validation_alias="avgPrice")
     size: Decimal | None = None
     cur_price: Decimal | None = Field(default=None, validation_alias="currPrice")
@@ -30,8 +33,8 @@ class MarketPosition(BaseModel):
 
     @field_validator("condition_id", mode="before")
     @classmethod
-    def _validate_condition_id(cls, value: object) -> CtfConditionId | None:
-        return validate_optional_ctf_condition_id(value)
+    def _validate_condition_id(cls, value: object) -> ConditionId | None:
+        return validate_optional_condition_id(value)
 
     @field_validator(
         "avg_price",
@@ -50,7 +53,10 @@ class MarketPosition(BaseModel):
 
 
 class MetaMarketPosition(BaseModel):
-    token: str | None = None
+    asset_id: ClobAssetId | None = Field(default=None, validation_alias="token")
+    token: ClobAssetId | None = Field(
+        default=None, validation_alias="token", description="Deprecated: use asset_id."
+    )
     positions: tuple[MarketPosition, ...] | None = None
 
 

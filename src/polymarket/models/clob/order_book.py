@@ -13,7 +13,7 @@ from polymarket.models.base import BaseModel
 from polymarket.models.clob._validators import (
     _parse_epoch_ms_timestamp,  # pyright: ignore[reportPrivateUsage]
 )
-from polymarket.models.types import CtfConditionId, TokenId
+from polymarket.models.types import ClobAssetId, ConditionId
 
 _DecimalMode = Literal["decimal", "float"]
 
@@ -29,14 +29,18 @@ class OrderBookLevel(BaseModel):
 
 
 class OrderBook(BaseModel):
-    market: CtfConditionId = Field(
+    market: ConditionId = Field(
         description="Deprecated: use condition_id. Retained for backward compatibility."
     )
-    condition_id: CtfConditionId = Field(
+    condition_id: ConditionId = Field(
         validation_alias="market",
-        description="CTF condition id for the market represented by this order book.",
+        description="Condition ID for the market represented by this order book.",
     )
-    token_id: TokenId = Field(validation_alias="asset_id")
+    asset_id: ClobAssetId = Field(validation_alias="asset_id")
+    token_id: ClobAssetId = Field(
+        validation_alias="asset_id",
+        description="Deprecated: use asset_id. Retained for backward compatibility.",
+    )
     timestamp: datetime | None = None
     bids: tuple[OrderBookLevel, ...]
     """Ascending price order, lowest bid first."""
@@ -72,7 +76,7 @@ class OrderBook(BaseModel):
             best_ask = self.asks[-1].price if self.asks else None
             spread = best_ask - best_bid if best_bid is not None and best_ask is not None else None
             title = (
-                f"OrderBook  ·  {truncate_mid(self.market)}  ·  token {truncate_mid(self.token_id)}"
+                f"OrderBook  ·  {truncate_mid(self.market)}  ·  asset {truncate_mid(self.asset_id)}"
             )
             rows: list[tuple[str, str]] = [
                 (

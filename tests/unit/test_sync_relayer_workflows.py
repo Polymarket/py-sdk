@@ -194,7 +194,7 @@ def test_setup_trading_approvals_bundles_required_calls_for_deposit_wallet() -> 
     submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
     body = request_json(submit_calls[0])
     inner_calls = body["depositWalletParams"]["calls"]
-    assert len(inner_calls) == 15
+    assert len(inner_calls) == 17
 
 
 def test_setup_trading_approvals_skips_submit_when_already_approved() -> None:

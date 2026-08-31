@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Literal, TypeAlias
 
-from polymarket.models.types import OrderSide, TokenId
+from polymarket.models.types import ClobAssetId, OrderSide
 from polymarket.types import EvmAddress, HexString
 
 OrderType: TypeAlias = Literal["GTC", "GTD", "FAK", "FOK"]
@@ -24,7 +24,7 @@ class SignedOrder:
     signer: EvmAddress
     taker_amount: int
     timestamp: int
-    token_id: TokenId
+    token_id: ClobAssetId
     post_only: bool = False
 
 

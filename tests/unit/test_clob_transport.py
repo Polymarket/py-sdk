@@ -13,13 +13,13 @@ from polymarket import (
     ApiKeyCreds,
     AsyncPublicClient,
     AsyncSecureClient,
+    ClobAssetId,
     LastTradePrice,
     LastTradePriceForToken,
     OrderBook,
     OrderSide,
     PriceHistoryPoint,
     PriceRequest,
-    TokenId,
 )
 from polymarket._internal.context import AsyncSecureClientContext
 from polymarket.clients._transport import AsyncTransport
@@ -104,7 +104,7 @@ def test_async_get_midpoint_propagates_malformed_response_error() -> None:
 def test_async_get_midpoints_posts_token_ids_to_clob() -> None:
     captured: list[httpx.Request] = []
 
-    async def run() -> dict[TokenId, Decimal]:
+    async def run() -> dict[ClobAssetId, Decimal]:
         async with AsyncPublicClient() as client:
             _install_async_clob(client, _clob_handler(captured, {"1": "0.5", "2": "0.4"}))
             return await client.get_midpoints(token_ids=["1", "2"])
@@ -136,7 +136,7 @@ def test_async_get_price_includes_token_id_and_side() -> None:
 def test_async_get_prices_posts_token_id_and_side() -> None:
     captured: list[httpx.Request] = []
 
-    async def run() -> dict[TokenId, dict[OrderSide, Decimal]]:
+    async def run() -> dict[ClobAssetId, dict[OrderSide, Decimal]]:
         async with AsyncPublicClient() as client:
             _install_async_clob(
                 client,
@@ -217,7 +217,7 @@ def test_async_get_spread_returns_decimal() -> None:
 def test_async_get_spreads_posts_token_ids() -> None:
     captured: list[httpx.Request] = []
 
-    async def run() -> dict[TokenId, Decimal]:
+    async def run() -> dict[ClobAssetId, Decimal]:
         async with AsyncPublicClient() as client:
             _install_async_clob(client, _clob_handler(captured, {"1": "0.02"}))
             return await client.get_spreads(token_ids=["1"])
