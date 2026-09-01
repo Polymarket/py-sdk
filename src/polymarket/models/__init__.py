@@ -140,6 +140,7 @@ from polymarket.models.gamma import (
     Tag,
     TagReference,
     Team,
+    TeamOrdering,
 )
 from polymarket.models.perps import (
     PerpsAccountConfig,
@@ -455,6 +456,7 @@ __all__ = [
     "TagReference",
     "TakerRebateActivity",
     "Team",
+    "TeamOrdering",
     "TokenId",
     "to_combo_condition_id",
     "to_ctf_condition_id",
