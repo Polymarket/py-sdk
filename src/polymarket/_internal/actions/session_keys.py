@@ -10,6 +10,7 @@ from enum import StrEnum
 from typing import TypeVar, cast
 from uuid import uuid4
 
+import httpx
 from eth_utils.address import to_checksum_address
 from pydantic import Field, StrictBool, field_validator
 
@@ -52,6 +53,13 @@ _ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 _TRANSACTION_HASH_RE = re.compile(r"^0x[0-9a-fA-F]{64}$")
 _SESSION_KEY_SUBMISSION_MAX_RETRIES = 2
 _SESSION_KEY_LIFETIME_SECONDS = 4_315 * 60 * 60
+# Session-key mutations synchronously validate, simulate, persist, and broadcast.
+_SESSION_KEY_RELAYER_SUBMISSION_TIMEOUT = httpx.Timeout(
+    connect=5.0,
+    read=300.0,
+    write=10.0,
+    pool=2.0,
+)
 
 _SecureContext = AsyncSecureClientContext | SyncSecureClientContext
 _ResponseT = TypeVar("_ResponseT")
@@ -499,7 +507,12 @@ async def _post_session_key_operation(
     headers = {"Idempotency-Key": idempotency_key}
     for attempt in range(_SESSION_KEY_SUBMISSION_MAX_RETRIES + 1):
         try:
-            data = await ctx.relayer.post_json(path, json=payload, headers=headers)
+            data = await ctx.relayer.post_json(
+                path,
+                json=payload,
+                headers=headers,
+                timeout=_SESSION_KEY_RELAYER_SUBMISSION_TIMEOUT,
+            )
         except (RateLimitError, RequestRejectedError, TransportError) as error:
             if (
                 attempt == _SESSION_KEY_SUBMISSION_MAX_RETRIES
@@ -523,7 +536,12 @@ def _post_session_key_operation_sync(
     headers = {"Idempotency-Key": idempotency_key}
     for attempt in range(_SESSION_KEY_SUBMISSION_MAX_RETRIES + 1):
         try:
-            data = ctx.relayer.post_json(path, json=payload, headers=headers)
+            data = ctx.relayer.post_json(
+                path,
+                json=payload,
+                headers=headers,
+                timeout=_SESSION_KEY_RELAYER_SUBMISSION_TIMEOUT,
+            )
         except (RateLimitError, RequestRejectedError, TransportError) as error:
             if (
                 attempt == _SESSION_KEY_SUBMISSION_MAX_RETRIES
