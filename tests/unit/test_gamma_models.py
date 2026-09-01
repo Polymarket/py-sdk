@@ -13,6 +13,7 @@ from polymarket.models.gamma import (
     Event,
     EventPartner,
     Market,
+    ProtocolVersion,
     PublicProfile,
     Reaction,
     RelatedTag,
@@ -52,6 +53,28 @@ def test_market_parses_minimal_payload() -> None:
     assert market.outcomes.no.token_id == "TOKEN-NO"
     assert market.outcomes.no.price == Decimal("0.4")
     assert market.position_ids == ("POSITION-YES", "POSITION-NO")
+
+
+@pytest.mark.parametrize(
+    ("raw_version", "expected"),
+    [
+        ("v1", ProtocolVersion.V1),
+        ("v2", ProtocolVersion.V2),
+    ],
+)
+def test_market_parses_known_protocol_versions(
+    raw_version: str,
+    expected: ProtocolVersion,
+) -> None:
+    market = Market.parse_response(_minimal_market_payload(version=raw_version))
+
+    assert market.version is expected
+
+
+def test_market_passes_unknown_protocol_version_through_as_string() -> None:
+    market = Market.parse_response(_minimal_market_payload(version="v3"))
+
+    assert market.version == "v3"
 
 
 def test_market_normalizes_groups_from_flat_payload() -> None:

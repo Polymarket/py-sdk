@@ -41,6 +41,17 @@ ComboKnownStatus: TypeAlias = Literal["pending", "enabled", "disabled"]
 ComboStatus: TypeAlias = ComboKnownStatus | str
 
 
+class ProtocolVersion(StrEnum):
+    """Known market protocol versions."""
+
+    V1 = "v1"
+    V2 = "v2"
+
+
+MarketProtocolVersion: TypeAlias = ProtocolVersion | str
+"""A market protocol version, including values newer than this SDK."""
+
+
 class UmaResolutionStatus(StrEnum):
     """Resolution lifecycle state for a market."""
 
@@ -385,6 +396,7 @@ class Market(BaseModel):
     """A Polymarket market."""
 
     id: MarketId
+    version: MarketProtocolVersion | None = None
     slug: str | None = None
     condition_id: CtfConditionId | None = Field(
         default=None,
@@ -465,6 +477,7 @@ class Market(BaseModel):
 
         return {
             "id": data.get("id"),
+            "version": data.get("version"),
             "slug": data.get("slug"),
             "condition_id": empty_string_to_none(data.get("conditionId")),
             "question": data.get("question"),
@@ -567,6 +580,16 @@ class Market(BaseModel):
             "position_ids": position_ids,
         }
 
+    @field_validator("version", mode="before")
+    @classmethod
+    def _parse_version(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        try:
+            return ProtocolVersion(value)
+        except ValueError:
+            return value
+
     @field_validator("condition_id", mode="before")
     @classmethod
     def _validate_condition_id(cls, value: object) -> CtfConditionId | None:
@@ -584,11 +607,13 @@ __all__ = [
     "MarketOutcome",
     "MarketOutcomes",
     "MarketPrices",
+    "MarketProtocolVersion",
     "MarketResolution",
     "MarketRewards",
     "MarketSportsMetadata",
     "MarketState",
     "MarketTag",
     "MarketTrading",
+    "ProtocolVersion",
     "UmaResolutionStatus",
 ]
