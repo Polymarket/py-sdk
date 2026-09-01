@@ -77,6 +77,12 @@ def test_market_passes_unknown_protocol_version_through_as_string() -> None:
     assert market.version == "v3"
 
 
+def test_market_accepts_null_protocol_version() -> None:
+    market = Market.parse_response(_minimal_market_payload(version=None))
+
+    assert market.version is None
+
+
 def test_market_normalizes_groups_from_flat_payload() -> None:
     payload = _minimal_market_payload(
         slug="my-market",
