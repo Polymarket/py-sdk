@@ -139,10 +139,6 @@ class MarketMetrics(BaseModel):
         default=None,
         validation_alias="volume1yr",
     )
-    volume_amm: Decimal | None = Field(
-        default=None,
-        validation_alias="volumeAmm",
-    )
     volume_clob: Decimal | None = Field(
         default=None,
         validation_alias="volumeClob",
@@ -504,7 +500,6 @@ class Market(BaseModel):
                 "volume_1wk": data.get("volume1wk"),
                 "volume_1mo": data.get("volume1mo"),
                 "volume_1yr": data.get("volume1yr"),
-                "volume_amm": data.get("volumeAmm"),
                 "volume_clob": data.get("volumeClob"),
                 "liquidity": data.get("liquidity"),
                 "liquidity_num": data.get("liquidityNum"),
