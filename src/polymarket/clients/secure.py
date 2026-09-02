@@ -1827,7 +1827,11 @@ class SecureClient:
         asset_id: str | None = None,
         token_id: str | None = None,
     ) -> BalanceAllowance:
-        """Get balance and allowance information for an asset."""
+        """Get balance and allowance information for an asset.
+
+        Use ``COLLATERAL`` for collateral, ``CONDITIONAL`` for a CTF token ID,
+        or ``CONDITIONAL-V2`` for a Polymarket V2 position ID.
+        """
         path, params = _account_actions.build_balance_allowance_request(
             asset_type=asset_type,
             asset_id=asset_id,
@@ -2605,12 +2609,12 @@ class SecureClient:
         positions: Sequence[MergePositionRequest],
         metadata: str | None = None,
     ) -> SyncTransactionHandle:
-        """Merge multiple market positions or multiple combo positions back into collateral.
+        """Merge multiple market positions or Polymarket V2 positions into collateral.
 
         Args:
-            positions: Position merge requests. Use ``position_id`` for combo
-                positions, or ``condition_id`` / ``market_id`` for market positions.
-                Do not mix combo and market requests in the same batch.
+            positions: Position merge requests. Use ``position_id`` for a
+                Polymarket V2 position, or ``condition_id`` / ``market_id`` for
+                market positions. Do not mix identifier styles in the same batch.
                 Omit ``amount`` or pass ``"max"`` to merge the largest available
                 balanced amount for that condition.
 
@@ -2626,7 +2630,7 @@ class SecureClient:
         ]
         batch_kinds = {position.kind for position in normalized}
         if len(batch_kinds) != 1:
-            raise UserInputError("Cannot mix market and combo positions in one merge batch")
+            raise UserInputError("Cannot mix market and Polymarket V2 positions in one merge batch")
 
         seen_conditions: set[str] = set()
         calls: list[TransactionCall] = []
@@ -2636,7 +2640,9 @@ class SecureClient:
                 decoded = decode_combo_outcome_position_id(position.position_id)
                 condition_key = str(decoded.condition_id)
                 if condition_key in seen_conditions:
-                    raise UserInputError("position_ids must reference distinct combo conditions")
+                    raise UserInputError(
+                        "position_ids must reference distinct Polymarket V2 conditions"
+                    )
                 seen_conditions.add(condition_key)
                 token_ids = derive_combo_outcome_position_ids(decoded.condition_id)
                 balance_call = erc1155_balance_of_batch_call(
@@ -2697,7 +2703,7 @@ class SecureClient:
                     )
                 )
 
-        batch_label = "combo positions" if "combo" in batch_kinds else "positions"
+        batch_label = "Polymarket V2 positions" if "combo" in batch_kinds else "positions"
         resolved_metadata = (
             metadata if metadata is not None else f"Merge {len(calls)} {batch_label}"
         )
@@ -2723,10 +2729,10 @@ class SecureClient:
         position_id: str | None = None,
         metadata: str | None = None,
     ) -> SyncTransactionHandle:
-        """Redeem resolved market or combo positions.
+        """Redeem resolved market positions or a Polymarket V2 position.
 
-        Provide exactly one of ``condition_id``, ``market_id``, or combo
-        ``position_id``.
+        Provide exactly one of ``condition_id``, ``market_id``, or ``position_id``.
+        A ``position_id`` identifies a specific Polymarket V2 YES/NO position.
 
         Returns:
             A transaction handle. Call ``wait()`` to wait for a terminal outcome.

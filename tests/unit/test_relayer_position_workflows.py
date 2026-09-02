@@ -326,7 +326,7 @@ def test_merge_multiple_positions_async_batches_market_merges() -> None:
     ]
 
 
-def test_merge_multiple_positions_async_rejects_mixed_market_and_combo_positions() -> None:
+def test_merge_multiple_positions_async_rejects_mixed_identifier_styles() -> None:
     async def run() -> None:
         client = await make_deposit_client()
         try:
@@ -339,7 +339,7 @@ def test_merge_multiple_positions_async_rejects_mixed_market_and_combo_positions
         finally:
             await client.close()
 
-    with pytest.raises(UserInputError, match="Cannot mix market and combo"):
+    with pytest.raises(UserInputError, match="Cannot mix market and Polymarket V2"):
         asyncio.run(run())
 
 

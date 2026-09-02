@@ -50,7 +50,8 @@ def test_market_parses_minimal_payload() -> None:
     assert market.outcomes.no.label == "No"
     assert market.outcomes.no.token_id == "TOKEN-NO"
     assert market.outcomes.no.price == Decimal("0.4")
-    assert market.position_ids == ("POSITION-YES", "POSITION-NO")
+    with pytest.warns(DeprecationWarning, match="position_id on each outcome"):
+        assert market.position_ids == ("POSITION-YES", "POSITION-NO")
 
 
 def test_market_normalizes_groups_from_flat_payload() -> None:

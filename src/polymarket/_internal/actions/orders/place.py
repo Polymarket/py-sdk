@@ -7,6 +7,7 @@ from polymarket._internal.actions.orders import post as _post_actions
 from polymarket._internal.actions.orders.allowance import (
     fetch_current_order_allowance,
     fetch_current_order_allowance_sync,
+    resolve_order_balance_allowance_target,
 )
 from polymarket._internal.actions.orders.context import resolve_order_exchange_address
 from polymarket._internal.protocol import is_v2_position_id
@@ -185,9 +186,9 @@ def _refresh_balance_allowance_sync(client: SecureClient, signed_order: SignedOr
 
 
 def _refresh_target(signed_order: SignedOrder) -> tuple[AssetType, str | None]:
-    if signed_order.side == "BUY":
-        return "COLLATERAL", None
-    return "CONDITIONAL", signed_order.token_id
+    return resolve_order_balance_allowance_target(
+        side=signed_order.side, asset_id=signed_order.token_id
+    )
 
 
 __all__ = [

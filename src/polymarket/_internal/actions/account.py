@@ -25,13 +25,14 @@ _OpenOrdersAdapter = TypeAdapter(tuple[OpenOrder, ...])
 _ClobTradesAdapter = TypeAdapter(tuple[ClobTrade, ...])
 _NotificationsAdapter = TypeAdapter(tuple[Notification, ...])
 
-_VALID_ASSET_TYPES: frozenset[str] = frozenset({"COLLATERAL", "CONDITIONAL"})
+_VALID_ASSET_TYPES: frozenset[str] = frozenset({"COLLATERAL", "CONDITIONAL", "CONDITIONAL-V2"})
 
 
 def _validate_asset_type(asset_type: object) -> None:
     if asset_type not in _VALID_ASSET_TYPES:
         raise UserInputError(
-            f"asset_type must be 'COLLATERAL' or 'CONDITIONAL', got {asset_type!r}."
+            "asset_type must be 'COLLATERAL', 'CONDITIONAL', or "
+            f"'CONDITIONAL-V2', got {asset_type!r}."
         )
 
 

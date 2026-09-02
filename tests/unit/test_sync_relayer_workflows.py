@@ -444,10 +444,10 @@ def test_merge_multiple_positions_batches_market_merges() -> None:
     ]
 
 
-def test_merge_multiple_positions_rejects_mixed_market_and_combo_positions() -> None:
+def test_merge_multiple_positions_rejects_mixed_identifier_styles() -> None:
     with (
         make_sync_deposit_client() as client,
-        pytest.raises(UserInputError, match="Cannot mix market and combo"),
+        pytest.raises(UserInputError, match="Cannot mix market and Polymarket V2"),
     ):
         client.merge_multiple_positions(
             positions=[

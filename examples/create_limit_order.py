@@ -10,7 +10,7 @@ to the exchange. Use `place_limit_order` (or `post_order`) to actually trade.
 from __future__ import annotations
 
 from examples.lib.env import require_env
-from examples.lib.markets import find_order_example_market, market_yes_asset_id
+from examples.lib.markets import OrderExampleMarketVersion, find_order_example_market
 from examples.lib.tables import print_values_table
 from polymarket import SecureClient
 
@@ -21,8 +21,14 @@ def main() -> None:
         wallet=require_env("POLYMARKET_DEPOSIT_WALLET"),
     )
     with client:
-        market = find_order_example_market(client)
-        asset_id = market_yes_asset_id(market)
+        selected = find_order_example_market(client)
+        market = selected.market
+        # CTF markets trade by token ID; Polymarket V2 markets trade by position ID.
+        asset_id = (
+            market.outcomes.yes.token_id
+            if selected.version is OrderExampleMarketVersion.V1
+            else market.outcomes.yes.position_id
+        )
         if asset_id is None:
             raise SystemExit("Selected market has no tradable YES asset.")
 

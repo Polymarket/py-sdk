@@ -14,7 +14,7 @@ from polymarket.models.clob._validators import (
 )
 from polymarket.models.types import ClobAssetId, ConditionId, OrderSide
 
-AssetType: TypeAlias = Literal["COLLATERAL", "CONDITIONAL"]
+AssetType: TypeAlias = Literal["COLLATERAL", "CONDITIONAL", "CONDITIONAL-V2"]
 
 TradeStatus: TypeAlias = Literal[
     "MATCHED",

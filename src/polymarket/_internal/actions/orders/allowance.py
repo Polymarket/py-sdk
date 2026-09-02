@@ -1,8 +1,10 @@
 from polymarket._internal.actions import account as _account_actions
 from polymarket._internal.actions.orders.types import OrderDraft
 from polymarket._internal.context import AsyncSecureClientContext, SyncSecureClientContext
+from polymarket._internal.protocol import is_v2_position_id
 from polymarket._internal.request import QueryParamValue
 from polymarket._internal.wallet import WalletType, signature_type_for
+from polymarket.models.clob import AssetType
 from polymarket.models.types import ClobAssetId, OrderSide
 from polymarket.types import EvmAddress
 
@@ -63,15 +65,22 @@ def _balance_allowance_request_for_side(
     wallet_type: WalletType, *, side: OrderSide, asset_id: ClobAssetId
 ) -> tuple[str, dict[str, QueryParamValue]]:
     signature_type = signature_type_for(wallet_type)
-    if side == "BUY":
-        return _account_actions.build_balance_allowance_request(
-            asset_type="COLLATERAL", token_id=None, signature_type=signature_type
-        )
+    asset_type, token_id = resolve_order_balance_allowance_target(side=side, asset_id=asset_id)
     return _account_actions.build_balance_allowance_request(
-        asset_type="CONDITIONAL",
-        token_id=asset_id,
+        asset_type=asset_type,
+        token_id=token_id,
         signature_type=signature_type,
     )
+
+
+def resolve_order_balance_allowance_target(
+    *, side: OrderSide, asset_id: ClobAssetId
+) -> tuple[AssetType, ClobAssetId | None]:
+    if side == "BUY":
+        return "COLLATERAL", None
+    if is_v2_position_id(asset_id):
+        return "CONDITIONAL-V2", asset_id
+    return "CONDITIONAL", asset_id
 
 
 def _allowance_for_spender(allowances: dict[str, int], spender: str) -> int:
@@ -87,4 +96,5 @@ __all__ = [
     "fetch_current_allowance_sync",
     "fetch_current_order_allowance",
     "fetch_current_order_allowance_sync",
+    "resolve_order_balance_allowance_target",
 ]

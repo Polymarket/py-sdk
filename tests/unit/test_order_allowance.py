@@ -2,6 +2,7 @@
 import asyncio
 import dataclasses
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 
@@ -15,10 +16,19 @@ PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff8
 SIGNER_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 FAKE_CREDS = ApiKeyCreds(key="test-key", passphrase="test-passphrase", secret="dGVzdA==")
 EXCHANGE = EvmAddress("0xE111180000d2663C0091e4f400237545B87B996B")
+_CTF_ASSET_ID = str((1 << 40) + 8_501_497)
+_V2_POSITION_ID = str(int("0x01" + "00" * 30 + "00", 16))
 
 
-def _install_secure_clob(client: AsyncSecureClient, payload: dict[str, Any]) -> None:
+def _install_secure_clob(
+    client: AsyncSecureClient,
+    payload: dict[str, Any],
+    *,
+    captured: list[httpx.Request] | None = None,
+) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
+        if captured is not None:
+            captured.append(request)
         return httpx.Response(200, json=payload, request=request)
 
     transport = AsyncTransport(
@@ -61,23 +71,55 @@ def test_fetch_current_order_allowance_returns_buy_spender_balance() -> None:
 
 
 def test_fetch_current_order_allowance_returns_sell_spender_balance() -> None:
+    captured: list[httpx.Request] = []
+
     async def run() -> int:
         client = await _make_client()
         try:
             _install_secure_clob(
                 client,
                 {"balance": "0", "allowances": {EXCHANGE: "777"}},
+                captured=captured,
             )
             return await fetch_current_order_allowance(
                 client._ctx,
                 side="SELL",
-                asset_id=TokenId("8501497"),
+                asset_id=TokenId(_CTF_ASSET_ID),
                 spender=EXCHANGE,
             )
         finally:
             await client.close()
 
     assert asyncio.run(run()) == 777
+    qs = parse_qs(urlparse(str(captured[0].url)).query)
+    assert qs["asset_type"] == ["CONDITIONAL"]
+    assert qs["token_id"] == [_CTF_ASSET_ID]
+
+
+def test_fetch_current_order_allowance_routes_v2_sell_to_conditional_v2() -> None:
+    captured: list[httpx.Request] = []
+
+    async def run() -> int:
+        client = await _make_client()
+        try:
+            _install_secure_clob(
+                client,
+                {"balance": "0", "allowances": {EXCHANGE: "888"}},
+                captured=captured,
+            )
+            return await fetch_current_order_allowance(
+                client._ctx,
+                side="SELL",
+                asset_id=TokenId(_V2_POSITION_ID),
+                spender=EXCHANGE,
+            )
+        finally:
+            await client.close()
+
+    assert asyncio.run(run()) == 888
+    qs = parse_qs(urlparse(str(captured[0].url)).query)
+    assert qs["asset_type"] == ["CONDITIONAL-V2"]
+    assert qs["token_id"] == [_V2_POSITION_ID]
 
 
 def test_fetch_current_order_allowance_returns_zero_when_spender_absent() -> None:

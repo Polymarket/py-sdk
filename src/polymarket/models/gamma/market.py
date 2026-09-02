@@ -90,10 +90,12 @@ class MarketOutcome(BaseModel):
     token_id: TokenId | None = Field(
         default=None,
         validation_alias="tokenId",
+        description="CTF token ID for this outcome, when available.",
     )
     position_id: PositionId | None = Field(
         default=None,
         validation_alias="positionId",
+        description="Polymarket V2 position ID for this outcome, when available.",
     )
     price: Decimal | None = None
 
@@ -404,6 +406,8 @@ class Market(BaseModel):
     position_ids: tuple[PositionId, ...] = Field(
         default=(),
         validation_alias="positionIds",
+        deprecated="Use the position_id on each outcome instead.",
+        description="Deprecated market-level Polymarket V2 position IDs.",
     )
 
     def _repr_html_(self) -> str:
