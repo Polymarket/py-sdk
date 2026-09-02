@@ -21,6 +21,7 @@ from polymarket.models.gamma import (
     SportsMetadata,
     Tag,
     TagReference,
+    TeamOrdering,
     UmaResolutionStatus,
 )
 
@@ -67,6 +68,7 @@ def test_market_normalizes_groups_from_flat_payload() -> None:
         active=True,
         closed=False,
         archived=False,
+        comboStatus="enabled",
         acceptingOrders=True,
         enableOrderBook=True,
         negRisk=False,
@@ -112,6 +114,7 @@ def test_market_normalizes_groups_from_flat_payload() -> None:
     assert market.condition_id == _CONDITION_ID
     assert market.group_item_title == "Rain tomorrow"
     assert market.state.active is True
+    assert market.state.combo_status == "enabled"
     assert market.state.start_date == datetime(2026, 5, 1, tzinfo=UTC)
     assert market.state.end_date == datetime(2026, 6, 1, tzinfo=UTC)
     assert market.metrics.volume == Decimal("100")
@@ -160,6 +163,12 @@ def test_market_treats_empty_condition_id_as_none() -> None:
     market = Market.parse_response(_minimal_market_payload(conditionId=""))
 
     assert market.condition_id is None
+
+
+def test_market_passes_unknown_combo_status_through_as_string() -> None:
+    market = Market.parse_response(_minimal_market_payload(comboStatus="not-a-status-yet"))
+
+    assert market.state.combo_status == "not-a-status-yet"
 
 
 def test_market_accepts_protocol_neutral_hex_condition_id_response() -> None:
@@ -290,7 +299,7 @@ def test_event_normalizes_groups_from_flat_payload() -> None:
         gameId=999,
         homeTeamName="Home",
         awayTeamName="Away",
-        teams=[],
+        teams=[{"id": 114315, "name": "Paris Saint-Germain FC", "ordering": "home"}],
         bestLines=[],
         markets=[],
         externalPartners=[
@@ -345,6 +354,7 @@ def test_event_normalizes_groups_from_flat_payload() -> None:
     assert event.estimation.estimated_value == Decimal("123.45")
     assert event.sports.series_slug == "sport-series"
     assert event.sports.game_id == 999
+    assert event.sports.teams[0].ordering is TeamOrdering.HOME
     assert len(event.partners) == 1
     assert event.partners[0].external_id == "EXT-7"
     assert event.partners[0].partner is not None

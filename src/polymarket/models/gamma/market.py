@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any, cast
+from typing import Any, Literal, TypeAlias, cast
 
 from pydantic import AliasChoices, Field, field_validator, model_validator
 
@@ -35,6 +35,11 @@ from polymarket.models.types import (
 )
 from polymarket.types import EvmAddress
 
+ComboKnownStatus: TypeAlias = Literal["pending", "enabled", "disabled"]
+# The Combo status set can grow between SDK releases, so unknown values flow
+# through as plain strings instead of failing validation.
+ComboStatus: TypeAlias = ComboKnownStatus | str
+
 
 class UmaResolutionStatus(StrEnum):
     """Resolution lifecycle state for a market."""
@@ -52,6 +57,10 @@ class MarketState(BaseModel):
     active: bool | None = None
     closed: bool | None = None
     archived: bool | None = None
+    combo_status: ComboStatus | None = Field(
+        default=None,
+        validation_alias="comboStatus",
+    )
     accepting_orders: bool | None = Field(
         default=None,
         validation_alias="acceptingOrders",
@@ -476,6 +485,7 @@ class Market(BaseModel):
                 "active": data.get("active"),
                 "closed": data.get("closed"),
                 "archived": data.get("archived"),
+                "combo_status": data.get("comboStatus"),
                 "accepting_orders": data.get("acceptingOrders"),
                 "enable_order_book": data.get("enableOrderBook"),
                 "neg_risk": data.get("negRisk"),
@@ -575,6 +585,8 @@ class Market(BaseModel):
 
 __all__ = [
     "ClobReward",
+    "ComboKnownStatus",
+    "ComboStatus",
     "FeeSchedule",
     "Market",
     "MarketEvent",

@@ -125,6 +125,8 @@ from polymarket.models.data import (
     YieldActivity,
 )
 from polymarket.models.gamma import (
+    ComboKnownStatus,
+    ComboStatus,
     Comment,
     Event,
     Market,
@@ -139,6 +141,7 @@ from polymarket.models.gamma import (
     Tag,
     TagReference,
     Team,
+    TeamOrdering,
 )
 from polymarket.models.perps import (
     PerpsAccountConfig,
@@ -333,6 +336,8 @@ __all__ = [
     "ComboPositionMarketEvent",
     "ComboPositionOutcome",
     "ComboPositionStatus",
+    "ComboKnownStatus",
+    "ComboStatus",
     "ComboRedeemActivity",
     "ComboSplitActivity",
     "ComboTradeActivity",
@@ -456,6 +461,7 @@ __all__ = [
     "TagReference",
     "TakerRebateActivity",
     "Team",
+    "TeamOrdering",
     "TokenId",
     "to_combo_condition_id",
     "to_condition_id",

@@ -19,6 +19,7 @@ from polymarket.models.gamma.common import (
     SportsMetadata,
     TagReference,
     Team,
+    TeamOrdering,
     TemplateReference,
 )
 from polymarket.models.gamma.event import (
@@ -38,6 +39,8 @@ from polymarket.models.gamma.event import (
 )
 from polymarket.models.gamma.market import (
     ClobReward,
+    ComboKnownStatus,
+    ComboStatus,
     FeeSchedule,
     Market,
     MarketEvent,
@@ -63,6 +66,8 @@ __all__ = [
     "CategoryReference",
     "Chat",
     "ClobReward",
+    "ComboKnownStatus",
+    "ComboStatus",
     "CollectionReference",
     "Comment",
     "CommentMedia",
@@ -110,6 +115,7 @@ __all__ = [
     "Tag",
     "TagReference",
     "Team",
+    "TeamOrdering",
     "TemplateReference",
     "UmaResolutionStatus",
 ]
