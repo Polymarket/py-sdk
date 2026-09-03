@@ -184,6 +184,20 @@ def test_limit_and_protected_market_orders_reuse_cached_metadata() -> None:
     assert "/book" not in paths
 
 
+def test_protected_market_buy_rounds_shares_down_on_the_sync_client() -> None:
+    with _make_client() as client:
+        _install_clob(client, _routed_handler([], _public_routes()))
+        signed = client.create_market_order(
+            token_id="8501497", side="BUY", amount="100", max_price="0.55"
+        )
+
+    # Same construction as the async path: maker stays the cent-rounded amount and
+    # 100 / 0.55 = 181.8181... shares round DOWN, so the encoded price is at or above
+    # max_price and the order can lift an ask resting at 0.55.
+    assert signed.maker_amount == 100_000_000
+    assert signed.taker_amount == 181_818_100
+
+
 def test_concurrent_metadata_reads_are_coalesced() -> None:
     public_captured: list[httpx.Request] = []
 

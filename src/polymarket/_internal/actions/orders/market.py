@@ -154,7 +154,6 @@ async def _prepare_protected_market_order_draft(
         tick_size=metadata.tick_size,
         neg_risk=metadata.neg_risk,
         resolved_amount=resolved_amount,
-        protect_price=True,
     )
 
 
@@ -189,7 +188,6 @@ def _prepare_protected_market_order_draft_sync(
         tick_size=metadata.tick_size,
         neg_risk=metadata.neg_risk,
         resolved_amount=resolved_amount,
-        protect_price=True,
     )
 
 
@@ -276,7 +274,6 @@ def _build_unprotected_market_order_draft(
         tick_size=price_context.tick_size,
         neg_risk=price_context.neg_risk,
         resolved_amount=resolved_amount,
-        protect_price=False,
     )
 
 
@@ -288,12 +285,10 @@ def _build_market_order_draft(
     tick_size: Decimal,
     neg_risk: bool,
     resolved_amount: Decimal,
-    protect_price: bool,
 ) -> OrderDraft:
     offered, requested = _compute_market_order_amounts(
         amount=resolved_amount,
         price=price,
-        protect_price=protect_price,
         side=params.side,
         tick_size=tick_size,
     )
@@ -341,7 +336,6 @@ def _compute_market_order_amounts(
     price: Decimal,
     side: OrderSide,
     tick_size: Decimal,
-    protect_price: bool = False,
 ) -> tuple[int, int]:
     config = resolve_rounding_config(tick_size)
     raw_price = round_down(price, config.price)
@@ -350,11 +344,14 @@ def _compute_market_order_amounts(
     if decimal_places(raw_taker) > config.amount:
         raw_taker = round_up(raw_taker, config.amount + 4)
         if decimal_places(raw_taker) > config.amount:
-            raw_taker = (
-                round_up(raw_taker, config.amount)
-                if protect_price
-                else round_down(raw_taker, config.amount)
-            )
+            # Always round the taker amount down. For a BUY the exchange derives the
+            # order price as maker / taker and only matches when it is at or above the
+            # ask, so rounding shares up (fewer dollars per share) would place the
+            # price a hair below ``price`` and an ask resting exactly there could
+            # never be lifted. Rounding down keeps the price at or fractionally above
+            # ``price`` but below the next tick, so it crosses at ``price`` and can
+            # never reach a higher tick. Fills execute at the resting ask's price.
+            raw_taker = round_down(raw_taker, config.amount)
     return parse_amount(raw_maker), parse_amount(raw_taker)
 
 
