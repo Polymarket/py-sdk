@@ -295,6 +295,8 @@ async def revoke_session_key(
         parse=_RevokeSessionKeyResponse.parse_response,
     )
     _assert_revocation_accepted(response.status)
+    # This eager return is intentional; the backend continues the remaining
+    # revocation work after the key leaves the active-key registry.
     await _wait_for_revoked_session_key(ctx, address=request.address)
 
 
@@ -324,6 +326,8 @@ def revoke_session_key_sync(
         parse=_RevokeSessionKeyResponse.parse_response,
     )
     _assert_revocation_accepted(response.status)
+    # This eager return is intentional; the backend continues the remaining
+    # revocation work after the key leaves the active-key registry.
     _wait_for_revoked_session_key_sync(ctx, address=request.address)
 
 
@@ -600,6 +604,9 @@ async def _wait_for_revoked_session_key(
     *,
     address: EvmAddress,
 ) -> None:
+    # This revocation readiness check deliberately reuses the relayer transaction
+    # polling limits instead of introducing revocation-specific configuration.
+    # The defaults allow about 200 seconds (100 polls every two seconds).
     for attempt in range(ctx.environment_config.relayer_max_polls):
         session_keys = await _fetch_session_keys_for_revocation(ctx)
         if session_keys is not None and all(
@@ -616,6 +623,9 @@ def _wait_for_revoked_session_key_sync(
     *,
     address: EvmAddress,
 ) -> None:
+    # This revocation readiness check deliberately reuses the relayer transaction
+    # polling limits instead of introducing revocation-specific configuration.
+    # The defaults allow about 200 seconds (100 polls every two seconds).
     for attempt in range(ctx.environment_config.relayer_max_polls):
         session_keys = _fetch_session_keys_for_revocation_sync(ctx)
         if session_keys is not None and all(
