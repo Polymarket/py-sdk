@@ -3,6 +3,7 @@
 import contextlib
 import logging
 from collections.abc import Sequence
+from datetime import datetime
 from decimal import Decimal
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, Literal, Self, assert_never, cast, overload
@@ -136,8 +137,6 @@ from polymarket.streams._specs import (
 )
 
 if TYPE_CHECKING:
-    from datetime import datetime
-
     from polymarket._internal.streams.clob.market import ClobMarketStreamManager
     from polymarket._internal.streams.perps.market import PerpsMarketStreamManager
     from polymarket._internal.streams.rtds.manager import RtdsStreamManager
@@ -1426,6 +1425,14 @@ class AsyncPublicClient:
         return await _perps_actions.fetch_instruments(
             self._ctx.perps, instrument_id=instrument_id, category=category
         )
+
+    async def get_server_time(self) -> datetime:
+        """Experimental: This API may change in a breaking way in any release,
+        including patch releases.
+
+        Get the current Perps server time as an aware UTC datetime.
+        """
+        return await _perps_actions.get_server_time(self._ctx.perps)
 
     async def fetch_perps_ticker(self, *, instrument_id: int) -> PerpsTicker:
         """Experimental: This API may change in a breaking way in any release,

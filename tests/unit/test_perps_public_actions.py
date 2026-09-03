@@ -4,16 +4,18 @@ import asyncio
 import base64
 import json
 from collections.abc import Callable
+from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, get_type_hints
 from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
 
 from polymarket._internal.actions.perps import public as perps_public
+from polymarket.clients import AsyncPublicClient, AsyncSecureClient
 from polymarket.clients._transport import AsyncTransport
-from polymarket.errors import UserInputError
+from polymarket.errors import UnexpectedResponseError, UserInputError
 
 _BASE_URL = "https://perps.test"
 
@@ -31,6 +33,36 @@ def _query(request: httpx.Request) -> dict[str, str]:
 
 def _cursor(state: dict[str, Any]) -> str:
     return base64.b64encode(json.dumps(state, separators=(",", ":")).encode()).decode()
+
+
+@pytest.mark.parametrize("time", [1_786_697_208_022, True, "1786697208022", None])
+def test_get_server_time_parses_only_epoch_milliseconds(time: object) -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"time": time})
+
+    async def run() -> None:
+        transport = _transport(handler)
+        try:
+            if isinstance(time, int) and not isinstance(time, bool):
+                server_time = await perps_public.get_server_time(transport)
+                assert server_time.tzinfo is not None
+                assert int(server_time.timestamp() * 1000) == time
+            else:
+                with pytest.raises(UnexpectedResponseError):
+                    await perps_public.get_server_time(transport)
+        finally:
+            await transport.close()
+
+    asyncio.run(run())
+    assert [request.url.path for request in requests] == ["/v1/info/time"]
+
+
+def test_get_server_time_public_return_types_are_runtime_resolvable() -> None:
+    assert get_type_hints(AsyncPublicClient.get_server_time)["return"] is datetime
+    assert get_type_hints(AsyncSecureClient.get_server_time)["return"] is datetime
 
 
 def test_list_candles_steps_forward_by_interval() -> None:
