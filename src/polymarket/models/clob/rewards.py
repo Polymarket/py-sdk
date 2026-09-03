@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TypeAlias
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, computed_field, field_validator
 
 from polymarket.models.base import BaseModel
 from polymarket.models.clob._validators import (
@@ -128,12 +128,16 @@ class MarketRewardConfig(BaseModel):
 
 
 class MarketRewardToken(BaseModel):
-    asset_id: ClobAssetId = Field(validation_alias="token_id")
-    token_id: ClobAssetId = Field(
-        validation_alias="token_id", description="Deprecated: use asset_id."
-    )
+    asset_id: ClobAssetId = Field(validation_alias=AliasChoices("asset_id", "token_id"))
     outcome: str
     price: Decimal
+
+    @computed_field
+    @property
+    def token_id(self) -> ClobAssetId:
+        """Deprecated alias for :attr:`asset_id`."""
+
+        return self.asset_id
 
     @field_validator("price", mode="before")
     @classmethod

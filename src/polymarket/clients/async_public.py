@@ -626,6 +626,7 @@ class AsyncPublicClient:
         *,
         builder_code: str,
         market: str | None = None,
+        asset_id: str | None = None,
         token_id: str | None = None,
         id: str | None = None,
         after: str | None = None,
@@ -641,6 +642,7 @@ class AsyncPublicClient:
             path, params = _builders_actions.build_list_builder_trades_request(
                 builder_code=builder_code,
                 market=market,
+                asset_id=asset_id,
                 token_id=token_id,
                 id=id,
                 after=after,

@@ -4,7 +4,7 @@ from datetime import datetime
 from decimal import Decimal, DecimalException
 from typing import Any, cast
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import AliasChoices, Field, computed_field, field_validator, model_validator
 
 from polymarket.models._validators import parse_decimal_string
 from polymarket.models.base import BaseModel
@@ -52,10 +52,7 @@ class BuilderTrade(BaseModel):
         validation_alias="market",
         description="Condition ID for the market associated with this trade.",
     )
-    asset_id: ClobAssetId = Field(validation_alias="assetId")
-    token_id: ClobAssetId = Field(
-        validation_alias="assetId", description="Deprecated: use asset_id."
-    )
+    asset_id: ClobAssetId = Field(validation_alias=AliasChoices("asset_id", "assetId", "token_id"))
     side: OrderSide
     size: Decimal
     size_usdc: Decimal = Field(validation_alias="sizeUsdc")
@@ -73,6 +70,13 @@ class BuilderTrade(BaseModel):
     error_msg: str | None = Field(default=None, validation_alias="err_msg")
     created_at: datetime | None = Field(default=None, validation_alias="createdAt")
     updated_at: datetime | None = Field(default=None, validation_alias="updatedAt")
+
+    @computed_field
+    @property
+    def token_id(self) -> ClobAssetId:
+        """Deprecated alias for :attr:`asset_id`."""
+
+        return self.asset_id
 
     @field_validator("size", "size_usdc", "price", "fee", "fee_usdc", mode="before")
     @classmethod

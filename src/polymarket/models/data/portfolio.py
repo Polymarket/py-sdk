@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, computed_field, field_validator
 
 from polymarket.models.base import BaseModel
 from polymarket.models.gamma.common import (
@@ -54,9 +54,9 @@ class Position(BaseModel):
 
     condition_id: ConditionId = Field(validation_alias="conditionId")
     wallet: EvmAddress | None = Field(default=None, validation_alias="proxyWallet")
-    asset_id: ClobAssetId | None = Field(default=None, validation_alias="asset")
-    token_id: ClobAssetId | None = Field(
-        default=None, validation_alias="asset", description="Deprecated: use asset_id."
+    asset_id: ClobAssetId | None = Field(
+        default=None,
+        validation_alias=AliasChoices("asset_id", "asset", "token_id"),
     )
     size: Decimal | None = None
     avg_price: Decimal | None = Field(default=None, validation_alias="avgPrice")
@@ -78,14 +78,26 @@ class Position(BaseModel):
     outcome: str | None = None
     outcome_index: int | None = Field(default=None, validation_alias="outcomeIndex")
     opposite_outcome: str | None = Field(default=None, validation_alias="oppositeOutcome")
-    opposite_asset_id: ClobAssetId | None = Field(default=None, validation_alias="oppositeAsset")
-    opposite_token_id: ClobAssetId | None = Field(
+    opposite_asset_id: ClobAssetId | None = Field(
         default=None,
-        validation_alias="oppositeAsset",
-        description="Deprecated: use opposite_asset_id.",
+        validation_alias=AliasChoices("opposite_asset_id", "oppositeAsset", "opposite_token_id"),
     )
     end_date: date | None = Field(default=None, validation_alias="endDate")
     negative_risk: bool | None = Field(default=None, validation_alias="negativeRisk")
+
+    @computed_field
+    @property
+    def token_id(self) -> ClobAssetId | None:
+        """Deprecated alias for :attr:`asset_id`."""
+
+        return self.asset_id
+
+    @computed_field
+    @property
+    def opposite_token_id(self) -> ClobAssetId | None:
+        """Deprecated alias for :attr:`opposite_asset_id`."""
+
+        return self.opposite_asset_id
 
     @field_validator("condition_id", mode="before")
     @classmethod
@@ -144,9 +156,9 @@ class ClosedPosition(BaseModel):
     """Closed market position for a wallet."""
 
     wallet: EvmAddress | None = Field(default=None, validation_alias="proxyWallet")
-    asset_id: ClobAssetId | None = Field(default=None, validation_alias="asset")
-    token_id: ClobAssetId | None = Field(
-        default=None, validation_alias="asset", description="Deprecated: use asset_id."
+    asset_id: ClobAssetId | None = Field(
+        default=None,
+        validation_alias=AliasChoices("asset_id", "asset", "token_id"),
     )
     condition_id: ConditionId | None = Field(default=None, validation_alias="conditionId")
     avg_price: Decimal | None = Field(default=None, validation_alias="avgPrice")
@@ -161,13 +173,25 @@ class ClosedPosition(BaseModel):
     outcome: str | None = None
     outcome_index: int | None = Field(default=None, validation_alias="outcomeIndex")
     opposite_outcome: str | None = Field(default=None, validation_alias="oppositeOutcome")
-    opposite_asset_id: ClobAssetId | None = Field(default=None, validation_alias="oppositeAsset")
-    opposite_token_id: ClobAssetId | None = Field(
+    opposite_asset_id: ClobAssetId | None = Field(
         default=None,
-        validation_alias="oppositeAsset",
-        description="Deprecated: use opposite_asset_id.",
+        validation_alias=AliasChoices("opposite_asset_id", "oppositeAsset", "opposite_token_id"),
     )
     end_date: date | None = Field(default=None, validation_alias="endDate")
+
+    @computed_field
+    @property
+    def token_id(self) -> ClobAssetId | None:
+        """Deprecated alias for :attr:`asset_id`."""
+
+        return self.asset_id
+
+    @computed_field
+    @property
+    def opposite_token_id(self) -> ClobAssetId | None:
+        """Deprecated alias for :attr:`opposite_asset_id`."""
+
+        return self.opposite_asset_id
 
     @field_validator("condition_id", mode="before")
     @classmethod

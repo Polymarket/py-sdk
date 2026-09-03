@@ -7,7 +7,7 @@ from decimal import Decimal
 from enum import IntEnum
 from typing import Annotated, Literal
 
-from pydantic import AliasChoices, Field, field_validator
+from pydantic import AliasChoices, Field, computed_field, field_validator
 
 from polymarket.models._validators import parse_decimal_string
 from polymarket.models.base import BaseModel
@@ -65,10 +65,7 @@ class OrderNotificationPayload(BaseModel):
     older notifications may omit them entirely, along with ``order_type``.
     """
 
-    asset_id: ClobAssetId = Field(validation_alias="asset_id")
-    token_id: ClobAssetId = Field(
-        validation_alias="asset_id", description="Deprecated: use asset_id."
-    )
+    asset_id: ClobAssetId = Field(validation_alias=AliasChoices("asset_id", "token_id"))
     condition_id: ConditionId = Field(validation_alias="market")
     order_id: OrderId
     side: OrderSide
@@ -88,6 +85,13 @@ class OrderNotificationPayload(BaseModel):
     event_slug: str | None = Field(default=None, validation_alias="eventSlug")
     series_slug: str | None = Field(default=None, validation_alias="seriesSlug")
 
+    @computed_field
+    @property
+    def token_id(self) -> ClobAssetId:
+        """Deprecated alias for :attr:`asset_id`."""
+
+        return self.asset_id
+
     @field_validator("price", "original_size", "matched_size", "remaining_size", mode="before")
     @classmethod
     def _parse_decimal_fields(cls, value: object) -> object:
@@ -106,13 +110,16 @@ class MarketNotificationToken(BaseModel):
     """
 
     asset_id: ClobAssetId = Field(validation_alias=AliasChoices("asset_id", "token_id"))
-    token_id: ClobAssetId = Field(
-        validation_alias=AliasChoices("asset_id", "token_id"),
-        description="Deprecated: use asset_id.",
-    )
     outcome: str
     price: Decimal | None = None
     winner: bool
+
+    @computed_field
+    @property
+    def token_id(self) -> ClobAssetId:
+        """Deprecated alias for :attr:`asset_id`."""
+
+        return self.asset_id
 
     @field_validator("price", mode="before")
     @classmethod

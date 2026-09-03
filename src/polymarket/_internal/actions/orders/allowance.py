@@ -65,10 +65,12 @@ def _balance_allowance_request_for_side(
     wallet_type: WalletType, *, side: OrderSide, asset_id: ClobAssetId
 ) -> tuple[str, dict[str, QueryParamValue]]:
     signature_type = signature_type_for(wallet_type)
-    asset_type, token_id = resolve_order_balance_allowance_target(side=side, asset_id=asset_id)
+    asset_type, resolved_asset_id = resolve_order_balance_allowance_target(
+        side=side, asset_id=asset_id
+    )
     return _account_actions.build_balance_allowance_request(
         asset_type=asset_type,
-        token_id=token_id,
+        asset_id=resolved_asset_id,
         signature_type=signature_type,
     )
 

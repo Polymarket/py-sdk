@@ -5,7 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Literal
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, computed_field, field_validator
 
 from polymarket._frames_bridge import frames_func as _frames_func
 from polymarket.models._validators import parse_decimal_string
@@ -36,11 +36,7 @@ class OrderBook(BaseModel):
         validation_alias="market",
         description="Condition ID for the market represented by this order book.",
     )
-    asset_id: ClobAssetId = Field(validation_alias="asset_id")
-    token_id: ClobAssetId = Field(
-        validation_alias="asset_id",
-        description="Deprecated: use asset_id. Retained for backward compatibility.",
-    )
+    asset_id: ClobAssetId = Field(validation_alias=AliasChoices("asset_id", "token_id"))
     timestamp: datetime | None = None
     bids: tuple[OrderBookLevel, ...]
     """Ascending price order, lowest bid first."""
@@ -51,6 +47,13 @@ class OrderBook(BaseModel):
     neg_risk: bool
     last_trade_price: Decimal | None = None
     hash: str
+
+    @computed_field
+    @property
+    def token_id(self) -> ClobAssetId:
+        """Deprecated alias for :attr:`asset_id`."""
+
+        return self.asset_id
 
     @field_validator("timestamp", mode="before")
     @classmethod

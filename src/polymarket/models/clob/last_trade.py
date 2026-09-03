@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from pydantic import AliasChoices, Field, field_validator
+from pydantic import AliasChoices, Field, computed_field, field_validator
 
 from polymarket.models._validators import parse_decimal_string
 from polymarket.models.base import BaseModel
@@ -21,12 +21,15 @@ class LastTradePrice(BaseModel):
 
 class LastTradePriceForToken(BaseModel):
     asset_id: ClobAssetId = Field(validation_alias=AliasChoices("asset_id", "token_id"))
-    token_id: ClobAssetId = Field(
-        validation_alias=AliasChoices("asset_id", "token_id"),
-        description="Deprecated: use asset_id. Retained for backward compatibility.",
-    )
     price: Decimal
     side: OrderSide
+
+    @computed_field
+    @property
+    def token_id(self) -> ClobAssetId:
+        """Deprecated alias for :attr:`asset_id`."""
+
+        return self.asset_id
 
     @field_validator("price", mode="before")
     @classmethod

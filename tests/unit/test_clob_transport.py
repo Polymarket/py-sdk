@@ -3,7 +3,7 @@ import asyncio
 import dataclasses
 import json
 from decimal import Decimal
-from typing import cast
+from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -169,6 +169,25 @@ _ORDER_BOOK_PAYLOAD = {
     "last_trade_price": "0.52",
     "hash": "abc123",
 }
+
+
+def test_order_book_accepts_token_id_without_asset_id() -> None:
+    payload = {**_ORDER_BOOK_PAYLOAD, "token_id": "legacy-token"}
+    del payload["asset_id"]
+
+    book = cast(Any, OrderBook)(**payload)
+
+    assert book.asset_id == "legacy-token"
+    assert book.token_id == "legacy-token"
+
+
+def test_order_book_keeps_asset_id_and_token_id_synchronized_when_copied() -> None:
+    book = OrderBook.model_validate(_ORDER_BOOK_PAYLOAD)
+
+    updated_by_asset = book.model_copy(update={"asset_id": "new-asset"})
+
+    assert updated_by_asset.asset_id == "new-asset"
+    assert updated_by_asset.token_id == "new-asset"
 
 
 def test_async_get_order_book_returns_parsed_model() -> None:

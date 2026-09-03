@@ -4,7 +4,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Literal, cast
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, computed_field, field_validator
 
 from polymarket.errors import UnexpectedResponseError
 from polymarket.models.base import BaseModel
@@ -29,9 +29,9 @@ from polymarket.types import EvmAddress, TransactionHash
 
 class Trade(BaseModel):
     wallet: EvmAddress | None = Field(default=None, validation_alias="proxyWallet")
-    asset_id: ClobAssetId | None = Field(default=None, validation_alias="asset")
-    token_id: ClobAssetId | None = Field(
-        default=None, validation_alias="asset", description="Deprecated: use asset_id."
+    asset_id: ClobAssetId | None = Field(
+        default=None,
+        validation_alias=AliasChoices("asset_id", "asset", "token_id"),
     )
     condition_id: ConditionId | None = Field(default=None, validation_alias="conditionId")
     side: Literal["BUY", "SELL"] | None = None
@@ -54,6 +54,13 @@ class Trade(BaseModel):
     transaction_hash: TransactionHash | None = Field(
         default=None, validation_alias="transactionHash"
     )
+
+    @computed_field
+    @property
+    def token_id(self) -> ClobAssetId | None:
+        """Deprecated alias for :attr:`asset_id`."""
+
+        return self.asset_id
 
     @field_validator("condition_id", mode="before")
     @classmethod
@@ -133,8 +140,7 @@ class TradeActivity(_KnownActivityBase):
     type: Literal["TRADE"]
     is_combo: Literal[False] = Field(default=False, validation_alias="isCombo")
     condition_id: ConditionId = Field(validation_alias="conditionId")
-    asset_id: ClobAssetId = Field(validation_alias="asset")
-    token_id: ClobAssetId = Field(validation_alias="asset", description="Deprecated: use asset_id.")
+    asset_id: ClobAssetId = Field(validation_alias=AliasChoices("asset_id", "asset", "token_id"))
     side: Literal["BUY", "SELL"]
     shares: Decimal = Field(validation_alias="size")
     amount: Decimal
@@ -145,6 +151,13 @@ class TradeActivity(_KnownActivityBase):
     slug: str
     icon: str | None = None
     event_slug: str = Field(validation_alias="eventSlug")
+
+    @computed_field
+    @property
+    def token_id(self) -> ClobAssetId:
+        """Deprecated alias for :attr:`asset_id`."""
+
+        return self.asset_id
 
     @field_validator("condition_id", mode="before")
     @classmethod

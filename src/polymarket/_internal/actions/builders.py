@@ -6,6 +6,7 @@ from polymarket._internal.actions._cursor import (
     next_cursor_or_none,
     validate_cursor,
 )
+from polymarket._internal.actions.exchange_asset import resolve_optional_asset_id
 from polymarket._internal.request import QueryParamValue
 from polymarket._internal.validation import require_nonempty, validate_builder_code
 from polymarket.errors import UnexpectedResponseError
@@ -19,6 +20,7 @@ def build_list_builder_trades_request(
     *,
     builder_code: str,
     market: str | None = None,
+    asset_id: str | None = None,
     token_id: str | None = None,
     id: str | None = None,
     after: str | None = None,
@@ -30,8 +32,9 @@ def build_list_builder_trades_request(
     }
     if market is not None:
         params["market"] = require_nonempty("market", market)
-    if token_id is not None:
-        params["asset_id"] = require_nonempty("token_id", token_id)
+    resolved_asset = resolve_optional_asset_id(asset_id=asset_id, token_id=token_id)
+    if resolved_asset is not None:
+        params["asset_id"] = resolved_asset
     if id is not None:
         params["id"] = require_nonempty("id", id)
     if after is not None:

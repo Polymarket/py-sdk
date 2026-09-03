@@ -146,18 +146,18 @@ def _approve_order_if_under_allowance_sync(client: SecureClient, signed_order: S
 
 async def _refresh_balance_allowance(client: AsyncSecureClient, signed_order: SignedOrder) -> None:
     ctx = client._ctx  # pyright: ignore[reportPrivateUsage]
-    asset_type, token_id = _refresh_target(signed_order)
+    asset_type, asset_id = _refresh_target(signed_order)
     signature_type = signature_type_for(ctx.wallet_type)
     update_path, update_params = _account_actions.build_update_balance_allowance_request(
         asset_type=asset_type,
-        token_id=token_id,
+        asset_id=asset_id,
         signature_type=signature_type,
     )
     # /balance-allowance/update is a side-effect endpoint; body is not consumed.
     await ctx.secure_clob.get_bytes(update_path, params=update_params)
     fetch_path, fetch_params = _account_actions.build_balance_allowance_request(
         asset_type=asset_type,
-        token_id=token_id,
+        asset_id=asset_id,
         signature_type=signature_type,
     )
     _account_actions.parse_balance_allowance(
@@ -167,17 +167,17 @@ async def _refresh_balance_allowance(client: AsyncSecureClient, signed_order: Si
 
 def _refresh_balance_allowance_sync(client: SecureClient, signed_order: SignedOrder) -> None:
     ctx = client._ctx  # pyright: ignore[reportPrivateUsage]
-    asset_type, token_id = _refresh_target(signed_order)
+    asset_type, asset_id = _refresh_target(signed_order)
     signature_type = signature_type_for(ctx.wallet_type)
     update_path, update_params = _account_actions.build_update_balance_allowance_request(
         asset_type=asset_type,
-        token_id=token_id,
+        asset_id=asset_id,
         signature_type=signature_type,
     )
     ctx.secure_clob.get_bytes(update_path, params=update_params)
     fetch_path, fetch_params = _account_actions.build_balance_allowance_request(
         asset_type=asset_type,
-        token_id=token_id,
+        asset_id=asset_id,
         signature_type=signature_type,
     )
     _account_actions.parse_balance_allowance(

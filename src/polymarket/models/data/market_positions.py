@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, computed_field, field_validator
 
 from polymarket.models.base import BaseModel
 from polymarket.models.gamma.common import parse_optional_decimal
@@ -15,9 +15,9 @@ class MarketPosition(BaseModel):
     name: str | None = None
     profile_image: str | None = Field(default=None, validation_alias="profileImage")
     verified: bool | None = None
-    asset_id: ClobAssetId | None = Field(default=None, validation_alias="asset")
-    token_id: ClobAssetId | None = Field(
-        default=None, validation_alias="asset", description="Deprecated: use asset_id."
+    asset_id: ClobAssetId | None = Field(
+        default=None,
+        validation_alias=AliasChoices("asset_id", "asset", "token_id"),
     )
     condition_id: ConditionId | None = Field(default=None, validation_alias="conditionId")
     avg_price: Decimal | None = Field(default=None, validation_alias="avgPrice")
@@ -30,6 +30,13 @@ class MarketPosition(BaseModel):
     total_pnl: Decimal | None = Field(default=None, validation_alias="totalPnl")
     outcome: str | None = None
     outcome_index: int | None = Field(default=None, validation_alias="outcomeIndex")
+
+    @computed_field
+    @property
+    def token_id(self) -> ClobAssetId | None:
+        """Deprecated alias for :attr:`asset_id`."""
+
+        return self.asset_id
 
     @field_validator("condition_id", mode="before")
     @classmethod
@@ -53,11 +60,17 @@ class MarketPosition(BaseModel):
 
 
 class MetaMarketPosition(BaseModel):
-    asset_id: ClobAssetId | None = Field(default=None, validation_alias="token")
-    token: ClobAssetId | None = Field(
-        default=None, validation_alias="token", description="Deprecated: use asset_id."
+    asset_id: ClobAssetId | None = Field(
+        default=None, validation_alias=AliasChoices("asset_id", "token")
     )
     positions: tuple[MarketPosition, ...] | None = None
+
+    @computed_field
+    @property
+    def token(self) -> ClobAssetId | None:
+        """Deprecated alias for :attr:`asset_id`."""
+
+        return self.asset_id
 
 
 __all__ = ["MarketPosition", "MetaMarketPosition"]
