@@ -155,6 +155,26 @@ def _coerce_timestamp_filter(value: TimestampFilter | None) -> str | None:
     return value.isoformat()
 
 
+# The service keeps market ``volume`` and ``liquidity`` as text columns (a leftover
+# of the original ingestion writing ``toFixed(2)`` strings) next to numeric twins
+# holding the same value, and orders by the raw column, so ``order="volume"`` sorts
+# lexicographically. Callers mean the number: each token is sent as its numeric
+# twin. The service already does this itself for ``liquidity``, so that entry is
+# idempotent with upstream and only ``volume`` is load-bearing today. Every other
+# token is forwarded untouched; unknown names are still rejected by the service.
+_MARKET_ORDER_ALIASES: dict[str, str] = {
+    "volume": "volumeNum",
+    "liquidity": "liquidityNum",
+}
+
+
+def _normalize_market_order(order: str | None) -> str | None:
+    if order is None:
+        return None
+    tokens = [token.strip() for token in order.split(",")]
+    return ",".join(_MARKET_ORDER_ALIASES.get(token, token) for token in tokens)
+
+
 def _add_optional_seq(
     params: dict[str, QueryParamValue],
     key: str,
@@ -550,7 +570,7 @@ def list_markets_spec(
     _add_optional(params, "liquidity_num_min", liquidity_num_min)
     _add_optional(params, "locale", locale)
     _add_optional_seq(params, "market_maker_address", market_maker_addresses)
-    _add_optional(params, "order", order)
+    _add_optional(params, "order", _normalize_market_order(order))
     _add_optional_seq(params, "position_ids", position_ids)
     _add_optional_seq(params, "question_ids", question_ids)
     _add_optional(params, "related_tags", related_tags)
