@@ -18,6 +18,7 @@ from polymarket.models.perps.events import PerpsOrderEvent, PerpsSessionEvent
 from polymarket.models.perps.orders import PerpsOrder, PerpsPostOrderAck
 from polymarket.models.perps.requests import (
     DecimalInput,
+    PerpsLeverageUpdate,
     PerpsOrderRequest,
     PerpsPositionTpSlTrigger,
     PerpsTpSlTrigger,
@@ -324,6 +325,26 @@ def update_leverage_op(*, instrument_id: int, leverage: int, cross_margin: bool)
     return ["updateLeverage", [instrument_id, leverage, cross_margin]]
 
 
+def update_leverages_op(updates: Sequence[PerpsLeverageUpdate]) -> list[Any]:
+    items = list(updates)
+    if not 1 <= len(items) <= 100:
+        raise UserInputError("updates must contain between 1 and 100 items")
+
+    rows: list[list[int | bool]] = []
+    instrument_ids: set[int] = set()
+    for update in items:
+        if not isinstance(update, PerpsLeverageUpdate):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise UserInputError("updates must contain PerpsLeverageUpdate values")
+        if update.instrument_id in instrument_ids:
+            raise UserInputError(
+                f"updates must contain unique instrument IDs; duplicate {update.instrument_id}"
+            )
+        instrument_ids.add(update.instrument_id)
+        rows.append([update.instrument_id, update.leverage, update.cross_margin])
+
+    return ["updateLeverages", rows]
+
+
 def update_margin_op(*, instrument_id: int, amount: DecimalInput) -> list[Any]:
     if isinstance(instrument_id, bool) or not isinstance(instrument_id, int):  # pyright: ignore[reportUnnecessaryIsInstance]
         raise UserInputError("instrument_id must be an int")
@@ -360,6 +381,14 @@ def to_command_body_op(op: Sequence[Any]) -> dict[str, Any]:
         return {
             "type": op_type,
             "args": {"cross": cross_margin, "iid": instrument_id, "lev": leverage},
+        }
+    if op_type == "updateLeverages":
+        return {
+            "type": op_type,
+            "args": [
+                {"cross": cross_margin, "iid": instrument_id, "lev": leverage}
+                for instrument_id, leverage, cross_margin in op[1]
+            ],
         }
     if op_type == "updateMargin":
         instrument_id, amount = op[1]
