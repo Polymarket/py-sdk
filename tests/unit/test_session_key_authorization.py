@@ -549,6 +549,41 @@ def test_revoke_session_key_returns_after_registry_removal() -> None:
     assert sum(urlparse(str(request.url)).path == _SESSION_KEYS_PATH for request in captured) == 1
 
 
+@pytest.mark.parametrize("status", (404, 503))
+def test_revoke_session_key_retries_transient_registry_read_failure(status: int) -> None:
+    captured: list[httpx.Request] = []
+
+    with make_sync_deposit_client() as client:
+        stable_handler = _management_handler(captured, wallet=str(client.wallet))
+        registry_unavailable = True
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal registry_unavailable
+            if urlparse(str(request.url)).path == _SESSION_KEYS_PATH and registry_unavailable:
+                registry_unavailable = False
+                captured.append(request)
+                return httpx.Response(
+                    status,
+                    json={"error": "registry unavailable"},
+                    request=request,
+                )
+            return stable_handler(request)
+
+        config = dataclasses.replace(
+            client._ctx.environment_config,
+            relayer_max_polls=3,
+            relayer_poll_frequency_ms=0,
+        )
+        client._ctx = dataclasses.replace(client._ctx, _resolved_environment_config=config)
+        install_sync_relayer_handler(client, handler)
+        _install_sync_secure_clob_handler(client, handler)
+
+        result = client.revoke_session_key(address=_SESSION_ADDRESS)
+
+    assert result is None
+    assert sum(urlparse(str(request.url)).path == _SESSION_KEYS_PATH for request in captured) == 2
+
+
 def test_authorize_session_key_retries_transient_registry_read_failure() -> None:
     captured: list[httpx.Request] = []
 

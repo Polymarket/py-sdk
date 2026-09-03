@@ -573,6 +573,7 @@ class SecureClient:
             RateLimitError: If a revocation or registry request remains rate-limited.
             SigningError: If the owner signature cannot be produced.
             TransportError: If a network request fails.
+            TransactionFailedError: If the revocation transaction fails.
             UnexpectedResponseError: If a revocation or registry response is malformed.
             TimeoutError: If registry removal exceeds the wait budget.
         """

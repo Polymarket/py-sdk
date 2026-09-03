@@ -642,12 +642,8 @@ async def _fetch_session_keys_for_revocation(
 ) -> tuple[AuthorizedSessionKey, ...] | None:
     try:
         return await fetch_session_keys(ctx)
-    except (RateLimitError, TransportError):
-        return None
-    except RequestRejectedError as error:
-        if error.status == 404:
-            return ()
-        if 500 <= error.status < 600:
+    except (RateLimitError, RequestRejectedError, TransportError) as error:
+        if _is_retryable_session_key_registry_read(error):
             return None
         raise
 
@@ -657,12 +653,8 @@ def _fetch_session_keys_for_revocation_sync(
 ) -> tuple[AuthorizedSessionKey, ...] | None:
     try:
         return fetch_session_keys_sync(ctx)
-    except (RateLimitError, TransportError):
-        return None
-    except RequestRejectedError as error:
-        if error.status == 404:
-            return ()
-        if 500 <= error.status < 600:
+    except (RateLimitError, RequestRejectedError, TransportError) as error:
+        if _is_retryable_session_key_registry_read(error):
             return None
         raise
 
@@ -672,12 +664,10 @@ async def _fetch_session_keys_for_readiness(
 ) -> tuple[AuthorizedSessionKey, ...]:
     try:
         return await fetch_session_keys(ctx)
-    except (RateLimitError, TransportError):
-        return ()
-    except RequestRejectedError as error:
-        if error.status != 404 and not 500 <= error.status < 600:
-            raise
-        return ()
+    except (RateLimitError, RequestRejectedError, TransportError) as error:
+        if _is_retryable_session_key_registry_read(error):
+            return ()
+        raise
 
 
 def _fetch_session_keys_for_readiness_sync(
@@ -685,12 +675,17 @@ def _fetch_session_keys_for_readiness_sync(
 ) -> tuple[AuthorizedSessionKey, ...]:
     try:
         return fetch_session_keys_sync(ctx)
-    except (RateLimitError, TransportError):
-        return ()
-    except RequestRejectedError as error:
-        if error.status != 404 and not 500 <= error.status < 600:
-            raise
-        return ()
+    except (RateLimitError, RequestRejectedError, TransportError) as error:
+        if _is_retryable_session_key_registry_read(error):
+            return ()
+        raise
+
+
+def _is_retryable_session_key_registry_read(error: BaseException) -> bool:
+    return isinstance(error, (RateLimitError, TransportError)) or (
+        isinstance(error, RequestRejectedError)
+        and (error.status == 404 or 500 <= error.status < 600)
+    )
 
 
 def _is_expected_session_key(
