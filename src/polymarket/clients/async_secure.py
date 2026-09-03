@@ -1435,7 +1435,7 @@ class AsyncSecureClient:
         self,
         *,
         user: str | None = None,
-        status: ComboPositionStatus | None = None,
+        status: ComboPositionStatus | Sequence[ComboPositionStatus] | None = None,
         sort: ComboPositionSort | None = None,
         condition_id: str | Sequence[str] | None = None,
         updated_after: int | None = None,
@@ -1443,6 +1443,10 @@ class AsyncSecureClient:
         page_size: int = 20,
     ) -> AsyncPaginator[ComboPosition]:
         """List combo positions for a user or the authenticated wallet.
+
+        Args:
+            status: One status or a non-empty sequence of statuses. Multiple
+                statuses are matched as alternatives in the given order.
 
         Returns:
             An async paginator over matching combo positions.
