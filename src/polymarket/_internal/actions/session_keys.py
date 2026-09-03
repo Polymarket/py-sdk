@@ -282,7 +282,7 @@ async def revoke_session_key(
     *,
     address: str,
     idempotency_key: str | None,
-) -> TransactionOutcome:
+) -> None:
     _assert_owner_deposit_wallet(ctx)
     _require_gasless_api_key(ctx)
     request = _parse_revoke_session_key_request(
@@ -303,13 +303,9 @@ async def revoke_session_key(
         parse=_RevokeSessionKeyResponse.parse_response,
     )
     _assert_revocation_accepted(response.status)
-    return await GaslessTransactionHandle(
-        transaction_id=response.transaction_id,
-        transaction_hash=None,
-        _relayer=ctx.relayer,
-        _max_polls=ctx.environment_config.relayer_max_polls,
-        _poll_delay_s=ctx.environment_config.relayer_poll_frequency_ms / 1000,
-    ).wait()
+    # This eager return is intentional; the backend continues the remaining
+    # revocation work after the key leaves the active-key registry.
+    await _wait_for_revoked_session_key(ctx, address=request.address)
 
 
 def revoke_session_key_sync(
@@ -317,7 +313,7 @@ def revoke_session_key_sync(
     *,
     address: str,
     idempotency_key: str | None,
-) -> TransactionOutcome:
+) -> None:
     _assert_owner_deposit_wallet(ctx)
     _require_gasless_api_key(ctx)
     request = _parse_revoke_session_key_request(
@@ -338,13 +334,9 @@ def revoke_session_key_sync(
         parse=_RevokeSessionKeyResponse.parse_response,
     )
     _assert_revocation_accepted(response.status)
-    return SyncGaslessTransactionHandle(
-        transaction_id=response.transaction_id,
-        transaction_hash=None,
-        _relayer=ctx.relayer,
-        _max_polls=ctx.environment_config.relayer_max_polls,
-        _poll_delay_s=ctx.environment_config.relayer_poll_frequency_ms / 1000,
-    ).wait()
+    # This eager return is intentional; the backend continues the remaining
+    # revocation work after the key leaves the active-key registry.
+    _wait_for_revoked_session_key_sync(ctx, address=request.address)
 
 
 def _parse_authorize_session_key_request(
@@ -625,17 +617,75 @@ def _wait_for_authorized_session_key_sync(
     raise TimeoutError(f"Timed out waiting for session key {expected.address} to become active")
 
 
+async def _wait_for_revoked_session_key(
+    ctx: AsyncSecureClientContext,
+    *,
+    address: EvmAddress,
+) -> None:
+    # This revocation readiness check deliberately reuses the relayer transaction
+    # polling limits instead of introducing revocation-specific configuration.
+    # The defaults allow about 200 seconds (100 polls every two seconds).
+    for attempt in range(ctx.environment_config.relayer_max_polls):
+        session_keys = await _fetch_session_keys_for_revocation(ctx)
+        if session_keys is not None and all(
+            session_key.address.lower() != address.lower() for session_key in session_keys
+        ):
+            return
+        if attempt + 1 < ctx.environment_config.relayer_max_polls:
+            await asyncio.sleep(ctx.environment_config.relayer_poll_frequency_ms / 1000)
+    raise TimeoutError(f"Timed out waiting for session key {address} to be revoked")
+
+
+def _wait_for_revoked_session_key_sync(
+    ctx: SyncSecureClientContext,
+    *,
+    address: EvmAddress,
+) -> None:
+    # This revocation readiness check deliberately reuses the relayer transaction
+    # polling limits instead of introducing revocation-specific configuration.
+    # The defaults allow about 200 seconds (100 polls every two seconds).
+    for attempt in range(ctx.environment_config.relayer_max_polls):
+        session_keys = _fetch_session_keys_for_revocation_sync(ctx)
+        if session_keys is not None and all(
+            session_key.address.lower() != address.lower() for session_key in session_keys
+        ):
+            return
+        if attempt + 1 < ctx.environment_config.relayer_max_polls:
+            time.sleep(ctx.environment_config.relayer_poll_frequency_ms / 1000)
+    raise TimeoutError(f"Timed out waiting for session key {address} to be revoked")
+
+
+async def _fetch_session_keys_for_revocation(
+    ctx: AsyncSecureClientContext,
+) -> tuple[AuthorizedSessionKey, ...] | None:
+    try:
+        return await fetch_session_keys(ctx)
+    except (RateLimitError, RequestRejectedError, TransportError) as error:
+        if _is_retryable_session_key_registry_read(error):
+            return None
+        raise
+
+
+def _fetch_session_keys_for_revocation_sync(
+    ctx: SyncSecureClientContext,
+) -> tuple[AuthorizedSessionKey, ...] | None:
+    try:
+        return fetch_session_keys_sync(ctx)
+    except (RateLimitError, RequestRejectedError, TransportError) as error:
+        if _is_retryable_session_key_registry_read(error):
+            return None
+        raise
+
+
 async def _fetch_session_keys_for_readiness(
     ctx: AsyncSecureClientContext,
 ) -> tuple[AuthorizedSessionKey, ...]:
     try:
         return await fetch_session_keys(ctx)
-    except (RateLimitError, TransportError):
-        return ()
-    except RequestRejectedError as error:
-        if error.status != 404 and not 500 <= error.status < 600:
-            raise
-        return ()
+    except (RateLimitError, RequestRejectedError, TransportError) as error:
+        if _is_retryable_session_key_registry_read(error):
+            return ()
+        raise
 
 
 def _fetch_session_keys_for_readiness_sync(
@@ -643,12 +693,17 @@ def _fetch_session_keys_for_readiness_sync(
 ) -> tuple[AuthorizedSessionKey, ...]:
     try:
         return fetch_session_keys_sync(ctx)
-    except (RateLimitError, TransportError):
-        return ()
-    except RequestRejectedError as error:
-        if error.status != 404 and not 500 <= error.status < 600:
-            raise
-        return ()
+    except (RateLimitError, RequestRejectedError, TransportError) as error:
+        if _is_retryable_session_key_registry_read(error):
+            return ()
+        raise
+
+
+def _is_retryable_session_key_registry_read(error: BaseException) -> bool:
+    return isinstance(error, (RateLimitError, TransportError)) or (
+        isinstance(error, RequestRejectedError)
+        and (error.status == 404 or 500 <= error.status < 600)
+    )
 
 
 def _is_expected_session_key(
