@@ -22,7 +22,7 @@ from polymarket.models.gamma.common import (
     parse_optional_decimal,
     parse_sequence,
 )
-from polymarket.models.gamma.market import Market
+from polymarket.models.gamma.market import Market, ProtocolVersion
 from polymarket.models.types import (
     EventCreatorId,
     EventExternalPartnerMappingId,
@@ -257,6 +257,7 @@ class Event(BaseModel):
     """A Polymarket event."""
 
     id: EventId
+    version: ProtocolVersion | None = None
     parent_event_id: EventId | None = Field(default=None, validation_alias="parentEventId")
     ticker: str | None = None
     slug: str | None = None
@@ -332,6 +333,7 @@ class Event(BaseModel):
 
         return {
             "id": data.get("id"),
+            "version": data.get("version"),
             "parent_event_id": data.get("parentEventId"),
             "ticker": data.get("ticker"),
             "slug": data.get("slug"),
