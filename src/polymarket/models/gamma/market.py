@@ -41,6 +41,13 @@ ComboKnownStatus: TypeAlias = Literal["pending", "enabled", "disabled"]
 ComboStatus: TypeAlias = ComboKnownStatus | str
 
 
+class ProtocolVersion(StrEnum):
+    """Known market protocol versions."""
+
+    V1 = "v1"
+    V2 = "v2"
+
+
 class UmaResolutionStatus(StrEnum):
     """Resolution lifecycle state for a market."""
 
@@ -385,6 +392,7 @@ class Market(BaseModel):
     """A Polymarket market."""
 
     id: MarketId
+    version: ProtocolVersion | None = None
     slug: str | None = None
     condition_id: CtfConditionId | None = Field(
         default=None,
@@ -465,6 +473,7 @@ class Market(BaseModel):
 
         return {
             "id": data.get("id"),
+            "version": data.get("version"),
             "slug": data.get("slug"),
             "condition_id": empty_string_to_none(data.get("conditionId")),
             "question": data.get("question"),
@@ -590,5 +599,6 @@ __all__ = [
     "MarketState",
     "MarketTag",
     "MarketTrading",
+    "ProtocolVersion",
     "UmaResolutionStatus",
 ]

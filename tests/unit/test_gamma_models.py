@@ -13,6 +13,7 @@ from polymarket.models.gamma import (
     Event,
     EventPartner,
     Market,
+    ProtocolVersion,
     PublicProfile,
     Reaction,
     RelatedTag,
@@ -52,6 +53,33 @@ def test_market_parses_minimal_payload() -> None:
     assert market.outcomes.no.token_id == "TOKEN-NO"
     assert market.outcomes.no.price == Decimal("0.4")
     assert market.position_ids == ("POSITION-YES", "POSITION-NO")
+
+
+@pytest.mark.parametrize(
+    ("raw_version", "expected"),
+    [
+        ("v1", ProtocolVersion.V1),
+        ("v2", ProtocolVersion.V2),
+    ],
+)
+def test_market_parses_known_protocol_versions(
+    raw_version: str,
+    expected: ProtocolVersion,
+) -> None:
+    market = Market.parse_response(_minimal_market_payload(version=raw_version))
+
+    assert market.version is expected
+
+
+def test_market_rejects_unknown_protocol_version() -> None:
+    with pytest.raises(UnexpectedResponseError):
+        Market.parse_response(_minimal_market_payload(version="v3"))
+
+
+def test_market_accepts_null_protocol_version() -> None:
+    market = Market.parse_response(_minimal_market_payload(version=None))
+
+    assert market.version is None
 
 
 def test_market_normalizes_groups_from_flat_payload() -> None:
@@ -250,6 +278,23 @@ def test_event_parses_minimal_payload() -> None:
     assert event.series == ()
     assert event.creators == ()
     assert event.partners == ()
+
+
+def test_event_parses_protocol_version_shared_by_its_markets() -> None:
+    event = Event.parse_response(_minimal_event_payload(version="v2"))
+
+    assert event.version is ProtocolVersion.V2
+
+
+def test_event_accepts_null_protocol_version() -> None:
+    event = Event.parse_response(_minimal_event_payload(version=None))
+
+    assert event.version is None
+
+
+def test_event_rejects_unknown_protocol_version() -> None:
+    with pytest.raises(UnexpectedResponseError):
+        Event.parse_response(_minimal_event_payload(version="v3"))
 
 
 def test_event_normalizes_groups_from_flat_payload() -> None:

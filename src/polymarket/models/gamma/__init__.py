@@ -54,6 +54,7 @@ from polymarket.models.gamma.market import (
     MarketState,
     MarketTag,
     MarketTrading,
+    ProtocolVersion,
     UmaResolutionStatus,
 )
 from polymarket.models.gamma.profile import PublicProfile, PublicProfileUser
@@ -101,6 +102,7 @@ __all__ = [
     "MarketTag",
     "MarketTrading",
     "Partner",
+    "ProtocolVersion",
     "Profile",
     "PublicProfile",
     "PublicProfileUser",
