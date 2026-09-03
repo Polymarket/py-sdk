@@ -806,6 +806,13 @@ class PublicClient:
         Markets that cannot be represented by the binary Market model are
         omitted from results.
 
+        ``order`` takes one or more comma-separated market field names, with
+        ``ascending`` setting the direction (for example ``"volume"``,
+        ``"liquidity"``, ``"volume24hr"``, ``"startDate"``, ``"endDate"``,
+        ``"createdAt"``, ``"slug"``). ``"volume"`` and ``"liquidity"`` sort by
+        their numeric values. A cursor obtained from an earlier release with
+        ``order="volume"`` or ``order="liquidity"`` cannot be resumed.
+
         Returns:
             A paginator over matching markets.
 

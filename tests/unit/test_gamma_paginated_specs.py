@@ -1,6 +1,7 @@
 import pytest
 
 from polymarket._internal.actions import gamma as gamma_actions
+from polymarket._internal.pagination import fingerprint_query
 from polymarket._internal.request import (
     KeysetPaginatedSpec,
     OffsetPaginatedSpec,
@@ -83,6 +84,52 @@ def test_list_markets_spec_collects_array_params() -> None:
         "id": (1, 2),
         "position_ids": ("P1", "P2"),
     }
+
+
+@pytest.mark.parametrize(
+    ("order", "expected"),
+    [
+        ("volume", "volumeNum"),
+        ("liquidity", "liquidityNum"),
+        ("volume,id", "volumeNum,id"),
+        ("createdAt, volume", "createdAt,volumeNum"),
+    ],
+)
+def test_list_markets_spec_sends_numeric_twins_for_text_sorted_fields(
+    order: str, expected: str
+) -> None:
+    spec = gamma_actions.list_markets_spec(order=order)
+
+    assert spec.base_params == {"order": expected}
+
+
+@pytest.mark.parametrize("order", ["volumeNum", "liquidityNum", "volume24hr", "startDate", "id"])
+def test_list_markets_spec_forwards_other_order_fields_unchanged(order: str) -> None:
+    spec = gamma_actions.list_markets_spec(order=order, ascending=False)
+
+    assert spec.base_params == {"ascending": False, "order": order}
+
+
+def test_list_markets_spec_order_alias_keeps_cursors_interchangeable() -> None:
+    # Pagination cursors carry a fingerprint of the query; a cursor issued while
+    # ordering by "volume" must resume when the caller spells it "volumeNum".
+    aliased = gamma_actions.list_markets_spec(order="volume", closed=False)
+    explicit = gamma_actions.list_markets_spec(order="volumeNum", closed=False)
+
+    assert fingerprint_query(aliased.base_params) == fingerprint_query(explicit.base_params)
+
+
+def test_list_markets_spec_order_alias_leaves_empty_tokens_alone() -> None:
+    spec = gamma_actions.list_markets_spec(order="volume,")
+
+    assert spec.base_params == {"order": "volumeNum,"}
+
+
+def test_list_events_spec_does_not_alias_order() -> None:
+    # Events store volume as a number upstream, so the alias is markets-only.
+    spec = gamma_actions.list_events_spec(order="volume")
+
+    assert spec.base_params == {"closed": False, "order": "volume"}
 
 
 def test_list_markets_parser_skips_non_binary_markets_and_keeps_cursor() -> None:
