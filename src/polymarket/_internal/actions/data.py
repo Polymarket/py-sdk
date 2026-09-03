@@ -385,6 +385,8 @@ def list_trades_spec(
         path="/trades",
         # Matches the upstream per-request limit cap.
         max_page_size=10_000,
+        # Starting offsets above this boundary are rejected.
+        max_offset=10_000,
         base_params=build_data_params(
             {
                 "takerOnly": taker_only,
@@ -438,6 +440,8 @@ def list_activity_spec(
         path="/activity",
         # Matches the upstream per-request limit cap.
         max_page_size=500,
+        # Starting offsets above this boundary are rejected.
+        max_offset=5_000,
         base_params=build_data_params(
             {
                 "user": user,

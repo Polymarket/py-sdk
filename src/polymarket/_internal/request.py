@@ -27,6 +27,10 @@ class OffsetPaginatedSpec(Generic[T]):
     `max_page_size` must match the endpoint's server-side limit cap. Without
     it, a page size above the cap makes the server clamp or reject the request
     and pagination silently skips or drops rows.
+
+    `max_offset` is the largest starting offset accepted by the endpoint.
+    The dispatcher rejects cursors beyond it instead of issuing a request the
+    endpoint is guaranteed to reject.
     """
 
     service: Service
@@ -34,6 +38,7 @@ class OffsetPaginatedSpec(Generic[T]):
     parse_items: Callable[[object], tuple[T, ...]]
     base_params: Mapping[str, QueryParamValue] | None = None
     max_page_size: int | None = None
+    max_offset: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

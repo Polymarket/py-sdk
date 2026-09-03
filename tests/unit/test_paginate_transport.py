@@ -36,6 +36,7 @@ def _spec(
     path: str = "/positions",
     base_params: dict[str, str] | None = None,
     max_page_size: int | None = None,
+    max_offset: int | None = None,
 ):
     return OffsetPaginatedSpec[int](
         service="data",
@@ -43,6 +44,7 @@ def _spec(
         parse_items=lambda payload: tuple(payload),  # type: ignore[arg-type]
         base_params=base_params,
         max_page_size=max_page_size,
+        max_offset=max_offset,
     )
 
 
@@ -169,6 +171,26 @@ def test_sync_paginate_offset_continues_past_full_page() -> None:
     assert offsets == ["0", "10", "20"]
 
 
+def test_sync_paginate_offset_rejects_continuation_past_spec_max_offset() -> None:
+    captured: list[httpx.Request] = []
+    handler = _items_handler(captured, [list(range(0, 10)), list(range(10, 20))])
+    with PublicClient() as client:
+        _install_sync_data_transport(client, handler)
+        paginator = sync_paginate_offset(
+            client._ctx,
+            _spec(path="/trades", max_offset=10),
+            page_size=10,
+        )
+        pages = iter(paginator)
+        assert next(pages).items == tuple(range(10))
+        assert next(pages).items == tuple(range(10, 20))
+        with pytest.raises(UserInputError, match="maximum offset of 10"):
+            next(pages)
+
+    offsets = [parse_qs(urlparse(str(request.url)).query)["offset"][0] for request in captured]
+    assert offsets == ["0", "10"]
+
+
 def test_sync_paginate_offset_no_more_when_partial() -> None:
     captured: list[httpx.Request] = []
     handler = _items_handler(captured, [list(range(3))])
@@ -289,6 +311,29 @@ def test_async_paginate_offset_round_trip_next_cursor() -> None:
         qs1 = parse_qs(urlparse(str(captured[1].url)).query)
         assert qs1["offset"] == ["10"]
         assert qs1["limit"] == ["10"]
+
+    asyncio.run(run())
+
+
+def test_async_paginate_offset_rejects_continuation_past_spec_max_offset() -> None:
+    async def run() -> None:
+        captured: list[httpx.Request] = []
+        handler = _items_handler(captured, [list(range(0, 10)), list(range(10, 20))])
+        async with AsyncPublicClient() as client:
+            _install_async_data_transport(client, handler)
+            paginator = async_paginate_offset(
+                client._ctx,
+                _spec(path="/activity", max_offset=10),
+                page_size=10,
+            )
+            pages = paginator.__aiter__()
+            assert (await anext(pages)).items == tuple(range(10))
+            assert (await anext(pages)).items == tuple(range(10, 20))
+            with pytest.raises(UserInputError, match="maximum offset of 10"):
+                await anext(pages)
+
+        offsets = [parse_qs(urlparse(str(request.url)).query)["offset"][0] for request in captured]
+        assert offsets == ["0", "10"]
 
     asyncio.run(run())
 

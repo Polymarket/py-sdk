@@ -1497,6 +1497,9 @@ class AsyncSecureClient:
     ) -> AsyncPaginator[Trade]:
         """List trades for a user or the authenticated wallet.
 
+        Pagination cannot continue past a starting offset of 10,000. Use
+        bounded ``start`` and ``end`` values to read additional history.
+
         Returns:
             An async paginator over matching trades.
         """
@@ -1528,6 +1531,9 @@ class AsyncSecureClient:
         page_size: int = 20,
     ) -> AsyncPaginator[Activity]:
         """List activity for a user or the authenticated wallet.
+
+        Pagination cannot continue past a starting offset of 5,000. Use
+        bounded ``start`` and ``end`` values to read additional history.
 
         Returns:
             An async paginator over matching activity entries.
