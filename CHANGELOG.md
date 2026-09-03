@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.8.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.7.1...polymarket-client-v0.8.0) (2026-09-03)
+
+
+### Features
+
+* **models:** expose market combo status ([2737586](https://github.com/Polymarket/py-sdk/commit/2737586a1a9cb0312bac7f793e25bff312a0fd05))
+* **models:** expose market combo status ([dfacd39](https://github.com/Polymarket/py-sdk/commit/dfacd394d5a6692dcebefed6fb4a92aa941c94e6))
+* **models:** expose market protocol versions ([75f5da3](https://github.com/Polymarket/py-sdk/commit/75f5da3443a8ac2ba3477f20f7459f5bd8dc1a86))
+* **models:** expose market protocol versions ([24d0dd1](https://github.com/Polymarket/py-sdk/commit/24d0dd127485518abbf61ae845d3054e508f16ab))
+
+
+### Bug Fixes
+
+* **client:** extend session-key relayer timeout ([828de8c](https://github.com/Polymarket/py-sdk/commit/828de8c9df8c3aab34f66ecb2710730de9380789))
+* **client:** extend session-key relayer timeout ([d4726ff](https://github.com/Polymarket/py-sdk/commit/d4726ffd5ebc3293786d920b95c63cff99f8c567))
+* **client:** omit revocation transaction handle ([85a633c](https://github.com/Polymarket/py-sdk/commit/85a633cdb467a0716a315a1c0c400be7d1bb916c))
+* **client:** retry missing session-key registry ([b15f321](https://github.com/Polymarket/py-sdk/commit/b15f321d92d4f90aa75586194d2e57d91eabccc0))
+* **client:** stop revocation after registry removal ([1269a79](https://github.com/Polymarket/py-sdk/commit/1269a792fe5c0581c36137598c622fdb6d7953c1))
+* **client:** stop revocation after registry removal ([059c80f](https://github.com/Polymarket/py-sdk/commit/059c80f4cd739e7fad5c04b48ad4cc35873927a3))
+* **gamma:** preserve team ordering ([bc395d6](https://github.com/Polymarket/py-sdk/commit/bc395d6bf4ab1fc947cf62b36f03535cfd3bac16))
+* **models:** align protocol version contracts ([508b550](https://github.com/Polymarket/py-sdk/commit/508b550e3283d531fb7a9a0ee468140d3379b4e2))
+* **models:** pass unknown combo statuses through ([7d7233e](https://github.com/Polymarket/py-sdk/commit/7d7233e3bc5478551a85d5a55dcf0e84848eb9b0))
+
+
+### Documentation
+
+* **client:** clarify revocation polling behavior ([8fc4539](https://github.com/Polymarket/py-sdk/commit/8fc4539e596a5a96e63565226834977ae55ec4b5))
+
 ## [0.7.1](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.7.0...polymarket-client-v0.7.1) (2026-08-28)
 
 
