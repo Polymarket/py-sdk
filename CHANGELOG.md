@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.8.0...polymarket-client-v0.9.0) (2026-09-04)
+
+
+### Features
+
+* support Poly V2 identifiers and trading ([1f125cd](https://github.com/Polymarket/py-sdk/commit/1f125cdb2bb684aec7c9b044ac9991e383822498))
+
+
+### Bug Fixes
+
+* complete Poly V2 asset ID compatibility ([37105c2](https://github.com/Polymarket/py-sdk/commit/37105c2c4ff439b13553bdfa794470fcd5cd0521))
+
 ## [0.8.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.7.1...polymarket-client-v0.8.0) (2026-09-03)
 
 

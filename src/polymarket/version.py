@@ -5,4 +5,4 @@ from importlib.metadata import PackageNotFoundError, version
 try:
     __version__ = version("polymarket-client")
 except PackageNotFoundError:
-    __version__ = "0.8.0"
+    __version__ = "0.9.0"
