@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, computed_field, field_validator
 
 from polymarket.models.base import BaseModel
 from polymarket.models.gamma.common import (
@@ -14,13 +14,13 @@ from polymarket.models.gamma.common import (
     parse_optional_decimal,
 )
 from polymarket.models.types import (
+    ClobAssetId,
     ComboConditionId,
-    CtfConditionId,
+    ConditionId,
     PositionId,
-    TokenId,
     validate_combo_condition_id,
-    validate_ctf_condition_id,
-    validate_optional_ctf_condition_id,
+    validate_condition_id,
+    validate_optional_condition_id,
 )
 from polymarket.types import EvmAddress
 
@@ -52,9 +52,12 @@ class TradedMarketCount(BaseModel):
 class Position(BaseModel):
     """Open market position held by a wallet."""
 
-    condition_id: CtfConditionId = Field(validation_alias="conditionId")
+    condition_id: ConditionId = Field(validation_alias="conditionId")
     wallet: EvmAddress | None = Field(default=None, validation_alias="proxyWallet")
-    token_id: TokenId | None = Field(default=None, validation_alias="asset")
+    asset_id: ClobAssetId | None = Field(
+        default=None,
+        validation_alias=AliasChoices("asset_id", "asset", "token_id"),
+    )
     size: Decimal | None = None
     avg_price: Decimal | None = Field(default=None, validation_alias="avgPrice")
     initial_value: Decimal | None = Field(default=None, validation_alias="initialValue")
@@ -75,14 +78,31 @@ class Position(BaseModel):
     outcome: str | None = None
     outcome_index: int | None = Field(default=None, validation_alias="outcomeIndex")
     opposite_outcome: str | None = Field(default=None, validation_alias="oppositeOutcome")
-    opposite_token_id: TokenId | None = Field(default=None, validation_alias="oppositeAsset")
+    opposite_asset_id: ClobAssetId | None = Field(
+        default=None,
+        validation_alias=AliasChoices("opposite_asset_id", "oppositeAsset", "opposite_token_id"),
+    )
     end_date: date | None = Field(default=None, validation_alias="endDate")
     negative_risk: bool | None = Field(default=None, validation_alias="negativeRisk")
 
+    @computed_field
+    @property
+    def token_id(self) -> ClobAssetId | None:
+        """Deprecated alias for :attr:`asset_id`."""
+
+        return self.asset_id
+
+    @computed_field
+    @property
+    def opposite_token_id(self) -> ClobAssetId | None:
+        """Deprecated alias for :attr:`opposite_asset_id`."""
+
+        return self.opposite_asset_id
+
     @field_validator("condition_id", mode="before")
     @classmethod
-    def _validate_condition_id(cls, value: object) -> CtfConditionId:
-        return validate_ctf_condition_id(value)
+    def _validate_condition_id(cls, value: object) -> ConditionId:
+        return validate_condition_id(value)
 
     @field_validator(
         "size",
@@ -136,8 +156,11 @@ class ClosedPosition(BaseModel):
     """Closed market position for a wallet."""
 
     wallet: EvmAddress | None = Field(default=None, validation_alias="proxyWallet")
-    token_id: TokenId | None = Field(default=None, validation_alias="asset")
-    condition_id: CtfConditionId | None = Field(default=None, validation_alias="conditionId")
+    asset_id: ClobAssetId | None = Field(
+        default=None,
+        validation_alias=AliasChoices("asset_id", "asset", "token_id"),
+    )
+    condition_id: ConditionId | None = Field(default=None, validation_alias="conditionId")
     avg_price: Decimal | None = Field(default=None, validation_alias="avgPrice")
     total_bought: Decimal | None = Field(default=None, validation_alias="totalBought")
     realized_pnl: Decimal | None = Field(default=None, validation_alias="realizedPnl")
@@ -150,13 +173,30 @@ class ClosedPosition(BaseModel):
     outcome: str | None = None
     outcome_index: int | None = Field(default=None, validation_alias="outcomeIndex")
     opposite_outcome: str | None = Field(default=None, validation_alias="oppositeOutcome")
-    opposite_token_id: TokenId | None = Field(default=None, validation_alias="oppositeAsset")
+    opposite_asset_id: ClobAssetId | None = Field(
+        default=None,
+        validation_alias=AliasChoices("opposite_asset_id", "oppositeAsset", "opposite_token_id"),
+    )
     end_date: date | None = Field(default=None, validation_alias="endDate")
+
+    @computed_field
+    @property
+    def token_id(self) -> ClobAssetId | None:
+        """Deprecated alias for :attr:`asset_id`."""
+
+        return self.asset_id
+
+    @computed_field
+    @property
+    def opposite_token_id(self) -> ClobAssetId | None:
+        """Deprecated alias for :attr:`opposite_asset_id`."""
+
+        return self.opposite_asset_id
 
     @field_validator("condition_id", mode="before")
     @classmethod
-    def _validate_condition_id(cls, value: object) -> CtfConditionId | None:
-        return validate_optional_ctf_condition_id(value)
+    def _validate_condition_id(cls, value: object) -> ConditionId | None:
+        return validate_optional_condition_id(value)
 
     @field_validator(
         "avg_price",
@@ -209,7 +249,7 @@ class ComboPositionMarket(BaseModel):
 class ComboPositionLeg(BaseModel):
     leg_index: int
     leg_position_id: PositionId
-    leg_condition_id: CtfConditionId
+    leg_condition_id: ConditionId
     leg_outcome_index: int
     leg_outcome_label: str | None = None
     leg_status: ComboPositionStatus
@@ -219,8 +259,8 @@ class ComboPositionLeg(BaseModel):
 
     @field_validator("leg_condition_id", mode="before")
     @classmethod
-    def _validate_condition_id(cls, value: object) -> CtfConditionId:
-        return validate_ctf_condition_id(value)
+    def _validate_condition_id(cls, value: object) -> ConditionId:
+        return validate_condition_id(value)
 
     @field_validator("leg_current_price", mode="before")
     @classmethod

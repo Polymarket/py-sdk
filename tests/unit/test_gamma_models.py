@@ -52,7 +52,8 @@ def test_market_parses_minimal_payload() -> None:
     assert market.outcomes.no.label == "No"
     assert market.outcomes.no.token_id == "TOKEN-NO"
     assert market.outcomes.no.price == Decimal("0.4")
-    assert market.position_ids == ("POSITION-YES", "POSITION-NO")
+    with pytest.warns(DeprecationWarning, match="position_id on each outcome"):
+        assert market.position_ids == ("POSITION-YES", "POSITION-NO")
 
 
 @pytest.mark.parametrize(
@@ -198,9 +199,10 @@ def test_market_passes_unknown_combo_status_through_as_string() -> None:
     assert market.state.combo_status == "not-a-status-yet"
 
 
-def test_market_rejects_malformed_condition_id() -> None:
-    with pytest.raises(UnexpectedResponseError, match="Market response"):
-        Market.parse_response(_minimal_market_payload(conditionId="0x1234"))
+def test_market_accepts_protocol_neutral_hex_condition_id_response() -> None:
+    market = Market.parse_response(_minimal_market_payload(conditionId="0x1234"))
+
+    assert market.condition_id == "0x1234"
 
 
 def test_market_treats_empty_resolved_by_as_none() -> None:

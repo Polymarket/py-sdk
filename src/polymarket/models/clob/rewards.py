@@ -4,13 +4,13 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TypeAlias
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, computed_field, field_validator
 
 from polymarket.models.base import BaseModel
 from polymarket.models.clob._validators import (
     _coerce_decimalish,  # pyright: ignore[reportPrivateUsage]
 )
-from polymarket.models.types import CtfConditionId, TokenId, validate_ctf_condition_id
+from polymarket.models.types import ClobAssetId, ConditionId, validate_condition_id
 
 
 def _from_epoch_ms(value: int) -> datetime:
@@ -74,7 +74,7 @@ class CurrentRewardConfig(BaseModel):
 
 
 class CurrentReward(BaseModel):
-    condition_id: CtfConditionId = Field(validation_alias="condition_id")
+    condition_id: ConditionId = Field(validation_alias="condition_id")
     rewards_max_spread: float | None = Field(default=None, validation_alias="rewards_max_spread")
     rewards_min_size: Decimal | None = Field(default=None, validation_alias="rewards_min_size")
     rewards_config: tuple[CurrentRewardConfig, ...] = Field(
@@ -100,8 +100,8 @@ class CurrentReward(BaseModel):
 
     @field_validator("condition_id", mode="before")
     @classmethod
-    def _validate_condition_id(cls, value: object) -> CtfConditionId:
-        return validate_ctf_condition_id(value)
+    def _validate_condition_id(cls, value: object) -> ConditionId:
+        return validate_condition_id(value)
 
 
 class MarketRewardConfig(BaseModel):
@@ -128,9 +128,16 @@ class MarketRewardConfig(BaseModel):
 
 
 class MarketRewardToken(BaseModel):
-    token_id: TokenId = Field(validation_alias="token_id")
+    asset_id: ClobAssetId = Field(validation_alias=AliasChoices("asset_id", "token_id"))
     outcome: str
     price: Decimal
+
+    @computed_field
+    @property
+    def token_id(self) -> ClobAssetId:
+        """Deprecated alias for :attr:`asset_id`."""
+
+        return self.asset_id
 
     @field_validator("price", mode="before")
     @classmethod
@@ -139,7 +146,7 @@ class MarketRewardToken(BaseModel):
 
 
 class MarketReward(BaseModel):
-    condition_id: CtfConditionId = Field(validation_alias="condition_id")
+    condition_id: ConditionId = Field(validation_alias="condition_id")
     question: str
     market_slug: str | None = Field(default=None, validation_alias="market_slug")
     event_slug: str | None = Field(default=None, validation_alias="event_slug")
@@ -161,14 +168,14 @@ class MarketReward(BaseModel):
 
     @field_validator("condition_id", mode="before")
     @classmethod
-    def _validate_condition_id(cls, value: object) -> CtfConditionId:
-        return validate_ctf_condition_id(value)
+    def _validate_condition_id(cls, value: object) -> ConditionId:
+        return validate_condition_id(value)
 
 
 class UserEarning(BaseModel):
     asset_address: str = Field(validation_alias="asset_address")
     asset_rate: Decimal = Field(validation_alias="asset_rate")
-    condition_id: CtfConditionId = Field(validation_alias="condition_id")
+    condition_id: ConditionId = Field(validation_alias="condition_id")
     date: datetime
     earnings: Decimal
     maker_address: str = Field(validation_alias="maker_address")
@@ -185,8 +192,8 @@ class UserEarning(BaseModel):
 
     @field_validator("condition_id", mode="before")
     @classmethod
-    def _validate_condition_id(cls, value: object) -> CtfConditionId:
-        return validate_ctf_condition_id(value)
+    def _validate_condition_id(cls, value: object) -> ConditionId:
+        return validate_condition_id(value)
 
 
 class TotalUserEarning(BaseModel):
@@ -237,7 +244,7 @@ class EarningBreakdown(BaseModel):
 
 
 class UserRewardsEarning(BaseModel):
-    condition_id: CtfConditionId = Field(validation_alias="condition_id")
+    condition_id: ConditionId = Field(validation_alias="condition_id")
     earning_percentage: float = Field(validation_alias="earning_percentage")
     earnings: tuple[EarningBreakdown, ...]
     event_slug: str = Field(validation_alias="event_slug")
@@ -258,11 +265,11 @@ class UserRewardsEarning(BaseModel):
 
     @field_validator("condition_id", mode="before")
     @classmethod
-    def _validate_condition_id(cls, value: object) -> CtfConditionId:
-        return validate_ctf_condition_id(value)
+    def _validate_condition_id(cls, value: object) -> ConditionId:
+        return validate_condition_id(value)
 
 
-RewardsPercentages: TypeAlias = dict[CtfConditionId, float]
+RewardsPercentages: TypeAlias = dict[ConditionId, float]
 
 
 __all__ = [

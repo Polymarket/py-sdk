@@ -2,9 +2,10 @@ import asyncio
 from dataclasses import dataclass
 from decimal import Decimal
 
+from polymarket._internal.actions.exchange_asset import resolve_asset_id
 from polymarket._internal.actions.orders._numeric import coerce_positive_decimal
 from polymarket._internal.actions.orders.context import (
-    resolve_exchange_address,
+    resolve_order_exchange_address,
     resolve_rounding_config,
     validate_price_on_tick_grid,
 )
@@ -22,15 +23,15 @@ from polymarket._internal.actions.orders.math import (
 )
 from polymarket._internal.actions.orders.types import MarketOrderType, OrderDraft
 from polymarket._internal.context import AsyncSecureClientContext, SyncSecureClientContext
-from polymarket._internal.validation import require_nonempty, validate_builder_code
+from polymarket._internal.validation import validate_builder_code
 from polymarket.errors import UserInputError
-from polymarket.models.types import OrderSide, TokenId
+from polymarket.models.types import ClobAssetId, OrderSide
 from polymarket.types import EvmAddress, HexString
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class PrepareMarketOrderParams:
-    token_id: TokenId
+    asset_id: ClobAssetId
     side: OrderSide
     order_type: MarketOrderType
     amount: Decimal | None = None
@@ -40,10 +41,17 @@ class PrepareMarketOrderParams:
     min_price: Decimal | None = None
     builder_code: HexString | None = None
 
+    @property
+    def token_id(self) -> ClobAssetId:
+        """Deprecated alias for :attr:`asset_id`."""
+
+        return self.asset_id
+
 
 def validate_market_order_params(
     *,
-    token_id: str,
+    asset_id: str | None = None,
+    token_id: str | None = None,
     side: OrderSide,
     amount: Decimal | int | float | str | None = None,
     shares: Decimal | int | float | str | None = None,
@@ -53,7 +61,7 @@ def validate_market_order_params(
     order_type: MarketOrderType = "FAK",
     builder_code: str | None = None,
 ) -> PrepareMarketOrderParams:
-    validated_token = TokenId(require_nonempty("token_id", token_id))
+    validated_asset = resolve_asset_id(asset_id=asset_id, token_id=token_id)
     if side not in ("BUY", "SELL"):
         raise UserInputError(f"side must be 'BUY' or 'SELL', got {side!r}.")
     if order_type not in ("FAK", "FOK"):
@@ -74,7 +82,7 @@ def validate_market_order_params(
             coerce_positive_decimal("max_price", max_price) if max_price is not None else None
         )
         return PrepareMarketOrderParams(
-            token_id=validated_token,
+            asset_id=validated_asset,
             side=side,
             order_type=order_type,
             amount=validated_amount,
@@ -94,7 +102,7 @@ def validate_market_order_params(
         coerce_positive_decimal("min_price", min_price) if min_price is not None else None
     )
     return PrepareMarketOrderParams(
-        token_id=validated_token,
+        asset_id=validated_asset,
         side=side,
         order_type=order_type,
         shares=coerce_positive_decimal("shares", shares),
@@ -125,18 +133,18 @@ async def _prepare_protected_market_order_draft(
     notional = _resolve_market_order_notional(params)
     if params.side == "BUY" and params.max_spend is not None:
         metadata, builder_taker_fee_rate = await asyncio.gather(
-            ctx.order_metadata.resolve_market(ctx, token_id=params.token_id),
+            ctx.order_metadata.resolve_market(ctx, token_id=params.asset_id),
             ctx.order_metadata.resolve_builder_taker_fee_rate(
                 ctx, builder_code=params.builder_code
             ),
         )
     else:
-        metadata = await ctx.order_metadata.resolve_market(ctx, token_id=params.token_id)
+        metadata = await ctx.order_metadata.resolve_market(ctx, token_id=params.asset_id)
         builder_taker_fee_rate = Decimal(0)
     try:
         price = _resolve_protected_market_order_price(params, metadata.tick_size)
     except UserInputError:
-        metadata = await ctx.order_metadata.fetch_current_market(ctx, token_id=params.token_id)
+        metadata = await ctx.order_metadata.fetch_current_market(ctx, token_id=params.asset_id)
         price = _resolve_protected_market_order_price(params, metadata.tick_size)
     resolved_amount = notional
     if params.side == "BUY" and params.max_spend is not None:
@@ -162,7 +170,7 @@ def _prepare_protected_market_order_draft_sync(
     ctx: SyncSecureClientContext, params: PrepareMarketOrderParams
 ) -> OrderDraft:
     notional = _resolve_market_order_notional(params)
-    metadata = ctx.order_metadata.resolve_market(ctx, token_id=params.token_id)
+    metadata = ctx.order_metadata.resolve_market(ctx, token_id=params.asset_id)
     builder_taker_fee_rate = (
         ctx.order_metadata.resolve_builder_taker_fee_rate(ctx, builder_code=params.builder_code)
         if params.side == "BUY" and params.max_spend is not None
@@ -171,7 +179,7 @@ def _prepare_protected_market_order_draft_sync(
     try:
         price = _resolve_protected_market_order_price(params, metadata.tick_size)
     except UserInputError:
-        metadata = ctx.order_metadata.fetch_current_market(ctx, token_id=params.token_id)
+        metadata = ctx.order_metadata.fetch_current_market(ctx, token_id=params.asset_id)
         price = _resolve_protected_market_order_price(params, metadata.tick_size)
     resolved_amount = notional
     if params.side == "BUY" and params.max_spend is not None:
@@ -201,12 +209,12 @@ async def _prepare_unprotected_market_order_draft(
         price_context, metadata, builder_taker_fee_rate = await asyncio.gather(
             resolve_market_price_context(
                 ctx,
-                token_id=params.token_id,
+                token_id=params.asset_id,
                 side=params.side,
                 notional=notional,
                 order_type=params.order_type,
             ),
-            ctx.order_metadata.resolve_market(ctx, token_id=params.token_id),
+            ctx.order_metadata.resolve_market(ctx, token_id=params.asset_id),
             ctx.order_metadata.resolve_builder_taker_fee_rate(
                 ctx, builder_code=params.builder_code
             ),
@@ -221,7 +229,7 @@ async def _prepare_unprotected_market_order_draft(
     else:
         price_context = await resolve_market_price_context(
             ctx,
-            token_id=params.token_id,
+            token_id=params.asset_id,
             side=params.side,
             notional=notional,
             order_type=params.order_type,
@@ -238,13 +246,13 @@ def _prepare_unprotected_market_order_draft_sync(
     notional = _resolve_market_order_notional(params)
     price_context = resolve_market_price_context_sync(
         ctx,
-        token_id=params.token_id,
+        token_id=params.asset_id,
         side=params.side,
         notional=notional,
         order_type=params.order_type,
     )
     if params.side == "BUY" and params.max_spend is not None:
-        metadata = ctx.order_metadata.resolve_market(ctx, token_id=params.token_id)
+        metadata = ctx.order_metadata.resolve_market(ctx, token_id=params.asset_id)
         builder_taker_fee_rate = ctx.order_metadata.resolve_builder_taker_fee_rate(
             ctx, builder_code=params.builder_code
         )
@@ -299,7 +307,9 @@ def _build_market_order_draft(
     )
     return OrderDraft(
         chain_id=ctx.environment_config.chain_id,
-        exchange_address=resolve_exchange_address(ctx.environment_config, neg_risk),
+        exchange_address=resolve_order_exchange_address(
+            ctx.environment_config, asset_id=params.asset_id, neg_risk=neg_risk
+        ),
         expiration=0,
         funder_address=ctx.wallet,
         offered_amount=offered,
@@ -307,7 +317,7 @@ def _build_market_order_draft(
         side=params.side,
         signer=EvmAddress(ctx.signer.address),
         requested_amount=requested,
-        token_id=params.token_id,
+        asset_id=params.asset_id,
         builder_code=params.builder_code,
     )
 

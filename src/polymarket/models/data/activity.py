@@ -4,7 +4,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Literal, cast
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, computed_field, field_validator
 
 from polymarket.errors import UnexpectedResponseError
 from polymarket.models.base import BaseModel
@@ -15,22 +15,25 @@ from polymarket.models.gamma.common import (
     parse_optional_decimal,
 )
 from polymarket.models.types import (
+    ClobAssetId,
     ComboActivityId,
     ComboConditionId,
-    CtfConditionId,
+    ConditionId,
     PositionId,
-    TokenId,
     validate_combo_condition_id,
-    validate_ctf_condition_id,
-    validate_optional_ctf_condition_id,
+    validate_condition_id,
+    validate_optional_condition_id,
 )
 from polymarket.types import EvmAddress, TransactionHash
 
 
 class Trade(BaseModel):
     wallet: EvmAddress | None = Field(default=None, validation_alias="proxyWallet")
-    token_id: TokenId | None = Field(default=None, validation_alias="asset")
-    condition_id: CtfConditionId | None = Field(default=None, validation_alias="conditionId")
+    asset_id: ClobAssetId | None = Field(
+        default=None,
+        validation_alias=AliasChoices("asset_id", "asset", "token_id"),
+    )
+    condition_id: ConditionId | None = Field(default=None, validation_alias="conditionId")
     side: Literal["BUY", "SELL"] | None = None
     size: Decimal | None = None
     price: Decimal | None = None
@@ -52,10 +55,17 @@ class Trade(BaseModel):
         default=None, validation_alias="transactionHash"
     )
 
+    @computed_field
+    @property
+    def token_id(self) -> ClobAssetId | None:
+        """Deprecated alias for :attr:`asset_id`."""
+
+        return self.asset_id
+
     @field_validator("condition_id", mode="before")
     @classmethod
-    def _validate_condition_id(cls, value: object) -> CtfConditionId | None:
-        return validate_optional_ctf_condition_id(value)
+    def _validate_condition_id(cls, value: object) -> ConditionId | None:
+        return validate_optional_condition_id(value)
 
     @field_validator("size", "price", mode="before")
     @classmethod
@@ -129,8 +139,8 @@ class _KnownActivityBase(BaseModel):
 class TradeActivity(_KnownActivityBase):
     type: Literal["TRADE"]
     is_combo: Literal[False] = Field(default=False, validation_alias="isCombo")
-    condition_id: CtfConditionId = Field(validation_alias="conditionId")
-    token_id: TokenId = Field(validation_alias="asset")
+    condition_id: ConditionId = Field(validation_alias="conditionId")
+    asset_id: ClobAssetId = Field(validation_alias=AliasChoices("asset_id", "asset", "token_id"))
     side: Literal["BUY", "SELL"]
     shares: Decimal = Field(validation_alias="size")
     amount: Decimal
@@ -142,10 +152,17 @@ class TradeActivity(_KnownActivityBase):
     icon: str | None = None
     event_slug: str = Field(validation_alias="eventSlug")
 
+    @computed_field
+    @property
+    def token_id(self) -> ClobAssetId:
+        """Deprecated alias for :attr:`asset_id`."""
+
+        return self.asset_id
+
     @field_validator("condition_id", mode="before")
     @classmethod
-    def _validate_condition_id(cls, value: object) -> CtfConditionId:
-        return validate_ctf_condition_id(value)
+    def _validate_condition_id(cls, value: object) -> ConditionId:
+        return validate_condition_id(value)
 
     @field_validator("shares", "amount", "price", mode="before")
     @classmethod
@@ -177,7 +194,7 @@ class ComboTradeActivity(_KnownActivityBase):
 
 
 class _MarketEventActivity(_KnownActivityBase):
-    condition_id: CtfConditionId = Field(validation_alias="conditionId")
+    condition_id: ConditionId = Field(validation_alias="conditionId")
     amount: Decimal
     title: str
     slug: str
@@ -186,8 +203,8 @@ class _MarketEventActivity(_KnownActivityBase):
 
     @field_validator("condition_id", mode="before")
     @classmethod
-    def _validate_condition_id(cls, value: object) -> CtfConditionId:
-        return validate_ctf_condition_id(value)
+    def _validate_condition_id(cls, value: object) -> ConditionId:
+        return validate_condition_id(value)
 
     @field_validator("amount", mode="before")
     @classmethod

@@ -157,6 +157,7 @@ from polymarket.errors import (
     RequestRejectedError,
     SigningError,
     TransportError,
+    UnexpectedResponseError,
     UserInputError,
 )
 from polymarket.models import (
@@ -170,7 +171,7 @@ from polymarket.models import (
     Comment,
     Event,
     LastTradePrice,
-    LastTradePriceForToken,
+    LastTradePriceForAsset,
     Market,
     Notification,
     OpenOrder,
@@ -250,7 +251,7 @@ from polymarket.models.rtds_events import (
     RtdsEvent,
 )
 from polymarket.models.sports_events import SportsEvent
-from polymarket.models.types import CtfConditionId, TokenId
+from polymarket.models.types import ClobAssetId, CtfConditionId
 from polymarket.pagination import AsyncPaginator, Page
 from polymarket.rate_limit import RateLimitUpdateListener
 from polymarket.rfq import (
@@ -1347,6 +1348,7 @@ class AsyncSecureClient:
         *,
         builder_code: str,
         market: str | None = None,
+        asset_id: str | None = None,
         token_id: str | None = None,
         id: str | None = None,
         after: str | None = None,
@@ -1362,6 +1364,7 @@ class AsyncSecureClient:
             path, params = _builders_actions.build_list_builder_trades_request(
                 builder_code=builder_code,
                 market=market,
+                asset_id=asset_id,
                 token_id=token_id,
                 id=id,
                 after=after,
@@ -1961,67 +1964,107 @@ class AsyncSecureClient:
         )
         return async_paginate_page_based(self._ctx, spec, page_size=page_size)
 
-    async def get_midpoint(self, *, token_id: str) -> Decimal:
-        """Get the midpoint price for a token."""
-        path, params = _clob_actions.build_midpoint_request(token_id=token_id)
+    async def get_midpoint(
+        self, *, asset_id: str | None = None, token_id: str | None = None
+    ) -> Decimal:
+        """Get the midpoint price for a CLOB asset."""
+        path, params = _clob_actions.build_midpoint_request(asset_id=asset_id, token_id=token_id)
         return _clob_actions.parse_midpoint(await self._ctx.clob.get_json(path, params=params))
 
-    async def get_midpoints(self, *, token_ids: Sequence[str]) -> dict[TokenId, Decimal]:
-        """Get midpoint prices for multiple tokens."""
-        path, body = _clob_actions.build_midpoints_request(token_ids=token_ids)
+    async def get_midpoints(
+        self,
+        *,
+        asset_ids: Sequence[str] | None = None,
+        token_ids: Sequence[str] | None = None,
+    ) -> dict[ClobAssetId, Decimal]:
+        """Get midpoint prices for multiple CLOB assets."""
+        path, body = _clob_actions.build_midpoints_request(asset_ids=asset_ids, token_ids=token_ids)
         return _clob_actions.parse_midpoints(await self._ctx.clob.post_json(path, json=body))
 
-    async def get_price(self, *, token_id: str, side: OrderSide) -> Decimal:
-        """Get the executable price for a token side."""
-        path, params = _clob_actions.build_price_request(token_id=token_id, side=side)
+    async def get_price(
+        self,
+        *,
+        asset_id: str | None = None,
+        token_id: str | None = None,
+        side: OrderSide,
+    ) -> Decimal:
+        """Get the executable price for a CLOB asset side."""
+        path, params = _clob_actions.build_price_request(
+            asset_id=asset_id, token_id=token_id, side=side
+        )
         return _clob_actions.parse_price(await self._ctx.clob.get_json(path, params=params))
 
     async def get_prices(
         self, *, requests: Sequence[PriceRequest]
-    ) -> dict[TokenId, dict[OrderSide, Decimal]]:
-        """Get executable prices for multiple token-side requests."""
+    ) -> dict[ClobAssetId, dict[OrderSide, Decimal]]:
+        """Get executable prices for multiple CLOB asset-side requests."""
         path, body = _clob_actions.build_prices_request(requests=requests)
         return _clob_actions.parse_prices(await self._ctx.clob.post_json(path, json=body))
 
-    async def get_order_book(self, *, token_id: str) -> OrderBook:
-        """Get the order book for a token."""
-        path, params = _clob_actions.build_order_book_request(token_id=token_id)
+    async def get_order_book(
+        self, *, asset_id: str | None = None, token_id: str | None = None
+    ) -> OrderBook:
+        """Get the order book for a CLOB asset."""
+        path, params = _clob_actions.build_order_book_request(asset_id=asset_id, token_id=token_id)
         return _clob_actions.parse_order_book(await self._ctx.clob.get_json(path, params=params))
 
-    async def get_order_books(self, *, token_ids: Sequence[str]) -> tuple[OrderBook, ...]:
-        """Get order books for multiple tokens."""
-        path, body = _clob_actions.build_order_books_request(token_ids=token_ids)
+    async def get_order_books(
+        self,
+        *,
+        asset_ids: Sequence[str] | None = None,
+        token_ids: Sequence[str] | None = None,
+    ) -> tuple[OrderBook, ...]:
+        """Get order books for multiple CLOB assets."""
+        path, body = _clob_actions.build_order_books_request(
+            asset_ids=asset_ids, token_ids=token_ids
+        )
         return _clob_actions.parse_order_books(await self._ctx.clob.post_json(path, json=body))
 
-    async def get_spread(self, *, token_id: str) -> Decimal:
-        """Get the bid-ask spread for a token."""
-        path, params = _clob_actions.build_spread_request(token_id=token_id)
+    async def get_spread(
+        self, *, asset_id: str | None = None, token_id: str | None = None
+    ) -> Decimal:
+        """Get the bid-ask spread for a CLOB asset."""
+        path, params = _clob_actions.build_spread_request(asset_id=asset_id, token_id=token_id)
         return _clob_actions.parse_spread(await self._ctx.clob.get_json(path, params=params))
 
-    async def get_spreads(self, *, token_ids: Sequence[str]) -> dict[TokenId, Decimal]:
-        """Get bid-ask spreads for multiple tokens."""
-        path, body = _clob_actions.build_spreads_request(token_ids=token_ids)
+    async def get_spreads(
+        self,
+        *,
+        asset_ids: Sequence[str] | None = None,
+        token_ids: Sequence[str] | None = None,
+    ) -> dict[ClobAssetId, Decimal]:
+        """Get bid-ask spreads for multiple CLOB assets."""
+        path, body = _clob_actions.build_spreads_request(asset_ids=asset_ids, token_ids=token_ids)
         return _clob_actions.parse_spreads(await self._ctx.clob.post_json(path, json=body))
 
-    async def get_last_trade_price(self, *, token_id: str) -> LastTradePrice | None:
-        """Get the most recent trade price for a token.
+    async def get_last_trade_price(
+        self, *, asset_id: str | None = None, token_id: str | None = None
+    ) -> LastTradePrice | None:
+        """Get the most recent trade price for a CLOB asset.
 
-        Returns ``None`` when the token has not traded.
+        Returns ``None`` when the CLOB asset has not traded.
         """
-        path, params = _clob_actions.build_last_trade_price_request(token_id=token_id)
+        path, params = _clob_actions.build_last_trade_price_request(
+            asset_id=asset_id, token_id=token_id
+        )
         return _clob_actions.parse_last_trade_price(
             await self._ctx.clob.get_json(path, params=params)
         )
 
     async def get_last_trade_prices(
-        self, *, token_ids: Sequence[str]
-    ) -> tuple[LastTradePriceForToken, ...]:
-        """Get the most recent trade prices for multiple tokens.
+        self,
+        *,
+        asset_ids: Sequence[str] | None = None,
+        token_ids: Sequence[str] | None = None,
+    ) -> tuple[LastTradePriceForAsset, ...]:
+        """Get the most recent trade prices for multiple CLOB assets.
 
-        Tokens without trades are omitted. Match returned entries by ``token_id``;
-        the result is not positionally aligned with ``token_ids``.
+        Assets without trades are omitted. Match returned entries by ``asset_id``;
+        the result is not positionally aligned with ``asset_ids``.
         """
-        path, body = _clob_actions.build_last_trade_prices_request(token_ids=token_ids)
+        path, body = _clob_actions.build_last_trade_prices_request(
+            asset_ids=asset_ids, token_ids=token_ids
+        )
         return _clob_actions.parse_last_trade_prices(
             await self._ctx.clob.post_json(path, json=body)
         )
@@ -2029,14 +2072,16 @@ class AsyncSecureClient:
     async def get_price_history(
         self,
         *,
-        token_id: str,
+        asset_id: str | None = None,
+        token_id: str | None = None,
         start_ts: int | None = None,
         end_ts: int | None = None,
         fidelity: int | None = None,
         interval: PriceHistoryInterval | None = None,
     ) -> tuple[PriceHistoryPoint, ...]:
-        """Get historical price points for a token."""
+        """Get historical price points for a CLOB asset."""
         path, params = _clob_actions.build_price_history_request(
+            asset_id=asset_id,
             token_id=token_id,
             start_ts=start_ts,
             end_ts=end_ts,
@@ -2098,6 +2143,7 @@ class AsyncSecureClient:
     def list_open_orders(
         self,
         *,
+        asset_id: str | None = None,
         token_id: str | None = None,
         id: str | None = None,
         market: str | None = None,
@@ -2110,7 +2156,7 @@ class AsyncSecureClient:
 
         async def fetch(cursor: str | None) -> Page[OpenOrder]:
             path, params = _account_actions.build_list_open_orders_request(
-                token_id=token_id, id=id, market=market, cursor=cursor
+                asset_id=asset_id, token_id=token_id, id=id, market=market, cursor=cursor
             )
             payload = await self._ctx.secure_clob.get_json(path, params=params)
             return _account_actions.parse_open_orders_page(payload)
@@ -2127,6 +2173,7 @@ class AsyncSecureClient:
     def list_account_trades(
         self,
         *,
+        asset_id: str | None = None,
         token_id: str | None = None,
         id: str | None = None,
         market: str | None = None,
@@ -2142,6 +2189,7 @@ class AsyncSecureClient:
 
         async def fetch(cursor: str | None) -> Page[ClobTrade]:
             path, params = _account_actions.build_list_account_trades_request(
+                asset_id=asset_id,
                 token_id=token_id,
                 id=id,
                 market=market,
@@ -2172,11 +2220,20 @@ class AsyncSecureClient:
         await self._ctx.secure_clob.delete(path, params=params)
 
     async def get_balance_allowance(
-        self, *, asset_type: AssetType, token_id: str | None = None
+        self,
+        *,
+        asset_type: AssetType,
+        asset_id: str | None = None,
+        token_id: str | None = None,
     ) -> BalanceAllowance:
-        """Get balance and allowance information for an asset."""
+        """Get balance and allowance information for an asset.
+
+        Use ``COLLATERAL`` for collateral, ``CONDITIONAL`` for a CTF token ID,
+        or ``CONDITIONAL-V2`` for a Polymarket V2 position ID.
+        """
         path, params = _account_actions.build_balance_allowance_request(
             asset_type=asset_type,
+            asset_id=asset_id,
             token_id=token_id,
             signature_type=signature_type_for(self._ctx.wallet_type),
         )
@@ -2188,7 +2245,8 @@ class AsyncSecureClient:
     async def estimate_market_price(
         self,
         *,
-        token_id: str,
+        asset_id: str | None = None,
+        token_id: str | None = None,
         side: Literal["BUY"],
         amount: Decimal | int | float | str,
         order_type: MarketOrderType = "FOK",
@@ -2197,7 +2255,8 @@ class AsyncSecureClient:
     async def estimate_market_price(
         self,
         *,
-        token_id: str,
+        asset_id: str | None = None,
+        token_id: str | None = None,
         side: Literal["SELL"],
         shares: Decimal | int | float | str,
         order_type: MarketOrderType = "FOK",
@@ -2205,7 +2264,8 @@ class AsyncSecureClient:
     async def estimate_market_price(
         self,
         *,
-        token_id: str,
+        asset_id: str | None = None,
+        token_id: str | None = None,
         side: OrderSide,
         amount: Decimal | int | float | str | None = None,
         shares: Decimal | int | float | str | None = None,
@@ -2218,6 +2278,7 @@ class AsyncSecureClient:
         """
         return await _estimate_market_price(
             self._ctx,
+            asset_id=asset_id,
             token_id=token_id,
             side=side,
             amount=amount,
@@ -2228,7 +2289,8 @@ class AsyncSecureClient:
     async def create_limit_order(
         self,
         *,
-        token_id: str,
+        asset_id: str | None = None,
+        token_id: str | None = None,
         price: Decimal | int | float | str,
         size: Decimal | int | float | str,
         side: OrderSide,
@@ -2246,6 +2308,7 @@ class AsyncSecureClient:
         account for latency and clock skew.
         """
         params = validate_limit_order_params(
+            asset_id=asset_id,
             token_id=token_id,
             price=price,
             size=size,
@@ -2261,7 +2324,8 @@ class AsyncSecureClient:
     async def create_market_order(
         self,
         *,
-        token_id: str,
+        asset_id: str | None = None,
+        token_id: str | None = None,
         side: Literal["BUY"],
         amount: Decimal | int | float | str,
         max_spend: Decimal | int | float | str | None = None,
@@ -2273,7 +2337,8 @@ class AsyncSecureClient:
     async def create_market_order(
         self,
         *,
-        token_id: str,
+        asset_id: str | None = None,
+        token_id: str | None = None,
         side: Literal["SELL"],
         shares: Decimal | int | float | str,
         min_price: Decimal | int | float | str | None = None,
@@ -2283,7 +2348,8 @@ class AsyncSecureClient:
     async def create_market_order(
         self,
         *,
-        token_id: str,
+        asset_id: str | None = None,
+        token_id: str | None = None,
         side: OrderSide,
         amount: Decimal | int | float | str | None = None,
         shares: Decimal | int | float | str | None = None,
@@ -2304,6 +2370,7 @@ class AsyncSecureClient:
         execution.
         """
         return await self._prepare_and_sign_market_order(
+            asset_id=asset_id,
             token_id=token_id,
             side=side,
             amount=amount,
@@ -2318,7 +2385,8 @@ class AsyncSecureClient:
     async def _prepare_and_sign_market_order(
         self,
         *,
-        token_id: str,
+        asset_id: str | None,
+        token_id: str | None,
         side: OrderSide,
         amount: Decimal | int | float | str | None = None,
         shares: Decimal | int | float | str | None = None,
@@ -2329,6 +2397,7 @@ class AsyncSecureClient:
         builder_code: str | None = None,
     ) -> SignedOrder:
         params = validate_market_order_params(
+            asset_id=asset_id,
             token_id=token_id,
             side=side,
             amount=amount,
@@ -2345,7 +2414,8 @@ class AsyncSecureClient:
     async def place_limit_order(
         self,
         *,
-        token_id: str,
+        asset_id: str | None = None,
+        token_id: str | None = None,
         price: Decimal | int | float | str,
         size: Decimal | int | float | str,
         side: OrderSide,
@@ -2360,6 +2430,7 @@ class AsyncSecureClient:
         account for latency and clock skew.
         """
         signed = await self.create_limit_order(
+            asset_id=asset_id,
             token_id=token_id,
             price=price,
             size=size,
@@ -2374,7 +2445,8 @@ class AsyncSecureClient:
     async def place_market_order(
         self,
         *,
-        token_id: str,
+        asset_id: str | None = None,
+        token_id: str | None = None,
         side: Literal["BUY"],
         amount: Decimal | int | float | str,
         max_spend: Decimal | int | float | str | None = None,
@@ -2386,7 +2458,8 @@ class AsyncSecureClient:
     async def place_market_order(
         self,
         *,
-        token_id: str,
+        asset_id: str | None = None,
+        token_id: str | None = None,
         side: Literal["SELL"],
         shares: Decimal | int | float | str,
         min_price: Decimal | int | float | str | None = None,
@@ -2396,7 +2469,8 @@ class AsyncSecureClient:
     async def place_market_order(
         self,
         *,
-        token_id: str,
+        asset_id: str | None = None,
+        token_id: str | None = None,
         side: OrderSide,
         amount: Decimal | int | float | str | None = None,
         shares: Decimal | int | float | str | None = None,
@@ -2417,6 +2491,7 @@ class AsyncSecureClient:
         execution.
         """
         signed = await self._prepare_and_sign_market_order(
+            asset_id=asset_id,
             token_id=token_id,
             side=side,
             amount=amount,
@@ -2700,12 +2775,20 @@ class AsyncSecureClient:
             return await self._dispatch_calls(calls, metadata=resolved_metadata)
         assert condition_id is not None
         context = await self._resolve_market_position_context(condition_id=condition_id)
-        call = split_position_call(
-            target=context.adapter_address,
-            collateral=cast(EvmAddress, self._ctx.environment_config.collateral_token),
-            condition_id=context.condition_id,
-            amount=amount,
-        )
+        if context.protocol == "ctf":
+            assert context.adapter_address is not None
+            call = split_position_call(
+                target=context.adapter_address,
+                collateral=cast(EvmAddress, self._ctx.environment_config.collateral_token),
+                condition_id=context.condition_id,
+                amount=amount,
+            )
+        else:
+            call = split_v2_call(
+                router=cast(EvmAddress, self._ctx.environment_config.protocol_v2_router),
+                condition_id=context.condition_id,
+                amount=amount,
+            )
         resolved_metadata = (
             metadata
             if metadata is not None
@@ -2779,12 +2862,20 @@ class AsyncSecureClient:
             await self._ctx.rpc.eth_call(to=str(balance_call.to), data=balance_call.data)
         )
         resolved_amount = resolve_merge_amount_from_balances(context.condition_id, balances, amount)
-        call = merge_positions_call(
-            target=context.adapter_address,
-            collateral=cast(EvmAddress, self._ctx.environment_config.collateral_token),
-            condition_id=context.condition_id,
-            amount=resolved_amount,
-        )
+        if context.protocol == "ctf":
+            assert context.adapter_address is not None
+            call = merge_positions_call(
+                target=context.adapter_address,
+                collateral=cast(EvmAddress, self._ctx.environment_config.collateral_token),
+                condition_id=context.condition_id,
+                amount=resolved_amount,
+            )
+        else:
+            call = merge_v2_call(
+                router=cast(EvmAddress, self._ctx.environment_config.protocol_v2_router),
+                condition_id=context.condition_id,
+                amount=resolved_amount,
+            )
         resolved_metadata = (
             metadata
             if metadata is not None
@@ -2798,12 +2889,12 @@ class AsyncSecureClient:
         positions: Sequence[MergePositionRequest],
         metadata: str | None = None,
     ) -> TransactionHandle:
-        """Merge multiple market positions or multiple combo positions back into collateral.
+        """Merge multiple market positions or Polymarket V2 positions into collateral.
 
         Args:
-            positions: Position merge requests. Use ``position_id`` for combo
-                positions, or ``condition_id`` / ``market_id`` for market positions.
-                Do not mix combo and market requests in the same batch.
+            positions: Position merge requests. Use ``position_id`` for a
+                Polymarket V2 position, or ``condition_id`` / ``market_id`` for
+                market positions. Do not mix identifier styles in the same batch.
                 Omit ``amount`` or pass ``"max"`` to merge the largest available
                 balanced amount for that condition.
 
@@ -2819,7 +2910,7 @@ class AsyncSecureClient:
         ]
         batch_kinds = {position.kind for position in normalized}
         if len(batch_kinds) != 1:
-            raise UserInputError("Cannot mix market and combo positions in one merge batch")
+            raise UserInputError("Cannot mix market and Polymarket V2 positions in one merge batch")
 
         seen_conditions: set[str] = set()
         calls: list[TransactionCall] = []
@@ -2829,7 +2920,9 @@ class AsyncSecureClient:
                 decoded = decode_combo_outcome_position_id(position.position_id)
                 condition_key = str(decoded.condition_id)
                 if condition_key in seen_conditions:
-                    raise UserInputError("position_ids must reference distinct combo conditions")
+                    raise UserInputError(
+                        "position_ids must reference distinct Polymarket V2 conditions"
+                    )
                 seen_conditions.add(condition_key)
                 token_ids = derive_combo_outcome_position_ids(decoded.condition_id)
                 balance_call = erc1155_balance_of_batch_call(
@@ -2871,16 +2964,26 @@ class AsyncSecureClient:
             resolved_amount = resolve_merge_amount_from_balances(
                 context.condition_id, balances, position.amount
             )
-            calls.append(
-                merge_positions_call(
-                    target=context.adapter_address,
-                    collateral=cast(EvmAddress, self._ctx.environment_config.collateral_token),
-                    condition_id=context.condition_id,
-                    amount=resolved_amount,
+            if context.protocol == "ctf":
+                assert context.adapter_address is not None
+                calls.append(
+                    merge_positions_call(
+                        target=context.adapter_address,
+                        collateral=cast(EvmAddress, self._ctx.environment_config.collateral_token),
+                        condition_id=context.condition_id,
+                        amount=resolved_amount,
+                    )
                 )
-            )
+            else:
+                calls.append(
+                    merge_v2_call(
+                        router=cast(EvmAddress, self._ctx.environment_config.protocol_v2_router),
+                        condition_id=context.condition_id,
+                        amount=resolved_amount,
+                    )
+                )
 
-        batch_label = "combo positions" if "combo" in batch_kinds else "positions"
+        batch_label = "Polymarket V2 positions" if "combo" in batch_kinds else "positions"
         resolved_metadata = (
             metadata if metadata is not None else f"Merge {len(calls)} {batch_label}"
         )
@@ -2906,10 +3009,10 @@ class AsyncSecureClient:
         position_id: str | None = None,
         metadata: str | None = None,
     ) -> TransactionHandle:
-        """Redeem resolved market or combo positions.
+        """Redeem resolved market positions or a Polymarket V2 position.
 
-        Provide exactly one of ``condition_id``, ``market_id``, or combo
-        ``position_id``.
+        Provide exactly one of ``condition_id``, ``market_id``, or ``position_id``.
+        A ``position_id`` identifies a specific Polymarket V2 YES/NO position.
 
         Returns:
             A transaction handle. Await ``wait()`` to wait for a terminal outcome.
@@ -2930,7 +3033,7 @@ class AsyncSecureClient:
                 await self._ctx.rpc.eth_call(to=str(balance_call.to), data=balance_call.data)
             )
             if balance == 0:
-                raise UserInputError("Combo position has no balance to redeem")
+                raise UserInputError("Position has no balance to redeem")
             call = redeem_v2_call(
                 router=cast(EvmAddress, self._ctx.environment_config.protocol_v2_router),
                 condition_id=decoded.condition_id,
@@ -2938,7 +3041,7 @@ class AsyncSecureClient:
                 amount=balance,
             )
             resolved_metadata = (
-                metadata if metadata is not None else f"Redeem combo position {position_id}"
+                metadata if metadata is not None else f"Redeem position {position_id}"
             )
             return await self._dispatch_single_call(call, metadata=resolved_metadata)
         context = await self._resolve_market_position_context(
@@ -2946,17 +3049,47 @@ class AsyncSecureClient:
             market_id=market_id,
             closed=True,
         )
-        call = ctf_redeem_positions_call(
-            ctf=context.adapter_address,
-            collateral=cast(EvmAddress, self._ctx.environment_config.collateral_token),
-            condition_id=context.condition_id,
-        )
+        if context.protocol == "ctf":
+            assert context.adapter_address is not None
+            calls = [
+                ctf_redeem_positions_call(
+                    ctf=context.adapter_address,
+                    collateral=cast(EvmAddress, self._ctx.environment_config.collateral_token),
+                    condition_id=context.condition_id,
+                )
+            ]
+        else:
+            balance_call = erc1155_balance_of_batch_call(
+                token_address=context.position_erc1155_address,
+                owners=[self._ctx.wallet, self._ctx.wallet],
+                token_ids=[str(asset_id) for asset_id in context.outcome_ids],
+            )
+            balances = decode_erc1155_balance_of_batch_result(
+                await self._ctx.rpc.eth_call(to=str(balance_call.to), data=balance_call.data)
+            )
+            if len(balances) != 2:
+                raise UnexpectedResponseError("Expected two position balances")
+            calls = [
+                redeem_v2_call(
+                    router=cast(EvmAddress, self._ctx.environment_config.protocol_v2_router),
+                    condition_id=context.condition_id,
+                    outcome_index=outcome_index,
+                    amount=balance,
+                )
+                for outcome_index, balance in enumerate(balances)
+                if balance > 0
+            ]
+            if not calls:
+                raise UserInputError(
+                    f"Market positions have no balance to redeem for condition "
+                    f"{context.condition_id}"
+                )
         resolved_metadata = (
             metadata
             if metadata is not None
             else f"Redeem positions for condition {context.condition_id}"
         )
-        return await self._dispatch_single_call(call, metadata=resolved_metadata)
+        return await self._dispatch_calls(calls, metadata=resolved_metadata)
 
     async def plan_collateral_return(self) -> CollateralReturnPlanResponse:
         """Plan a collateral return for the authenticated wallet.
@@ -3165,6 +3298,7 @@ class AsyncSecureClient:
             ),
             conditional_tokens=cast(EvmAddress, self._ctx.environment_config.conditional_tokens),
             neg_risk_adapter=cast(EvmAddress, self._ctx.environment_config.neg_risk_adapter),
+            position_manager=cast(EvmAddress, self._ctx.environment_config.position_manager),
         )
 
     async def post_order(self, signed_order: SignedOrder) -> OrderResponse:
@@ -3233,11 +3367,17 @@ class AsyncSecureClient:
         )
 
     async def cancel_market_orders(
-        self, *, market: str | None = None, token_id: str | None = None
+        self,
+        *,
+        market: str | None = None,
+        asset_id: str | None = None,
+        token_id: str | None = None,
     ) -> CancelOrdersResponse:
-        """Cancel open orders matching a market or token filter."""
+        """Cancel open orders matching a market or CLOB asset filter."""
         path, body = _cancel_actions.build_cancel_market_orders_request(
-            market=market, token_id=token_id
+            market=market,
+            asset_id=asset_id,
+            token_id=token_id,
         )
         return _cancel_actions.parse_cancel_orders_response(
             await self._ctx.secure_clob.delete_json(path, json=body)

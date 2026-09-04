@@ -7,8 +7,10 @@ from polymarket._internal.actions.orders import post as _post_actions
 from polymarket._internal.actions.orders.allowance import (
     fetch_current_order_allowance,
     fetch_current_order_allowance_sync,
+    resolve_order_balance_allowance_target,
 )
-from polymarket._internal.actions.orders.context import resolve_exchange_address
+from polymarket._internal.actions.orders.context import resolve_order_exchange_address
+from polymarket._internal.protocol import is_v2_position_id
 from polymarket._internal.wallet import signature_type_for
 from polymarket.errors import RequestRejectedError
 from polymarket.models.clob import AssetType
@@ -79,9 +81,11 @@ async def _approve_order_if_under_allowance(
 ) -> bool:
     ctx = client._ctx  # pyright: ignore[reportPrivateUsage]
     metadata = await ctx.order_metadata.resolve_market(ctx, token_id=signed_order.token_id)
-    spender = resolve_exchange_address(ctx.environment_config, metadata.neg_risk)
+    spender = resolve_order_exchange_address(
+        ctx.environment_config, asset_id=signed_order.token_id, neg_risk=metadata.neg_risk
+    )
     current = await fetch_current_order_allowance(
-        ctx, side=signed_order.side, token_id=signed_order.token_id, spender=spender
+        ctx, side=signed_order.side, asset_id=signed_order.token_id, spender=spender
     )
     required = signed_order.maker_amount
     if current >= required:
@@ -95,7 +99,11 @@ async def _approve_order_if_under_allowance(
         )
     else:
         handle = await client.approve_erc1155_for_all(
-            token_address=ctx.environment_config.conditional_tokens,
+            token_address=(
+                ctx.environment_config.position_manager
+                if is_v2_position_id(signed_order.token_id)
+                else ctx.environment_config.conditional_tokens
+            ),
             operator_address=str(spender),
         )
     await handle.wait()
@@ -106,9 +114,11 @@ async def _approve_order_if_under_allowance(
 def _approve_order_if_under_allowance_sync(client: SecureClient, signed_order: SignedOrder) -> bool:
     ctx = client._ctx  # pyright: ignore[reportPrivateUsage]
     metadata = ctx.order_metadata.resolve_market(ctx, token_id=signed_order.token_id)
-    spender = resolve_exchange_address(ctx.environment_config, metadata.neg_risk)
+    spender = resolve_order_exchange_address(
+        ctx.environment_config, asset_id=signed_order.token_id, neg_risk=metadata.neg_risk
+    )
     current = fetch_current_order_allowance_sync(
-        ctx, side=signed_order.side, token_id=signed_order.token_id, spender=spender
+        ctx, side=signed_order.side, asset_id=signed_order.token_id, spender=spender
     )
     required = signed_order.maker_amount
     if current >= required:
@@ -122,7 +132,11 @@ def _approve_order_if_under_allowance_sync(client: SecureClient, signed_order: S
         )
     else:
         handle = client.approve_erc1155_for_all(
-            token_address=ctx.environment_config.conditional_tokens,
+            token_address=(
+                ctx.environment_config.position_manager
+                if is_v2_position_id(signed_order.token_id)
+                else ctx.environment_config.conditional_tokens
+            ),
             operator_address=str(spender),
         )
     handle.wait()
@@ -132,18 +146,18 @@ def _approve_order_if_under_allowance_sync(client: SecureClient, signed_order: S
 
 async def _refresh_balance_allowance(client: AsyncSecureClient, signed_order: SignedOrder) -> None:
     ctx = client._ctx  # pyright: ignore[reportPrivateUsage]
-    asset_type, token_id = _refresh_target(signed_order)
+    asset_type, asset_id = _refresh_target(signed_order)
     signature_type = signature_type_for(ctx.wallet_type)
     update_path, update_params = _account_actions.build_update_balance_allowance_request(
         asset_type=asset_type,
-        token_id=token_id,
+        asset_id=asset_id,
         signature_type=signature_type,
     )
     # /balance-allowance/update is a side-effect endpoint; body is not consumed.
     await ctx.secure_clob.get_bytes(update_path, params=update_params)
     fetch_path, fetch_params = _account_actions.build_balance_allowance_request(
         asset_type=asset_type,
-        token_id=token_id,
+        asset_id=asset_id,
         signature_type=signature_type,
     )
     _account_actions.parse_balance_allowance(
@@ -153,17 +167,17 @@ async def _refresh_balance_allowance(client: AsyncSecureClient, signed_order: Si
 
 def _refresh_balance_allowance_sync(client: SecureClient, signed_order: SignedOrder) -> None:
     ctx = client._ctx  # pyright: ignore[reportPrivateUsage]
-    asset_type, token_id = _refresh_target(signed_order)
+    asset_type, asset_id = _refresh_target(signed_order)
     signature_type = signature_type_for(ctx.wallet_type)
     update_path, update_params = _account_actions.build_update_balance_allowance_request(
         asset_type=asset_type,
-        token_id=token_id,
+        asset_id=asset_id,
         signature_type=signature_type,
     )
     ctx.secure_clob.get_bytes(update_path, params=update_params)
     fetch_path, fetch_params = _account_actions.build_balance_allowance_request(
         asset_type=asset_type,
-        token_id=token_id,
+        asset_id=asset_id,
         signature_type=signature_type,
     )
     _account_actions.parse_balance_allowance(
@@ -172,9 +186,9 @@ def _refresh_balance_allowance_sync(client: SecureClient, signed_order: SignedOr
 
 
 def _refresh_target(signed_order: SignedOrder) -> tuple[AssetType, str | None]:
-    if signed_order.side == "BUY":
-        return "COLLATERAL", None
-    return "CONDITIONAL", signed_order.token_id
+    return resolve_order_balance_allowance_target(
+        side=signed_order.side, asset_id=signed_order.token_id
+    )
 
 
 __all__ = [

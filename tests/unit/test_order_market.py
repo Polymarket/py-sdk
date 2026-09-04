@@ -21,11 +21,12 @@ PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff8
 SIGNER_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 FAKE_CREDS = ApiKeyCreds(key="test-key", passphrase="test-passphrase", secret="dGVzdA==")
 _CONDITION_ID = "0x5c19f205507ce03ff5f3be08a8090a5969ea6870cc07b902a4ca2e61dfe48fdd"
+_CTF_ASSET_ID = str((1 << 40) + 8_501_497)
 
 
 def _book_payload(*, bids: list[dict[str, str]], asks: list[dict[str, str]]) -> dict[str, Any]:
     return {
-        "asset_id": "8501497",
+        "asset_id": _CTF_ASSET_ID,
         "market": "0xMARKET",
         "bids": bids,
         "asks": asks,
@@ -39,12 +40,12 @@ def _book_payload(*, bids: list[dict[str, str]], asks: list[dict[str, str]]) -> 
 
 def _market_routes(*, neg_risk: bool = False) -> dict[str, dict[str, Any]]:
     return {
-        "/markets-by-token/8501497": {"condition_id": _CONDITION_ID},
+        f"/markets-by-token/{_CTF_ASSET_ID}": {"condition_id": _CONDITION_ID},
         f"/clob-markets/{_CONDITION_ID}": {
             "fd": {"r": 0, "e": 0},
             "mts": 0.01,
             "nr": neg_risk,
-            "t": [{"t": "8501497", "o": "Yes"}],
+            "t": [{"t": _CTF_ASSET_ID, "o": "Yes"}],
         },
     }
 
@@ -192,7 +193,7 @@ def test_prepare_market_order_draft_buy_uses_book_and_tick() -> None:
         try:
             _install_public_clob(client, _tracked_route_handler(routes, captured))
             params = validate_market_order_params(
-                token_id="8501497", side="BUY", amount=Decimal("2"), order_type="FAK"
+                token_id=_CTF_ASSET_ID, side="BUY", amount=Decimal("2"), order_type="FAK"
             )
             draft = await prepare_market_order_draft(client._ctx, params)
             return draft.offered_amount, draft.requested_amount
@@ -221,7 +222,7 @@ def test_prepare_market_order_draft_sell_swaps_amounts() -> None:
         try:
             _install_public_clob(client, _multi_route_handler(routes))
             params = validate_market_order_params(
-                token_id="8501497", side="SELL", shares=Decimal(4), order_type="FAK"
+                token_id=_CTF_ASSET_ID, side="SELL", shares=Decimal(4), order_type="FAK"
             )
             draft = await prepare_market_order_draft(client._ctx, params)
             return draft.offered_amount, draft.requested_amount
@@ -242,7 +243,7 @@ def test_prepare_market_order_draft_buy_uses_max_price_without_book() -> None:
         try:
             _install_public_clob(client, _tracked_route_handler(routes, captured))
             params = validate_market_order_params(
-                token_id="8501497",
+                token_id=_CTF_ASSET_ID,
                 side="BUY",
                 amount=Decimal("100"),
                 max_price=Decimal("0.55"),
@@ -268,7 +269,7 @@ def test_prepare_market_order_draft_sell_uses_min_price_without_book() -> None:
         try:
             _install_public_clob(client, _tracked_route_handler(routes, captured))
             params = validate_market_order_params(
-                token_id="8501497",
+                token_id=_CTF_ASSET_ID,
                 side="SELL",
                 shares=Decimal("180"),
                 min_price=Decimal("0.54"),

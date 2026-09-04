@@ -19,6 +19,7 @@ from polymarket.models.clob import (
     EarningBreakdown,
     GaslessTransaction,
     LastTradePrice,
+    LastTradePriceForAsset,
     LastTradePriceForToken,
     MakerOrder,
     MarketNotificationPayload,
@@ -222,6 +223,7 @@ from polymarket.models.trading import (
 )
 from polymarket.models.types import (
     ApiKey,
+    ClobAssetId,
     ComboActivityId,
     ComboConditionId,
     CommentId,
@@ -238,6 +240,7 @@ from polymarket.models.types import (
     TagId,
     TokenId,
     to_combo_condition_id,
+    to_condition_id,
     to_ctf_condition_id,
 )
 
@@ -258,6 +261,7 @@ __all__ = [
     "ChildCommentCreatedNotification",
     "ChildCommentNotificationPayload",
     "ClobTrade",
+    "ClobAssetId",
     "ComboAutoRedeemedNotification",
     "ComboAutoRedeemedNotificationPayload",
     "TradeStatus",
@@ -268,6 +272,7 @@ __all__ = [
     "Erc1155TradingApproval",
     "GaslessTransaction",
     "LastTradePrice",
+    "LastTradePriceForAsset",
     "LastTradePriceForToken",
     "MakerOrder",
     "MarketNotificationPayload",
@@ -461,6 +466,7 @@ __all__ = [
     "TeamOrdering",
     "TokenId",
     "to_combo_condition_id",
+    "to_condition_id",
     "to_ctf_condition_id",
     "Trade",
     "TradeActivity",

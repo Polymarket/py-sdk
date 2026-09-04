@@ -83,6 +83,7 @@ _NEW_MARKET: dict[str, Any] = {
     "event_type": "new_market",
     "id": "evt-1",
     "market": "0xmarket",
+    "condition_id": "0x" + "11" * 32,
     "question": "Will X happen?",
     "assets_ids": ["token-a", "token-b"],
     "active": True,
@@ -176,6 +177,8 @@ def test_best_bid_ask_event_parses() -> None:
 def test_new_market_event_parses_with_assets_ids_aliased() -> None:
     event = parse_market_event(_NEW_MARKET)
     assert isinstance(event, NewMarketEvent)
+    assert event.payload.market == "0xmarket"
+    assert event.payload.condition_id == "0x" + "11" * 32
     assert event.payload.token_ids == ("token-a", "token-b")
     assert event.payload.active is True
 

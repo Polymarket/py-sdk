@@ -8,16 +8,21 @@ from typing import Literal, cast
 from eth_abi.abi import encode as abi_encode
 from eth_utils.crypto import keccak
 
+from polymarket._internal.protocol import (
+    DecodedV2OutcomePositionId,
+    decode_v2_outcome_position_id,
+)
 from polymarket.errors import UnexpectedResponseError, UserInputError
 from polymarket.models.data.portfolio import Position
 from polymarket.models.gamma.market import Market
 from polymarket.models.types import (
+    ClobAssetId,
     ComboConditionId,
-    CtfConditionId,
+    ConditionId,
     MarketId,
     PositionId,
-    TokenId,
     to_combo_condition_id,
+    to_condition_id,
 )
 from polymarket.types import EvmAddress
 
@@ -39,18 +44,20 @@ class ComboPositionContext:
 
 @dataclass(frozen=True, slots=True)
 class MarketPositionContext:
+    protocol: Literal["ctf", "v2"]
     market_id: MarketId
-    condition_id: CtfConditionId
-    neg_risk: bool
-    adapter_address: EvmAddress
+    condition_id: ConditionId
     position_erc1155_address: EvmAddress
-    token_ids: tuple[TokenId, TokenId]
+    token_ids: tuple[ClobAssetId, ClobAssetId]
+    neg_risk: bool | None = None
+    adapter_address: EvmAddress | None = None
+
+    @property
+    def outcome_ids(self) -> tuple[ClobAssetId, ClobAssetId]:
+        return self.token_ids
 
 
-@dataclass(frozen=True, slots=True)
-class DecodedComboOutcomePositionId:
-    condition_id: ComboConditionId
-    outcome_index: Literal[0, 1]
+DecodedComboOutcomePositionId = DecodedV2OutcomePositionId
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,28 +87,43 @@ def normalize_market_position_context(
     neg_risk_collateral_adapter: EvmAddress,
     conditional_tokens: EvmAddress,
     neg_risk_adapter: EvmAddress,
+    position_manager: EvmAddress,
 ) -> MarketPositionContext:
     condition_id = market.condition_id
     if condition_id is None:
         raise UnexpectedResponseError(f"Missing condition ID for {context}")
 
-    neg_risk = market.state.neg_risk
-    if neg_risk is None:
-        raise UnexpectedResponseError(f"Missing negative-risk flag for {context}")
-
     yes_token_id = market.outcomes.yes.token_id
     no_token_id = market.outcomes.no.token_id
-    if yes_token_id is None or no_token_id is None:
-        raise UnexpectedResponseError(f"Missing market token IDs for {context}")
+    if (yes_token_id is None) != (no_token_id is None):
+        raise UnexpectedResponseError(f"Incomplete market token IDs for {context}")
+    if yes_token_id is not None and no_token_id is not None:
+        neg_risk = market.state.neg_risk
+        if neg_risk is None:
+            raise UnexpectedResponseError(f"Missing negative-risk flag for {context}")
+        return MarketPositionContext(
+            protocol="ctf",
+            market_id=market.id,
+            condition_id=condition_id,
+            neg_risk=neg_risk,
+            adapter_address=neg_risk_collateral_adapter if neg_risk else collateral_adapter,
+            position_erc1155_address=neg_risk_adapter if neg_risk else conditional_tokens,
+            token_ids=(yes_token_id, no_token_id),
+        )
 
-    return MarketPositionContext(
-        market_id=market.id,
-        condition_id=condition_id,
-        neg_risk=neg_risk,
-        adapter_address=neg_risk_collateral_adapter if neg_risk else collateral_adapter,
-        position_erc1155_address=neg_risk_adapter if neg_risk else conditional_tokens,
-        token_ids=(yes_token_id, no_token_id),
-    )
+    yes_position_id = market.outcomes.yes.position_id
+    no_position_id = market.outcomes.no.position_id
+    if (yes_position_id is None) != (no_position_id is None):
+        raise UnexpectedResponseError(f"Incomplete market position IDs for {context}")
+    if yes_position_id is not None and no_position_id is not None:
+        return MarketPositionContext(
+            protocol="v2",
+            market_id=market.id,
+            condition_id=condition_id,
+            position_erc1155_address=position_manager,
+            token_ids=(yes_position_id, no_position_id),
+        )
+    raise UnexpectedResponseError(f"Missing tradeable outcome IDs for {context}")
 
 
 def expect_binary_positions(positions: Sequence[Position]) -> BinaryPositions:
@@ -257,26 +279,19 @@ def derive_combo_position_context(legs: CanonicalComboLegs) -> ComboPositionCont
 
 
 def derive_combo_outcome_position_ids(condition_id: str) -> tuple[PositionId, PositionId]:
-    combo_condition_id = to_combo_condition_id(condition_id)
+    normalized_condition_id = to_condition_id(condition_id)
+    if len(normalized_condition_id) != 64:
+        raise UserInputError("Protocol v2 condition ID must be a 31-byte hex string")
     return (
-        PositionId(str(int(f"{combo_condition_id}00", 16))),
-        PositionId(str(int(f"{combo_condition_id}01", 16))),
+        PositionId(str(int(f"{normalized_condition_id}00", 16))),
+        PositionId(str(int(f"{normalized_condition_id}01", 16))),
     )
 
 
 def decode_combo_outcome_position_id(position_id: str) -> DecodedComboOutcomePositionId:
-    value = _parse_position_id(position_id)
-    encoded = f"{value:0{_UINT256_BYTE_LENGTH * 2}x}"
-    module_id = int(encoded[:2], 16)
-    outcome_index = int(encoded[-2:], 16)
-    if module_id != _COMBINATORIAL_MODULE_ID:
-        raise UserInputError("Combo position ID must use the combinatorial module")
-    if outcome_index not in (0, 1):
-        raise UserInputError("Combo position ID must be a YES/NO position ID")
-    return DecodedComboOutcomePositionId(
-        condition_id=to_combo_condition_id(f"0x{encoded[:-2]}"),
-        outcome_index=outcome_index,
-    )
+    """Deprecated alias for :func:`decode_v2_outcome_position_id`."""
+
+    return decode_v2_outcome_position_id(PositionId(position_id))
 
 
 def normalize_batch_merge_position_request(
@@ -339,11 +354,13 @@ __all__ = [
     "CanonicalComboLegs",
     "ComboPositionContext",
     "DecodedComboOutcomePositionId",
+    "DecodedV2OutcomePositionId",
     "MarketPositionContext",
     "calculate_max_merge_amount",
     "calculate_max_merge_amount_from_balances",
     "canonicalize_combo_legs",
     "decode_combo_outcome_position_id",
+    "decode_v2_outcome_position_id",
     "derive_combo_outcome_position_ids",
     "derive_combo_position_context",
     "expect_binary_positions",

@@ -21,16 +21,17 @@ PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff8
 SIGNER_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 FAKE_CREDS = ApiKeyCreds(key="test-key", passphrase="test-passphrase", secret="dGVzdA==")
 _CONDITION_ID = "0x5c19f205507ce03ff5f3be08a8090a5969ea6870cc07b902a4ca2e61dfe48fdd"
+_CTF_ASSET_ID = str((1 << 40) + 8_501_497)
 
 
 def _market_routes(*, tick_size: float = 0.01, neg_risk: bool = False) -> dict[str, Any]:
     return {
-        "/markets-by-token/8501497": {"condition_id": _CONDITION_ID},
+        f"/markets-by-token/{_CTF_ASSET_ID}": {"condition_id": _CONDITION_ID},
         f"/clob-markets/{_CONDITION_ID}": {
             "fd": {"r": 0, "e": 0},
             "mts": tick_size,
             "nr": neg_risk,
-            "t": [{"t": "8501497", "o": "Yes"}],
+            "t": [{"t": _CTF_ASSET_ID, "o": "Yes"}],
         },
     }
 
@@ -226,7 +227,7 @@ def test_prepare_limit_order_draft_buy_computes_offered_requested() -> None:
         try:
             _install_public_clob(client, _multi_route_handler(routes))
             params = validate_limit_order_params(
-                token_id="8501497", price="0.5", size="10", side="BUY"
+                token_id=_CTF_ASSET_ID, price="0.5", size="10", side="BUY"
             )
             draft = await prepare_limit_order_draft(client._ctx, params)
             return (
@@ -253,7 +254,7 @@ def test_prepare_limit_order_draft_sell_swaps_amounts() -> None:
         try:
             _install_public_clob(client, _multi_route_handler(routes))
             params = validate_limit_order_params(
-                token_id="8501497", price="0.5", size="10", side="SELL"
+                token_id=_CTF_ASSET_ID, price="0.5", size="10", side="SELL"
             )
             draft = await prepare_limit_order_draft(client._ctx, params)
             return draft.offered_amount, draft.requested_amount, draft.exchange_address
@@ -274,7 +275,7 @@ def test_prepare_limit_order_draft_sets_gtd_when_expiration_given() -> None:
         try:
             _install_public_clob(client, _multi_route_handler(routes))
             params = validate_limit_order_params(
-                token_id="8501497",
+                token_id=_CTF_ASSET_ID,
                 price="0.5",
                 size="10",
                 side="BUY",
@@ -298,7 +299,7 @@ def test_prepare_limit_order_draft_rejects_off_tick_price() -> None:
         try:
             _install_public_clob(client, _multi_route_handler(routes))
             params = validate_limit_order_params(
-                token_id="8501497", price="0.555", size="10", side="BUY"
+                token_id=_CTF_ASSET_ID, price="0.555", size="10", side="BUY"
             )
             await prepare_limit_order_draft(client._ctx, params)
         finally:
@@ -316,7 +317,7 @@ def test_prepare_limit_order_draft_rejects_price_outside_unit_range() -> None:
         try:
             _install_public_clob(client, _multi_route_handler(routes))
             params = validate_limit_order_params(
-                token_id="8501497", price="0.005", size="10", side="BUY"
+                token_id=_CTF_ASSET_ID, price="0.005", size="10", side="BUY"
             )
             await prepare_limit_order_draft(client._ctx, params)
         finally:

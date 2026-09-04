@@ -8,6 +8,7 @@ from polymarket._internal.actions._cursor import (
     next_cursor_or_none,
     validate_cursor,
 )
+from polymarket._internal.actions.exchange_asset import resolve_optional_asset_id
 from polymarket._internal.request import QueryParamValue
 from polymarket._internal.validation import require_nonempty
 from polymarket.errors import UnexpectedResponseError, UserInputError
@@ -24,13 +25,14 @@ _OpenOrdersAdapter = TypeAdapter(tuple[OpenOrder, ...])
 _ClobTradesAdapter = TypeAdapter(tuple[ClobTrade, ...])
 _NotificationsAdapter = TypeAdapter(tuple[Notification, ...])
 
-_VALID_ASSET_TYPES: frozenset[str] = frozenset({"COLLATERAL", "CONDITIONAL"})
+_VALID_ASSET_TYPES: frozenset[str] = frozenset({"COLLATERAL", "CONDITIONAL", "CONDITIONAL-V2"})
 
 
 def _validate_asset_type(asset_type: object) -> None:
     if asset_type not in _VALID_ASSET_TYPES:
         raise UserInputError(
-            f"asset_type must be 'COLLATERAL' or 'CONDITIONAL', got {asset_type!r}."
+            "asset_type must be 'COLLATERAL', 'CONDITIONAL', or "
+            f"'CONDITIONAL-V2', got {asset_type!r}."
         )
 
 
@@ -59,14 +61,16 @@ def parse_closed_only_mode(data: object) -> bool:
 
 def build_list_open_orders_request(
     *,
+    asset_id: str | None = None,
     token_id: str | None = None,
     id: str | None = None,
     market: str | None = None,
     cursor: str | None = None,
 ) -> tuple[str, dict[str, QueryParamValue]]:
     params: dict[str, QueryParamValue] = {}
-    if token_id is not None:
-        _add_optional(params, "asset_id", require_nonempty("token_id", token_id))
+    resolved_asset = resolve_optional_asset_id(asset_id=asset_id, token_id=token_id)
+    if resolved_asset is not None:
+        _add_optional(params, "asset_id", resolved_asset)
     if id is not None:
         _add_optional(params, "id", require_nonempty("id", id))
     if market is not None:
@@ -104,6 +108,7 @@ def parse_open_order(data: object) -> OpenOrder:
 
 def build_list_account_trades_request(
     *,
+    asset_id: str | None = None,
     token_id: str | None = None,
     id: str | None = None,
     market: str | None = None,
@@ -113,8 +118,9 @@ def build_list_account_trades_request(
     cursor: str | None = None,
 ) -> tuple[str, dict[str, QueryParamValue]]:
     params: dict[str, QueryParamValue] = {}
-    if token_id is not None:
-        _add_optional(params, "asset_id", require_nonempty("token_id", token_id))
+    resolved_asset = resolve_optional_asset_id(asset_id=asset_id, token_id=token_id)
+    if resolved_asset is not None:
+        _add_optional(params, "asset_id", resolved_asset)
     if id is not None:
         _add_optional(params, "id", require_nonempty("id", id))
     if market is not None:
@@ -184,7 +190,8 @@ def build_drop_notifications_request(
 def build_balance_allowance_request(
     *,
     asset_type: AssetType,
-    token_id: str | None,
+    asset_id: str | None = None,
+    token_id: str | None = None,
     signature_type: int,
 ) -> tuple[str, dict[str, QueryParamValue]]:
     _validate_asset_type(asset_type)
@@ -192,8 +199,9 @@ def build_balance_allowance_request(
         "asset_type": asset_type,
         "signature_type": signature_type,
     }
-    if token_id is not None:
-        params["token_id"] = require_nonempty("token_id", token_id)
+    resolved_asset = resolve_optional_asset_id(asset_id=asset_id, token_id=token_id)
+    if resolved_asset is not None:
+        params["token_id"] = resolved_asset
     return "/balance-allowance", params
 
 
@@ -204,7 +212,8 @@ def parse_balance_allowance(data: object) -> BalanceAllowance:
 def build_update_balance_allowance_request(
     *,
     asset_type: AssetType,
-    token_id: str | None,
+    asset_id: str | None = None,
+    token_id: str | None = None,
     signature_type: int,
 ) -> tuple[str, dict[str, QueryParamValue]]:
     _validate_asset_type(asset_type)
@@ -212,8 +221,9 @@ def build_update_balance_allowance_request(
         "asset_type": asset_type,
         "signature_type": signature_type,
     }
-    if token_id is not None:
-        params["token_id"] = require_nonempty("token_id", token_id)
+    resolved_asset = resolve_optional_asset_id(asset_id=asset_id, token_id=token_id)
+    if resolved_asset is not None:
+        params["token_id"] = resolved_asset
     return "/balance-allowance/update", params
 
 
