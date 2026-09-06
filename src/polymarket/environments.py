@@ -34,6 +34,7 @@ class _EnvironmentConfig:
     relayer_url: str
     gamma_url: str
     data_url: str
+    bridge_url: str
     rfq_url: str
     rtds_ws_url: str
     sports_ws_url: str
@@ -102,6 +103,7 @@ PRODUCTION = _create_environment(
         relayer_url="https://relayer-v2.polymarket.com",
         gamma_url="https://gamma-api.polymarket.com",
         data_url="https://data-api.polymarket.com",
+        bridge_url="https://bridge.polymarket.com",
         rfq_url="https://combos-rfq-api.polymarket.com",
         rtds_ws_url="wss://ws-live-data.polymarket.com",
         sports_ws_url="wss://sports-api.polymarket.com/ws",
