@@ -25,6 +25,8 @@ def test_trade_amount_sentinels_and_combo_discriminator() -> None:
     assert isinstance(trade, TradeActivity)
     assert trade.amount == Decimal("4.2") and trade.shares == Decimal(10)
     assert trade.outcome_index is None and trade.title is None and trade.outcome is None
+    direct = TradeActivity.parse_response(payload)
+    assert direct == trade
     combo = parse_activity({**payload, "is_combo": True, "condition_id": "0x03" + "ab" * 30})
     assert isinstance(combo, ComboTradeActivity)
     assert combo.position_id == payload["token_id"]
@@ -63,8 +65,9 @@ def test_activity_variants(kind: str) -> None:
 
 
 def test_unknown_activity_and_bad_shapes() -> None:
-    unknown = parse_activity({"type": "FUTURE_EVENT", "new_field": 123})
+    unknown = parse_activity({"type": "FUTURE_EVENT", "new_field": 123, "name": ""})
     assert isinstance(unknown, UnknownActivity) and unknown.raw["new_field"] == 123
+    assert unknown.name is None and unknown.raw["name"] == ""
     bad_payloads: tuple[object, ...] = (None, [], 1)
     for payload in bad_payloads:
         with pytest.raises(UnexpectedResponseError):

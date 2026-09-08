@@ -168,7 +168,7 @@ def sync_paginate_keyset(
     page_size: int,
     initial_cursor: str | None = None,
 ) -> Paginator[T]:
-    if page_size < 1:
+    if type(page_size) is not int or page_size < 1:
         raise UserInputError("page_size must be a positive integer.")
     if spec.max_page_size is not None and page_size > spec.max_page_size:
         raise UserInputError(f"page_size must be at most {spec.max_page_size}.")
@@ -213,7 +213,7 @@ def async_paginate_keyset(
     page_size: int,
     initial_cursor: str | None = None,
 ) -> AsyncPaginator[T]:
-    if page_size < 1:
+    if type(page_size) is not int or page_size < 1:
         raise UserInputError("page_size must be a positive integer.")
     if spec.max_page_size is not None and page_size > spec.max_page_size:
         raise UserInputError(f"page_size must be at most {spec.max_page_size}.")

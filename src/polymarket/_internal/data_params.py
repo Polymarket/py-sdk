@@ -1,3 +1,4 @@
+import re
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from math import floor
@@ -48,6 +49,8 @@ def build_distinct_condition_ids(
     }[grammar]
     out: dict[str, str] = {}
     for value in items:
+        if type(value) is not str or re.fullmatch(r"0x[0-9a-fA-F]+", value) is None:
+            raise UserInputError("condition_id must be a hex string")
         try:
             parsed = parser(value)
         except TypeError as error:

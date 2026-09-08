@@ -84,6 +84,8 @@ ActivityType = ActivityTypeFilter
 
 
 class _KnownActivityBase(BaseModel):
+    """Wallet activity; amounts are USDC, shares are outcome units, and prices are USDC per share."""
+
     wallet: EvmAddress = Field(validation_alias="proxy_wallet")
     timestamp: datetime
     transaction_hash: TransactionHash = Field(validation_alias="transaction_hash")
@@ -94,6 +96,10 @@ class _KnownActivityBase(BaseModel):
     profile_image_optimized: str | None = Field(
         default=None, validation_alias="profile_image_optimized"
     )
+
+    _profile_text = field_validator(
+        "name", "pseudonym", "bio", "profile_image", "profile_image_optimized", mode="before"
+    )(optional_text)
 
     @field_validator("timestamp", mode="before")
     @classmethod
@@ -136,6 +142,11 @@ class TradeActivity(_KnownActivityBase):
     icon: str | None = None
     event_slug: str | None = None
 
+    _display_text = field_validator(
+        "title", "slug", "icon", "event_slug", "outcome", mode="before"
+    )(optional_text)
+    _outcome_index = field_validator("outcome_index", mode="before")(optional_outcome_index)
+
     @computed_field
     @property
     def token_id(self) -> ClobAssetId:
@@ -166,6 +177,8 @@ class ComboTradeActivity(_KnownActivityBase):
     title: str | None = None
     icon: str | None = None
 
+    _display_text = field_validator("title", "icon", mode="before")(optional_text)
+
     @field_validator("condition_id", mode="before")
     @classmethod
     def _validate_condition_id(cls, value: object) -> ComboConditionId:
@@ -184,6 +197,10 @@ class _MarketEventActivity(_KnownActivityBase):
     slug: str | None = None
     icon: str | None = None
     event_slug: str | None = None
+
+    _display_text = field_validator("title", "slug", "icon", "event_slug", mode="before")(
+        optional_text
+    )
 
     @field_validator("condition_id", mode="before")
     @classmethod
@@ -275,6 +292,10 @@ class UnknownActivity(BaseModel):
         default=None, validation_alias="profile_image_optimized"
     )
     raw: dict[str, Any] = Field(default_factory=dict)
+
+    _profile_text = field_validator(
+        "name", "pseudonym", "bio", "profile_image", "profile_image_optimized", mode="before"
+    )(optional_text)
 
     @field_validator("timestamp", mode="before")
     @classmethod
@@ -423,7 +444,7 @@ _COMBO_ACTIVITY_TYPES: dict[ComboActivityType, type[_ComboActivityBase]] = {
 def parse_activity(payload: object) -> Activity:
     if not isinstance(payload, dict):
         raise UnexpectedResponseError("Activity payload must be an object.")
-    data = _normalize_activity_payload(cast(dict[str, Any], payload))
+    data = dict(cast(dict[str, Any], payload))
     activity_type = data.get("type")
     if activity_type == "TRADE" and data.get("is_combo") is True:
         return ComboTradeActivity.parse_response(data)
@@ -455,27 +476,6 @@ def parse_combo_activities(payload: object) -> tuple[ComboActivity, ...]:
     if not isinstance(payload, list):
         raise UnexpectedResponseError("Combo activity list payload must be a list.")
     return tuple(parse_combo_activity(item) for item in cast(list[object], payload))
-
-
-def _normalize_activity_payload(data: dict[str, Any]) -> dict[str, Any]:
-    normalized = dict(data)
-    for name in (
-        "title",
-        "slug",
-        "icon",
-        "event_slug",
-        "outcome",
-        "name",
-        "pseudonym",
-        "bio",
-        "profile_image",
-        "profile_image_optimized",
-    ):
-        if name in normalized:
-            normalized[name] = optional_text(normalized[name])
-    if "outcome_index" in normalized:
-        normalized["outcome_index"] = optional_outcome_index(normalized["outcome_index"])
-    return normalized
 
 
 __all__ = [
