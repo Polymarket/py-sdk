@@ -84,7 +84,10 @@ ActivityType = ActivityTypeFilter
 
 
 class _KnownActivityBase(BaseModel):
-    """Wallet activity; amounts are USDC, shares are outcome units, and prices are USDC per share."""
+    """Wallet activity with amounts in USDC and shares in outcome units.
+
+    Prices are USDC per share.
+    """
 
     wallet: EvmAddress = Field(validation_alias="proxy_wallet")
     timestamp: datetime

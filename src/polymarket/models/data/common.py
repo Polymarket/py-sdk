@@ -79,7 +79,10 @@ def datetime_from_epoch_seconds(value: object) -> datetime:
         return value
     if isinstance(value, bool) or not isinstance(value, int | float | str):
         raise ValueError("Expected epoch seconds")
-    return datetime.fromtimestamp(float(value), UTC)
+    try:
+        return datetime.fromtimestamp(float(value), UTC)
+    except (OverflowError, OSError) as error:
+        raise ValueError("Epoch seconds are outside the supported datetime range") from error
 
 
 def optional_datetime_from_epoch_seconds(value: object) -> datetime | None:

@@ -39,7 +39,10 @@ def build_distinct_condition_ids(
 ) -> tuple[str, ...] | None:
     if values is None:
         return None
-    items = (values,) if isinstance(values, str) else tuple(values)
+    try:
+        items = (values,) if isinstance(values, str) else tuple(values)
+    except TypeError as error:
+        raise UserInputError("condition_id must be a string or sequence of strings") from error
     if not items:
         raise UserInputError("condition_id must be non-empty")
     parser = {
@@ -65,7 +68,10 @@ def to_epoch_seconds(value: int | datetime) -> int:
     if isinstance(value, datetime):
         if value.tzinfo is None or value.utcoffset() is None:
             raise UserInputError("datetime must be timezone-aware")
-        return floor(value.timestamp())
+        try:
+            return floor(value.timestamp())
+        except (OverflowError, OSError, ValueError) as error:
+            raise UserInputError("datetime is outside the supported timestamp range") from error
     if isinstance(value, bool) or type(value) is not int:
         raise UserInputError("Expected integer epoch seconds or a timezone-aware datetime")
     return value
@@ -76,7 +82,10 @@ def build_event_ids(values: int | Sequence[int] | None) -> tuple[int, ...] | Non
         return None
     if isinstance(values, str):
         raise UserInputError("event_ids must contain positive 32-bit integers")
-    items = (values,) if isinstance(values, int) else tuple(values)
+    try:
+        items = (values,) if isinstance(values, int) else tuple(values)
+    except TypeError as error:
+        raise UserInputError("event_ids must contain positive 32-bit integers") from error
     if not items or any(type(item) is not int or not 0 < item <= 2147483647 for item in items):
         raise UserInputError("event_ids must contain positive 32-bit integers")
     return tuple(dict.fromkeys(items))

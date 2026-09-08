@@ -11,6 +11,7 @@ from polymarket import (
     ComboPosition,
     Holder,
     LiveVolume,
+    MarketLiveVolume,
     MetaHolder,
     OpenInterest,
     PortfolioValue,
@@ -134,3 +135,18 @@ def test_winner_discriminators_and_holder_pnl() -> None:
     assert parse_biggest_winners(sample("biggest-winners_combos"))[0].kind == "combo"
     holder = Holder.parse_response(sample("holders")[0]["holders"][0])
     assert holder.total_pnl is not None
+
+
+def test_malformed_analytics_identity_and_timestamp_raise_sdk_errors() -> None:
+    with pytest.raises(UnexpectedResponseError):
+        OpenInterest.parse_response({"value": 1})
+    with pytest.raises(UnexpectedResponseError):
+        MarketLiveVolume.parse_response({"condition_id": "garbage", "taker_volume": 1})
+    assert (
+        MarketLiveVolume.parse_response({"condition_id": "", "taker_volume": 1}).condition_id
+        is None
+    )
+    with pytest.raises(UnexpectedResponseError):
+        PriceHistoryPoint.parse_response(
+            {"timestamp": 10**100, "price": 0.5, "resolution_seconds": 60}
+        )

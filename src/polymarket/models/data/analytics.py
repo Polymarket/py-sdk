@@ -24,10 +24,13 @@ from polymarket.types import EvmAddress
 class MarketLiveVolume(BaseModel):
     """Market taker volume in USDC."""
 
-    condition_id: ConditionId | None = None
+    condition_id: ConditionId | None
     taker_volume: Decimal
 
-    _optional_text = field_validator("condition_id", mode="before")(optional_text)
+    @field_validator("condition_id", mode="before")
+    @classmethod
+    def _parse_condition(cls, value: object) -> ConditionId | None:
+        return validate_optional_condition_id_response(optional_text(value))
 
     _decimal_from_number = field_validator("taker_volume", mode="before")(decimal_from_number)
 
@@ -44,7 +47,7 @@ class LiveVolume(BaseModel):
 class OpenInterest(BaseModel):
     """Open interest in USDC; ``condition_id=None`` denotes global interest."""
 
-    condition_id: ConditionId | None = None
+    condition_id: ConditionId | None
     value: Decimal
 
     _decimal_from_number = field_validator("value", mode="before")(decimal_from_number)

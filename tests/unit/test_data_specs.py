@@ -50,6 +50,8 @@ WALLET = "0x" + "12" * 20
         ("get_resolutions", {"condition_ids": COMBO}),
         ("get_resolutions", {"condition_ids": CONDITION, "event_ids": [1]}),
         ("get_event_live_volume", {"event_ids": [1, "2"]}),
+        ("get_event_live_volume", {"event_ids": 1.5}),
+        ("list_trades", {"condition_id": 123}),
         ("get_builder_volumes", {"bucket_limit": 91}),
     ],
 )
