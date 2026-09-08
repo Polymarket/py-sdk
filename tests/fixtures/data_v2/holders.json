@@ -1,0 +1,52 @@
+[
+  {
+    "token_id": "92338023949892178944669766466918011858071833335063600591564160751176113496073",
+    "holders": [
+      {
+        "proxy_wallet": "0x1b5ca5e84705cd14ca9953b57434094cac726c0f",
+        "bio": "",
+        "token_id": "92338023949892178944669766466918011858071833335063600591564160751176113496073",
+        "pseudonym": "",
+        "amount": 1878.77239,
+        "display_username_public": false,
+        "outcome_index": 0,
+        "name": "",
+        "profile_image": "",
+        "profile_image_optimized": "",
+        "verified": false,
+        "avg_price": 0.2794,
+        "entry_cost_usdc": 524.991,
+        "current_price": 1.0,
+        "current_value": 1878.7723,
+        "realized_pnl": 0.0001,
+        "unrealized_pnl": 1353.7812,
+        "total_pnl": 1353.7813
+      }
+    ]
+  },
+  {
+    "token_id": "93730658350732768649834008472861182019192630377489777653117511245710309885595",
+    "holders": [
+      {
+        "proxy_wallet": "0xe339bba7fba043520d83516ce22add16beb6e01b",
+        "bio": "",
+        "token_id": "93730658350732768649834008472861182019192630377489777653117511245710309885595",
+        "pseudonym": "Ignorant-Wool-Snorer",
+        "amount": 7493500.0,
+        "display_username_public": true,
+        "outcome_index": 1,
+        "name": "12Alexander12",
+        "profile_image": "",
+        "profile_image_optimized": "",
+        "verified": false,
+        "avg_price": 0.001,
+        "entry_cost_usdc": 7493.5,
+        "current_price": 0.0,
+        "current_value": 0.0,
+        "realized_pnl": 0.0,
+        "unrealized_pnl": -7493.5,
+        "total_pnl": -7493.5
+      }
+    ]
+  }
+]

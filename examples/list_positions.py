@@ -23,15 +23,13 @@ def main() -> None:
                 {
                     "title": position.title or position.slug or position.condition_id,
                     "outcome": position.outcome or "",
-                    "size": position.size if position.size is not None else "0",
-                    "currentValue": (
-                        position.current_value if position.current_value is not None else "0"
-                    ),
-                    "avgPrice": position.avg_price if position.avg_price is not None else "",
-                    "curPrice": position.cur_price if position.cur_price is not None else "",
-                    "redeemable": position.redeemable if position.redeemable is not None else False,
-                    "mergeable": position.mergeable if position.mergeable is not None else False,
-                    "assetId": position.asset_id or "",
+                    "current_size": position.current_size,
+                    "current_value": position.current_value,
+                    "avg_price": position.avg_price,
+                    "current_price": position.current_price,
+                    "redeemable": position.redeemable,
+                    "mergeable": position.mergeable,
+                    "asset_id": position.asset_id,
                 }
                 for position in positions
             ]

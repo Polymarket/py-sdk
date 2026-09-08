@@ -13,7 +13,6 @@ from polymarket import (
     LastTradePrice,
     LastTradePriceForToken,
     OrderBook,
-    PriceHistoryPoint,
     PriceRequest,
     PublicClient,
     SecureClient,
@@ -251,43 +250,6 @@ class TestGetLastTradePrices:
         assert isinstance(result[0], LastTradePriceForToken)
         assert urlparse(str(captured[0].url)).path == "/last-trades-prices"
         assert _body(captured[0]) == [{"token_id": "1"}]
-
-
-class TestGetPriceHistory:
-    def test_maps_token_id_to_market_param(self) -> None:
-        captured: list[httpx.Request] = []
-        with PublicClient() as client:
-            _install_sync_clob(
-                client,
-                _clob_handler(captured, {"history": [{"t": 1700000000, "p": 0.5}]}),
-            )
-            result = client.get_price_history(token_id="abc")
-
-        assert len(result) == 1
-        assert isinstance(result[0], PriceHistoryPoint)
-        parsed = urlparse(str(captured[0].url))
-        assert parsed.path == "/prices-history"
-        assert parse_qs(parsed.query) == {"market": ["abc"]}
-
-    def test_preserves_camelcase_optional_params_on_wire(self) -> None:
-        captured: list[httpx.Request] = []
-        with PublicClient() as client:
-            _install_sync_clob(client, _clob_handler(captured, {"history": []}))
-            client.get_price_history(
-                token_id="abc",
-                start_ts=1700000000,
-                end_ts=1700001000,
-                fidelity=60,
-                interval="1d",
-            )
-
-        parsed = urlparse(str(captured[0].url))
-        qs = parse_qs(parsed.query)
-        assert qs["market"] == ["abc"]
-        assert qs["startTs"] == ["1700000000"]
-        assert qs["endTs"] == ["1700001000"]
-        assert qs["fidelity"] == ["60"]
-        assert qs["interval"] == ["1d"]
 
 
 class TestEstimateMarketPrice:

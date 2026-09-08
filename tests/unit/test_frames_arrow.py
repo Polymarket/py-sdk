@@ -464,11 +464,15 @@ def test_sdk_price_history_point_round_trips() -> None:
     from polymarket.models import PriceHistoryPoint
 
     items = (
-        PriceHistoryPoint(t=1700000000, p=0.5),
-        PriceHistoryPoint(t=1700000060, p=0.51),
+        PriceHistoryPoint.parse_response(
+            {"timestamp": 1700000000, "price": 0.5, "resolution_seconds": 60}
+        ),
+        PriceHistoryPoint.parse_response(
+            {"timestamp": 1700000060, "price": 0.51, "resolution_seconds": 60}
+        ),
     )
     table = to_arrow(items)
     assert table.num_rows == 2
-    assert set(table.column_names) == {"t", "p"}
-    assert pa.types.is_integer(table.schema.field("t").type)
-    assert pa.types.is_floating(table.schema.field("p").type)
+    assert set(table.column_names) == {"timestamp", "price", "resolution_seconds"}
+    assert pa.types.is_timestamp(table.schema.field("timestamp").type)
+    assert pa.types.is_decimal(table.schema.field("price").type)

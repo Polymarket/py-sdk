@@ -1,310 +1,148 @@
-from collections.abc import Callable, Sequence
-from typing import Any, Literal, TypeVar, cast, get_args
+from collections.abc import Sequence
+from datetime import UTC, datetime
+from math import isfinite
+from typing import get_args
 
-from polymarket._internal.actions._cursor import next_cursor_or_none
-from polymarket._internal.data_params import build_data_params
-from polymarket._internal.request import (
-    KeysetPagePayload,
-    KeysetPaginatedSpec,
-    OffsetPaginatedSpec,
-    QueryParamValue,
-    RequestSpec,
+from polymarket._internal.data_envelope import (
+    parse_data_envelope,
+    parse_data_page,
+    parse_optional_data_envelope,
 )
-from polymarket.errors import UnexpectedResponseError, UserInputError
-from polymarket.models.base import BaseModel
+from polymarket._internal.data_params import (
+    build_data_params,
+    build_distinct_condition_ids,
+    build_event_ids,
+    to_epoch_seconds,
+)
+from polymarket._internal.request import KeysetPaginatedSpec, QueryParamValue, RequestSpec
+from polymarket._internal.retry import DATA_READ_RETRY
+from polymarket.errors import UserInputError
 from polymarket.models.data import (
-    BuilderVolumeEntry,
-    BuilderVolumeTimePeriod,
-    ClosedPosition,
+    Activity,
+    ActivityTypeFilter,
+    BuilderStanding,
+    BuilderVolumeInterval,
+    BuilderVolumePoint,
     ComboActivity,
+    ComboBiggestWinner,
     ComboPosition,
+    ComboPositionSortBy,
     ComboPositionStatus,
-    LeaderboardCategory,
-    LeaderboardEntry,
-    LeaderboardOrderBy,
-    LeaderboardTimePeriod,
+    LeaderboardWindow,
     LiveVolume,
+    MarketBiggestWinner,
     MetaHolder,
-    MetaMarketPosition,
     OpenInterest,
     PortfolioValue,
     Position,
+    PositionFilterType,
+    PositionSortBy,
+    PositionStatus,
+    PriceHistoryInterval,
+    PriceHistoryPoint,
+    Resolution,
+    SortDirection,
     Trade,
-    TradedMarketCount,
+    TradeFilterType,
     TraderLeaderboardEntry,
+    TraderLeaderboardSort,
+    TraderLeaderboardStanding,
+    UserPnlFidelity,
+    UserPnlInterval,
+    UserPnlSeries,
+    UserStats,
+    UserVolume,
 )
-from polymarket.models.data.activity import Activity, parse_activities, parse_combo_activities
-from polymarket.models.types import to_combo_condition_id
-
-_BUILDER_VOLUME_TIME_PERIODS: tuple[str, ...] = get_args(BuilderVolumeTimePeriod)
-_LEADERBOARD_TIME_PERIODS: tuple[str, ...] = get_args(LeaderboardTimePeriod)
-_LEADERBOARD_CATEGORIES: tuple[str, ...] = get_args(LeaderboardCategory)
-_LEADERBOARD_ORDER_BY: tuple[str, ...] = get_args(LeaderboardOrderBy)
-
-ActivityTypeFilter = Literal[
-    "TRADE",
-    "SPLIT",
-    "MERGE",
-    "REDEEM",
-    "REWARD",
-    "CONVERSION",
-    "DEPOSIT",
-    "WITHDRAWAL",
-    "MAKER_REBATE",
-    "TAKER_REBATE",
-    "REFERRAL_REWARD",
-    "YIELD",
-]
-_ACTIVITY_TYPES: tuple[str, ...] = get_args(ActivityTypeFilter)
-
-ActivitySortBy = Literal["TIMESTAMP", "TOKENS", "CASH"]
-_ACTIVITY_SORT_BY: tuple[str, ...] = get_args(ActivitySortBy)
-
-PositionSortBy = Literal[
-    "CURRENT",
-    "INITIAL",
-    "TOKENS",
-    "CASHPNL",
-    "PERCENTPNL",
-    "TITLE",
-    "RESOLVING",
-    "PRICE",
-    "AVGPRICE",
-]
-_POSITION_SORT_BY: tuple[str, ...] = get_args(PositionSortBy)
-
-ClosedPositionSortBy = Literal["REALIZEDPNL", "TITLE", "PRICE", "AVGPRICE", "TIMESTAMP"]
-_CLOSED_POSITION_SORT_BY: tuple[str, ...] = get_args(ClosedPositionSortBy)
-
-_COMBO_POSITION_STATUS: tuple[str, ...] = get_args(ComboPositionStatus)
-
-ComboPositionSort = Literal[
-    "current_value_desc",
-    "first_entry_desc",
-    "entry_cost_desc",
-    "resolved_at_desc",
-    "updated_asc",
-]
-_COMBO_POSITION_SORT: tuple[str, ...] = get_args(ComboPositionSort)
-
-MarketPositionStatus = Literal["OPEN", "CLOSED", "ALL"]
-_MARKET_POSITION_STATUS: tuple[str, ...] = get_args(MarketPositionStatus)
-
-MarketPositionSortBy = Literal["TOKENS", "CASH_PNL", "REALIZED_PNL", "TOTAL_PNL"]
-_MARKET_POSITION_SORT_BY: tuple[str, ...] = get_args(MarketPositionSortBy)
-
-SortDirection = Literal["ASC", "DESC"]
-_SORT_DIRECTION: tuple[str, ...] = get_args(SortDirection)
-
-TradeSide = Literal["BUY", "SELL"]
-_TRADE_SIDE: tuple[str, ...] = get_args(TradeSide)
-
-TradeFilterType = Literal["CASH", "TOKENS"]
-_TRADE_FILTER_TYPE: tuple[str, ...] = get_args(TradeFilterType)
+from polymarket.models.data.activity import parse_activities, parse_combo_activities
+from polymarket.models.data.leaderboard import parse_biggest_winners
+from polymarket.models.types import OrderSide
 
 
-def get_event_live_volumes_spec(*, id: str) -> RequestSpec[tuple[LiveVolume, ...]]:
-    if not id:
-        raise UserInputError("id is required.")
-    return RequestSpec(
-        service="data",
-        method="GET",
-        path="/live-volume",
-        params={"id": id},
-        parse=LiveVolume.parse_response_list,
-    )
-
-
-def get_open_interests_spec(
-    *, market: str | Sequence[str] | None = None
-) -> RequestSpec[tuple[OpenInterest, ...]]:
-    return RequestSpec(
-        service="data",
-        method="GET",
-        path="/oi",
-        params=build_data_params({"market": market}),
-        parse=OpenInterest.parse_response_list,
-    )
-
-
-def get_market_holders_spec(
+def list_trades_spec(
     *,
-    market: Sequence[str],
-    limit: int | None = None,
-    min_balance: int | None = None,
-) -> RequestSpec[tuple[MetaHolder, ...]]:
-    if not list(market):
-        raise UserInputError("market must be a non-empty sequence of condition IDs.")
-    if limit is not None and limit < 1:
-        raise UserInputError("limit must be a positive integer.")
-    if min_balance is not None and min_balance < 0:
-        raise UserInputError("min_balance must be non-negative.")
-    return RequestSpec(
-        service="data",
-        method="GET",
-        path="/holders",
-        params=build_data_params({"market": market, "limit": limit, "minBalance": min_balance}),
-        parse=MetaHolder.parse_response_list,
-    )
-
-
-def get_portfolio_values_spec(
-    *,
-    user: str,
-    market: str | Sequence[str] | None = None,
-) -> RequestSpec[tuple[PortfolioValue, ...]]:
-    if not user:
-        raise UserInputError("user is required.")
-    return RequestSpec(
-        service="data",
-        method="GET",
-        path="/value",
-        params=build_data_params({"user": user, "market": market}),
-        parse=PortfolioValue.parse_response_list,
-    )
-
-
-def get_traded_market_count_spec(*, user: str) -> RequestSpec[TradedMarketCount]:
-    if not user:
-        raise UserInputError("user is required.")
-    return RequestSpec(
-        service="data",
-        method="GET",
-        path="/traded",
-        params={"user": user},
-        parse=TradedMarketCount.parse_response,
-    )
-
-
-def get_builder_volumes_spec(
-    *, time_period: BuilderVolumeTimePeriod | None = None
-) -> RequestSpec[tuple[BuilderVolumeEntry, ...]]:
-    if time_period is not None and time_period not in _BUILDER_VOLUME_TIME_PERIODS:
-        raise UserInputError(
-            f"time_period must be one of {_BUILDER_VOLUME_TIME_PERIODS}, got {time_period!r}."
-        )
-    return RequestSpec(
-        service="data",
-        method="GET",
-        path="/v1/builders/volume",
-        params=build_data_params({"timePeriod": time_period}),
-        parse=BuilderVolumeEntry.parse_response_list,
-    )
-
-
-def list_positions_spec(
-    *,
-    user: str,
-    market: str | Sequence[str] | None = None,
-    event_id: int | Sequence[int] | None = None,
-    size_threshold: float | None = None,
-    redeemable: bool | None = None,
-    mergeable: bool | None = None,
-    sort_by: PositionSortBy | None = None,
-    sort_direction: SortDirection | None = None,
-    title: str | None = None,
-) -> OffsetPaginatedSpec[Position]:
-    if not user:
-        raise UserInputError("user is required.")
-    if market is not None and event_id is not None:
-        raise UserInputError("Provide market or event_id, not both.")
-    _check_enum("sort_by", sort_by, _POSITION_SORT_BY)
-    _check_enum("sort_direction", sort_direction, _SORT_DIRECTION)
-    if title is not None and len(title) > 100:
-        raise UserInputError("title must be at most 100 characters.")
-
-    return OffsetPaginatedSpec(
-        service="data",
-        path="/positions",
-        # Matches the upstream per-request limit cap.
-        max_page_size=500,
-        base_params=build_data_params(
-            {
-                "user": user,
-                "market": market,
-                "eventId": event_id,
-                "sizeThreshold": size_threshold,
-                "redeemable": redeemable,
-                "mergeable": mergeable,
-                "sortBy": sort_by,
-                "sortDirection": sort_direction,
-                "title": title,
-            }
-        ),
-        parse_items=_parser_for(Position),
-    )
-
-
-def list_closed_positions_spec(
-    *,
-    user: str,
-    market: str | Sequence[str] | None = None,
-    event_id: int | Sequence[int] | None = None,
-    title: str | None = None,
-    sort_by: ClosedPositionSortBy | None = None,
-    sort_direction: SortDirection | None = None,
-) -> OffsetPaginatedSpec[ClosedPosition]:
-    if not user:
-        raise UserInputError("user is required.")
-    if market is not None and event_id is not None:
-        raise UserInputError("Provide market or event_id, not both.")
-    _check_enum("sort_by", sort_by, _CLOSED_POSITION_SORT_BY)
-    _check_enum("sort_direction", sort_direction, _SORT_DIRECTION)
-    if title is not None and len(title) > 100:
-        raise UserInputError("title must be at most 100 characters.")
-
-    return OffsetPaginatedSpec(
-        service="data",
-        path="/closed-positions",
-        # Matches the upstream per-request limit cap.
-        max_page_size=50,
-        base_params=build_data_params(
-            {
-                "user": user,
-                "market": market,
-                "eventId": event_id,
-                "title": title,
-                "sortBy": sort_by,
-                "sortDirection": sort_direction,
-            }
-        ),
-        parse_items=_parser_for(ClosedPosition),
-    )
-
-
-def list_combo_positions_spec(
-    *,
-    user: str,
-    status: ComboPositionStatus | None = None,
-    sort: ComboPositionSort | None = None,
+    user: str | None = None,
     condition_id: str | Sequence[str] | None = None,
-    updated_after: int | None = None,
-    updated_before: int | None = None,
-) -> KeysetPaginatedSpec[ComboPosition]:
-    if not user:
-        raise UserInputError("user is required.")
-    _check_enum("status", status, _COMBO_POSITION_STATUS)
-    _check_enum("sort", sort, _COMBO_POSITION_SORT)
-    if condition_id is not None:
-        condition_id = _normalize_combo_condition_filter(condition_id)
-    _check_nonnegative_int("updated_after", updated_after)
-    _check_nonnegative_int("updated_before", updated_before)
-
+    event_id: int | Sequence[int] | None = None,
+    side: OrderSide | None = None,
+    taker_only: bool | None = None,
+    filter_type: TradeFilterType | None = None,
+    filter_amount: float | None = None,
+    start: int | datetime | None = None,
+    end: int | datetime | None = None,
+    full_history: bool = False,
+) -> KeysetPaginatedSpec[Trade]:
+    _check_enum("side", side, get_args(OrderSide))
+    _check_enum("filter_type", filter_type, get_args(TradeFilterType))
+    _check_selectors(condition_id, event_id)
+    event_id = build_event_ids(event_id)
+    condition_id = build_distinct_condition_ids(condition_id, grammar="feed")
+    start, end = build_time_window(start=start, end=end, full_history=full_history)
+    _check_nonnegative_amount("filter_amount", filter_amount)
     return KeysetPaginatedSpec(
         service="data",
-        path="/v1/positions/combos",
+        path="/v2/trades",
         base_params=build_data_params(
             {
                 "user": user,
-                "status": status,
-                "sort": sort,
-                "market_id": condition_id,
-                "updatedAfter": updated_after,
-                "updatedBefore": updated_before,
+                "condition_id": condition_id,
+                "event_id": event_id,
+                "side": side,
+                "taker_only": taker_only,
+                "filter_type": filter_type,
+                "filter_amount": filter_amount,
+                "start": start,
+                "end": end,
             }
         ),
-        parse_page=_make_keyset_envelope_parser("combos", ComboPosition.parse_response_list),
+        parse_page=lambda payload: parse_data_page(payload, Trade.parse_response_list),
         cursor_param="cursor",
+        max_page_size=1000,
+        retry=DATA_READ_RETRY,
+    )
+
+
+def list_activity_spec(
+    *,
+    user: str,
+    condition_id: str | Sequence[str] | None = None,
+    event_id: int | Sequence[int] | None = None,
+    activity_types: Sequence[ActivityTypeFilter] | None = None,
+    side: OrderSide | None = None,
+    sort_direction: SortDirection | None = None,
+    start: int | datetime | None = None,
+    end: int | datetime | None = None,
+    full_history: bool = False,
+) -> KeysetPaginatedSpec[Activity]:
+    _check_enum("side", side, get_args(OrderSide))
+    _check_enum("sort_direction", sort_direction, get_args(SortDirection))
+    _require_user(user)
+    _check_selectors(condition_id, event_id)
+    event_id = build_event_ids(event_id)
+    condition_id = build_distinct_condition_ids(condition_id, grammar="feed")
+    start, end = build_time_window(start=start, end=end, full_history=full_history)
+    if activity_types is not None:
+        for value in activity_types:
+            _check_enum("activity_types", value, get_args(ActivityTypeFilter))
+    return KeysetPaginatedSpec(
+        service="data",
+        path="/v2/activity",
+        base_params=build_data_params(
+            {
+                "user": user,
+                "condition_id": condition_id,
+                "event_id": event_id,
+                "type": activity_types,
+                "side": side,
+                "sort_direction": sort_direction,
+                "start": start,
+                "end": end,
+                "exclude_deposits_withdrawals": False,
+            }
+        ),
+        parse_page=lambda payload: parse_data_page(payload, parse_activities),
+        cursor_param="cursor",
+        max_page_size=1000,
+        retry=DATA_READ_RETRY,
     )
 
 
@@ -313,282 +151,464 @@ def list_combo_activity_spec(
     user: str,
     condition_id: str | Sequence[str] | None = None,
 ) -> KeysetPaginatedSpec[ComboActivity]:
-    if not user:
-        raise UserInputError("user is required.")
-    if condition_id is not None:
-        condition_id = _normalize_combo_condition_filter(condition_id)
-
+    _require_user(user)
+    condition_id = build_distinct_condition_ids(condition_id, grammar="combo")
     return KeysetPaginatedSpec(
         service="data",
-        path="/v1/activity/combos",
-        base_params=build_data_params({"user": user, "market_id": condition_id}),
-        parse_page=_make_keyset_envelope_parser("activity", parse_combo_activities),
+        path="/v2/activity/combos",
+        base_params=build_data_params({"user": user, "condition_id": condition_id}),
+        parse_page=lambda payload: parse_data_page(payload, parse_combo_activities),
         cursor_param="cursor",
+        max_page_size=1000,
+        retry=DATA_READ_RETRY,
     )
 
 
-def list_market_positions_spec(
+def list_positions_spec(
     *,
-    market: str,
     user: str | None = None,
-    status: MarketPositionStatus | None = None,
-    sort_by: MarketPositionSortBy | None = None,
-    sort_direction: SortDirection | None = None,
-) -> OffsetPaginatedSpec[MetaMarketPosition]:
-    if not market:
-        raise UserInputError("market is required.")
-    _check_enum("status", status, _MARKET_POSITION_STATUS)
-    _check_enum("sort_by", sort_by, _MARKET_POSITION_SORT_BY)
-    _check_enum("sort_direction", sort_direction, _SORT_DIRECTION)
-
-    return OffsetPaginatedSpec(
-        service="data",
-        path="/v1/market-positions",
-        # Matches the upstream per-request limit cap.
-        max_page_size=500,
-        base_params=build_data_params(
-            {
-                "market": market,
-                "user": user,
-                "status": status,
-                "sortBy": sort_by,
-                "sortDirection": sort_direction,
-            }
-        ),
-        parse_items=_parser_for(MetaMarketPosition),
-    )
-
-
-def list_trades_spec(
-    *,
-    taker_only: bool | None = None,
-    filter_type: TradeFilterType | None = None,
-    filter_amount: float | None = None,
-    market: str | Sequence[str] | None = None,
+    condition_id: str | Sequence[str] | None = None,
+    status: PositionStatus | None = None,
     event_id: int | Sequence[int] | None = None,
-    user: str | None = None,
-    side: TradeSide | None = None,
-    start: int | None = None,
-    end: int | None = None,
-) -> OffsetPaginatedSpec[Trade]:
-    if market is not None and event_id is not None:
-        raise UserInputError("Provide market or event_id, not both.")
-    if (filter_type is None) != (filter_amount is None):
-        raise UserInputError("filter_type and filter_amount must be provided together.")
-    _check_enum("filter_type", filter_type, _TRADE_FILTER_TYPE)
-    _check_enum("side", side, _TRADE_SIDE)
-    _check_nonnegative_int("start", start)
-    _check_nonnegative_int("end", end)
-
-    return OffsetPaginatedSpec(
+    filter_type: PositionFilterType | None = None,
+    filter_amount: float | None = None,
+    include_archived: bool | None = None,
+    sort_by: PositionSortBy | None = None,
+    sort_direction: SortDirection | None = None,
+    start: int | datetime | None = None,
+    end: int | datetime | None = None,
+    full_history: bool = False,
+) -> KeysetPaginatedSpec[Position]:
+    if user is not None:
+        _require_user(user)
+    _check_enum("status", status, get_args(PositionStatus))
+    _check_enum("filter_type", filter_type, get_args(PositionFilterType))
+    _check_enum("sort_by", sort_by, get_args(PositionSortBy))
+    _check_enum("sort_direction", sort_direction, get_args(SortDirection))
+    _check_selectors(condition_id, event_id)
+    event_id = build_event_ids(event_id)
+    condition_id = build_distinct_condition_ids(condition_id, grammar="market")
+    start, end = build_time_window(start=start, end=end, full_history=full_history)
+    if not user and (condition_id is None or len(condition_id) != 1):
+        raise UserInputError("Provide user or exactly one condition_id")
+    if event_id is not None and not user:
+        raise UserInputError("event_id requires user")
+    if status == "CLOSED" and include_archived is not None:
+        raise UserInputError("include_archived is invalid with CLOSED")
+    _check_nonnegative_amount("filter_amount", filter_amount)
+    return KeysetPaginatedSpec(
         service="data",
-        path="/trades",
-        # Matches the upstream per-request limit cap.
-        max_page_size=10_000,
+        path="/v2/positions",
         base_params=build_data_params(
             {
-                "takerOnly": taker_only,
-                "filterType": filter_type,
-                "filterAmount": filter_amount,
-                "market": market,
-                "eventId": event_id,
                 "user": user,
-                "side": side,
+                "condition": condition_id,
+                "status": status,
+                "event_id": event_id,
+                "filter_type": filter_type,
+                "filter_amount": filter_amount,
+                "include_archived": include_archived,
+                "sort_by": sort_by,
+                "sort_direction": sort_direction,
                 "start": start,
                 "end": end,
             }
         ),
-        parse_items=_parser_for(Trade),
+        parse_page=lambda payload: parse_data_page(payload, Position.parse_response_list),
+        cursor_param="cursor",
+        max_page_size=1000,
+        retry=DATA_READ_RETRY,
     )
 
 
-def list_activity_spec(
+def list_combo_positions_spec(
     *,
     user: str,
-    market: str | Sequence[str] | None = None,
-    event_id: int | Sequence[int] | None = None,
-    activity_types: Sequence[ActivityTypeFilter] | None = None,
-    start: int | None = None,
-    end: int | None = None,
-    sort_by: ActivitySortBy | None = None,
+    condition_id: str | Sequence[str] | None = None,
+    status: ComboPositionStatus | Sequence[ComboPositionStatus] | None = None,
+    sort_by: ComboPositionSortBy | None = None,
     sort_direction: SortDirection | None = None,
-    side: TradeSide | None = None,
-) -> OffsetPaginatedSpec[Activity]:
-    if not user:
-        raise UserInputError("user is required.")
-    if market is not None and event_id is not None:
-        raise UserInputError("Provide market or event_id, not both.")
-    _check_enum("sort_by", sort_by, _ACTIVITY_SORT_BY)
-    _check_enum("sort_direction", sort_direction, _SORT_DIRECTION)
-    _check_enum("side", side, _TRADE_SIDE)
-    _check_nonnegative_int("start", start)
-    _check_nonnegative_int("end", end)
-    if activity_types is not None:
-        for value in activity_types:
-            if value not in _ACTIVITY_TYPES:
-                raise UserInputError(
-                    f"activity_types entries must be one of {_ACTIVITY_TYPES}, got {value!r}."
-                )
-
-    # The service defaults excludeDepositsWithdrawals=true and drops DEPOSIT and
-    # WITHDRAWAL from the type filter even when requested explicitly, so opt out
-    # unconditionally and let the type filter decide which rows come back.
-    return OffsetPaginatedSpec(
+    updated_after: int | datetime | None = None,
+    updated_before: int | datetime | None = None,
+) -> KeysetPaginatedSpec[ComboPosition]:
+    _check_enum("sort_by", sort_by, get_args(ComboPositionSortBy))
+    _check_enum("sort_direction", sort_direction, get_args(SortDirection))
+    _require_user(user)
+    condition_id = build_distinct_condition_ids(condition_id, grammar="combo")
+    if status is not None:
+        statuses = (status,) if isinstance(status, str) else tuple(status)
+        if not statuses:
+            raise UserInputError("status must be non-empty")
+        for value in statuses:
+            _check_enum("status", value, get_args(ComboPositionStatus))
+        status = tuple(dict.fromkeys(statuses))
+        if "REDEEMABLE" in status and len(status) != 1:
+            raise UserInputError("REDEEMABLE must be the only status")
+    updated_after = _check_timestamp(updated_after)
+    updated_before = _check_timestamp(updated_before)
+    if updated_after is not None and updated_before is not None and updated_before < updated_after:
+        raise UserInputError("updated_before must be at least updated_after")
+    return KeysetPaginatedSpec(
         service="data",
-        path="/activity",
-        # Matches the upstream per-request limit cap.
-        max_page_size=500,
+        path="/v2/positions/combos",
         base_params=build_data_params(
             {
                 "user": user,
-                "market": market,
-                "eventId": event_id,
-                "type": activity_types,
-                "excludeDepositsWithdrawals": False,
-                "start": start,
-                "end": end,
-                "sortBy": sort_by,
-                "sortDirection": sort_direction,
-                "side": side,
+                "condition_id": condition_id,
+                "status": status,
+                "sort_by": sort_by,
+                "sort_direction": sort_direction,
+                "updated_after": updated_after,
+                "updated_before": updated_before,
             }
         ),
-        parse_items=parse_activities,
+        parse_page=lambda payload: parse_data_page(payload, ComboPosition.parse_response_list),
+        cursor_param="cursor",
+        max_page_size=1000,
+        retry=DATA_READ_RETRY,
     )
 
 
-def list_builder_leaderboard_spec(
+def get_portfolio_value_spec(
     *,
-    time_period: LeaderboardTimePeriod | None = None,
-) -> OffsetPaginatedSpec[LeaderboardEntry]:
-    _check_enum("time_period", time_period, _LEADERBOARD_TIME_PERIODS)
-    return OffsetPaginatedSpec(
+    user: str,
+    condition_ids: str | Sequence[str] | None = None,
+) -> RequestSpec[PortfolioValue]:
+    _require_user(user)
+    condition_ids = build_distinct_condition_ids(condition_ids, grammar="market")
+    return RequestSpec(
         service="data",
-        path="/v1/builders/leaderboard",
-        # Matches the upstream per-request limit cap.
-        max_page_size=50,
-        base_params=build_data_params({"timePeriod": time_period}),
-        parse_items=_parser_for(LeaderboardEntry),
+        method="GET",
+        path="/v2/value",
+        params=build_data_params({"user": user, "condition": condition_ids}),
+        parse=lambda payload: parse_data_envelope(payload, PortfolioValue.parse_response),
+        retry=DATA_READ_RETRY,
+    )
+
+
+def get_user_stats_spec(
+    *,
+    user: str,
+) -> RequestSpec[UserStats | None]:
+    _require_user(user)
+    return RequestSpec(
+        service="data",
+        method="GET",
+        path="/v2/user-stats",
+        params=build_data_params({"user": user}),
+        parse=lambda payload: parse_optional_data_envelope(payload, UserStats.parse_response),
+        retry=DATA_READ_RETRY,
+    )
+
+
+def get_user_pnl_spec(
+    *,
+    user: str,
+    interval: UserPnlInterval | None = None,
+    fidelity: UserPnlFidelity | None = None,
+) -> RequestSpec[UserPnlSeries]:
+    _check_enum("interval", interval, get_args(UserPnlInterval))
+    _check_enum("fidelity", fidelity, get_args(UserPnlFidelity))
+    _require_user(user)
+    return RequestSpec(
+        service="data",
+        method="GET",
+        path="/v2/user-pnl",
+        params=build_data_params({"user": user, "interval": interval, "fidelity": fidelity}),
+        parse=lambda payload: parse_data_envelope(payload, UserPnlSeries.parse_response),
+        retry=DATA_READ_RETRY,
+    )
+
+
+def get_user_volume_spec(
+    *,
+    user: str,
+    start: int | datetime | None = None,
+    end: int | datetime | None = None,
+    full_history: bool = False,
+) -> RequestSpec[UserVolume]:
+    _require_user(user)
+    start, end = build_time_window(start=start, end=end, full_history=full_history)
+    return RequestSpec(
+        service="data",
+        method="GET",
+        path="/v2/user-volume",
+        params=build_data_params({"user": user, "start": start, "end": end}),
+        parse=lambda payload: parse_data_envelope(payload, UserVolume.parse_response),
+        retry=DATA_READ_RETRY,
+    )
+
+
+def list_market_holders_spec(
+    *,
+    condition_ids: str | Sequence[str],
+    min_balance: float | None = None,
+    include_pnl: bool | None = None,
+) -> KeysetPaginatedSpec[MetaHolder]:
+    conditions = build_distinct_condition_ids(condition_ids, grammar="market")
+    if not conditions:
+        raise UserInputError("condition_ids is required")
+    _check_nonnegative_amount("min_balance", min_balance)
+    if include_pnl and len(conditions) != 1:
+        raise UserInputError("include_pnl requires exactly one condition")
+    return KeysetPaginatedSpec(
+        service="data",
+        path="/v2/holders",
+        base_params=build_data_params(
+            {"condition": conditions, "min_balance": min_balance, "include_pnl": include_pnl}
+        ),
+        parse_page=lambda payload: parse_data_page(payload, MetaHolder.parse_response_list),
+        cursor_param="cursor",
+        max_page_size=100 if include_pnl else 1000,
+        retry=DATA_READ_RETRY,
+    )
+
+
+def get_open_interests_spec(
+    *,
+    condition_ids: str | Sequence[str] | None = None,
+) -> RequestSpec[tuple[OpenInterest, ...]]:
+    condition_ids = build_distinct_condition_ids(condition_ids, grammar="market")
+    return RequestSpec(
+        service="data",
+        method="GET",
+        path="/v2/oi",
+        params=build_data_params({"condition": condition_ids}),
+        parse=lambda payload: parse_data_envelope(payload, OpenInterest.parse_response_list),
+        retry=DATA_READ_RETRY,
+    )
+
+
+def get_event_live_volume_spec(
+    *,
+    event_ids: int | Sequence[int],
+) -> RequestSpec[LiveVolume]:
+    events = build_event_ids(event_ids)
+    if not events:
+        raise UserInputError("event_ids is required")
+    return RequestSpec(
+        service="data",
+        method="GET",
+        path="/v2/live-volume",
+        params=build_data_params({"event_id": events}),
+        parse=lambda payload: parse_data_envelope(payload, LiveVolume.parse_response),
+        retry=DATA_READ_RETRY,
+    )
+
+
+def list_price_history_spec(
+    *,
+    asset_id: str,
+    interval: PriceHistoryInterval | None = None,
+    start: int | datetime | None = None,
+    end: int | datetime | None = None,
+    as_of: int | datetime | None = None,
+    bucket_seconds: int | None = None,
+    page_size: int | None = None,
+) -> KeysetPaginatedSpec[PriceHistoryPoint]:
+    _check_enum("interval", interval, get_args(PriceHistoryInterval))
+    if type(asset_id) is not str or not asset_id:
+        raise UserInputError("asset_id must be a non-empty string")
+    if sum(value is not None for value in (interval, start, as_of)) != 1:
+        raise UserInputError("Provide exactly one of interval, start, or as_of")
+    if end is not None and start is None:
+        raise UserInputError("end requires start")
+    start, end, as_of = (_check_timestamp(value) for value in (start, end, as_of))
+    if start is not None:
+        until = end if end is not None else int(datetime.now(UTC).timestamp())
+        if until <= start or until - start > 15 * 86400:
+            raise UserInputError("Price history windows must be positive and at most 15 days")
+    if as_of is not None and (bucket_seconds is not None or page_size is not None):
+        raise UserInputError("as_of forbids bucket_seconds and page_size")
+    if bucket_seconds is not None:
+        minimum = 600 if interval in ("max", "all", "1m") else 300 if interval == "1w" else 60
+        if type(bucket_seconds) is not int or not minimum <= bucket_seconds <= 86400:
+            raise UserInputError(f"bucket_seconds must be between {minimum} and 86400")
+    return KeysetPaginatedSpec(
+        service="data",
+        path="/v2/prices-history",
+        base_params=build_data_params(
+            {
+                "token_id": asset_id,
+                "interval": interval,
+                "start": start,
+                "end": end,
+                "as_of": as_of,
+                "bucket_seconds": bucket_seconds,
+            }
+        ),
+        parse_page=lambda payload: parse_data_page(payload, PriceHistoryPoint.parse_response_list),
+        cursor_param="cursor",
+        max_page_size=10000,
+        retry=DATA_READ_RETRY,
+    )
+
+
+def get_resolutions_spec(
+    *,
+    question_id: str | None = None,
+    condition_ids: str | Sequence[str] | None = None,
+    event_ids: int | Sequence[int] | None = None,
+) -> RequestSpec[tuple[Resolution, ...]]:
+    if sum(value is not None for value in (question_id, condition_ids, event_ids)) != 1:
+        raise UserInputError("Provide exactly one of question_id, condition_ids, or event_ids")
+    if question_id is not None and (type(question_id) is not str or not question_id):
+        raise UserInputError("question_id must be non-empty")
+    condition_ids = build_distinct_condition_ids(condition_ids, grammar="market")
+    event_ids = build_event_ids(event_ids)
+    if event_ids is not None and len(event_ids) > 20:
+        raise UserInputError("event_ids accepts at most 20 distinct values")
+    return RequestSpec(
+        service="data",
+        method="GET",
+        path="/v2/resolutions",
+        params=build_data_params(
+            {"question_id": question_id, "condition": condition_ids, "event_id": event_ids}
+        ),
+        parse=lambda payload: parse_data_envelope(payload, Resolution.parse_response_list),
+        retry=DATA_READ_RETRY,
     )
 
 
 def list_trader_leaderboard_spec(
     *,
-    category: LeaderboardCategory | None = None,
-    time_period: LeaderboardTimePeriod | None = None,
-    order_by: LeaderboardOrderBy | None = None,
-    user: str | None = None,
-    user_name: str | None = None,
-) -> OffsetPaginatedSpec[TraderLeaderboardEntry]:
-    _check_enum("category", category, _LEADERBOARD_CATEGORIES)
-    _check_enum("time_period", time_period, _LEADERBOARD_TIME_PERIODS)
-    _check_enum("order_by", order_by, _LEADERBOARD_ORDER_BY)
-    return OffsetPaginatedSpec(
+    category: str | None = None,
+    window: LeaderboardWindow | None = None,
+    sort_by: TraderLeaderboardSort | None = None,
+) -> KeysetPaginatedSpec[TraderLeaderboardEntry]:
+    _check_enum("window", window, get_args(LeaderboardWindow))
+    _check_enum("sort_by", sort_by, get_args(TraderLeaderboardSort))
+    if category is not None:
+        category = category.lower()
+    return KeysetPaginatedSpec(
         service="data",
-        path="/v1/leaderboard",
-        # Matches the upstream per-request limit cap.
-        max_page_size=50,
+        path="/v2/leaderboard",
         base_params=build_data_params(
-            {
-                "category": category,
-                "timePeriod": time_period,
-                "orderBy": order_by,
-                "user": user,
-                "userName": user_name,
-            }
+            {"category": category, "time_period": window, "sort_by": sort_by}
         ),
-        parse_items=_parser_for(TraderLeaderboardEntry),
+        parse_page=lambda payload: parse_data_page(
+            payload, TraderLeaderboardEntry.parse_response_list
+        ),
+        cursor_param="cursor",
+        max_page_size=1000,
+        retry=DATA_READ_RETRY,
+    )
+
+
+def get_trader_leaderboard_standing_spec(
+    *,
+    user: str,
+    category: str | None = None,
+    window: LeaderboardWindow | None = None,
+) -> RequestSpec[TraderLeaderboardStanding | None]:
+    _check_enum("window", window, get_args(LeaderboardWindow))
+    _require_user(user)
+    if category is not None:
+        category = category.lower()
+    return RequestSpec(
+        service="data",
+        method="GET",
+        path="/v2/leaderboard",
+        params=build_data_params({"user": user, "category": category, "time_period": window}),
+        parse=lambda payload: parse_optional_data_envelope(
+            payload, TraderLeaderboardStanding.parse_response
+        ),
+        retry=DATA_READ_RETRY,
+    )
+
+
+def list_biggest_winners_spec(
+    *,
+    category: str | None = None,
+    window: LeaderboardWindow | None = None,
+) -> KeysetPaginatedSpec[MarketBiggestWinner | ComboBiggestWinner]:
+    _check_enum("window", window, get_args(LeaderboardWindow))
+    if category is not None:
+        category = category.lower()
+    return KeysetPaginatedSpec(
+        service="data",
+        path="/v2/biggest-winners",
+        base_params=build_data_params({"category": category, "time_period": window}),
+        parse_page=lambda payload: parse_data_page(payload, parse_biggest_winners),
+        cursor_param="cursor",
+        max_page_size=1000,
+        retry=DATA_READ_RETRY,
+    )
+
+
+def list_builder_leaderboard_spec(
+    *,
+    window: LeaderboardWindow | None = None,
+) -> KeysetPaginatedSpec[BuilderStanding]:
+    _check_enum("window", window, get_args(LeaderboardWindow))
+    return KeysetPaginatedSpec(
+        service="data",
+        path="/v2/builders/leaderboard",
+        base_params=build_data_params({"time_period": window}),
+        parse_page=lambda payload: parse_data_page(payload, BuilderStanding.parse_response_list),
+        cursor_param="cursor",
+        max_page_size=1000,
+        retry=DATA_READ_RETRY,
+    )
+
+
+def get_builder_volumes_spec(
+    *,
+    interval: BuilderVolumeInterval | None = None,
+    bucket_limit: int | None = None,
+) -> RequestSpec[tuple[BuilderVolumePoint, ...]]:
+    _check_enum("interval", interval, get_args(BuilderVolumeInterval))
+    if bucket_limit is not None and (type(bucket_limit) is not int or not 1 <= bucket_limit <= 90):
+        raise UserInputError("bucket_limit must be between 1 and 90")
+    return RequestSpec(
+        service="data",
+        method="GET",
+        path="/v2/builders/volume",
+        params=build_data_params({"interval": interval, "limit": bucket_limit}),
+        parse=lambda payload: parse_data_envelope(payload, BuilderVolumePoint.parse_response_list),
+        retry=DATA_READ_RETRY,
     )
 
 
 def build_accounting_snapshot_request(*, user: str) -> tuple[str, dict[str, QueryParamValue]]:
-    if not user:
-        raise UserInputError("user is required.")
+    _require_user(user)
     return "/v1/accounting/snapshot", {"user": user}
 
 
+def _require_user(user: object) -> None:
+    if not isinstance(user, str) or not user:
+        raise UserInputError("user is required")
+
+
 def _check_enum(name: str, value: object, allowed: tuple[str, ...]) -> None:
+    if value is not None and value not in allowed:
+        raise UserInputError(f"{name} must be one of {allowed}, got {value!r}")
+
+
+def _check_selectors(condition_id: object, event_id: object) -> None:
+    if condition_id is not None and event_id is not None:
+        raise UserInputError("Provide condition_id or event_id, not both")
+
+
+def _check_nonnegative_amount(name: str, value: float | None) -> None:
+    if value is not None and (isinstance(value, bool) or not isfinite(value) or value < 0):
+        raise UserInputError(f"{name} must be a finite non-negative amount")
+
+
+def _check_timestamp(value: int | datetime | None) -> int | None:
     if value is None:
-        return
-    if value not in allowed:
-        raise UserInputError(f"{name} must be one of {allowed}, got {value!r}.")
+        return None
+    seconds = to_epoch_seconds(value)
+    if not 0 < seconds <= 253402300799:
+        raise UserInputError("Timestamp must be positive and no later than 9999-12-31T23:59:59Z")
+    return seconds
 
 
-def _check_nonnegative_int(name: str, value: int | None) -> None:
-    if value is not None and value < 0:
-        raise UserInputError(f"{name} must be non-negative.")
-
-
-def _normalize_combo_condition_filter(value: str | Sequence[str]) -> str | tuple[str, ...]:
-    values = (value,) if isinstance(value, str) else tuple(value)
-    if not values:
-        raise UserInputError("condition_id must be a non-empty sequence.")
-    out: list[str] = []
-    for item in values:
-        try:
-            out.append(to_combo_condition_id(item))
-        except TypeError as error:
-            raise UserInputError(str(error)) from error
-    return tuple(out) if not isinstance(value, str) else out[0]
-
-
-_M = TypeVar("_M", bound=BaseModel)
-
-
-def _parser_for(model: type[_M]) -> Callable[[object], tuple[_M, ...]]:
-    def parse(payload: object) -> tuple[_M, ...]:
-        return model.parse_response_list(payload)
-
-    return parse
-
-
-def _make_keyset_envelope_parser(
-    items_key: str,
-    parse_items: Callable[[object], tuple[_M, ...]],
-) -> Callable[[object], KeysetPagePayload[_M]]:
-    def parse(payload: object) -> KeysetPagePayload[_M]:
-        if not isinstance(payload, dict):
-            raise UnexpectedResponseError("Paginated response did not match expected shape")
-        response = cast(dict[str, Any], payload)
-        if items_key not in response:
-            raise UnexpectedResponseError(f"Paginated response is missing '{items_key}'.")
-        pagination = response.get("pagination")
-        if not isinstance(pagination, dict):
-            raise UnexpectedResponseError("Paginated response is missing pagination.")
-        next_cursor = next_cursor_or_none(cast(dict[str, Any], pagination).get("next_cursor"))
-        return KeysetPagePayload(
-            items=parse_items(response[items_key]),
-            server_next_cursor=next_cursor,
-        )
-
-    return parse
-
-
-__all__ = [
-    "ActivitySortBy",
-    "ActivityTypeFilter",
-    "ClosedPositionSortBy",
-    "ComboPositionSort",
-    "ComboPositionStatus",
-    "MarketPositionSortBy",
-    "MarketPositionStatus",
-    "PositionSortBy",
-    "SortDirection",
-    "TradeFilterType",
-    "TradeSide",
-    "build_accounting_snapshot_request",
-    "get_builder_volumes_spec",
-    "get_event_live_volumes_spec",
-    "get_market_holders_spec",
-    "get_open_interests_spec",
-    "get_portfolio_values_spec",
-    "get_traded_market_count_spec",
-    "list_activity_spec",
-    "list_builder_leaderboard_spec",
-    "list_closed_positions_spec",
-    "list_combo_activity_spec",
-    "list_combo_positions_spec",
-    "list_market_positions_spec",
-    "list_positions_spec",
-    "list_trader_leaderboard_spec",
-    "list_trades_spec",
-]
+def build_time_window(
+    *, start: int | datetime | None, end: int | datetime | None, full_history: bool
+) -> tuple[int | None, int | None]:
+    if full_history:
+        if start is not None or end is not None:
+            raise UserInputError("full_history cannot be combined with start or end")
+        return 1, None
+    return _check_timestamp(start), _check_timestamp(end)

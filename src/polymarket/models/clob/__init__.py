@@ -47,7 +47,6 @@ from polymarket.models.clob.order_response import (
     RejectedOrder,
 )
 from polymarket.models.clob.orders import MarketOrderType, OrderType, SignedOrder, TickSize
-from polymarket.models.clob.price_history import PriceHistoryInterval, PriceHistoryPoint
 from polymarket.models.clob.relayer import (
     GaslessTransaction,
     RelayerTransactionState,
@@ -116,8 +115,6 @@ __all__ = [
     "OrderResponse",
     "OrderResponseErrorCode",
     "OrderType",
-    "PriceHistoryInterval",
-    "PriceHistoryPoint",
     "PriceRequest",
     "RejectedOrder",
     "RelayerTransactionState",

@@ -1,6 +1,6 @@
 import asyncio
 import os
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Callable, Iterator
 from decimal import Decimal
 from pathlib import Path
 
@@ -17,6 +17,7 @@ from polymarket import (
     BuilderApiKey,
     Environment,
     Market,
+    PublicClient,
     RelayerApiKey,
 )
 from polymarket.models.types import TokenId
@@ -162,6 +163,12 @@ async def public_client(
     integration_environment: Environment,
 ) -> AsyncGenerator[AsyncPublicClient, None]:
     async with AsyncPublicClient(environment=integration_environment) as client:
+        yield client
+
+
+@pytest.fixture(scope="session")
+def sync_public_client(integration_environment: Environment) -> Iterator[PublicClient]:
+    with PublicClient(environment=integration_environment) as client:
         yield client
 
 

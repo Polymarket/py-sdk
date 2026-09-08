@@ -4,117 +4,101 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Literal, cast
 
-from pydantic import AliasChoices, Field, computed_field, field_validator
+from pydantic import Field, computed_field, field_validator
 
 from polymarket.errors import UnexpectedResponseError
 from polymarket.models.base import BaseModel
-from polymarket.models.data.portfolio import ComboPositionLeg
-from polymarket.models.gamma.common import (
-    empty_string_to_none,
-    parse_epoch_seconds_optional,
-    parse_optional_decimal,
+from polymarket.models.data.common import (
+    ActivityTypeFilter,
+    TipSide,
+    datetime_from_epoch_seconds,
+    decimal_from_number,
+    optional_datetime_from_epoch_seconds,
+    optional_decimal_from_number,
+    optional_outcome_index,
+    optional_text,
 )
+from polymarket.models.data.portfolio import ComboPositionLeg
 from polymarket.models.types import (
     ClobAssetId,
     ComboActivityId,
     ComboConditionId,
     ConditionId,
+    OrderSide,
     PositionId,
     validate_combo_condition_id,
-    validate_condition_id,
-    validate_optional_condition_id,
+    validate_condition_id_response,
 )
 from polymarket.types import EvmAddress, TransactionHash
 
 
 class Trade(BaseModel):
-    wallet: EvmAddress | None = Field(default=None, validation_alias="proxyWallet")
-    asset_id: ClobAssetId | None = Field(
-        default=None,
-        validation_alias=AliasChoices("asset_id", "asset", "token_id"),
-    )
-    condition_id: ConditionId | None = Field(default=None, validation_alias="conditionId")
-    side: Literal["BUY", "SELL"] | None = None
-    size: Decimal | None = None
-    price: Decimal | None = None
-    timestamp: datetime | None = None
+    """An executed trade; size is shares and price is USDC per share."""
+
+    wallet: EvmAddress = Field(validation_alias="proxy_wallet")
+    asset_id: ClobAssetId = Field(validation_alias="token_id")
+    condition_id: ConditionId
+    side: OrderSide
+    size: Decimal
+    price: Decimal
+    timestamp: datetime
+    transaction_hash: TransactionHash
     title: str | None = None
     slug: str | None = None
     icon: str | None = None
-    event_slug: str | None = Field(default=None, validation_alias="eventSlug")
+    event_slug: str | None = None
     outcome: str | None = None
-    outcome_index: int | None = Field(default=None, validation_alias="outcomeIndex")
+    outcome_index: int | None = None
     name: str | None = None
     pseudonym: str | None = None
     bio: str | None = None
-    profile_image: str | None = Field(default=None, validation_alias="profileImage")
-    profile_image_optimized: str | None = Field(
-        default=None, validation_alias="profileImageOptimized"
-    )
-    transaction_hash: TransactionHash | None = Field(
-        default=None, validation_alias="transactionHash"
-    )
+    profile_image: str | None = None
+    profile_image_optimized: str | None = None
+
+    _decimal = field_validator("size", "price", mode="before")(decimal_from_number)
+    _timestamp = field_validator("timestamp", mode="before")(datetime_from_epoch_seconds)
+    _condition = field_validator("condition_id", mode="before")(validate_condition_id_response)
+    _text = field_validator(
+        "title",
+        "slug",
+        "icon",
+        "event_slug",
+        "outcome",
+        "name",
+        "pseudonym",
+        "bio",
+        "profile_image",
+        "profile_image_optimized",
+        mode="before",
+    )(optional_text)
+    _index = field_validator("outcome_index", mode="before")(optional_outcome_index)
 
     @computed_field
     @property
-    def token_id(self) -> ClobAssetId | None:
+    def token_id(self) -> ClobAssetId:
         """Deprecated alias for :attr:`asset_id`."""
-
         return self.asset_id
 
-    @field_validator("condition_id", mode="before")
-    @classmethod
-    def _validate_condition_id(cls, value: object) -> ConditionId | None:
-        return validate_optional_condition_id(value)
 
-    @field_validator("size", "price", mode="before")
-    @classmethod
-    def _parse_decimal(cls, value: object) -> Decimal | None:
-        return parse_optional_decimal(value)
-
-    @field_validator("timestamp", mode="before")
-    @classmethod
-    def _parse_timestamp(cls, value: object) -> datetime | None:
-        return parse_epoch_seconds_optional(value)
-
-    @field_validator("icon", mode="before")
-    @classmethod
-    def _normalize_icon(cls, value: object) -> object | None:
-        return empty_string_to_none(value)
-
-
-ActivityType = Literal[
-    "TRADE",
-    "SPLIT",
-    "MERGE",
-    "REDEEM",
-    "REWARD",
-    "CONVERSION",
-    "DEPOSIT",
-    "WITHDRAWAL",
-    "MAKER_REBATE",
-    "TAKER_REBATE",
-    "REFERRAL_REWARD",
-    "YIELD",
-]
+ActivityType = ActivityTypeFilter
 
 
 class _KnownActivityBase(BaseModel):
-    wallet: EvmAddress = Field(validation_alias="proxyWallet")
+    wallet: EvmAddress = Field(validation_alias="proxy_wallet")
     timestamp: datetime
-    transaction_hash: TransactionHash = Field(validation_alias="transactionHash")
+    transaction_hash: TransactionHash = Field(validation_alias="transaction_hash")
     name: str | None = None
     pseudonym: str | None = None
     bio: str | None = None
-    profile_image: str | None = Field(default=None, validation_alias="profileImage")
+    profile_image: str | None = Field(default=None, validation_alias="profile_image")
     profile_image_optimized: str | None = Field(
-        default=None, validation_alias="profileImageOptimized"
+        default=None, validation_alias="profile_image_optimized"
     )
 
     @field_validator("timestamp", mode="before")
     @classmethod
     def _parse_timestamp(cls, value: object) -> datetime | None:
-        return parse_epoch_seconds_optional(value)
+        return optional_datetime_from_epoch_seconds(value)
 
     def _repr_html_(self) -> str:
         from polymarket._jupyter import card, safe_html_repr, truncate_mid
@@ -138,19 +122,19 @@ class _KnownActivityBase(BaseModel):
 
 class TradeActivity(_KnownActivityBase):
     type: Literal["TRADE"]
-    is_combo: Literal[False] = Field(default=False, validation_alias="isCombo")
-    condition_id: ConditionId = Field(validation_alias="conditionId")
-    asset_id: ClobAssetId = Field(validation_alias=AliasChoices("asset_id", "asset", "token_id"))
-    side: Literal["BUY", "SELL"]
+    is_combo: Literal[False] = Field(default=False, validation_alias="is_combo")
+    condition_id: ConditionId = Field(validation_alias="condition_id")
+    asset_id: ClobAssetId = Field(validation_alias="token_id")
+    side: OrderSide
     shares: Decimal = Field(validation_alias="size")
-    amount: Decimal
+    amount: Decimal = Field(validation_alias="usdc_size")
     price: Decimal
-    outcome: str
-    outcome_index: int = Field(validation_alias="outcomeIndex")
-    title: str
-    slug: str
+    outcome: str | None = None
+    outcome_index: int | None = None
+    title: str | None = None
+    slug: str | None = None
     icon: str | None = None
-    event_slug: str = Field(validation_alias="eventSlug")
+    event_slug: str | None = None
 
     @computed_field
     @property
@@ -162,24 +146,24 @@ class TradeActivity(_KnownActivityBase):
     @field_validator("condition_id", mode="before")
     @classmethod
     def _validate_condition_id(cls, value: object) -> ConditionId:
-        return validate_condition_id(value)
+        return validate_condition_id_response(value)
 
     @field_validator("shares", "amount", "price", mode="before")
     @classmethod
     def _parse_decimal(cls, value: object) -> Decimal | None:
-        return parse_optional_decimal(value)
+        return optional_decimal_from_number(value)
 
 
 class ComboTradeActivity(_KnownActivityBase):
     type: Literal["TRADE"]
-    is_combo: Literal[True] = Field(validation_alias="isCombo")
-    condition_id: ComboConditionId = Field(validation_alias="conditionId")
-    position_id: PositionId = Field(validation_alias="asset")
-    side: Literal["BUY", "SELL"]
+    is_combo: Literal[True] = Field(validation_alias="is_combo")
+    condition_id: ComboConditionId = Field(validation_alias="condition_id")
+    position_id: PositionId = Field(validation_alias="token_id")
+    side: OrderSide
     shares: Decimal = Field(validation_alias="size")
-    amount: Decimal
+    amount: Decimal = Field(validation_alias="usdc_size")
     price: Decimal
-    title: str
+    title: str | None = None
     icon: str | None = None
 
     @field_validator("condition_id", mode="before")
@@ -190,26 +174,26 @@ class ComboTradeActivity(_KnownActivityBase):
     @field_validator("shares", "amount", "price", mode="before")
     @classmethod
     def _parse_decimal(cls, value: object) -> Decimal | None:
-        return parse_optional_decimal(value)
+        return optional_decimal_from_number(value)
 
 
 class _MarketEventActivity(_KnownActivityBase):
-    condition_id: ConditionId = Field(validation_alias="conditionId")
-    amount: Decimal
-    title: str
-    slug: str
+    condition_id: ConditionId = Field(validation_alias="condition_id")
+    amount: Decimal = Field(validation_alias="usdc_size")
+    title: str | None = None
+    slug: str | None = None
     icon: str | None = None
-    event_slug: str = Field(validation_alias="eventSlug")
+    event_slug: str | None = None
 
     @field_validator("condition_id", mode="before")
     @classmethod
     def _validate_condition_id(cls, value: object) -> ConditionId:
-        return validate_condition_id(value)
+        return validate_condition_id_response(value)
 
     @field_validator("amount", mode="before")
     @classmethod
     def _parse_decimal(cls, value: object) -> Decimal | None:
-        return parse_optional_decimal(value)
+        return optional_decimal_from_number(value)
 
 
 class SplitActivity(_MarketEventActivity):
@@ -229,12 +213,12 @@ class ConversionActivity(_MarketEventActivity):
 
 
 class _AccountCreditActivity(_KnownActivityBase):
-    amount: Decimal
+    amount: Decimal = Field(validation_alias="usdc_size")
 
     @field_validator("amount", mode="before")
     @classmethod
     def _parse_decimal(cls, value: object) -> Decimal | None:
-        return parse_optional_decimal(value)
+        return optional_decimal_from_number(value)
 
 
 class RewardActivity(_AccountCreditActivity):
@@ -261,30 +245,41 @@ class ReferralRewardActivity(_AccountCreditActivity):
     type: Literal["REFERRAL_REWARD"]
 
 
+class MigrationActivity(_AccountCreditActivity):
+    type: Literal["MIGRATION"]
+
+
+class TipActivity(_AccountCreditActivity):
+    type: Literal["TIP"]
+    side: TipSide | None = None
+
+    _side = field_validator("side", mode="before")(optional_text)
+
+
 class YieldActivity(_AccountCreditActivity):
     type: Literal["YIELD"]
 
 
 class UnknownActivity(BaseModel):
     type: str
-    wallet: EvmAddress | None = Field(default=None, validation_alias="proxyWallet")
+    wallet: EvmAddress | None = Field(default=None, validation_alias="proxy_wallet")
     timestamp: datetime | None = None
     transaction_hash: TransactionHash | None = Field(
-        default=None, validation_alias="transactionHash"
+        default=None, validation_alias="transaction_hash"
     )
     name: str | None = None
     pseudonym: str | None = None
     bio: str | None = None
-    profile_image: str | None = Field(default=None, validation_alias="profileImage")
+    profile_image: str | None = Field(default=None, validation_alias="profile_image")
     profile_image_optimized: str | None = Field(
-        default=None, validation_alias="profileImageOptimized"
+        default=None, validation_alias="profile_image_optimized"
     )
     raw: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("timestamp", mode="before")
     @classmethod
     def _parse_timestamp(cls, value: object) -> datetime | None:
-        return parse_epoch_seconds_optional(value)
+        return optional_datetime_from_epoch_seconds(value)
 
     def _repr_html_(self) -> str:
         from polymarket._jupyter import card, safe_html_repr, truncate_mid
@@ -317,6 +312,8 @@ Activity = (
     | TakerRebateActivity
     | ReferralRewardActivity
     | YieldActivity
+    | MigrationActivity
+    | TipActivity
     | UnknownActivity
 )
 
@@ -325,14 +322,12 @@ ComboActivityType = Literal["SPLIT", "MERGE", "CONVERT", "COMPRESS", "WRAP", "UN
 
 class _ComboActivityBase(BaseModel):
     id: ComboActivityId
-    wallet: EvmAddress = Field(validation_alias="user_address")
+    wallet: EvmAddress = Field(validation_alias="proxy_wallet")
     condition_id: ComboConditionId = Field(validation_alias="combo_condition_id")
-    module_id: int
+    position_id: PositionId = Field(validation_alias="combo_position_id")
     amount: Decimal | None = Field(default=None, validation_alias="amount_usdc")
     timestamp: datetime
-    transaction_at: datetime = Field(validation_alias="tx_dttm")
-    transaction_hash: TransactionHash = Field(validation_alias="tx_hash")
-    log_index: int
+    transaction_hash: TransactionHash = Field(validation_alias="transaction_hash")
     block_number: int
     legs: tuple[ComboPositionLeg, ...]
 
@@ -344,12 +339,12 @@ class _ComboActivityBase(BaseModel):
     @field_validator("amount", mode="before")
     @classmethod
     def _parse_decimal(cls, value: object) -> Decimal | None:
-        return parse_optional_decimal(value)
+        return optional_decimal_from_number(value)
 
     @field_validator("timestamp", mode="before")
     @classmethod
     def _parse_timestamp(cls, value: object) -> datetime | None:
-        return parse_epoch_seconds_optional(value)
+        return optional_datetime_from_epoch_seconds(value)
 
 
 class ComboSplitActivity(_ComboActivityBase):
@@ -378,13 +373,12 @@ class ComboUnwrapActivity(_ComboActivityBase):
 
 class ComboRedeemActivity(_ComboActivityBase):
     type: Literal["REDEEM"]
-    position_id: PositionId = Field(validation_alias="combo_position_id")
     payout: Decimal | None = Field(default=None, validation_alias="payout_usdc")
 
     @field_validator("payout", mode="before")
     @classmethod
     def _parse_payout(cls, value: object) -> Decimal | None:
-        return parse_optional_decimal(value)
+        return optional_decimal_from_number(value)
 
 
 ComboActivity = (
@@ -411,6 +405,8 @@ _KNOWN_ACTIVITY_TYPES: dict[str, type[_KnownActivityBase]] = {
     "TAKER_REBATE": TakerRebateActivity,
     "REFERRAL_REWARD": ReferralRewardActivity,
     "YIELD": YieldActivity,
+    "MIGRATION": MigrationActivity,
+    "TIP": TipActivity,
 }
 
 _COMBO_ACTIVITY_TYPES: dict[ComboActivityType, type[_ComboActivityBase]] = {
@@ -429,7 +425,7 @@ def parse_activity(payload: object) -> Activity:
         raise UnexpectedResponseError("Activity payload must be an object.")
     data = _normalize_activity_payload(cast(dict[str, Any], payload))
     activity_type = data.get("type")
-    if activity_type == "TRADE" and data.get("isCombo") is True:
+    if activity_type == "TRADE" and data.get("is_combo") is True:
         return ComboTradeActivity.parse_response(data)
     if isinstance(activity_type, str) and activity_type in _KNOWN_ACTIVITY_TYPES:
         cls = _KNOWN_ACTIVITY_TYPES[activity_type]
@@ -463,21 +459,22 @@ def parse_combo_activities(payload: object) -> tuple[ComboActivity, ...]:
 
 def _normalize_activity_payload(data: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(data)
-
-    if normalized.get("outcomeIndex") == 999:
-        normalized.pop("outcomeIndex", None)
-
-    for sentinel_key in ("conditionId", "asset", "side", "outcome", "icon"):
-        if normalized.get(sentinel_key) == "":
-            normalized.pop(sentinel_key, None)
-
-    if "amount" not in normalized:
-        amount = normalized.get("usdcSize")
-        if amount is None:
-            amount = normalized.get("size")
-        if amount is not None:
-            normalized["amount"] = amount
-
+    for name in (
+        "title",
+        "slug",
+        "icon",
+        "event_slug",
+        "outcome",
+        "name",
+        "pseudonym",
+        "bio",
+        "profile_image",
+        "profile_image_optimized",
+    ):
+        if name in normalized:
+            normalized[name] = optional_text(normalized[name])
+    if "outcome_index" in normalized:
+        normalized["outcome_index"] = optional_outcome_index(normalized["outcome_index"])
     return normalized
 
 
@@ -508,6 +505,8 @@ __all__ = [
     "UnknownActivity",
     "WithdrawalActivity",
     "YieldActivity",
+    "MigrationActivity",
+    "TipActivity",
     "parse_activities",
     "parse_activity",
     "parse_combo_activities",

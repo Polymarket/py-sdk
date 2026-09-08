@@ -2,6 +2,7 @@
 
 import logging
 from collections.abc import Sequence
+from datetime import datetime
 from decimal import Decimal
 from types import TracebackType
 from typing import Literal, Self, overload
@@ -12,19 +13,6 @@ from polymarket._internal.actions import data as _data_actions
 from polymarket._internal.actions import gamma as _gamma_actions
 from polymarket._internal.actions import rewards as _rewards_actions
 from polymarket._internal.actions import rfq as _rfq_actions
-from polymarket._internal.actions.data import (
-    ActivitySortBy,
-    ActivityTypeFilter,
-    ClosedPositionSortBy,
-    ComboPositionSort,
-    ComboPositionStatus,
-    MarketPositionSortBy,
-    MarketPositionStatus,
-    PositionSortBy,
-    SortDirection,
-    TradeFilterType,
-    TradeSide,
-)
 from polymarket._internal.actions.gamma import (
     CommentParentEntityType,
     DateFilter,
@@ -59,8 +47,6 @@ from polymarket.models import (
     Market,
     OrderBook,
     OrderSide,
-    PriceHistoryInterval,
-    PriceHistoryPoint,
     PriceRequest,
     PublicProfile,
     RelatedTag,
@@ -77,24 +63,39 @@ from polymarket.models.clob import BuilderTrade
 from polymarket.models.clob.rewards import CurrentReward, MarketReward
 from polymarket.models.data import (
     Activity,
-    BuilderVolumeEntry,
-    BuilderVolumeTimePeriod,
-    ClosedPosition,
+    ActivityTypeFilter,
+    BuilderStanding,
+    BuilderVolumeInterval,
+    BuilderVolumePoint,
     ComboActivity,
+    ComboBiggestWinner,
     ComboPosition,
-    LeaderboardCategory,
-    LeaderboardEntry,
-    LeaderboardOrderBy,
-    LeaderboardTimePeriod,
+    ComboPositionSortBy,
+    ComboPositionStatus,
+    LeaderboardWindow,
     LiveVolume,
+    MarketBiggestWinner,
     MetaHolder,
-    MetaMarketPosition,
     OpenInterest,
     PortfolioValue,
     Position,
+    PositionFilterType,
+    PositionSortBy,
+    PositionStatus,
+    PriceHistoryInterval,
+    PriceHistoryPoint,
+    Resolution,
+    SortDirection,
     Trade,
-    TradedMarketCount,
+    TradeFilterType,
     TraderLeaderboardEntry,
+    TraderLeaderboardSort,
+    TraderLeaderboardStanding,
+    UserPnlFidelity,
+    UserPnlInterval,
+    UserPnlSeries,
+    UserStats,
+    UserVolume,
 )
 from polymarket.models.types import ClobAssetId, CtfConditionId
 from polymarket.pagination import Page, Paginator
@@ -105,6 +106,345 @@ class PublicClient:
 
     Public methods return stable, idiomatic Python SDK objects.
     """
+
+    def list_trades(
+        self,
+        *,
+        user: str | None = None,
+        condition_id: str | Sequence[str] | None = None,
+        event_id: int | Sequence[int] | None = None,
+        side: OrderSide | None = None,
+        taker_only: bool | None = None,
+        filter_type: TradeFilterType | None = None,
+        filter_amount: float | None = None,
+        start: int | datetime | None = None,
+        end: int | datetime | None = None,
+        full_history: bool = False,
+        page_size: int = 100,
+    ) -> Paginator[Trade]:
+        """List trades. Size is shares and price is USDC per share.
+
+        Time filters apply when a user is supplied. ``full_history`` selects all history.
+
+        Resuming a cursor uses the page size stored by that cursor."""
+        spec = _data_actions.list_trades_spec(
+            user=user,
+            condition_id=condition_id,
+            event_id=event_id,
+            side=side,
+            taker_only=taker_only,
+            filter_type=filter_type,
+            filter_amount=filter_amount,
+            start=start,
+            end=end,
+            full_history=full_history,
+        )
+        return sync_paginate_keyset(self._ctx, spec, page_size=page_size)
+
+    def list_activity(
+        self,
+        *,
+        user: str,
+        condition_id: str | Sequence[str] | None = None,
+        event_id: int | Sequence[int] | None = None,
+        activity_types: Sequence[ActivityTypeFilter] | None = None,
+        side: OrderSide | None = None,
+        sort_direction: SortDirection | None = None,
+        start: int | datetime | None = None,
+        end: int | datetime | None = None,
+        full_history: bool = False,
+        page_size: int = 100,
+    ) -> Paginator[Activity]:
+        """List wallet activity, including deposits and withdrawals.
+
+        Amounts are USDC and shares are outcome units.
+
+        Resuming a cursor uses the page size stored by that cursor."""
+        spec = _data_actions.list_activity_spec(
+            user=user,
+            condition_id=condition_id,
+            event_id=event_id,
+            activity_types=activity_types,
+            side=side,
+            sort_direction=sort_direction,
+            start=start,
+            end=end,
+            full_history=full_history,
+        )
+        return sync_paginate_keyset(self._ctx, spec, page_size=page_size)
+
+    def list_combo_activity(
+        self,
+        *,
+        user: str,
+        condition_id: str | Sequence[str] | None = None,
+        page_size: int = 100,
+    ) -> Paginator[ComboActivity]:
+        """List combo lifecycle activity. Amounts and payouts are USDC.
+
+        Resuming a cursor uses the page size stored by that cursor."""
+        spec = _data_actions.list_combo_activity_spec(user=user, condition_id=condition_id)
+        return sync_paginate_keyset(self._ctx, spec, page_size=page_size)
+
+    def list_positions(
+        self,
+        *,
+        user: str | None = None,
+        condition_id: str | Sequence[str] | None = None,
+        status: PositionStatus | None = None,
+        event_id: int | Sequence[int] | None = None,
+        filter_type: PositionFilterType | None = None,
+        filter_amount: float | None = None,
+        include_archived: bool | None = None,
+        sort_by: PositionSortBy | None = None,
+        sort_direction: SortDirection | None = None,
+        start: int | datetime | None = None,
+        end: int | datetime | None = None,
+        full_history: bool = False,
+        page_size: int = 100,
+    ) -> Paginator[Position]:
+        """List positions for a wallet or a single market.
+
+        Use ``status="CLOSED"`` for closed positions. Sizes are shares and values are USDC.
+
+        Resuming a cursor uses the page size stored by that cursor."""
+        spec = _data_actions.list_positions_spec(
+            user=user,
+            condition_id=condition_id,
+            status=status,
+            event_id=event_id,
+            filter_type=filter_type,
+            filter_amount=filter_amount,
+            include_archived=include_archived,
+            sort_by=sort_by,
+            sort_direction=sort_direction,
+            start=start,
+            end=end,
+            full_history=full_history,
+        )
+        return sync_paginate_keyset(self._ctx, spec, page_size=page_size)
+
+    def list_combo_positions(
+        self,
+        *,
+        user: str,
+        condition_id: str | Sequence[str] | None = None,
+        status: ComboPositionStatus | Sequence[ComboPositionStatus] | None = None,
+        sort_by: ComboPositionSortBy | None = None,
+        sort_direction: SortDirection | None = None,
+        updated_after: int | datetime | None = None,
+        updated_before: int | datetime | None = None,
+        page_size: int = 100,
+    ) -> Paginator[ComboPosition]:
+        """List combo positions, optionally filtering by multiple statuses.
+
+        Update bounds are inclusive. Sizes are shares; costs and payouts are USDC.
+
+        Resuming a cursor uses the page size stored by that cursor."""
+        spec = _data_actions.list_combo_positions_spec(
+            user=user,
+            condition_id=condition_id,
+            status=status,
+            sort_by=sort_by,
+            sort_direction=sort_direction,
+            updated_after=updated_after,
+            updated_before=updated_before,
+        )
+        return sync_paginate_keyset(self._ctx, spec, page_size=page_size)
+
+    def get_portfolio_value(
+        self,
+        *,
+        user: str,
+        condition_ids: str | Sequence[str] | None = None,
+    ) -> PortfolioValue:
+        """Get current portfolio value in USDC."""
+        spec = _data_actions.get_portfolio_value_spec(user=user, condition_ids=condition_ids)
+        return sync_dispatch(self._ctx, spec)
+
+    def get_user_stats(
+        self,
+        *,
+        user: str,
+    ) -> UserStats | None:
+        """Get wallet statistics, or ``None`` when the wallet has no statistics."""
+        spec = _data_actions.get_user_stats_spec(user=user)
+        return sync_dispatch(self._ctx, spec)
+
+    def get_user_pnl(
+        self,
+        *,
+        user: str,
+        interval: UserPnlInterval | None = None,
+        fidelity: UserPnlFidelity | None = None,
+    ) -> UserPnlSeries:
+        """Get cumulative wallet PnL in USDC and volume in shares."""
+        spec = _data_actions.get_user_pnl_spec(user=user, interval=interval, fidelity=fidelity)
+        return sync_dispatch(self._ctx, spec)
+
+    def get_user_volume(
+        self,
+        *,
+        user: str,
+        start: int | datetime | None = None,
+        end: int | datetime | None = None,
+        full_history: bool = False,
+    ) -> UserVolume:
+        """Get trading volume in shares and USDC. Time bounds are floored to UTC days."""
+        spec = _data_actions.get_user_volume_spec(
+            user=user, start=start, end=end, full_history=full_history
+        )
+        return sync_dispatch(self._ctx, spec)
+
+    def list_market_holders(
+        self,
+        *,
+        condition_ids: str | Sequence[str],
+        min_balance: float | None = None,
+        include_pnl: bool | None = None,
+        page_size: int = 100,
+    ) -> Paginator[MetaHolder]:
+        """List holders grouped by outcome asset. Amounts are shares; PnL is USDC.
+
+        Page size applies per outcome. Merge groups across pages by ``asset_id``.
+        With ``include_pnl=True``, the maximum page size is 100; amounts are gross per side.
+
+        Resuming a cursor uses the page size stored by that cursor."""
+        spec = _data_actions.list_market_holders_spec(
+            condition_ids=condition_ids, min_balance=min_balance, include_pnl=include_pnl
+        )
+        return sync_paginate_keyset(self._ctx, spec, page_size=page_size)
+
+    def get_open_interests(
+        self,
+        *,
+        condition_ids: str | Sequence[str] | None = None,
+    ) -> tuple[OpenInterest, ...]:
+        """Get open interest in USDC. Omit conditions to request global interest."""
+        spec = _data_actions.get_open_interests_spec(condition_ids=condition_ids)
+        return sync_dispatch(self._ctx, spec)
+
+    def get_event_live_volume(
+        self,
+        *,
+        event_ids: int | Sequence[int],
+    ) -> LiveVolume:
+        """Get combined event taker volume in USDC with a market breakdown."""
+        spec = _data_actions.get_event_live_volume_spec(event_ids=event_ids)
+        return sync_dispatch(self._ctx, spec)
+
+    def list_price_history(
+        self,
+        *,
+        asset_id: str,
+        interval: PriceHistoryInterval | None = None,
+        start: int | datetime | None = None,
+        end: int | datetime | None = None,
+        as_of: int | datetime | None = None,
+        bucket_seconds: int | None = None,
+        page_size: int | None = None,
+    ) -> Paginator[PriceHistoryPoint]:
+        """List historical prices in USDC per share, oldest first.
+
+        Select an interval, a start/end window (end exclusive), or an exact ``as_of``.
+        Windows span at most 15 days. ``as_of`` forbids bucket_seconds and page_size.
+        The default page size is 10000.
+
+        Resuming a cursor uses the page size stored by that cursor."""
+        spec = _data_actions.list_price_history_spec(
+            asset_id=asset_id,
+            interval=interval,
+            start=start,
+            end=end,
+            as_of=as_of,
+            bucket_seconds=bucket_seconds,
+            page_size=page_size,
+        )
+        return sync_paginate_keyset(
+            self._ctx, spec, page_size=10000 if page_size is None else page_size
+        )
+
+    def get_resolutions(
+        self,
+        *,
+        question_id: str | None = None,
+        condition_ids: str | Sequence[str] | None = None,
+        event_ids: int | Sequence[int] | None = None,
+    ) -> tuple[Resolution, ...]:
+        """Get resolutions by question, conditions, or events. Missing rows are omitted."""
+        spec = _data_actions.get_resolutions_spec(
+            question_id=question_id, condition_ids=condition_ids, event_ids=event_ids
+        )
+        return sync_dispatch(self._ctx, spec)
+
+    def list_trader_leaderboard(
+        self,
+        *,
+        category: str | None = None,
+        window: LeaderboardWindow | None = None,
+        sort_by: TraderLeaderboardSort | None = None,
+        page_size: int = 100,
+    ) -> Paginator[TraderLeaderboardEntry]:
+        """List ranked traders. PnL is USDC and volume is shares; ranks can tie and skip.
+
+        Resuming a cursor uses the page size stored by that cursor."""
+        spec = _data_actions.list_trader_leaderboard_spec(
+            category=category, window=window, sort_by=sort_by
+        )
+        return sync_paginate_keyset(self._ctx, spec, page_size=page_size)
+
+    def get_trader_leaderboard_standing(
+        self,
+        *,
+        user: str,
+        category: str | None = None,
+        window: LeaderboardWindow | None = None,
+    ) -> TraderLeaderboardStanding | None:
+        """Get wallet leaderboard standings, or ``None`` when unavailable.
+
+        PnL is USDC and volume is shares. Unranked ranks are ``None``."""
+        spec = _data_actions.get_trader_leaderboard_standing_spec(
+            user=user, category=category, window=window
+        )
+        return sync_dispatch(self._ctx, spec)
+
+    def list_biggest_winners(
+        self,
+        *,
+        category: str | None = None,
+        window: LeaderboardWindow | None = None,
+        page_size: int = 100,
+    ) -> Paginator[MarketBiggestWinner | ComboBiggestWinner]:
+        """List winning market and combo positions, ordered by USDC PnL.
+
+        Resuming a cursor uses the page size stored by that cursor."""
+        spec = _data_actions.list_biggest_winners_spec(category=category, window=window)
+        return sync_paginate_keyset(self._ctx, spec, page_size=page_size)
+
+    def list_builder_leaderboard(
+        self,
+        *,
+        window: LeaderboardWindow | None = None,
+        page_size: int = 100,
+    ) -> Paginator[BuilderStanding]:
+        """List ranked builders and their trading volume in USDC.
+
+        Resuming a cursor uses the page size stored by that cursor."""
+        spec = _data_actions.list_builder_leaderboard_spec(window=window)
+        return sync_paginate_keyset(self._ctx, spec, page_size=page_size)
+
+    def get_builder_volumes(
+        self,
+        *,
+        interval: BuilderVolumeInterval | None = None,
+        bucket_limit: int | None = None,
+    ) -> tuple[BuilderVolumePoint, ...]:
+        """Get builder volume in USDC by calendar bucket.
+
+        ``bucket_limit`` counts dates, not rows (default 30, maximum 90).
+        Interval ``all`` yields calendar-year buckets."""
+        spec = _data_actions.get_builder_volumes_spec(interval=interval, bucket_limit=bucket_limit)
+        return sync_dispatch(self._ctx, spec)
 
     def __init__(
         self,
@@ -355,51 +695,6 @@ class PublicClient:
             _gamma_actions.get_comment_thread_spec(id, get_positions=get_positions),
         )
 
-    def get_event_live_volumes(self, *, id: str) -> tuple[LiveVolume, ...]:
-        """Get live volume entries for an event."""
-        return sync_dispatch(self._ctx, _data_actions.get_event_live_volumes_spec(id=id))
-
-    def get_open_interests(
-        self, *, market: Sequence[str] | None = None
-    ) -> tuple[OpenInterest, ...]:
-        """Get open interest values, optionally filtered by market ids."""
-        return sync_dispatch(self._ctx, _data_actions.get_open_interests_spec(market=market))
-
-    def get_market_holders(
-        self,
-        *,
-        market: Sequence[str],
-        limit: int | None = None,
-        min_balance: int | None = None,
-    ) -> tuple[MetaHolder, ...]:
-        """Get holder balances for one or more markets."""
-        return sync_dispatch(
-            self._ctx,
-            _data_actions.get_market_holders_spec(
-                market=market, limit=limit, min_balance=min_balance
-            ),
-        )
-
-    def get_portfolio_values(
-        self, *, user: str, market: Sequence[str] | None = None
-    ) -> tuple[PortfolioValue, ...]:
-        """Get portfolio value snapshots for a user."""
-        return sync_dispatch(
-            self._ctx, _data_actions.get_portfolio_values_spec(user=user, market=market)
-        )
-
-    def get_traded_market_count(self, *, user: str) -> TradedMarketCount:
-        """Get the number of markets a user has traded."""
-        return sync_dispatch(self._ctx, _data_actions.get_traded_market_count_spec(user=user))
-
-    def get_builder_volumes(
-        self, *, time_period: BuilderVolumeTimePeriod | None = None
-    ) -> tuple[BuilderVolumeEntry, ...]:
-        """Get builder volume leaderboard entries."""
-        return sync_dispatch(
-            self._ctx, _data_actions.get_builder_volumes_spec(time_period=time_period)
-        )
-
     def list_builder_trades(
         self,
         *,
@@ -434,235 +729,10 @@ class PublicClient:
 
         return Paginator(fetch=fetch)
 
-    def list_positions(
-        self,
-        *,
-        user: str,
-        market: str | Sequence[str] | None = None,
-        event_id: int | Sequence[int] | None = None,
-        size_threshold: float | None = None,
-        redeemable: bool | None = None,
-        mergeable: bool | None = None,
-        sort_by: PositionSortBy | None = None,
-        sort_direction: SortDirection | None = None,
-        title: str | None = None,
-        page_size: int = 20,
-    ) -> Paginator[Position]:
-        """List open positions for a user.
-
-        Returns:
-            A paginator over matching positions.
-        """
-        spec = _data_actions.list_positions_spec(
-            user=user,
-            market=market,
-            event_id=event_id,
-            size_threshold=size_threshold,
-            redeemable=redeemable,
-            mergeable=mergeable,
-            sort_by=sort_by,
-            sort_direction=sort_direction,
-            title=title,
-        )
-        return sync_paginate_offset(self._ctx, spec, page_size=page_size)
-
-    def list_closed_positions(
-        self,
-        *,
-        user: str,
-        market: str | Sequence[str] | None = None,
-        event_id: int | Sequence[int] | None = None,
-        title: str | None = None,
-        sort_by: ClosedPositionSortBy | None = None,
-        sort_direction: SortDirection | None = None,
-        page_size: int = 20,
-    ) -> Paginator[ClosedPosition]:
-        """List closed positions for a user.
-
-        Returns:
-            A paginator over matching closed positions.
-        """
-        spec = _data_actions.list_closed_positions_spec(
-            user=user,
-            market=market,
-            event_id=event_id,
-            title=title,
-            sort_by=sort_by,
-            sort_direction=sort_direction,
-        )
-        return sync_paginate_offset(self._ctx, spec, page_size=page_size)
-
-    def list_combo_positions(
-        self,
-        *,
-        user: str,
-        status: ComboPositionStatus | None = None,
-        sort: ComboPositionSort | None = None,
-        condition_id: str | Sequence[str] | None = None,
-        updated_after: int | None = None,
-        updated_before: int | None = None,
-        page_size: int = 20,
-    ) -> Paginator[ComboPosition]:
-        """List combo positions for a user.
-
-        Returns:
-            A paginator over matching combo positions.
-        """
-        spec = _data_actions.list_combo_positions_spec(
-            user=user,
-            status=status,
-            sort=sort,
-            condition_id=condition_id,
-            updated_after=updated_after,
-            updated_before=updated_before,
-        )
-        return sync_paginate_keyset(self._ctx, spec, page_size=page_size)
-
-    def list_market_positions(
-        self,
-        *,
-        market: str,
-        user: str | None = None,
-        status: MarketPositionStatus | None = None,
-        sort_by: MarketPositionSortBy | None = None,
-        sort_direction: SortDirection | None = None,
-        page_size: int = 20,
-    ) -> Paginator[MetaMarketPosition]:
-        """List positions in a market.
-
-        Returns:
-            A paginator over matching market positions.
-        """
-        spec = _data_actions.list_market_positions_spec(
-            market=market,
-            user=user,
-            status=status,
-            sort_by=sort_by,
-            sort_direction=sort_direction,
-        )
-        return sync_paginate_offset(self._ctx, spec, page_size=page_size)
-
-    def list_trades(
-        self,
-        *,
-        user: str | None = None,
-        market: Sequence[str] | None = None,
-        event_id: Sequence[int] | None = None,
-        side: TradeSide | None = None,
-        taker_only: bool | None = None,
-        filter_type: TradeFilterType | None = None,
-        filter_amount: float | None = None,
-        start: int | None = None,
-        end: int | None = None,
-        page_size: int = 20,
-    ) -> Paginator[Trade]:
-        """List public trades.
-
-        Returns:
-            A paginator over matching trades.
-        """
-        spec = _data_actions.list_trades_spec(
-            user=user,
-            market=market,
-            event_id=event_id,
-            side=side,
-            taker_only=taker_only,
-            filter_type=filter_type,
-            filter_amount=filter_amount,
-            start=start,
-            end=end,
-        )
-        return sync_paginate_offset(self._ctx, spec, page_size=page_size)
-
-    def list_activity(
-        self,
-        *,
-        user: str,
-        market: str | Sequence[str] | None = None,
-        event_id: int | Sequence[int] | None = None,
-        activity_types: Sequence[ActivityTypeFilter] | None = None,
-        side: TradeSide | None = None,
-        sort_by: ActivitySortBy | None = None,
-        sort_direction: SortDirection | None = None,
-        start: int | None = None,
-        end: int | None = None,
-        page_size: int = 20,
-    ) -> Paginator[Activity]:
-        """List user activity.
-
-        Returns:
-            A paginator over matching activity entries.
-        """
-        spec = _data_actions.list_activity_spec(
-            user=user,
-            market=market,
-            event_id=event_id,
-            activity_types=activity_types,
-            side=side,
-            sort_by=sort_by,
-            sort_direction=sort_direction,
-            start=start,
-            end=end,
-        )
-        return sync_paginate_offset(self._ctx, spec, page_size=page_size)
-
-    def list_combo_activity(
-        self,
-        *,
-        user: str,
-        condition_id: str | Sequence[str] | None = None,
-        page_size: int = 50,
-    ) -> Paginator[ComboActivity]:
-        """List combo lifecycle activity for a user.
-
-        Returns:
-            A paginator over matching combo lifecycle activity entries.
-        """
-        spec = _data_actions.list_combo_activity_spec(user=user, condition_id=condition_id)
-        return sync_paginate_keyset(self._ctx, spec, page_size=page_size)
-
-    def list_builder_leaderboard(
-        self,
-        *,
-        time_period: LeaderboardTimePeriod | None = None,
-        page_size: int = 20,
-    ) -> Paginator[LeaderboardEntry]:
-        """List builder leaderboard entries.
-
-        Returns:
-            A paginator over leaderboard rows.
-        """
-        spec = _data_actions.list_builder_leaderboard_spec(time_period=time_period)
-        return sync_paginate_offset(self._ctx, spec, page_size=page_size)
-
     def download_accounting_snapshot(self, *, user: str) -> bytes:
         """Download the accounting snapshot archive for a user."""
         path, params = _data_actions.build_accounting_snapshot_request(user=user)
         return self._ctx.data.get_bytes(path, params=params)
-
-    def list_trader_leaderboard(
-        self,
-        *,
-        category: LeaderboardCategory | None = None,
-        time_period: LeaderboardTimePeriod | None = None,
-        order_by: LeaderboardOrderBy | None = None,
-        user: str | None = None,
-        user_name: str | None = None,
-        page_size: int = 20,
-    ) -> Paginator[TraderLeaderboardEntry]:
-        """List trader leaderboard entries.
-
-        Returns:
-            A paginator over leaderboard rows.
-        """
-        spec = _data_actions.list_trader_leaderboard_spec(
-            category=category,
-            time_period=time_period,
-            order_by=order_by,
-            user=user,
-            user_name=user_name,
-        )
-        return sync_paginate_offset(self._ctx, spec, page_size=page_size)
 
     def list_events(
         self,
@@ -1143,27 +1213,6 @@ class PublicClient:
             asset_ids=asset_ids, token_ids=token_ids
         )
         return _clob_actions.parse_last_trade_prices(self._ctx.clob.post_json(path, json=body))
-
-    def get_price_history(
-        self,
-        *,
-        asset_id: str | None = None,
-        token_id: str | None = None,
-        start_ts: int | None = None,
-        end_ts: int | None = None,
-        fidelity: int | None = None,
-        interval: PriceHistoryInterval | None = None,
-    ) -> tuple[PriceHistoryPoint, ...]:
-        """Get historical price points for a CLOB asset."""
-        path, params = _clob_actions.build_price_history_request(
-            asset_id=asset_id,
-            token_id=token_id,
-            start_ts=start_ts,
-            end_ts=end_ts,
-            fidelity=fidelity,
-            interval=interval,
-        )
-        return _clob_actions.parse_price_history(self._ctx.clob.get_json(path, params=params))
 
     @overload
     def estimate_market_price(

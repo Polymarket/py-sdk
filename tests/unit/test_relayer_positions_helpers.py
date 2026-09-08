@@ -2,6 +2,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
+from data_v2_samples import position_payload
 
 # pyright: reportPrivateUsage=false
 from polymarket._internal.actions.relayer.positions import (
@@ -33,12 +34,14 @@ def _pos(
     condition_id: str = _CONDITION_ID,
 ) -> Position:
     return Position.parse_response(
-        {
-            "conditionId": condition_id,
-            "outcomeIndex": outcome_index,
-            "size": str(size) if size is not None else None,
-            "negativeRisk": negative_risk,
-        }
+        position_payload(
+            **{
+                "condition_id": condition_id,
+                "outcome_index": outcome_index,
+                "current_size": str(size) if size is not None else "0",
+                "negative_risk": negative_risk,
+            }
+        )
     )
 
 
@@ -136,9 +139,8 @@ def test_expect_negative_risk_flag_works_with_single_position() -> None:
 
 
 def test_expect_negative_risk_flag_rejects_missing_flag() -> None:
-    yes_pos = _pos(outcome_index=0, negative_risk=None)
-    with pytest.raises(UnexpectedResponseError, match="Missing negativeRisk"):
-        expect_negative_risk_flag((yes_pos, None))
+    with pytest.raises(UnexpectedResponseError):
+        _pos(outcome_index=0, negative_risk=None)
 
 
 def test_expect_negative_risk_flag_rejects_mixed_flags() -> None:
@@ -220,7 +222,7 @@ def test_derive_binary_position_amounts_rejects_non_finite_size() -> None:
     yes_pos = Position.model_construct(
         condition_id=_CONDITION_ID,
         outcome_index=0,
-        size=Decimal("NaN"),
+        current_size=Decimal("NaN"),
         negative_risk=True,
     )
     no_pos = _pos(outcome_index=1, size=Decimal("0"), negative_risk=True)
@@ -232,7 +234,7 @@ def test_derive_binary_position_amounts_rejects_infinity() -> None:
     yes_pos = Position.model_construct(
         condition_id=_CONDITION_ID,
         outcome_index=0,
-        size=Decimal("Infinity"),
+        current_size=Decimal("Infinity"),
         negative_risk=True,
     )
     no_pos = _pos(outcome_index=1, size=Decimal("0"), negative_risk=True)

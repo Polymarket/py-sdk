@@ -161,13 +161,12 @@ def expect_negative_risk_flag(positions: BinaryPositions) -> bool:
     first = yes_position if yes_position is not None else no_position
     assert first is not None
     condition_id = first.condition_id
-    if first.negative_risk is None:
-        raise UnexpectedResponseError(f"Missing negativeRisk flag for condition {condition_id}")
-    if yes_position is not None and no_position is not None:
-        if yes_position.negative_risk is None or no_position.negative_risk is None:
-            raise UnexpectedResponseError(f"Missing negativeRisk flag for condition {condition_id}")
-        if yes_position.negative_risk != no_position.negative_risk:
-            raise UnexpectedResponseError(f"Mixed negativeRisk flags for condition {condition_id}")
+    if (
+        yes_position is not None
+        and no_position is not None
+        and yes_position.negative_risk != no_position.negative_risk
+    ):
+        raise UnexpectedResponseError(f"Mixed negativeRisk flags for condition {condition_id}")
     return first.negative_risk
 
 
@@ -327,13 +326,13 @@ def _to_position_amount(position: Position | None, *, expected_outcome_index: Li
         raise UnexpectedResponseError(
             f"Expected outcomeIndex {expected_outcome_index}, got {position.outcome_index}"
         )
-    if position.size is None:
-        return 0
-    if not position.size.is_finite():
-        raise UnexpectedResponseError(f"Position size must be a finite number, got {position.size}")
-    if position.size < 0:
+    if not position.current_size.is_finite():
+        raise UnexpectedResponseError(
+            f"Position size must be a finite number, got {position.current_size}"
+        )
+    if position.current_size < 0:
         raise UnexpectedResponseError("Position size must be non-negative")
-    return int(position.size * Decimal(_TOKEN_DECIMALS))
+    return int(position.current_size * Decimal(_TOKEN_DECIMALS))
 
 
 def _parse_position_id(position_id: str) -> int:

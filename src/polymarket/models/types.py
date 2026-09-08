@@ -48,6 +48,29 @@ def to_ctf_condition_id(value: str) -> CtfConditionId:
     return to_condition_id(value)
 
 
+def to_market_condition_id(value: str) -> ConditionId:
+    """Return a market condition ID, padding a structural market ID when needed."""
+    import re
+
+    if type(value) is not str or re.fullmatch(r"0x[0-9a-fA-F]+", value) is None:
+        raise TypeError("Expected a hex market condition ID")
+    normalized = value.lower()
+    if len(normalized) == 66:
+        return ConditionId(normalized)
+    if len(normalized) == 64 and normalized.startswith(("0x01", "0x02")):
+        return ConditionId(normalized + "00")
+    raise TypeError("Expected a 32-byte condition ID or a 31-byte structural market ID")
+
+
+def validate_market_condition_id(value: object) -> ConditionId:
+    if not isinstance(value, str):
+        raise ValueError("Expected a market condition ID")
+    try:
+        return to_market_condition_id(value)
+    except TypeError as error:
+        raise ValueError(str(error)) from error
+
+
 def to_combo_condition_id(value: str) -> ComboConditionId:
     if not _is_hex_string(value):
         raise TypeError(f"Expected a protocol v2 combo condition ID, received: {value}")
@@ -164,6 +187,8 @@ __all__ = [
     "TokenId",
     "to_combo_condition_id",
     "to_condition_id",
+    "to_market_condition_id",
+    "validate_market_condition_id",
     "to_ctf_condition_id",
     "validate_combo_condition_id",
     "validate_condition_id",
