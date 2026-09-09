@@ -6,24 +6,27 @@ import pytest
 from polymarket import AsyncPublicClient, AsyncSecureClient, PublicClient
 
 pytestmark = pytest.mark.integration
-WALLET = "0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b"
 CONDITION = "0xe546672750517f62c45a5a00067481981e62b9c20fa8220203232c9dc8fd2093"
 
 
-def test_portfolio_and_metrics(sync_public_client: PublicClient) -> None:
+def test_portfolio_and_metrics(
+    sync_public_client: PublicClient, data_reference_wallet: str, data_empty_wallet: str
+) -> None:
     client = sync_public_client
-    portfolio = client.get_portfolio_value(user=WALLET)
-    assert portfolio.wallet == WALLET and isinstance(portfolio.value, Decimal)
-    stats = client.get_user_stats(user=WALLET)
+    portfolio = client.get_portfolio_value(user=data_reference_wallet)
+    assert portfolio.wallet == data_reference_wallet and isinstance(portfolio.value, Decimal)
+    stats = client.get_user_stats(user=data_reference_wallet)
     if stats is None:
         pytest.skip("reference wallet no longer has statistics")
     assert stats.traded_market_count > 0 and stats.all_time_pnl is not None
-    assert client.get_user_stats(user="0x00000000000000000000000000000000000000aa") is None
-    pnl = client.get_user_pnl(user=WALLET, interval="1w", fidelity="1h")
+    assert client.get_user_stats(user=data_empty_wallet) is None
+    pnl = client.get_user_pnl(user=data_reference_wallet, interval="1w", fidelity="1h")
     assert pnl.interval == "1w" and pnl.fidelity == "1h" and pnl.source_fidelity
     assert pnl.points
     volume = client.get_user_volume(
-        user=WALLET, start=datetime(2026, 9, 1, tzinfo=UTC), end=datetime(2026, 9, 2, tzinfo=UTC)
+        user=data_reference_wallet,
+        start=datetime(2026, 9, 1, tzinfo=UTC),
+        end=datetime(2026, 9, 2, tzinfo=UTC),
     )
     assert volume.volume >= 0 and volume.volume_usdc >= 0 and volume.trade_count >= 0
 
@@ -55,16 +58,20 @@ def test_builder_volume_counts_buckets(sync_public_client: PublicClient) -> None
     assert len(points) > 2
 
 
-def test_accounting_snapshot(sync_public_client: PublicClient) -> None:
-    archive = sync_public_client.download_accounting_snapshot(user=WALLET)
+def test_accounting_snapshot(sync_public_client: PublicClient, data_reference_wallet: str) -> None:
+    archive = sync_public_client.download_accounting_snapshot(user=data_reference_wallet)
     assert archive.startswith(b"PK") and len(archive) > 100
 
 
 @pytest.mark.anyio
-async def test_async_portfolio(public_client: AsyncPublicClient) -> None:
-    value = await public_client.get_portfolio_value(user=WALLET)
-    assert value.wallet == WALLET and value.value >= 0
-    assert (await public_client.get_user_pnl(user=WALLET)).wallet == WALLET
+async def test_async_portfolio(
+    public_client: AsyncPublicClient, data_reference_wallet: str
+) -> None:
+    value = await public_client.get_portfolio_value(user=data_reference_wallet)
+    assert value.wallet == data_reference_wallet and value.value >= 0
+    assert (
+        await public_client.get_user_pnl(user=data_reference_wallet)
+    ).wallet == data_reference_wallet
 
 
 @pytest.mark.anyio

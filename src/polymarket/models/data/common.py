@@ -1,7 +1,7 @@
 """Filter vocabularies and response parsers for portfolio and trading analytics."""
 
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Literal
 
 SortDirection = Literal["ASC", "DESC"]
@@ -59,7 +59,10 @@ ResolutionReporter = Literal["UMA_OO", "CHAINLINK", "EOA"]
 def decimal_from_number(value: object) -> Decimal:
     if isinstance(value, bool) or not isinstance(value, str | int | float | Decimal):
         raise ValueError("Expected a decimal amount")
-    return Decimal(str(value))
+    try:
+        return Decimal(str(value))
+    except InvalidOperation as error:
+        raise ValueError("Expected a decimal amount") from error
 
 
 def optional_decimal_from_number(value: object) -> Decimal | None:

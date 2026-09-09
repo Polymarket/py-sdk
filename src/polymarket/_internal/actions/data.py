@@ -269,7 +269,7 @@ def list_combo_positions_spec(
     )
 
 
-def get_portfolio_value_spec(
+def build_get_portfolio_value_spec(
     *,
     user: str,
     condition_ids: str | Sequence[str] | None = None,
@@ -286,7 +286,7 @@ def get_portfolio_value_spec(
     )
 
 
-def get_user_stats_spec(
+def build_get_user_stats_spec(
     *,
     user: str,
 ) -> RequestSpec[UserStats | None]:
@@ -301,7 +301,7 @@ def get_user_stats_spec(
     )
 
 
-def get_user_pnl_spec(
+def build_get_user_pnl_spec(
     *,
     user: str,
     interval: UserPnlInterval | None = None,
@@ -320,7 +320,7 @@ def get_user_pnl_spec(
     )
 
 
-def get_user_volume_spec(
+def build_get_user_volume_spec(
     *,
     user: str,
     start: int | datetime | None = None,
@@ -339,7 +339,7 @@ def get_user_volume_spec(
     )
 
 
-def list_market_holders_spec(
+def build_list_market_holders_spec(
     *,
     condition_ids: str | Sequence[str],
     min_balance: float | None = None,
@@ -379,7 +379,7 @@ def get_open_interests_spec(
     )
 
 
-def get_event_live_volume_spec(
+def build_get_event_live_volume_spec(
     *,
     event_ids: int | Sequence[int],
 ) -> RequestSpec[LiveVolume]:
@@ -396,7 +396,7 @@ def get_event_live_volume_spec(
     )
 
 
-def list_price_history_spec(
+def build_list_price_history_spec(
     *,
     asset_id: str,
     interval: PriceHistoryInterval | None = None,
@@ -444,7 +444,7 @@ def list_price_history_spec(
     )
 
 
-def get_resolutions_spec(
+def build_get_resolutions_spec(
     *,
     question_id: str | None = None,
     condition_ids: str | Sequence[str] | None = None,
@@ -495,7 +495,7 @@ def list_trader_leaderboard_spec(
     )
 
 
-def get_trader_leaderboard_standing_spec(
+def build_get_trader_leaderboard_standing_spec(
     *,
     user: str,
     category: str | None = None,
@@ -517,7 +517,7 @@ def get_trader_leaderboard_standing_spec(
     )
 
 
-def list_biggest_winners_spec(
+def build_list_biggest_winners_spec(
     *,
     category: str | None = None,
     window: LeaderboardWindow | None = None,

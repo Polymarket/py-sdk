@@ -259,7 +259,7 @@ class PublicClient:
         condition_ids: str | Sequence[str] | None = None,
     ) -> PortfolioValue:
         """Get current portfolio value in USDC."""
-        spec = _data_actions.get_portfolio_value_spec(user=user, condition_ids=condition_ids)
+        spec = _data_actions.build_get_portfolio_value_spec(user=user, condition_ids=condition_ids)
         return sync_dispatch(self._ctx, spec)
 
     def get_user_stats(
@@ -268,7 +268,7 @@ class PublicClient:
         user: str,
     ) -> UserStats | None:
         """Get wallet statistics, or ``None`` when the wallet has no statistics."""
-        spec = _data_actions.get_user_stats_spec(user=user)
+        spec = _data_actions.build_get_user_stats_spec(user=user)
         return sync_dispatch(self._ctx, spec)
 
     def get_user_pnl(
@@ -279,7 +279,9 @@ class PublicClient:
         fidelity: UserPnlFidelity | None = None,
     ) -> UserPnlSeries:
         """Get cumulative wallet PnL in USDC and volume in shares."""
-        spec = _data_actions.get_user_pnl_spec(user=user, interval=interval, fidelity=fidelity)
+        spec = _data_actions.build_get_user_pnl_spec(
+            user=user, interval=interval, fidelity=fidelity
+        )
         return sync_dispatch(self._ctx, spec)
 
     def get_user_volume(
@@ -291,7 +293,7 @@ class PublicClient:
         full_history: bool = False,
     ) -> UserVolume:
         """Get trading volume in shares and USDC. Time bounds are floored to UTC days."""
-        spec = _data_actions.get_user_volume_spec(
+        spec = _data_actions.build_get_user_volume_spec(
             user=user, start=start, end=end, full_history=full_history
         )
         return sync_dispatch(self._ctx, spec)
@@ -310,7 +312,7 @@ class PublicClient:
         With ``include_pnl=True``, the maximum page size is 100; amounts are gross per side.
 
         Resuming a cursor uses the page size stored by that cursor."""
-        spec = _data_actions.list_market_holders_spec(
+        spec = _data_actions.build_list_market_holders_spec(
             condition_ids=condition_ids, min_balance=min_balance, include_pnl=include_pnl
         )
         return sync_paginate_keyset(self._ctx, spec, page_size=page_size)
@@ -330,7 +332,7 @@ class PublicClient:
         event_ids: int | Sequence[int],
     ) -> LiveVolume:
         """Get combined event taker volume in USDC with a market breakdown."""
-        spec = _data_actions.get_event_live_volume_spec(event_ids=event_ids)
+        spec = _data_actions.build_get_event_live_volume_spec(event_ids=event_ids)
         return sync_dispatch(self._ctx, spec)
 
     def list_price_history(
@@ -351,7 +353,7 @@ class PublicClient:
         The default page size is 10000.
 
         Resuming a cursor uses the page size stored by that cursor."""
-        spec = _data_actions.list_price_history_spec(
+        spec = _data_actions.build_list_price_history_spec(
             asset_id=asset_id,
             interval=interval,
             start=start,
@@ -372,7 +374,7 @@ class PublicClient:
         event_ids: int | Sequence[int] | None = None,
     ) -> tuple[Resolution, ...]:
         """Get resolutions by question, conditions, or events. Missing rows are omitted."""
-        spec = _data_actions.get_resolutions_spec(
+        spec = _data_actions.build_get_resolutions_spec(
             question_id=question_id, condition_ids=condition_ids, event_ids=event_ids
         )
         return sync_dispatch(self._ctx, spec)
@@ -403,7 +405,7 @@ class PublicClient:
         """Get wallet leaderboard standings, or ``None`` when unavailable.
 
         PnL is USDC and volume is shares. Unranked ranks are ``None``."""
-        spec = _data_actions.get_trader_leaderboard_standing_spec(
+        spec = _data_actions.build_get_trader_leaderboard_standing_spec(
             user=user, category=category, window=window
         )
         return sync_dispatch(self._ctx, spec)
@@ -418,7 +420,7 @@ class PublicClient:
         """List winning market and combo positions, ordered by USDC PnL.
 
         Resuming a cursor uses the page size stored by that cursor."""
-        spec = _data_actions.list_biggest_winners_spec(category=category, window=window)
+        spec = _data_actions.build_list_biggest_winners_spec(category=category, window=window)
         return sync_paginate_keyset(self._ctx, spec, page_size=page_size)
 
     def list_builder_leaderboard(

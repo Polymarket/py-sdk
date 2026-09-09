@@ -494,7 +494,7 @@ class AsyncSecureClient:
         """Get current portfolio value in USDC.
 
         Omit ``user`` to use the authenticated wallet."""
-        spec = _data_actions.get_portfolio_value_spec(
+        spec = _data_actions.build_get_portfolio_value_spec(
             user=self._user_or_wallet(user), condition_ids=condition_ids
         )
         return await async_dispatch(self._ctx, spec)
@@ -507,7 +507,7 @@ class AsyncSecureClient:
         """Get wallet statistics, or ``None`` when the wallet has no statistics.
 
         Omit ``user`` to use the authenticated wallet."""
-        spec = _data_actions.get_user_stats_spec(user=self._user_or_wallet(user))
+        spec = _data_actions.build_get_user_stats_spec(user=self._user_or_wallet(user))
         return await async_dispatch(self._ctx, spec)
 
     async def get_user_pnl(
@@ -520,7 +520,7 @@ class AsyncSecureClient:
         """Get cumulative wallet PnL in USDC and volume in shares.
 
         Omit ``user`` to use the authenticated wallet."""
-        spec = _data_actions.get_user_pnl_spec(
+        spec = _data_actions.build_get_user_pnl_spec(
             user=self._user_or_wallet(user), interval=interval, fidelity=fidelity
         )
         return await async_dispatch(self._ctx, spec)
@@ -536,7 +536,7 @@ class AsyncSecureClient:
         """Get trading volume in shares and USDC. Time bounds are floored to UTC days.
 
         Omit ``user`` to use the authenticated wallet."""
-        spec = _data_actions.get_user_volume_spec(
+        spec = _data_actions.build_get_user_volume_spec(
             user=self._user_or_wallet(user), start=start, end=end, full_history=full_history
         )
         return await async_dispatch(self._ctx, spec)
@@ -555,7 +555,7 @@ class AsyncSecureClient:
         With ``include_pnl=True``, the maximum page size is 100; amounts are gross per side.
 
         Resuming a cursor uses the page size stored by that cursor."""
-        spec = _data_actions.list_market_holders_spec(
+        spec = _data_actions.build_list_market_holders_spec(
             condition_ids=condition_ids, min_balance=min_balance, include_pnl=include_pnl
         )
         return async_paginate_keyset(self._ctx, spec, page_size=page_size)
@@ -575,7 +575,7 @@ class AsyncSecureClient:
         event_ids: int | Sequence[int],
     ) -> LiveVolume:
         """Get combined event taker volume in USDC with a market breakdown."""
-        spec = _data_actions.get_event_live_volume_spec(event_ids=event_ids)
+        spec = _data_actions.build_get_event_live_volume_spec(event_ids=event_ids)
         return await async_dispatch(self._ctx, spec)
 
     def list_price_history(
@@ -596,7 +596,7 @@ class AsyncSecureClient:
         The default page size is 10000.
 
         Resuming a cursor uses the page size stored by that cursor."""
-        spec = _data_actions.list_price_history_spec(
+        spec = _data_actions.build_list_price_history_spec(
             asset_id=asset_id,
             interval=interval,
             start=start,
@@ -617,7 +617,7 @@ class AsyncSecureClient:
         event_ids: int | Sequence[int] | None = None,
     ) -> tuple[Resolution, ...]:
         """Get resolutions by question, conditions, or events. Missing rows are omitted."""
-        spec = _data_actions.get_resolutions_spec(
+        spec = _data_actions.build_get_resolutions_spec(
             question_id=question_id, condition_ids=condition_ids, event_ids=event_ids
         )
         return await async_dispatch(self._ctx, spec)
@@ -650,7 +650,7 @@ class AsyncSecureClient:
         PnL is USDC and volume is shares. Unranked ranks are ``None``.
 
         Omit ``user`` to use the authenticated wallet."""
-        spec = _data_actions.get_trader_leaderboard_standing_spec(
+        spec = _data_actions.build_get_trader_leaderboard_standing_spec(
             user=self._user_or_wallet(user), category=category, window=window
         )
         return await async_dispatch(self._ctx, spec)
@@ -665,7 +665,7 @@ class AsyncSecureClient:
         """List winning market and combo positions, ordered by USDC PnL.
 
         Resuming a cursor uses the page size stored by that cursor."""
-        spec = _data_actions.list_biggest_winners_spec(category=category, window=window)
+        spec = _data_actions.build_list_biggest_winners_spec(category=category, window=window)
         return async_paginate_keyset(self._ctx, spec, page_size=page_size)
 
     def list_builder_leaderboard(

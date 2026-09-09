@@ -61,12 +61,12 @@ def test_validation_before_transport(method: str, kwargs: dict[str, Any]) -> Non
 
 
 def test_query_contracts() -> None:
-    assert data.get_user_stats_spec(user=WALLET).params == {"user": WALLET}
-    assert data.get_portfolio_value_spec(user=WALLET, condition_ids=CONDITION).params == {
+    assert data.build_get_user_stats_spec(user=WALLET).params == {"user": WALLET}
+    assert data.build_get_portfolio_value_spec(user=WALLET, condition_ids=CONDITION).params == {
         "user": WALLET,
         "condition": CONDITION,
     }
-    assert data.get_trader_leaderboard_standing_spec(
+    assert data.build_get_trader_leaderboard_standing_spec(
         user=WALLET, category="sports", window="week"
     ).params == {"user": WALLET, "category": "sports", "time_period": "week"}
     assert data.get_builder_volumes_spec(interval="day", bucket_limit=2).params == {
@@ -74,11 +74,11 @@ def test_query_contracts() -> None:
         "limit": 2,
     }
     at = datetime(2026, 1, 1, microsecond=900000, tzinfo=UTC)
-    assert data.get_user_volume_spec(user=WALLET, start=at).params == {
+    assert data.build_get_user_volume_spec(user=WALLET, start=at).params == {
         "user": WALLET,
         "start": 1767225600,
     }
-    assert data.list_price_history_spec(asset_id="1", interval="1d").base_params == {
+    assert data.build_list_price_history_spec(asset_id="1", interval="1d").base_params == {
         "token_id": "1",
         "interval": "1d",
     }

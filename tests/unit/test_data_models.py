@@ -137,6 +137,35 @@ def test_winner_discriminators_and_holder_pnl() -> None:
     assert holder.total_pnl is not None
 
 
+@pytest.mark.parametrize("payouts", [[500000, 500000], [1000000, 0], None])
+def test_resolution_response_payouts_survive_canonical_roundtrips(
+    payouts: list[int] | None,
+) -> None:
+    payload = {**sample("resolutions")[0], "payouts": payouts}
+    row = Resolution.parse_response_list([payload])[0]
+    expected = None if payouts is None else tuple(Decimal(value) / 1_000_000 for value in payouts)
+    assert row.payouts == expected
+    assert payload["payouts"] == payouts
+    assert Resolution.model_validate(row.model_dump()) == row
+    assert Resolution.model_validate_json(row.model_dump_json()) == row
+
+
+@pytest.mark.parametrize("price", ["", "garbage"])
+def test_malformed_decimal_responses_raise_sdk_errors(price: str) -> None:
+    with pytest.raises(UnexpectedResponseError):
+        PriceHistoryPoint.parse_response(
+            {"timestamp": 1700000000, "price": price, "resolution_seconds": 60}
+        )
+    with pytest.raises(UnexpectedResponseError):
+        Holder.parse_response({**sample("holders")[0]["holders"][0], "total_pnl": price})
+
+
+@pytest.mark.parametrize("payouts", [[], [1], [1, 2, 3], ["garbage", 0], [True, 0], ["sNaN", 0]])
+def test_malformed_resolution_payouts_raise_sdk_errors(payouts: list[object]) -> None:
+    with pytest.raises(UnexpectedResponseError):
+        Resolution.parse_response({**sample("resolutions")[0], "payouts": payouts})
+
+
 def test_malformed_analytics_identity_and_timestamp_raise_sdk_errors() -> None:
     with pytest.raises(UnexpectedResponseError):
         OpenInterest.parse_response({"value": 1})

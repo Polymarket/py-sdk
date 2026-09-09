@@ -62,6 +62,18 @@ def require_env() -> Callable[[str], str]:
 
 
 @pytest.fixture
+def data_reference_wallet() -> str:
+    """Public wallet with portfolio, trade, and combo history for read-only tests."""
+    return "0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b"
+
+
+@pytest.fixture
+def data_empty_wallet() -> str:
+    """Public address used to check absent wallet statistics."""
+    return "0x00000000000000000000000000000000000000aa"
+
+
+@pytest.fixture
 def combo_leg_position_ids() -> list[str] | None:
     _load_dotenv()
     value = os.environ.get("POLYMARKET_COMBO_LEG_POSITION_IDS")

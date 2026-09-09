@@ -6,7 +6,6 @@ from polymarket import AsyncPublicClient, ComboBiggestWinner, PublicClient, Trad
 from polymarket.pagination import Page, Paginator
 
 pytestmark = pytest.mark.integration
-WALLET = "0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b"
 CONDITION = "0xe546672750517f62c45a5a00067481981e62b9c20fa8220203232c9dc8fd2093"
 T = TypeVar("T")
 
@@ -38,21 +37,31 @@ def test_trade_cursor_walk(sync_public_client: PublicClient) -> None:
     assert replay.items[0].timestamp <= first.items[-1].timestamp
 
 
-def test_activity_and_combo_activity(sync_public_client: PublicClient) -> None:
-    page = sync_public_client.list_activity(user=WALLET, activity_types=["TRADE"]).first_page()
+def test_activity_and_combo_activity(
+    sync_public_client: PublicClient, data_reference_wallet: str
+) -> None:
+    page = sync_public_client.list_activity(
+        user=data_reference_wallet, activity_types=["TRADE"]
+    ).first_page()
     if not page.items:
         pytest.skip("reference wallet no longer has trade activity")
-    assert all(p.type == "TRADE" and p.wallet == WALLET for p in page.items)
-    first, second = two_pages(sync_public_client.list_combo_activity(user=WALLET, page_size=1))
+    assert all(p.type == "TRADE" and p.wallet == data_reference_wallet for p in page.items)
+    first, second = two_pages(
+        sync_public_client.list_combo_activity(user=data_reference_wallet, page_size=1)
+    )
     for row in first.items + second.items:
         assert row.position_id and row.block_number > 0
         assert row.legs and row.legs[0].market and row.legs[0].market.question
         assert ("payout" in type(row).model_fields) == (row.type == "REDEEM")
 
 
-def test_positions_and_market_anchor(sync_public_client: PublicClient) -> None:
-    two_pages(sync_public_client.list_positions(user=WALLET, page_size=100))
-    closed = sync_public_client.list_positions(user=WALLET, status="CLOSED").first_page()
+def test_positions_and_market_anchor(
+    sync_public_client: PublicClient, data_reference_wallet: str
+) -> None:
+    two_pages(sync_public_client.list_positions(user=data_reference_wallet, page_size=100))
+    closed = sync_public_client.list_positions(
+        user=data_reference_wallet, status="CLOSED"
+    ).first_page()
     if not closed.items:
         pytest.skip("reference wallet no longer has closed positions")
     assert all(row.status == "CLOSED" for row in closed.items)
@@ -60,18 +69,24 @@ def test_positions_and_market_anchor(sync_public_client: PublicClient) -> None:
     assert len({row.wallet for row in market.items}) > 1
 
 
-def test_combo_positions_and_filters(sync_public_client: PublicClient) -> None:
-    first, second = two_pages(sync_public_client.list_combo_positions(user=WALLET, page_size=1))
+def test_combo_positions_and_filters(
+    sync_public_client: PublicClient, data_reference_wallet: str
+) -> None:
+    first, second = two_pages(
+        sync_public_client.list_combo_positions(user=data_reference_wallet, page_size=1)
+    )
     for row in first.items + second.items:
         assert row.current_size >= 0 and row.gross_entry_cost_usdc >= 0 and row.entry_fees_usdc >= 0
     condition = first.items[0].condition_id
     selected = sync_public_client.list_combo_positions(
-        user=WALLET, condition_id=condition
+        user=data_reference_wallet, condition_id=condition
     ).first_page()
     assert selected.items and all(row.condition_id == condition for row in selected.items)
     resolved = two_pages(
         sync_public_client.list_combo_positions(
-            user=WALLET, status=["RESOLVED_WIN", "RESOLVED_PARTIAL", "RESOLVED_LOSS"], page_size=1
+            user=data_reference_wallet,
+            status=["RESOLVED_WIN", "RESOLVED_PARTIAL", "RESOLVED_LOSS"],
+            page_size=1,
         )
     )
     assert all(
@@ -129,21 +144,25 @@ def test_leaderboards_and_standing(sync_public_client: PublicClient) -> None:
 
 
 @pytest.mark.anyio
-async def test_async_trade_pages(public_client: AsyncPublicClient) -> None:
-    paginator = public_client.list_activity(user=WALLET, activity_types=["TRADE"], page_size=2)
+async def test_async_trade_pages(
+    public_client: AsyncPublicClient, data_reference_wallet: str
+) -> None:
+    paginator = public_client.list_activity(
+        user=data_reference_wallet, activity_types=["TRADE"], page_size=2
+    )
     first = await paginator.first_page()
     if not first.items or first.next_cursor is None:
         pytest.skip("reference wallet has insufficient activity")
     second = await paginator.from_cursor(first.next_cursor).first_page()
     assert second.items
     assert all(
-        isinstance(row, TradeActivity) and row.wallet == WALLET
+        isinstance(row, TradeActivity) and row.wallet == data_reference_wallet
         for row in first.items + second.items
     )
 
 
-def test_frames_on_live_data(sync_public_client: PublicClient) -> None:
-    positions = sync_public_client.list_positions(user=WALLET).first_page()
+def test_frames_on_live_data(sync_public_client: PublicClient, data_reference_wallet: str) -> None:
+    positions = sync_public_client.list_positions(user=data_reference_wallet).first_page()
     if not positions.items:
         pytest.skip("reference wallet has no positions")
     assert "current_size" in positions.to_pandas().columns
