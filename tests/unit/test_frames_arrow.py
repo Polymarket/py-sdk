@@ -11,9 +11,12 @@ from typing import Any, NewType
 
 import pyarrow as pa
 import pytest
+from data_v2_samples import sample
 from pydantic import BaseModel
 
-from polymarket.frames import to_arrow
+from polymarket import ActivityType, TipSide
+from polymarket.frames import to_arrow, to_pandas, to_polars
+from polymarket.models.data.activity import TipActivity, parse_activities
 from polymarket.pagination import AsyncPaginator, Page, Paginator
 
 
@@ -60,6 +63,39 @@ class _Optional(BaseModel):
 
 class _AnyPayload(BaseModel):
     payload: Any = None
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_mixed_activity_enums_export_as_strings(reverse: bool) -> None:
+    trade = sample("activity")[0]
+    rows = [
+        trade,
+        {**trade, "type": "TIP", "side": "IN"},
+        {**trade, "type": "FUTURE_REWARD"},
+    ]
+    if reverse:
+        rows.reverse()
+    items = parse_activities(rows)
+    page = Page(items=items, has_more=False)
+    expected_types = [row["type"] for row in rows]
+    expected_sides = [None, "IN", "BUY"] if reverse else ["BUY", "IN", None]
+
+    table = to_arrow(page)
+    assert table.schema.field("type").type == pa.string()
+    assert table.schema.field("side").type == pa.string()
+    assert table.column("type").to_pylist() == expected_types
+    assert table.column("side").to_pylist() == expected_sides
+    pandas = to_pandas(page)
+    assert pandas["type"].tolist() == expected_types
+    assert pandas["side"].isna().tolist() == [value is None for value in expected_sides]
+    assert pandas["side"].dropna().tolist() == [
+        value for value in expected_sides if value is not None
+    ]
+    polars = to_polars(page)
+    assert polars["type"].to_list() == expected_types
+    assert polars["side"].to_list() == expected_sides
+    tip = next(item for item in items if isinstance(item, TipActivity))
+    assert tip.type is ActivityType.TIP and tip.side is TipSide.IN
 
 
 def test_single_model_yields_one_row_table() -> None:

@@ -80,9 +80,11 @@ We intentionally do not mark every primitive value. Marked types should be reser
 
 The SDK uses two patterns for string-set enums depending on the direction:
 
-- **Inputs** use `typing.Literal`. Users pass plain strings (`time_period="DAY"`). The type drives autocomplete and static checking without forcing users to import an enum class. The type alias is exported (e.g., `BuilderVolumeTimePeriod`) so callers can annotate their own variables when they want to.
-- **Outputs** use `enum.StrEnum`. Returned model fields surface the enum so users can compare against named members (`if status is UmaResolutionStatus.DISPUTED`) without typo risk on the right-hand side.
+- **Inputs** use `typing.Literal`. Users pass plain strings (`window="day"`). The type drives autocomplete and static checking without forcing users to import an enum class. The type alias is exported (e.g., `LeaderboardWindow`) so callers can annotate their own variables when they want to.
+- **Outputs** use `enum.StrEnum`. Returned model fields surface the enum so users can compare against named members (`if status is ResolutionStatus.DISPUTED`) without typo risk on the right-hand side.
 
 The split is principled: inputs are write-once at the call site and benefit from string ergonomics; outputs are read-many in user logic and benefit from named members.
 
 Some vocabularies travel in both directions, such as `PositionStatus`, which filters `list_positions` and is also a field on every returned `Position`. Those keep the `StrEnum` name for the output type and expose an input alias that accepts either the plain string literals or the enum members, for example `PositionStatusFilter` and `UserPnlIntervalInput`. The `Filter` suffix marks parameters that select rows and the `Input` suffix marks other request parameters. Callers can pass `"CLOSED"` or `PositionStatus.CLOSED`, and can feed a returned value straight back into a request.
+
+Arrow, pandas, and Polars exports use the enum's value. SDK fields that mix `StrEnum` members and plain strings export together as a string column, such as trade and tip sides or known and unknown activity types. The original SDK objects retain their enum members after export.
