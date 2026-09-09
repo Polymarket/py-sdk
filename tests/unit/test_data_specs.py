@@ -7,7 +7,12 @@ from polymarket import PublicClient
 from polymarket._internal.actions import data
 from polymarket._internal.data_params import build_distinct_condition_ids, to_epoch_seconds
 from polymarket.errors import UserInputError
-from polymarket.models.data import ComboPositionStatus, PositionStatus, UserPnlInterval
+from polymarket.models.data import (
+    ActivityType,
+    ComboPositionStatus,
+    PositionStatus,
+    UserPnlInterval,
+)
 from polymarket.models.types import to_market_condition_id
 
 CONDITION = "0x" + "ab" * 32
@@ -44,6 +49,7 @@ WALLET = "0x" + "12" * 20
         ),
         ("list_price_history", {"asset_id": "1", "interval": "1w", "bucket_seconds": 60}),
         ("list_price_history", {"asset_id": "1", "start": 1, "end": 16 * 86400}),
+        ("list_price_history", {"asset_id": "1", "start": 100, "end": 99}),
         ("list_price_history", {"asset_id": "1", "as_of": 253402300800}),
         ("list_price_history", {"asset_id": "1", "as_of": 100, "page_size": 10}),
         ("list_price_history", {"asset_id": "1", "as_of": 100, "interval": "1d"}),
@@ -56,6 +62,7 @@ WALLET = "0x" + "12" * 20
         ("list_trades", {"user": ""}),
         ("list_positions", {"user": WALLET, "status": "open"}),
         ("list_activity", {"user": WALLET, "activity_types": "TRADE"}),
+        ("list_activity", {"user": WALLET, "activity_types": ActivityType.TRADE}),
         ("list_trader_leaderboard", {"category": ""}),
         ("list_biggest_winners", {"category": ""}),
         ("get_trader_leaderboard_standing", {"user": WALLET, "category": ""}),
@@ -122,6 +129,13 @@ def test_enum_members_serialize_like_plain_strings() -> None:
         user=WALLET, status=[ComboPositionStatus.OPEN, "OPEN", "PARTIAL"]
     ).base_params
     assert combo == {"user": WALLET, "status": "OPEN,PARTIAL"}
+    single = data.list_combo_positions_spec(user=WALLET, status=ComboPositionStatus.OPEN)
+    assert single.base_params == {"user": WALLET, "status": "OPEN"}
+    activity = data.list_activity_spec(user=WALLET, activity_types=[ActivityType.TRADE, "SPLIT"])
+    assert activity.base_params is not None and activity.base_params["type"] == "TRADE,SPLIT"
+    assert data.build_list_biggest_winners_spec(category="Politics").base_params == {
+        "category": "Politics"
+    }
     assert data.build_get_user_pnl_spec(
         user=WALLET, interval=UserPnlInterval.ONE_WEEK, fidelity="1h"
     ).params == {"user": WALLET, "interval": "1w", "fidelity": "1h"}

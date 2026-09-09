@@ -232,15 +232,23 @@ def optional_event_id(value: object) -> object:
 
 
 def required_event_id(value: object) -> str:
-    if isinstance(value, bool) or not isinstance(value, int | str) or value in ("", "0", 0):
+    if isinstance(value, bool) or not isinstance(value, int | str):
         raise ValueError("Expected an event ID")
-    return str(value)
+    text = str(value)
+    if not text.isdecimal() or int(text) <= 0:
+        raise ValueError("Expected a positive event ID")
+    return text
 
 
 def datetime_from_epoch_or_iso(value: object) -> datetime:
     if isinstance(value, str) and not value.isdecimal():
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
     return datetime_from_epoch_seconds(value)
+
+
+def optional_datetime_from_epoch_or_iso(value: object) -> datetime | None:
+    return None if value in (None, "") else datetime_from_epoch_or_iso(value)
 
 
 __all__ = [

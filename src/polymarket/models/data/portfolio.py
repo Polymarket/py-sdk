@@ -14,6 +14,7 @@ from polymarket.models.data.common import (
     date_from_calendar_string,
     datetime_from_epoch_seconds,
     decimal_from_number,
+    optional_datetime_from_epoch_or_iso,
     optional_datetime_from_epoch_seconds,
     optional_decimal_from_number,
     optional_event_id,
@@ -203,6 +204,10 @@ class ComboPositionMarket(BaseModel):
 
     _optional_decimal_from_number = field_validator("line", mode="before")(
         optional_decimal_from_number
+    )
+
+    _optional_datetime_from_epoch_or_iso = field_validator("end_date", mode="before")(
+        optional_datetime_from_epoch_or_iso
     )
 
 
