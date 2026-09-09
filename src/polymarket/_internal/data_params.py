@@ -18,7 +18,10 @@ def build_data_params(
     for key, value in values.items():
         if value is None:
             continue
-        if isinstance(value, str | int | float | bool):
+        if isinstance(value, str):
+            out[key] = str(value)
+            continue
+        if isinstance(value, int | float | bool):
             out[key] = value
             continue
         items = list(value)
@@ -26,9 +29,6 @@ def build_data_params(
             continue
         out[key] = ",".join(str(item) for item in items)
     return out
-
-
-__all__ = ["DataParamValue", "build_data_params"]
 
 
 def build_distinct_condition_ids(
@@ -89,3 +89,12 @@ def build_event_ids(values: int | Sequence[int] | None) -> tuple[int, ...] | Non
     if not items or any(type(item) is not int or not 0 < item <= 2147483647 for item in items):
         raise UserInputError("event_ids must contain positive 32-bit integers")
     return tuple(dict.fromkeys(items))
+
+
+__all__ = [
+    "DataParamValue",
+    "build_data_params",
+    "build_distinct_condition_ids",
+    "build_event_ids",
+    "to_epoch_seconds",
+]

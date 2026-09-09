@@ -9,7 +9,8 @@ from pydantic import Field, computed_field, field_validator
 from polymarket.errors import UnexpectedResponseError
 from polymarket.models.base import BaseModel
 from polymarket.models.data.common import (
-    ActivityTypeFilter,
+    ActivityType,
+    ComboActivityType,
     TipSide,
     datetime_from_epoch_seconds,
     decimal_from_number,
@@ -80,9 +81,6 @@ class Trade(BaseModel):
         return self.asset_id
 
 
-ActivityType = ActivityTypeFilter
-
-
 class _KnownActivityBase(BaseModel):
     """Wallet activity with amounts in USDC and shares in outcome units.
 
@@ -104,10 +102,7 @@ class _KnownActivityBase(BaseModel):
         "name", "pseudonym", "bio", "profile_image", "profile_image_optimized", mode="before"
     )(optional_text)
 
-    @field_validator("timestamp", mode="before")
-    @classmethod
-    def _parse_timestamp(cls, value: object) -> datetime | None:
-        return optional_datetime_from_epoch_seconds(value)
+    _timestamp = field_validator("timestamp", mode="before")(datetime_from_epoch_seconds)
 
     def _repr_html_(self) -> str:
         from polymarket._jupyter import card, safe_html_repr, truncate_mid
@@ -130,7 +125,7 @@ class _KnownActivityBase(BaseModel):
 
 
 class TradeActivity(_KnownActivityBase):
-    type: Literal["TRADE"]
+    type: Literal[ActivityType.TRADE]
     is_combo: Literal[False] = Field(default=False, validation_alias="is_combo")
     condition_id: ConditionId = Field(validation_alias="condition_id")
     asset_id: ClobAssetId = Field(validation_alias="token_id")
@@ -169,7 +164,7 @@ class TradeActivity(_KnownActivityBase):
 
 
 class ComboTradeActivity(_KnownActivityBase):
-    type: Literal["TRADE"]
+    type: Literal[ActivityType.TRADE]
     is_combo: Literal[True] = Field(validation_alias="is_combo")
     condition_id: ComboConditionId = Field(validation_alias="condition_id")
     position_id: PositionId = Field(validation_alias="token_id")
@@ -217,19 +212,19 @@ class _MarketEventActivity(_KnownActivityBase):
 
 
 class SplitActivity(_MarketEventActivity):
-    type: Literal["SPLIT"]
+    type: Literal[ActivityType.SPLIT]
 
 
 class MergeActivity(_MarketEventActivity):
-    type: Literal["MERGE"]
+    type: Literal[ActivityType.MERGE]
 
 
 class RedeemActivity(_MarketEventActivity):
-    type: Literal["REDEEM"]
+    type: Literal[ActivityType.REDEEM]
 
 
 class ConversionActivity(_MarketEventActivity):
-    type: Literal["CONVERSION"]
+    type: Literal[ActivityType.CONVERSION]
 
 
 class _AccountCreditActivity(_KnownActivityBase):
@@ -242,42 +237,42 @@ class _AccountCreditActivity(_KnownActivityBase):
 
 
 class RewardActivity(_AccountCreditActivity):
-    type: Literal["REWARD"]
+    type: Literal[ActivityType.REWARD]
 
 
 class DepositActivity(_AccountCreditActivity):
-    type: Literal["DEPOSIT"]
+    type: Literal[ActivityType.DEPOSIT]
 
 
 class WithdrawalActivity(_AccountCreditActivity):
-    type: Literal["WITHDRAWAL"]
+    type: Literal[ActivityType.WITHDRAWAL]
 
 
 class MakerRebateActivity(_AccountCreditActivity):
-    type: Literal["MAKER_REBATE"]
+    type: Literal[ActivityType.MAKER_REBATE]
 
 
 class TakerRebateActivity(_AccountCreditActivity):
-    type: Literal["TAKER_REBATE"]
+    type: Literal[ActivityType.TAKER_REBATE]
 
 
 class ReferralRewardActivity(_AccountCreditActivity):
-    type: Literal["REFERRAL_REWARD"]
+    type: Literal[ActivityType.REFERRAL_REWARD]
 
 
 class MigrationActivity(_AccountCreditActivity):
-    type: Literal["MIGRATION"]
+    type: Literal[ActivityType.MIGRATION]
 
 
 class TipActivity(_AccountCreditActivity):
-    type: Literal["TIP"]
+    type: Literal[ActivityType.TIP]
     side: TipSide | None = None
 
     _side = field_validator("side", mode="before")(optional_text)
 
 
 class YieldActivity(_AccountCreditActivity):
-    type: Literal["YIELD"]
+    type: Literal[ActivityType.YIELD]
 
 
 class UnknownActivity(BaseModel):
@@ -341,8 +336,6 @@ Activity = (
     | UnknownActivity
 )
 
-ComboActivityType = Literal["SPLIT", "MERGE", "CONVERT", "COMPRESS", "WRAP", "UNWRAP", "REDEEM"]
-
 
 class _ComboActivityBase(BaseModel):
     id: ComboActivityId
@@ -365,38 +358,35 @@ class _ComboActivityBase(BaseModel):
     def _parse_decimal(cls, value: object) -> Decimal | None:
         return optional_decimal_from_number(value)
 
-    @field_validator("timestamp", mode="before")
-    @classmethod
-    def _parse_timestamp(cls, value: object) -> datetime | None:
-        return optional_datetime_from_epoch_seconds(value)
+    _timestamp = field_validator("timestamp", mode="before")(datetime_from_epoch_seconds)
 
 
 class ComboSplitActivity(_ComboActivityBase):
-    type: Literal["SPLIT"]
+    type: Literal[ComboActivityType.SPLIT]
 
 
 class ComboMergeActivity(_ComboActivityBase):
-    type: Literal["MERGE"]
+    type: Literal[ComboActivityType.MERGE]
 
 
 class ComboConvertActivity(_ComboActivityBase):
-    type: Literal["CONVERT"]
+    type: Literal[ComboActivityType.CONVERT]
 
 
 class ComboCompressActivity(_ComboActivityBase):
-    type: Literal["COMPRESS"]
+    type: Literal[ComboActivityType.COMPRESS]
 
 
 class ComboWrapActivity(_ComboActivityBase):
-    type: Literal["WRAP"]
+    type: Literal[ComboActivityType.WRAP]
 
 
 class ComboUnwrapActivity(_ComboActivityBase):
-    type: Literal["UNWRAP"]
+    type: Literal[ComboActivityType.UNWRAP]
 
 
 class ComboRedeemActivity(_ComboActivityBase):
-    type: Literal["REDEEM"]
+    type: Literal[ComboActivityType.REDEEM]
     payout: Decimal | None = Field(default=None, validation_alias="payout_usdc")
 
     @field_validator("payout", mode="before")
@@ -417,30 +407,30 @@ ComboActivity = (
 
 
 _KNOWN_ACTIVITY_TYPES: dict[str, type[_KnownActivityBase]] = {
-    "TRADE": TradeActivity,
-    "SPLIT": SplitActivity,
-    "MERGE": MergeActivity,
-    "REDEEM": RedeemActivity,
-    "CONVERSION": ConversionActivity,
-    "REWARD": RewardActivity,
-    "DEPOSIT": DepositActivity,
-    "WITHDRAWAL": WithdrawalActivity,
-    "MAKER_REBATE": MakerRebateActivity,
-    "TAKER_REBATE": TakerRebateActivity,
-    "REFERRAL_REWARD": ReferralRewardActivity,
-    "YIELD": YieldActivity,
-    "MIGRATION": MigrationActivity,
-    "TIP": TipActivity,
+    ActivityType.TRADE: TradeActivity,
+    ActivityType.SPLIT: SplitActivity,
+    ActivityType.MERGE: MergeActivity,
+    ActivityType.REDEEM: RedeemActivity,
+    ActivityType.CONVERSION: ConversionActivity,
+    ActivityType.REWARD: RewardActivity,
+    ActivityType.DEPOSIT: DepositActivity,
+    ActivityType.WITHDRAWAL: WithdrawalActivity,
+    ActivityType.MAKER_REBATE: MakerRebateActivity,
+    ActivityType.TAKER_REBATE: TakerRebateActivity,
+    ActivityType.REFERRAL_REWARD: ReferralRewardActivity,
+    ActivityType.YIELD: YieldActivity,
+    ActivityType.MIGRATION: MigrationActivity,
+    ActivityType.TIP: TipActivity,
 }
 
-_COMBO_ACTIVITY_TYPES: dict[ComboActivityType, type[_ComboActivityBase]] = {
-    "SPLIT": ComboSplitActivity,
-    "MERGE": ComboMergeActivity,
-    "CONVERT": ComboConvertActivity,
-    "COMPRESS": ComboCompressActivity,
-    "WRAP": ComboWrapActivity,
-    "UNWRAP": ComboUnwrapActivity,
-    "REDEEM": ComboRedeemActivity,
+_COMBO_ACTIVITY_TYPES: dict[str, type[_ComboActivityBase]] = {
+    ComboActivityType.SPLIT: ComboSplitActivity,
+    ComboActivityType.MERGE: ComboMergeActivity,
+    ComboActivityType.CONVERT: ComboConvertActivity,
+    ComboActivityType.COMPRESS: ComboCompressActivity,
+    ComboActivityType.WRAP: ComboWrapActivity,
+    ComboActivityType.UNWRAP: ComboUnwrapActivity,
+    ComboActivityType.REDEEM: ComboRedeemActivity,
 }
 
 
@@ -483,9 +473,7 @@ def parse_combo_activities(payload: object) -> tuple[ComboActivity, ...]:
 
 __all__ = [
     "Activity",
-    "ActivityType",
     "ComboActivity",
-    "ComboActivityType",
     "ComboCompressActivity",
     "ComboConvertActivity",
     "ComboMergeActivity",

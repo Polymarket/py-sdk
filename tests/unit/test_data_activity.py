@@ -1,9 +1,17 @@
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
 from data_v2_samples import sample
 
-from polymarket import ComboTradeActivity, TipActivity, TradeActivity, UnknownActivity
+from polymarket import (
+    ActivityType,
+    ComboActivityType,
+    ComboTradeActivity,
+    TipActivity,
+    TradeActivity,
+    UnknownActivity,
+)
 from polymarket.errors import UnexpectedResponseError
 from polymarket.models.data.activity import parse_activities, parse_activity, parse_combo_activities
 
@@ -27,6 +35,9 @@ def test_trade_amount_sentinels_and_combo_discriminator() -> None:
     assert trade.outcome_index is None and trade.title is None and trade.outcome is None
     direct = TradeActivity.parse_response(payload)
     assert direct == trade
+    assert trade.type is ActivityType.TRADE
+    epoch = parse_activity({**payload, "timestamp": 0})
+    assert epoch.timestamp == datetime(1970, 1, 1, tzinfo=UTC)
     combo = parse_activity({**payload, "is_combo": True, "condition_id": "0x03" + "ab" * 30})
     assert isinstance(combo, ComboTradeActivity)
     assert combo.position_id == payload["token_id"]
@@ -59,7 +70,7 @@ def test_activity_variants(kind: str) -> None:
     payload = {**sample("activity")[0], "type": kind, "usdc_size": 1.25, "side": ""}
     row = parse_activity(payload)
     assert not isinstance(row, UnknownActivity)
-    assert row.type == kind and row.amount == Decimal("1.25")
+    assert row.type is ActivityType(kind) and row.amount == Decimal("1.25")
     if isinstance(row, TipActivity):
         assert row.side is None
 
@@ -81,4 +92,5 @@ def test_combo_activity_position_and_redeem_payout() -> None:
     for kind in ("SPLIT", "MERGE", "CONVERT", "COMPRESS", "WRAP", "UNWRAP", "REDEEM"):
         row = parse_combo_activities([{**base, "type": kind, "payout_usdc": 1.5}])[0]
         assert row.position_id == base["combo_position_id"]
+        assert row.type is ComboActivityType(kind)
         assert ("payout" in type(row).model_fields) == (kind == "REDEEM")

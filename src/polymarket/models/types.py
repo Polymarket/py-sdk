@@ -1,5 +1,6 @@
 """Model-specific Polymarket domain types."""
 
+import re
 from typing import Literal, NewType, TypeAlias
 
 OrderSide: TypeAlias = Literal["BUY", "SELL"]
@@ -50,8 +51,6 @@ def to_ctf_condition_id(value: str) -> CtfConditionId:
 
 def to_market_condition_id(value: str) -> ConditionId:
     """Return a market condition ID, padding a structural market ID when needed."""
-    import re
-
     if type(value) is not str or re.fullmatch(r"0x[0-9a-fA-F]+", value) is None:
         raise TypeError("Expected a hex market condition ID")
     normalized = value.lower()

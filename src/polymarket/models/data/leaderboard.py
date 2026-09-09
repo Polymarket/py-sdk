@@ -8,9 +8,11 @@ from pydantic import Field, field_validator
 
 from polymarket.models.base import BaseModel
 from polymarket.models.data.common import (
+    BiggestWinnerKind,
     datetime_from_epoch_or_iso,
     decimal_from_number,
     optional_text,
+    required_event_id,
 )
 from polymarket.models.types import (
     ClobAssetId,
@@ -80,7 +82,7 @@ class MarketBiggestWinner(BaseModel):
     user_name: str | None = None
     profile_image: str | None = None
     event_title: str | None = None
-    kind: Literal["market"]
+    kind: Literal[BiggestWinnerKind.MARKET]
     condition_id: ConditionId
     asset_id: ClobAssetId = Field(validation_alias="position_id")
     event_id: EventId
@@ -102,10 +104,7 @@ class MarketBiggestWinner(BaseModel):
         validate_condition_id_response
     )
 
-    @field_validator("event_id", mode="before")
-    @classmethod
-    def _event_id(cls, value: object) -> str:
-        return str(value)
+    _required_event_id = field_validator("event_id", mode="before")(required_event_id)
 
 
 class ComboBiggestWinner(BaseModel):
@@ -120,7 +119,7 @@ class ComboBiggestWinner(BaseModel):
     user_name: str | None = None
     profile_image: str | None = None
     event_title: str | None = None
-    kind: Literal["combo"]
+    kind: Literal[BiggestWinnerKind.COMBO]
     condition_id: ComboConditionId
     position_id: PositionId
 

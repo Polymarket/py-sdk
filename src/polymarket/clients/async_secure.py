@@ -203,7 +203,7 @@ from polymarket.models.data import (
     ComboBiggestWinner,
     ComboPosition,
     ComboPositionSortBy,
-    ComboPositionStatus,
+    ComboPositionStatusFilter,
     LeaderboardWindow,
     LiveVolume,
     MarketBiggestWinner,
@@ -213,7 +213,7 @@ from polymarket.models.data import (
     Position,
     PositionFilterType,
     PositionSortBy,
-    PositionStatus,
+    PositionStatusFilter,
     PriceHistoryInterval,
     PriceHistoryPoint,
     Resolution,
@@ -223,8 +223,8 @@ from polymarket.models.data import (
     TraderLeaderboardEntry,
     TraderLeaderboardSort,
     TraderLeaderboardStanding,
-    UserPnlFidelity,
-    UserPnlInterval,
+    UserPnlFidelityInput,
+    UserPnlIntervalInput,
     UserPnlSeries,
     UserStats,
     UserVolume,
@@ -420,7 +420,7 @@ class AsyncSecureClient:
         *,
         user: str | None = None,
         condition_id: str | Sequence[str] | None = None,
-        status: PositionStatus | None = None,
+        status: PositionStatusFilter | None = None,
         event_id: int | Sequence[int] | None = None,
         filter_type: PositionFilterType | None = None,
         filter_amount: float | None = None,
@@ -460,7 +460,7 @@ class AsyncSecureClient:
         *,
         user: str | None = None,
         condition_id: str | Sequence[str] | None = None,
-        status: ComboPositionStatus | Sequence[ComboPositionStatus] | None = None,
+        status: ComboPositionStatusFilter | Sequence[ComboPositionStatusFilter] | None = None,
         sort_by: ComboPositionSortBy | None = None,
         sort_direction: SortDirection | None = None,
         updated_after: int | datetime | None = None,
@@ -514,8 +514,8 @@ class AsyncSecureClient:
         self,
         *,
         user: str | None = None,
-        interval: UserPnlInterval | None = None,
-        fidelity: UserPnlFidelity | None = None,
+        interval: UserPnlIntervalInput | None = None,
+        fidelity: UserPnlFidelityInput | None = None,
     ) -> UserPnlSeries:
         """Get cumulative wallet PnL in USDC and volume in shares.
 
@@ -574,7 +574,7 @@ class AsyncSecureClient:
         *,
         event_ids: int | Sequence[int],
     ) -> LiveVolume:
-        """Get combined event taker volume in USDC with a market breakdown."""
+        """Get combined event taker volume in shares with a market breakdown."""
         spec = _data_actions.build_get_event_live_volume_spec(event_ids=event_ids)
         return await async_dispatch(self._ctx, spec)
 

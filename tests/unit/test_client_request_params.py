@@ -41,7 +41,7 @@ COMBO = "0x03" + "ab" * 30
         (
             "list_positions",
             {"condition_id": CONDITION, "full_history": True},
-            {"condition": CONDITION, "start": "1"},
+            {"condition_id": CONDITION, "start": "1"},
         ),
         (
             "list_combo_positions",

@@ -6,6 +6,7 @@ import pytest
 from data_v2_samples import position_payload, sample
 
 from polymarket import (
+    BiggestWinnerKind,
     BuilderStanding,
     BuilderVolumePoint,
     ComboPosition,
@@ -16,8 +17,10 @@ from polymarket import (
     OpenInterest,
     PortfolioValue,
     Position,
+    PositionStatus,
     PriceHistoryPoint,
     Resolution,
+    ResolutionStatus,
     Trade,
     TraderLeaderboardEntry,
     TraderLeaderboardStanding,
@@ -90,6 +93,7 @@ def test_position_sentinels_and_numbers() -> None:
     )
     assert position.current_size == Decimal("0.123456")
     assert position.token_id == position.asset_id
+    assert isinstance(position.status, PositionStatus)
     assert Position.parse_response(position_payload(end_date="2026-05-31")).end_date == date(
         2026, 5, 31
     )
@@ -126,13 +130,20 @@ def test_resolution_units_and_timestamps() -> None:
         )
         assert row.price is None and row.proposed_price is None and row.reproposed_price is None
         assert row.payouts == (Decimal("0.5"), Decimal("0.5"))
+        assert isinstance(row.status, ResolutionStatus)
         assert row.last_updated_at == datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC)
     assert OpenInterest.parse_response({"condition_id": "GLOBAL", "value": 0}).condition_id is None
 
 
 def test_winner_discriminators_and_holder_pnl() -> None:
-    assert parse_biggest_winners(sample("biggest-winners"))[0].kind == "market"
-    assert parse_biggest_winners(sample("biggest-winners_combos"))[0].kind == "combo"
+    market = parse_biggest_winners(sample("biggest-winners"))[0]
+    assert market.kind is BiggestWinnerKind.MARKET and market.kind == "market"
+    assert (
+        parse_biggest_winners(sample("biggest-winners_combos"))[0].kind is BiggestWinnerKind.COMBO
+    )
+    for event_id in (None, "", "0", 0):
+        with pytest.raises(UnexpectedResponseError):
+            parse_biggest_winners([{**sample("biggest-winners")[0], "event_id": event_id}])
     holder = Holder.parse_response(sample("holders")[0]["holders"][0])
     assert holder.total_pnl is not None
 

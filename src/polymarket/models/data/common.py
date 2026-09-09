@@ -2,58 +2,189 @@
 
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
+from enum import StrEnum
 from typing import Literal
 
 SortDirection = Literal["ASC", "DESC"]
 TradeFilterType = Literal["CASH", "TOKENS"]
 PositionFilterType = Literal["CASH", "TOKENS"]
-ActivityTypeFilter = Literal[
-    "TRADE",
-    "SPLIT",
-    "MERGE",
-    "REDEEM",
-    "REWARD",
-    "CONVERSION",
-    "MIGRATION",
-    "DEPOSIT",
-    "WITHDRAWAL",
-    "YIELD",
-    "MAKER_REBATE",
-    "TAKER_REBATE",
-    "REFERRAL_REWARD",
-    "TIP",
-]
-TipSide = Literal["IN", "OUT"]
-PositionStatus = Literal["OPEN", "REDEEMABLE", "CLOSED"]
+
+
+class ActivityType(StrEnum):
+    """Kind of wallet activity row."""
+
+    TRADE = "TRADE"
+    SPLIT = "SPLIT"
+    MERGE = "MERGE"
+    REDEEM = "REDEEM"
+    REWARD = "REWARD"
+    CONVERSION = "CONVERSION"
+    MIGRATION = "MIGRATION"
+    DEPOSIT = "DEPOSIT"
+    WITHDRAWAL = "WITHDRAWAL"
+    YIELD = "YIELD"
+    MAKER_REBATE = "MAKER_REBATE"
+    TAKER_REBATE = "TAKER_REBATE"
+    REFERRAL_REWARD = "REFERRAL_REWARD"
+    TIP = "TIP"
+
+
+ActivityTypeFilter = (
+    Literal[
+        "TRADE",
+        "SPLIT",
+        "MERGE",
+        "REDEEM",
+        "REWARD",
+        "CONVERSION",
+        "MIGRATION",
+        "DEPOSIT",
+        "WITHDRAWAL",
+        "YIELD",
+        "MAKER_REBATE",
+        "TAKER_REBATE",
+        "REFERRAL_REWARD",
+        "TIP",
+    ]
+    | ActivityType
+)
+"""Activity kinds accepted by activity filters, as plain strings or :class:`ActivityType`."""
+
+
+class ComboActivityType(StrEnum):
+    """Kind of combo lifecycle activity row."""
+
+    SPLIT = "SPLIT"
+    MERGE = "MERGE"
+    CONVERT = "CONVERT"
+    COMPRESS = "COMPRESS"
+    WRAP = "WRAP"
+    UNWRAP = "UNWRAP"
+    REDEEM = "REDEEM"
+
+
+class TipSide(StrEnum):
+    """Direction of a tip from the wallet's perspective."""
+
+    IN = "IN"
+    OUT = "OUT"
+
+
+class PositionStatus(StrEnum):
+    """Lifecycle status of a position."""
+
+    OPEN = "OPEN"
+    REDEEMABLE = "REDEEMABLE"
+    CLOSED = "CLOSED"
+
+
+PositionStatusFilter = Literal["OPEN", "REDEEMABLE", "CLOSED"] | PositionStatus
+"""Position statuses accepted by filters, as plain strings or :class:`PositionStatus`."""
+
 PositionSortBy = Literal[
     "CURRENT_VALUE", "TOKENS", "UNREALIZED_PNL", "REALIZED_PNL", "TOTAL_PNL", "TIMESTAMP"
 ]
-ComboPositionStatus = Literal[
-    "OPEN", "REDEEMABLE", "PARTIAL", "RESOLVED_PARTIAL", "RESOLVED_WIN", "RESOLVED_LOSS"
-]
+
+
+class ComboPositionStatus(StrEnum):
+    """Lifecycle status of a combo position or leg."""
+
+    OPEN = "OPEN"
+    REDEEMABLE = "REDEEMABLE"
+    PARTIAL = "PARTIAL"
+    RESOLVED_PARTIAL = "RESOLVED_PARTIAL"
+    RESOLVED_WIN = "RESOLVED_WIN"
+    RESOLVED_LOSS = "RESOLVED_LOSS"
+
+
+ComboPositionStatusFilter = (
+    Literal["OPEN", "REDEEMABLE", "PARTIAL", "RESOLVED_PARTIAL", "RESOLVED_WIN", "RESOLVED_LOSS"]
+    | ComboPositionStatus
+)
+"""Combo statuses accepted by filters, as plain strings or :class:`ComboPositionStatus`."""
+
 ComboPositionSortBy = Literal["FIRST_ENTRY", "ENTRY_COST", "CURRENT_VALUE", "UPDATED"]
 LeaderboardWindow = Literal["day", "week", "month", "all"]
 TraderLeaderboardSort = Literal["PNL", "VOLUME"]
 BuilderVolumeInterval = Literal["day", "week", "month", "all"]
 """Bucket interval; ``all`` yields calendar-year buckets."""
-BiggestWinnerKind = Literal["market", "combo"]
+
+
+class BiggestWinnerKind(StrEnum):
+    """Source of a winning position."""
+
+    MARKET = "market"
+    COMBO = "combo"
+
+
 PriceHistoryInterval = Literal["max", "all", "1m", "1w", "1d", "6h", "1h"]
-UserPnlInterval = Literal["max", "all", "1m", "1w", "1d", "12h", "6h"]
-UserPnlFidelity = Literal["1d", "18h", "12h", "3h", "1h"]
-ResolutionStatus = Literal[
-    "initialized",
-    "posed",
-    "proposed",
-    "challenged",
-    "reproposed",
-    "disputed",
-    "active",
-    "arbitration",
-    "resolved",
-]
-ResolutionMarketType = Literal["BINARY", "INCREMENTAL_NEGRISK", "ATOMIC_NEGRISK"]
-ResolutionSource = Literal["reported", "derived"]
-ResolutionReporter = Literal["UMA_OO", "CHAINLINK", "EOA"]
+
+
+class UserPnlInterval(StrEnum):
+    """Lookback window of a wallet PnL series."""
+
+    MAX = "max"
+    ALL = "all"
+    ONE_MONTH = "1m"
+    ONE_WEEK = "1w"
+    ONE_DAY = "1d"
+    TWELVE_HOURS = "12h"
+    SIX_HOURS = "6h"
+
+
+UserPnlIntervalInput = Literal["max", "all", "1m", "1w", "1d", "12h", "6h"] | UserPnlInterval
+"""Lookback windows accepted by PnL requests, as plain strings or :class:`UserPnlInterval`."""
+
+
+class UserPnlFidelity(StrEnum):
+    """Time step between points in a wallet PnL series."""
+
+    ONE_DAY = "1d"
+    EIGHTEEN_HOURS = "18h"
+    TWELVE_HOURS = "12h"
+    THREE_HOURS = "3h"
+    ONE_HOUR = "1h"
+
+
+UserPnlFidelityInput = Literal["1d", "18h", "12h", "3h", "1h"] | UserPnlFidelity
+"""Time steps accepted by PnL requests, as plain strings or :class:`UserPnlFidelity`."""
+
+
+class ResolutionStatus(StrEnum):
+    """Lifecycle stage of a market resolution."""
+
+    INITIALIZED = "initialized"
+    POSED = "posed"
+    PROPOSED = "proposed"
+    CHALLENGED = "challenged"
+    REPROPOSED = "reproposed"
+    DISPUTED = "disputed"
+    ACTIVE = "active"
+    ARBITRATION = "arbitration"
+    RESOLVED = "resolved"
+
+
+class ResolutionMarketType(StrEnum):
+    """Market structure of a resolved condition."""
+
+    BINARY = "BINARY"
+    INCREMENTAL_NEGRISK = "INCREMENTAL_NEGRISK"
+    ATOMIC_NEGRISK = "ATOMIC_NEGRISK"
+
+
+class ResolutionSource(StrEnum):
+    """How a condition's final payout was obtained."""
+
+    REPORTED = "reported"
+    DERIVED = "derived"
+
+
+class ResolutionReporter(StrEnum):
+    """Reporter family that supplied a resolution."""
+
+    UMA_OPTIMISTIC_ORACLE = "UMA_OO"
+    CHAINLINK = "CHAINLINK"
+    EOA = "EOA"
 
 
 def decimal_from_number(value: object) -> Decimal:
@@ -100,6 +231,12 @@ def optional_event_id(value: object) -> object:
     return None if value in (None, "", "0", 0) else str(value)
 
 
+def required_event_id(value: object) -> str:
+    if isinstance(value, bool) or not isinstance(value, int | str) or value in ("", "0", 0):
+        raise ValueError("Expected an event ID")
+    return str(value)
+
+
 def datetime_from_epoch_or_iso(value: object) -> datetime:
     if isinstance(value, str) and not value.isdecimal():
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -107,15 +244,19 @@ def datetime_from_epoch_or_iso(value: object) -> datetime:
 
 
 __all__ = [
+    "ActivityType",
     "ActivityTypeFilter",
     "BiggestWinnerKind",
     "BuilderVolumeInterval",
+    "ComboActivityType",
     "ComboPositionSortBy",
     "ComboPositionStatus",
+    "ComboPositionStatusFilter",
     "LeaderboardWindow",
     "PositionFilterType",
     "PositionSortBy",
     "PositionStatus",
+    "PositionStatusFilter",
     "PriceHistoryInterval",
     "ResolutionMarketType",
     "ResolutionReporter",
@@ -126,5 +267,7 @@ __all__ = [
     "TradeFilterType",
     "TraderLeaderboardSort",
     "UserPnlFidelity",
+    "UserPnlFidelityInput",
     "UserPnlInterval",
+    "UserPnlIntervalInput",
 ]

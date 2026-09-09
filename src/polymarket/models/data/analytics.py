@@ -22,7 +22,7 @@ from polymarket.types import EvmAddress
 
 
 class MarketLiveVolume(BaseModel):
-    """Market taker volume in USDC."""
+    """Market taker volume in shares."""
 
     condition_id: ConditionId | None
     taker_volume: Decimal
@@ -36,7 +36,7 @@ class MarketLiveVolume(BaseModel):
 
 
 class LiveVolume(BaseModel):
-    """Event taker volume in USDC and its market breakdown."""
+    """Event taker volume in shares and its market breakdown."""
 
     taker_volume_total: Decimal
     markets: tuple[MarketLiveVolume, ...] = Field(validation_alias="conditions")

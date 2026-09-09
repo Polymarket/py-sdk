@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from math import isfinite
 from typing import get_args
@@ -19,6 +19,7 @@ from polymarket._internal.retry import DATA_READ_RETRY
 from polymarket.errors import UserInputError
 from polymarket.models.data import (
     Activity,
+    ActivityType,
     ActivityTypeFilter,
     BuilderStanding,
     BuilderVolumeInterval,
@@ -28,6 +29,7 @@ from polymarket.models.data import (
     ComboPosition,
     ComboPositionSortBy,
     ComboPositionStatus,
+    ComboPositionStatusFilter,
     LeaderboardWindow,
     LiveVolume,
     MarketBiggestWinner,
@@ -38,6 +40,7 @@ from polymarket.models.data import (
     PositionFilterType,
     PositionSortBy,
     PositionStatus,
+    PositionStatusFilter,
     PriceHistoryInterval,
     PriceHistoryPoint,
     Resolution,
@@ -48,7 +51,9 @@ from polymarket.models.data import (
     TraderLeaderboardSort,
     TraderLeaderboardStanding,
     UserPnlFidelity,
+    UserPnlFidelityInput,
     UserPnlInterval,
+    UserPnlIntervalInput,
     UserPnlSeries,
     UserStats,
     UserVolume,
@@ -71,6 +76,8 @@ def list_trades_spec(
     end: int | datetime | None = None,
     full_history: bool = False,
 ) -> KeysetPaginatedSpec[Trade]:
+    if user is not None:
+        _require_user(user)
     _check_enum("side", side, get_args(OrderSide))
     _check_enum("filter_type", filter_type, get_args(TradeFilterType))
     _check_selectors(condition_id, event_id)
@@ -121,8 +128,10 @@ def list_activity_spec(
     condition_id = build_distinct_condition_ids(condition_id, grammar="feed")
     start, end = build_time_window(start=start, end=end, full_history=full_history)
     if activity_types is not None:
+        if isinstance(activity_types, str):
+            raise UserInputError("activity_types must be a sequence of activity types")
         for value in activity_types:
-            _check_enum("activity_types", value, get_args(ActivityTypeFilter))
+            _check_enum("activity_types", value, ActivityType)
     return KeysetPaginatedSpec(
         service="data",
         path="/v2/activity",
@@ -168,7 +177,7 @@ def list_positions_spec(
     *,
     user: str | None = None,
     condition_id: str | Sequence[str] | None = None,
-    status: PositionStatus | None = None,
+    status: PositionStatusFilter | None = None,
     event_id: int | Sequence[int] | None = None,
     filter_type: PositionFilterType | None = None,
     filter_amount: float | None = None,
@@ -181,7 +190,7 @@ def list_positions_spec(
 ) -> KeysetPaginatedSpec[Position]:
     if user is not None:
         _require_user(user)
-    _check_enum("status", status, get_args(PositionStatus))
+    _check_enum("status", status, PositionStatus)
     _check_enum("filter_type", filter_type, get_args(PositionFilterType))
     _check_enum("sort_by", sort_by, get_args(PositionSortBy))
     _check_enum("sort_direction", sort_direction, get_args(SortDirection))
@@ -193,7 +202,7 @@ def list_positions_spec(
         raise UserInputError("Provide user or exactly one condition_id")
     if event_id is not None and not user:
         raise UserInputError("event_id requires user")
-    if status == "CLOSED" and include_archived is not None:
+    if status == "CLOSED" and include_archived:
         raise UserInputError("include_archived is invalid with CLOSED")
     _check_nonnegative_amount("filter_amount", filter_amount)
     return KeysetPaginatedSpec(
@@ -202,7 +211,7 @@ def list_positions_spec(
         base_params=build_data_params(
             {
                 "user": user,
-                "condition": condition_id,
+                "condition_id": condition_id,
                 "status": status,
                 "event_id": event_id,
                 "filter_type": filter_type,
@@ -225,7 +234,7 @@ def list_combo_positions_spec(
     *,
     user: str,
     condition_id: str | Sequence[str] | None = None,
-    status: ComboPositionStatus | Sequence[ComboPositionStatus] | None = None,
+    status: ComboPositionStatusFilter | Sequence[ComboPositionStatusFilter] | None = None,
     sort_by: ComboPositionSortBy | None = None,
     sort_direction: SortDirection | None = None,
     updated_after: int | datetime | None = None,
@@ -240,7 +249,7 @@ def list_combo_positions_spec(
         if not statuses:
             raise UserInputError("status must be non-empty")
         for value in statuses:
-            _check_enum("status", value, get_args(ComboPositionStatus))
+            _check_enum("status", value, ComboPositionStatus)
         status = tuple(dict.fromkeys(statuses))
         if "REDEEMABLE" in status and len(status) != 1:
             raise UserInputError("REDEEMABLE must be the only status")
@@ -280,7 +289,7 @@ def build_get_portfolio_value_spec(
         service="data",
         method="GET",
         path="/v2/value",
-        params=build_data_params({"user": user, "condition": condition_ids}),
+        params=build_data_params({"user": user, "condition_id": condition_ids}),
         parse=lambda payload: parse_data_envelope(payload, PortfolioValue.parse_response),
         retry=DATA_READ_RETRY,
     )
@@ -304,11 +313,11 @@ def build_get_user_stats_spec(
 def build_get_user_pnl_spec(
     *,
     user: str,
-    interval: UserPnlInterval | None = None,
-    fidelity: UserPnlFidelity | None = None,
+    interval: UserPnlIntervalInput | None = None,
+    fidelity: UserPnlFidelityInput | None = None,
 ) -> RequestSpec[UserPnlSeries]:
-    _check_enum("interval", interval, get_args(UserPnlInterval))
-    _check_enum("fidelity", fidelity, get_args(UserPnlFidelity))
+    _check_enum("interval", interval, UserPnlInterval)
+    _check_enum("fidelity", fidelity, UserPnlFidelity)
     _require_user(user)
     return RequestSpec(
         service="data",
@@ -355,7 +364,7 @@ def build_list_market_holders_spec(
         service="data",
         path="/v2/holders",
         base_params=build_data_params(
-            {"condition": conditions, "min_balance": min_balance, "include_pnl": include_pnl}
+            {"condition_id": conditions, "min_balance": min_balance, "include_pnl": include_pnl}
         ),
         parse_page=lambda payload: parse_data_page(payload, MetaHolder.parse_response_list),
         cursor_param="cursor",
@@ -373,7 +382,7 @@ def get_open_interests_spec(
         service="data",
         method="GET",
         path="/v2/oi",
-        params=build_data_params({"condition": condition_ids}),
+        params=build_data_params({"condition_id": condition_ids}),
         parse=lambda payload: parse_data_envelope(payload, OpenInterest.parse_response_list),
         retry=DATA_READ_RETRY,
     )
@@ -416,8 +425,10 @@ def build_list_price_history_spec(
     start, end, as_of = (_check_timestamp(value) for value in (start, end, as_of))
     if start is not None:
         until = end if end is not None else int(datetime.now(UTC).timestamp())
-        if until <= start or until - start > 15 * 86400:
-            raise UserInputError("Price history windows must be positive and at most 15 days")
+        if until < start or until - start > 15 * 86400:
+            raise UserInputError(
+                "Price history windows must not end before start or exceed 15 days"
+            )
     if as_of is not None and (bucket_seconds is not None or page_size is not None):
         raise UserInputError("as_of forbids bucket_seconds and page_size")
     if bucket_seconds is not None:
@@ -463,7 +474,7 @@ def build_get_resolutions_spec(
         method="GET",
         path="/v2/resolutions",
         params=build_data_params(
-            {"question_id": question_id, "condition": condition_ids, "event_id": event_ids}
+            {"question_id": question_id, "condition_id": condition_ids, "event_id": event_ids}
         ),
         parse=lambda payload: parse_data_envelope(payload, Resolution.parse_response_list),
         retry=DATA_READ_RETRY,
@@ -478,8 +489,7 @@ def list_trader_leaderboard_spec(
 ) -> KeysetPaginatedSpec[TraderLeaderboardEntry]:
     _check_enum("window", window, get_args(LeaderboardWindow))
     _check_enum("sort_by", sort_by, get_args(TraderLeaderboardSort))
-    if category is not None:
-        category = category.lower()
+    _check_category(category)
     return KeysetPaginatedSpec(
         service="data",
         path="/v2/leaderboard",
@@ -503,8 +513,7 @@ def build_get_trader_leaderboard_standing_spec(
 ) -> RequestSpec[TraderLeaderboardStanding | None]:
     _check_enum("window", window, get_args(LeaderboardWindow))
     _require_user(user)
-    if category is not None:
-        category = category.lower()
+    _check_category(category)
     return RequestSpec(
         service="data",
         method="GET",
@@ -523,8 +532,7 @@ def build_list_biggest_winners_spec(
     window: LeaderboardWindow | None = None,
 ) -> KeysetPaginatedSpec[MarketBiggestWinner | ComboBiggestWinner]:
     _check_enum("window", window, get_args(LeaderboardWindow))
-    if category is not None:
-        category = category.lower()
+    _check_category(category)
     return KeysetPaginatedSpec(
         service="data",
         path="/v2/biggest-winners",
@@ -580,9 +588,15 @@ def _require_user(user: object) -> None:
         raise UserInputError("user is required")
 
 
-def _check_enum(name: str, value: object, allowed: tuple[str, ...]) -> None:
-    if value is not None and value not in allowed:
-        raise UserInputError(f"{name} must be one of {allowed}, got {value!r}")
+def _check_enum(name: str, value: object, allowed: Iterable[str]) -> None:
+    choices = tuple(str(choice) for choice in allowed)
+    if value is not None and value not in choices:
+        raise UserInputError(f"{name} must be one of {choices}, got {value!r}")
+
+
+def _check_category(category: object) -> None:
+    if category is not None and (type(category) is not str or not category):
+        raise UserInputError("category must be a non-empty string")
 
 
 def _check_selectors(condition_id: object, event_id: object) -> None:
