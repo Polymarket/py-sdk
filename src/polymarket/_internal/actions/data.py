@@ -197,7 +197,10 @@ def list_positions_spec(
     _check_selectors(condition_id, event_id)
     event_id = build_event_ids(event_id)
     condition_id = build_distinct_condition_ids(condition_id, grammar="market")
-    start, end = build_time_window(start=start, end=end, full_history=full_history)
+    if full_history and (start is not None or end is not None):
+        raise UserInputError("full_history cannot be combined with start or end")
+    # Positions are already unbounded by default, including holdings without activity.
+    start, end = _check_timestamp(start), _check_timestamp(end)
     if not user and (condition_id is None or len(condition_id) != 1):
         raise UserInputError("Provide user or exactly one condition_id")
     if event_id is not None and not user:
@@ -253,8 +256,8 @@ def list_combo_positions_spec(
         status = tuple(dict.fromkeys(statuses))
         if "REDEEMABLE" in status and len(status) != 1:
             raise UserInputError("REDEEMABLE must be the only status")
-    updated_after = _check_timestamp(updated_after)
-    updated_before = _check_timestamp(updated_before)
+    updated_after = _check_combo_watermark(updated_after)
+    updated_before = _check_combo_watermark(updated_before)
     if updated_after is not None and updated_before is not None and updated_before < updated_after:
         raise UserInputError("updated_before must be at least updated_after")
     return KeysetPaginatedSpec(
@@ -615,6 +618,17 @@ def _check_timestamp(value: int | datetime | None) -> int | None:
     seconds = to_epoch_seconds(value)
     if not 0 < seconds <= 253402300799:
         raise UserInputError("Timestamp must be positive and no later than 9999-12-31T23:59:59Z")
+    return seconds
+
+
+def _check_combo_watermark(value: int | datetime | None) -> int | None:
+    if value is None:
+        return None
+    seconds = to_epoch_seconds(value)
+    if not 0 <= seconds <= 253402300799:
+        raise UserInputError(
+            "Combo watermark must be non-negative and no later than 9999-12-31T23:59:59Z"
+        )
     return seconds
 
 

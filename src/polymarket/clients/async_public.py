@@ -251,6 +251,9 @@ class AsyncPublicClient:
 
         Use ``status="CLOSED"`` for closed positions. Sizes are shares and values are USDC.
 
+        Positions have no time bounds by default. ``full_history=True`` also includes
+        holdings without activity and cannot be combined with ``start`` or ``end``.
+
         Resuming a cursor uses the page size stored by that cursor."""
         spec = _data_actions.list_positions_spec(
             user=user,
@@ -283,6 +286,9 @@ class AsyncPublicClient:
         """List combo positions, optionally filtering by multiple statuses.
 
         Update bounds are inclusive. Sizes are shares; costs and payouts are USDC.
+
+        Zero is a valid update bound. Without a status filter, supplying either bound
+        selects the synchronization view, which also includes positions no longer held.
 
         Resuming a cursor uses the page size stored by that cursor."""
         spec = _data_actions.list_combo_positions_spec(
@@ -473,7 +479,7 @@ class AsyncPublicClient:
         window: LeaderboardWindow | None = None,
         page_size: int = 100,
     ) -> AsyncPaginator[BuilderStanding]:
-        """List ranked builders and their trading volume in USDC.
+        """List ranked builders and their trading volume in shares.
 
         Resuming a cursor uses the page size stored by that cursor."""
         spec = _data_actions.list_builder_leaderboard_spec(window=window)
@@ -485,7 +491,7 @@ class AsyncPublicClient:
         interval: BuilderVolumeInterval | None = None,
         bucket_limit: int | None = None,
     ) -> tuple[BuilderVolumePoint, ...]:
-        """Get builder volume in USDC by calendar bucket.
+        """Get builder volume in shares by calendar bucket.
 
         ``bucket_limit`` counts dates, not rows (default 30, maximum 90).
         Interval ``all`` yields calendar-year buckets."""

@@ -55,6 +55,14 @@ async with AsyncPublicClient() as client:
 
 Clients should also expose explicit `close()` methods. Async clients should expose `await client.close()` so callers that do not use `async with` can still release async HTTP sessions, sockets, or other transport resources deterministically.
 
+## Full-history requests
+
+The existing `full_history=True` keyword on `list_trades`, `list_activity`, `list_positions`, and `get_user_volume` is an intentional, narrow exception to the rule against boolean mode flags. It complements the existing `start` and `end` keywords without requiring a separate time-window object or union. It cannot be combined with either explicit bound.
+
+Positions have no time bounds by default. For `list_positions`, `full_history=True` preserves that behavior, including holdings without an activity timestamp. Explicit bounds filter positions by their last activity and exclude holdings without one. Other methods retain their own full-history request behavior; request construction must preserve these distinctions.
+
+This exception preserves the current public signature and does not establish a convention for new boolean mode flags.
+
 ## Domain Types
 
 The SDK uses lightweight marked types for important domain values where a plain primitive would hide useful meaning in IDEs and type hints.

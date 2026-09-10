@@ -5,7 +5,7 @@ from typing import Any
 
 import httpx
 import pytest
-from data_v2_samples import sample
+from data_v2_samples import position_payload, sample
 
 from polymarket import ApiKeyCreds, AsyncPublicClient, AsyncSecureClient, PublicClient, SecureClient
 from polymarket.clients._transport import AsyncTransport, SyncTransport
@@ -41,12 +41,20 @@ COMBO = "0x03" + "ab" * 30
         (
             "list_positions",
             {"condition_id": CONDITION, "full_history": True},
-            {"condition_id": CONDITION, "start": "1"},
+            {"condition_id": CONDITION},
         ),
+        ("list_positions", {}, {}),
         (
             "list_combo_positions",
             {"condition_id": COMBO, "status": ["RESOLVED_WIN", "RESOLVED_LOSS"]},
             {"condition_id": COMBO, "status": "RESOLVED_WIN,RESOLVED_LOSS"},
+        ),
+        ("list_combo_positions", {"updated_after": 0}, {"updated_after": "0"}),
+        ("list_combo_positions", {"updated_before": 0}, {"updated_before": "0"}),
+        (
+            "list_combo_positions",
+            {"updated_after": 0, "updated_before": 0},
+            {"updated_after": "0", "updated_before": "0"},
         ),
     ],
 )
@@ -60,8 +68,17 @@ def test_feed_queries_cursor_replay_and_wallet_binding(
 
     def handler(request: httpx.Request) -> httpx.Response:
         captured.append(request)
+        rows = []
+        # Positions without native activity have SQL NULL timestamps and wire value 0.
+        # The backend excludes them whenever a time bound is supplied.
+        if (
+            method == "list_positions"
+            and "start" not in request.url.params
+            and "end" not in request.url.params
+        ):
+            rows = [position_payload(last_event_at=0)]
         return httpx.Response(
-            200, json={"data": [], "pagination": {"has_more": True, "next_cursor": "server-next"}}
+            200, json={"data": rows, "pagination": {"has_more": True, "next_cursor": "server-next"}}
         )
 
     async def run() -> None:
@@ -109,10 +126,11 @@ def test_feed_queries_cursor_replay_and_wallet_binding(
             paginator = getattr(client, method)(**options, page_size=5)
             first = await paginator.first_page() if asynchronous else paginator.first_page()
             replay = paginator.from_cursor(first.next_cursor)
-            if asynchronous:
-                await replay.first_page()
-            else:
-                replay.first_page()
+            second = await replay.first_page() if asynchronous else replay.first_page()
+            if method == "list_positions":
+                for page in (first, second):
+                    assert len(page.items) == 1
+                    assert page.items[0].last_event_at is None
             other = getattr(client, method)(
                 **{**options, "user": "0x" + "cd" * 20}, page_size=5
             ).from_cursor(first.next_cursor)

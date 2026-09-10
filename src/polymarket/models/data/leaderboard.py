@@ -141,7 +141,7 @@ class ComboBiggestWinner(BaseModel):
 
 
 class BuilderStanding(BaseModel):
-    """Builder rankings; volume is USDC."""
+    """Builder rankings; volume is shares."""
 
     rank: int
     builder_name: str
@@ -157,7 +157,7 @@ class BuilderStanding(BaseModel):
 
 
 class BuilderVolumePoint(BaseModel):
-    """Builder volume in USDC for a calendar bucket."""
+    """Builder volume in shares for a calendar bucket."""
 
     rank: int
     builder_name: str

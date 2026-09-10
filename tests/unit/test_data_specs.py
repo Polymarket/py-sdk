@@ -121,6 +121,74 @@ def test_query_contracts() -> None:
     )
 
 
+@pytest.mark.parametrize("bound", ["start", "end"])
+@pytest.mark.parametrize("value", [0, 1, datetime(2026, 1, 1, tzinfo=UTC)])
+def test_positions_full_history_rejects_explicit_bounds(bound: str, value: object) -> None:
+    kwargs: dict[str, Any] = {bound: value}
+    with pytest.raises(UserInputError, match="full_history cannot be combined"):
+        data.list_positions_spec(user=WALLET, full_history=True, **kwargs)
+
+
+def test_positions_time_bounds_and_other_full_history_feeds() -> None:
+    at = datetime(2026, 1, 1, microsecond=999999, tzinfo=UTC)
+    assert data.list_positions_spec(user=WALLET, start=at, end=1767225601).base_params == {
+        "user": WALLET,
+        "start": 1767225600,
+        "end": 1767225601,
+    }
+    assert data.list_trades_spec(full_history=True).base_params == {"start": 1}
+    assert data.list_activity_spec(user=WALLET, full_history=True).base_params == {
+        "user": WALLET,
+        "exclude_deposits_withdrawals": False,
+        "start": 1,
+    }
+    assert data.build_get_user_volume_spec(user=WALLET, full_history=True).params == {
+        "user": WALLET,
+        "start": 1,
+    }
+
+
+@pytest.mark.parametrize("bound", ["updated_after", "updated_before"])
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (0, 0),
+        (datetime(1970, 1, 1, tzinfo=UTC), 0),
+        (datetime(2026, 1, 1, microsecond=999999, tzinfo=UTC), 1767225600),
+        (253402300799, 253402300799),
+        (None, None),
+    ],
+)
+def test_combo_watermarks_preserve_epoch_seconds(
+    bound: str, value: object, expected: int | None
+) -> None:
+    kwargs: dict[str, Any] = {bound: value}
+    assert data.list_combo_positions_spec(user=WALLET, **kwargs).base_params == {
+        "user": WALLET,
+        **({bound: expected} if expected is not None else {}),
+    }
+
+
+@pytest.mark.parametrize("bound", ["updated_after", "updated_before"])
+@pytest.mark.parametrize("value", [-1, True, 0.0, "0", datetime(1970, 1, 1), 253402300800])
+def test_combo_watermarks_reject_invalid_values(bound: str, value: object) -> None:
+    kwargs: dict[str, Any] = {bound: value}
+    with pytest.raises(UserInputError):
+        data.list_combo_positions_spec(user=WALLET, **kwargs)
+
+
+@pytest.mark.parametrize("after,before", [(0, 0), (0, 1), (1, 1)])
+def test_combo_watermarks_accept_ordered_bounds(after: int, before: int) -> None:
+    assert data.list_combo_positions_spec(
+        user=WALLET, updated_after=after, updated_before=before
+    ).base_params == {"user": WALLET, "updated_after": after, "updated_before": before}
+
+
+def test_combo_watermarks_reject_inverted_epoch_window() -> None:
+    with pytest.raises(UserInputError, match="updated_before must be at least updated_after"):
+        data.list_combo_positions_spec(user=WALLET, updated_after=1, updated_before=0)
+
+
 def test_enum_members_serialize_like_plain_strings() -> None:
     plain = data.list_positions_spec(user=WALLET, status="CLOSED").base_params
     member = data.list_positions_spec(user=WALLET, status=PositionStatus.CLOSED).base_params
