@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.0.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.9.0...polymarket-client-v1.0.0) (2026-09-10)
+
+
+### ⚠ BREAKING CHANGES
+
+* migrate data reads to the Data API v2 contract
+
+### Features
+
+* migrate data reads to the Data API v2 contract ([ac69106](https://github.com/Polymarket/py-sdk/commit/ac69106a92cf47136319ae07008d5245c2c7e5b2))
+
+
+### Bug Fixes
+
+* **data:** make date-only timestamps UTC and tighten event id checks ([e0cc564](https://github.com/Polymarket/py-sdk/commit/e0cc564eba29b8973288757341c37866f22541d5))
+* **data:** preserve identity and typed boundary errors ([407a3ab](https://github.com/Polymarket/py-sdk/commit/407a3ab0b95f0fe634b451cee0f76b0465edb5a0))
+* **data:** preserve payout round trips and align review rules ([d26d6e3](https://github.com/Polymarket/py-sdk/commit/d26d6e3ead2bb713d5db396e5a7a45b2d4d468d9))
+* **data:** tighten request validation and expose data vocabularies as enums ([e7452ef](https://github.com/Polymarket/py-sdk/commit/e7452efff69a8891bd5c007384b217bde156cf4e))
+* **data:** validate cursor inputs and normalize activity fields ([a045641](https://github.com/Polymarket/py-sdk/commit/a045641181e0c05c9def7c2947e257e08a9c5413))
+* **frames:** support mixed enum and string activity columns ([37addf2](https://github.com/Polymarket/py-sdk/commit/37addf297687d43494b6a63c16cb1813595223b4))
+* preserve full positions history and zero combo watermarks ([d8aaa92](https://github.com/Polymarket/py-sdk/commit/d8aaa92907a81eefcd5b483462ee2154f406c4d2))
+
 ## [0.9.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.8.0...polymarket-client-v0.9.0) (2026-09-04)
 
 
