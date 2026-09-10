@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.0.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.9.0...polymarket-client-v1.0.0) (2026-09-10)
+## [0.10.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.9.0...polymarket-client-v0.10.0) (2026-09-10)
 
 
 ### ⚠ BREAKING CHANGES
