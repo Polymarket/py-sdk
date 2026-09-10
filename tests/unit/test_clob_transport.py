@@ -18,7 +18,6 @@ from polymarket import (
     LastTradePriceForToken,
     OrderBook,
     OrderSide,
-    PriceHistoryPoint,
     PriceRequest,
 )
 from polymarket._internal.context import AsyncSecureClientContext
@@ -285,69 +284,3 @@ def test_async_get_last_trade_prices_posts_token_ids_at_correct_path() -> None:
     assert captured[0].method == "POST"
     assert urlparse(str(captured[0].url)).path == "/last-trades-prices"
     assert _body(captured[0]) == [{"token_id": "1"}, {"token_id": "2"}]
-
-
-def test_async_get_price_history_maps_token_id_to_market_param() -> None:
-    captured: list[httpx.Request] = []
-
-    async def run() -> tuple[PriceHistoryPoint, ...]:
-        async with AsyncPublicClient() as client:
-            _install_async_clob(
-                client, _clob_handler(captured, {"history": [{"t": 1000, "p": 0.5}]})
-            )
-            return await client.get_price_history(token_id="123")
-
-    result = asyncio.run(run())
-
-    assert len(result) == 1
-    parsed = urlparse(str(captured[0].url))
-    assert parsed.path == "/prices-history"
-    assert parse_qs(parsed.query) == {"market": ["123"]}
-
-
-def test_async_secure_get_price_history_maps_asset_id_to_market_param() -> None:
-    captured: list[httpx.Request] = []
-
-    async def run() -> tuple[PriceHistoryPoint, ...]:
-        client = await AsyncSecureClient._create(
-            private_key=PRIVATE_KEY,
-            wallet=SIGNER_ADDRESS,
-            credentials=FAKE_CREDS,
-            validate_credentials=False,
-        )
-        try:
-            _install_async_clob(client, _clob_handler(captured, {"history": []}))
-            return await client.get_price_history(asset_id="123")
-        finally:
-            await client.close()
-
-    assert asyncio.run(run()) == ()
-    parsed = urlparse(str(captured[0].url))
-    assert parsed.path == "/prices-history"
-    assert parse_qs(parsed.query) == {"market": ["123"]}
-
-
-def test_async_get_price_history_preserves_camelcase_optional_params_on_wire() -> None:
-    captured: list[httpx.Request] = []
-
-    async def run() -> tuple[PriceHistoryPoint, ...]:
-        async with AsyncPublicClient() as client:
-            _install_async_clob(client, _clob_handler(captured, {"history": []}))
-            return await client.get_price_history(
-                token_id="123",
-                start_ts=1000,
-                end_ts=2000,
-                fidelity=60,
-                interval="1d",
-            )
-
-    asyncio.run(run())
-
-    parsed_qs = parse_qs(urlparse(str(captured[0].url)).query)
-    assert parsed_qs == {
-        "market": ["123"],
-        "startTs": ["1000"],
-        "endTs": ["2000"],
-        "fidelity": ["60"],
-        "interval": ["1d"],
-    }

@@ -1,120 +1,157 @@
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
-from typing import Literal
 
-from pydantic import AliasChoices, Field, computed_field, field_validator
+from pydantic import Field, computed_field, field_validator
 
 from polymarket.models.base import BaseModel
-from polymarket.models.gamma.common import parse_optional_decimal
+from polymarket.models.data.common import (
+    datetime_from_epoch_seconds,
+    decimal_from_number,
+    optional_decimal_from_number,
+    optional_outcome_index,
+    optional_text,
+)
 from polymarket.models.types import (
     ClobAssetId,
     ConditionId,
-    validate_optional_condition_id,
+    validate_optional_condition_id_response,
 )
 from polymarket.types import EvmAddress
 
-OpenInterestMarket = ConditionId | Literal["GLOBAL"]
 
+class MarketLiveVolume(BaseModel):
+    """Market taker volume in shares."""
 
-class MarketVolume(BaseModel):
-    condition_id: ConditionId | None = Field(default=None, validation_alias="market")
-    market: ConditionId | None = Field(
-        default=None, validation_alias="market", description="Deprecated: use condition_id."
-    )
-    value: Decimal | None = None
+    condition_id: ConditionId | None
+    taker_volume: Decimal
 
-    @field_validator("condition_id", "market", mode="before")
+    @field_validator("condition_id", mode="before")
     @classmethod
-    def _validate_market(cls, value: object) -> ConditionId | None:
-        return validate_optional_condition_id(value)
+    def _parse_condition(cls, value: object) -> ConditionId | None:
+        return validate_optional_condition_id_response(optional_text(value))
 
-    @field_validator("value", mode="before")
-    @classmethod
-    def _parse_value(cls, value: object) -> Decimal | None:
-        return parse_optional_decimal(value)
+    _decimal_from_number = field_validator("taker_volume", mode="before")(decimal_from_number)
 
 
 class LiveVolume(BaseModel):
-    total: Decimal | None = None
-    markets: tuple[MarketVolume, ...] | None = None
+    """Event taker volume in shares and its market breakdown."""
 
-    @field_validator("total", mode="before")
-    @classmethod
-    def _parse_total(cls, value: object) -> Decimal | None:
-        return parse_optional_decimal(value)
+    taker_volume_total: Decimal
+    markets: tuple[MarketLiveVolume, ...] = Field(validation_alias="conditions")
+
+    _decimal_from_number = field_validator("taker_volume_total", mode="before")(decimal_from_number)
 
 
 class OpenInterest(BaseModel):
-    condition_id: OpenInterestMarket | None = Field(default=None, validation_alias="market")
-    market: OpenInterestMarket | None = Field(
-        default=None, description="Deprecated: use condition_id."
-    )
-    value: Decimal | None = None
+    """Open interest in USDC; ``condition_id=None`` denotes global interest."""
 
-    @field_validator("condition_id", "market", mode="before")
-    @classmethod
-    def _validate_market(cls, value: object) -> OpenInterestMarket | None:
-        if value == "GLOBAL":
-            return "GLOBAL"
-        return validate_optional_condition_id(value)
+    condition_id: ConditionId | None
+    value: Decimal
 
-    @field_validator("value", mode="before")
+    _decimal_from_number = field_validator("value", mode="before")(decimal_from_number)
+
+    @field_validator("condition_id", mode="before")
     @classmethod
-    def _parse_value(cls, value: object) -> Decimal | None:
-        return parse_optional_decimal(value)
+    def _parse_condition(cls, value: object) -> ConditionId | None:
+        return None if value == "GLOBAL" else validate_optional_condition_id_response(value)
 
 
 class Holder(BaseModel):
-    wallet: EvmAddress | None = Field(default=None, validation_alias="proxyWallet")
-    asset_id: ClobAssetId | None = Field(
-        default=None,
-        validation_alias=AliasChoices("asset_id", "asset", "token_id"),
-    )
-    amount: Decimal | None = None
-    outcome_index: int | None = Field(default=None, validation_alias="outcomeIndex")
+    """A holder. ``amount`` is shares; prices, cost, value and PnL are USDC."""
+
+    wallet: EvmAddress = Field(validation_alias="proxy_wallet")
+    asset_id: ClobAssetId = Field(validation_alias="token_id")
+    amount: Decimal
+    outcome_index: int | None = None
+    display_username_public: bool
+    verified: bool
     name: str | None = None
     pseudonym: str | None = None
     bio: str | None = None
-    display_username_public: bool | None = Field(
-        default=None, validation_alias="displayUsernamePublic"
+    profile_image: str | None = None
+    profile_image_optimized: str | None = None
+    avg_price: Decimal | None = None
+    entry_cost_usdc: Decimal | None = None
+    current_price: Decimal | None = None
+    current_value: Decimal | None = None
+    realized_pnl: Decimal | None = None
+    unrealized_pnl: Decimal | None = None
+    total_pnl: Decimal | None = None
+
+    _decimal_from_number = field_validator("amount", mode="before")(decimal_from_number)
+
+    _optional_outcome_index = field_validator("outcome_index", mode="before")(
+        optional_outcome_index
     )
-    profile_image: str | None = Field(default=None, validation_alias="profileImage")
-    profile_image_optimized: str | None = Field(
-        default=None, validation_alias="profileImageOptimized"
-    )
+
+    _optional_text = field_validator(
+        "name", "pseudonym", "bio", "profile_image", "profile_image_optimized", mode="before"
+    )(optional_text)
+
+    _optional_decimal_from_number = field_validator(
+        "avg_price",
+        "entry_cost_usdc",
+        "current_price",
+        "current_value",
+        "realized_pnl",
+        "unrealized_pnl",
+        "total_pnl",
+        mode="before",
+    )(optional_decimal_from_number)
 
     @computed_field
     @property
-    def token_id(self) -> ClobAssetId | None:
+    def token_id(self) -> ClobAssetId:
         """Deprecated alias for :attr:`asset_id`."""
-
         return self.asset_id
-
-    @field_validator("amount", mode="before")
-    @classmethod
-    def _parse_amount(cls, value: object) -> Decimal | None:
-        return parse_optional_decimal(value)
 
 
 class MetaHolder(BaseModel):
-    asset_id: ClobAssetId | None = Field(
-        default=None, validation_alias=AliasChoices("asset_id", "token")
-    )
-    holders: tuple[Holder, ...] | None = None
+    """Holders grouped by outcome asset."""
+
+    asset_id: ClobAssetId = Field(validation_alias="token_id")
+    holders: tuple[Holder, ...]
 
     @computed_field
     @property
-    def token(self) -> ClobAssetId | None:
+    def token(self) -> ClobAssetId:
         """Deprecated alias for :attr:`asset_id`."""
-
         return self.asset_id
 
 
+class PriceHistoryPoint(BaseModel):
+    """An historical price in USDC per share; resolution 0 denotes an exact tick."""
+
+    timestamp: datetime
+    price: Decimal
+    resolution_seconds: int
+
+    _datetime_from_epoch_seconds = field_validator("timestamp", mode="before")(
+        datetime_from_epoch_seconds
+    )
+
+    _decimal_from_number = field_validator("price", mode="before")(decimal_from_number)
+
+    def _repr_html_(self) -> str:
+        from polymarket._jupyter import card, safe_html_repr
+
+        @safe_html_repr
+        def render(self: PriceHistoryPoint) -> str:
+            return card(
+                "PriceHistoryPoint",
+                rows=[("timestamp", self.timestamp.isoformat()), ("price", str(self.price))],
+            )
+
+        return render(self)
+
+
 __all__ = [
-    "Holder",
+    "MarketLiveVolume",
     "LiveVolume",
-    "MarketVolume",
-    "MetaHolder",
     "OpenInterest",
+    "Holder",
+    "MetaHolder",
+    "PriceHistoryPoint",
 ]

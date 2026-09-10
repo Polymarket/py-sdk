@@ -19,6 +19,7 @@ from polymarket._internal.request import (
     RequestSpec,
     Service,
 )
+from polymarket._internal.retry import async_run_with_rate_limit_retry, run_with_rate_limit_retry
 from polymarket.clients._transport import AsyncTransport, SyncTransport
 from polymarket.errors import UserInputError
 from polymarket.pagination import AsyncPaginator, Page, Paginator
@@ -54,7 +55,9 @@ def sync_dispatch(ctx: SyncClientContext, spec: RequestSpec[T]) -> T:
     transport = _sync_transport_for(ctx, spec.service)
     match spec.method:
         case "GET":
-            payload = transport.get_json(spec.path, params=spec.params)
+            payload = run_with_rate_limit_retry(
+                lambda: transport.get_json(spec.path, params=spec.params), spec.retry
+            )
         case _ as unreachable:
             assert_never(unreachable)
     return spec.parse(payload)
@@ -64,7 +67,9 @@ async def async_dispatch(ctx: AsyncClientContext, spec: RequestSpec[T]) -> T:
     transport = _async_transport_for(ctx, spec.service)
     match spec.method:
         case "GET":
-            payload = await transport.get_json(spec.path, params=spec.params)
+            payload = await async_run_with_rate_limit_retry(
+                lambda: transport.get_json(spec.path, params=spec.params), spec.retry
+            )
         case _ as unreachable:
             assert_never(unreachable)
     return spec.parse(payload)
@@ -163,7 +168,7 @@ def sync_paginate_keyset(
     page_size: int,
     initial_cursor: str | None = None,
 ) -> Paginator[T]:
-    if page_size < 1:
+    if type(page_size) is not int or page_size < 1:
         raise UserInputError("page_size must be a positive integer.")
     if spec.max_page_size is not None and page_size > spec.max_page_size:
         raise UserInputError(f"page_size must be at most {spec.max_page_size}.")
@@ -186,7 +191,9 @@ def sync_paginate_keyset(
         }
         if server_cursor is not None:
             params[spec.cursor_param] = server_cursor
-        payload = transport.get_json(spec.path, params=params)
+        payload = run_with_rate_limit_retry(
+            lambda: transport.get_json(spec.path, params=params), spec.retry
+        )
         keyset_page = spec.parse_page(payload)
         return compute_keyset_page(
             service=spec.service,
@@ -206,7 +213,7 @@ def async_paginate_keyset(
     page_size: int,
     initial_cursor: str | None = None,
 ) -> AsyncPaginator[T]:
-    if page_size < 1:
+    if type(page_size) is not int or page_size < 1:
         raise UserInputError("page_size must be a positive integer.")
     if spec.max_page_size is not None and page_size > spec.max_page_size:
         raise UserInputError(f"page_size must be at most {spec.max_page_size}.")
@@ -229,7 +236,9 @@ def async_paginate_keyset(
         }
         if server_cursor is not None:
             params[spec.cursor_param] = server_cursor
-        payload = await transport.get_json(spec.path, params=params)
+        payload = await async_run_with_rate_limit_retry(
+            lambda: transport.get_json(spec.path, params=params), spec.retry
+        )
         keyset_page = spec.parse_page(payload)
         return compute_keyset_page(
             service=spec.service,

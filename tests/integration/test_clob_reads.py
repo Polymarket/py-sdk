@@ -12,7 +12,6 @@ from polymarket import (
     LastTradePriceForToken,
     OrderBook,
     OrderSide,
-    PriceHistoryPoint,
     PriceRequest,
 )
 from polymarket.models.types import ClobAssetId, TokenId
@@ -173,17 +172,3 @@ def test_async_get_last_trade_prices_returns_tuple_of_models(active_clob_token: 
 
     assert len(result) >= 1
     assert any(point.token_id == active_clob_token for point in result)
-
-
-@pytest.mark.integration
-def test_async_get_price_history_returns_points(active_clob_token: TokenId) -> None:
-    async def run() -> tuple[PriceHistoryPoint, ...]:
-        async with AsyncPublicClient() as client:
-            return await client.get_price_history(token_id=active_clob_token, interval="1d")
-
-    points = asyncio.run(run())
-
-    assert isinstance(points, tuple)
-    for point in points:
-        assert isinstance(point.t, int)
-        assert isinstance(point.p, float)

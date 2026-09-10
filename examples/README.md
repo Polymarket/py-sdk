@@ -32,6 +32,8 @@ set -a && source .env && set +a
 Or pass them inline on the command (as shown in each script's header):
 
 - `list_positions` needs `POLYMARKET_DEPOSIT_WALLET` (the wallet to inspect).
+  It shows `current_size` in shares, `current_price` in USDC, and `asset_id`.
+  Use `client.list_positions(status="CLOSED", user=wallet)` for closed positions.
 - `create_limit_order` / `create_market_order` need `POLYMARKET_PRIVATE_KEY`
   and `POLYMARKET_DEPOSIT_WALLET`.
 

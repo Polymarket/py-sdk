@@ -18,6 +18,7 @@ from _relayer_helpers import (
     request_json,
     trading_approval_rpc_handler,
 )
+from data_v2_samples import position_payload
 from eth_abi.abi import decode as abi_decode
 from eth_abi.abi import encode as abi_encode
 
@@ -478,20 +479,24 @@ def _stub_binary_positions(  # type: ignore[no-untyped-def]
     from polymarket.pagination import Page
 
     yes = Position.parse_response(
-        {
-            "conditionId": condition_id,
-            "outcomeIndex": 0,
-            "size": yes_size,
-            "negativeRisk": neg_risk,
-        }
+        position_payload(
+            **{
+                "condition_id": condition_id,
+                "outcome_index": 0,
+                "current_size": yes_size,
+                "negative_risk": neg_risk,
+            }
+        )
     )
     no = Position.parse_response(
-        {
-            "conditionId": condition_id,
-            "outcomeIndex": 1,
-            "size": no_size,
-            "negativeRisk": neg_risk,
-        }
+        position_payload(
+            **{
+                "condition_id": condition_id,
+                "outcome_index": 1,
+                "current_size": no_size,
+                "negative_risk": neg_risk,
+            }
+        )
     )
 
     class _StubPaginator:

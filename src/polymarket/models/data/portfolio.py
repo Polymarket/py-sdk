@@ -2,132 +2,141 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Literal
 
-from pydantic import AliasChoices, Field, computed_field, field_validator
+from pydantic import Field, computed_field, field_validator
 
 from polymarket.models.base import BaseModel
-from polymarket.models.gamma.common import (
-    empty_string_to_none,
-    parse_epoch_seconds_optional,
-    parse_optional_date,
-    parse_optional_decimal,
+from polymarket.models.data.common import (
+    ComboPositionStatus,
+    PositionStatus,
+    UserPnlFidelity,
+    UserPnlInterval,
+    date_from_calendar_string,
+    datetime_from_epoch_seconds,
+    decimal_from_number,
+    optional_datetime_from_epoch_or_iso,
+    optional_datetime_from_epoch_seconds,
+    optional_decimal_from_number,
+    optional_event_id,
+    optional_outcome_index,
+    optional_text,
 )
 from polymarket.models.types import (
     ClobAssetId,
     ComboConditionId,
     ConditionId,
+    EventId,
+    MarketId,
     PositionId,
     validate_combo_condition_id,
-    validate_condition_id,
-    validate_optional_condition_id,
+    validate_condition_id_response,
 )
 from polymarket.types import EvmAddress
 
-ComboPositionStatus = Literal[
-    "OPEN", "PARTIAL", "RESOLVED_PARTIAL", "RESOLVED_WIN", "RESOLVED_LOSS"
-]
-ComboPositionOutcome = Literal["YES", "NO"]
-
-
-class PortfolioValue(BaseModel):
-    """Current portfolio value for a user."""
-
-    user: EvmAddress | None = None
-    value: Decimal | None = None
-
-    @field_validator("value", mode="before")
-    @classmethod
-    def _parse_value(cls, value: object) -> Decimal | None:
-        return parse_optional_decimal(value)
-
-
-class TradedMarketCount(BaseModel):
-    """Number of markets traded by a user."""
-
-    user: EvmAddress | None = None
-    traded: int | None = None
-
 
 class Position(BaseModel):
-    """Open market position held by a wallet."""
+    """A wallet position. Sizes are shares; prices, costs, values and PnL are USDC.
 
-    condition_id: ConditionId = Field(validation_alias="conditionId")
-    wallet: EvmAddress | None = Field(default=None, validation_alias="proxyWallet")
-    asset_id: ClobAssetId | None = Field(
-        default=None,
-        validation_alias=AliasChoices("asset_id", "asset", "token_id"),
-    )
-    size: Decimal | None = None
-    avg_price: Decimal | None = Field(default=None, validation_alias="avgPrice")
-    initial_value: Decimal | None = Field(default=None, validation_alias="initialValue")
-    current_value: Decimal | None = Field(default=None, validation_alias="currentValue")
-    cash_pnl: Decimal | None = Field(default=None, validation_alias="cashPnl")
-    percent_pnl: float | None = Field(default=None, validation_alias="percentPnl")
-    total_bought: Decimal | None = Field(default=None, validation_alias="totalBought")
-    realized_pnl: Decimal | None = Field(default=None, validation_alias="realizedPnl")
-    percent_realized_pnl: float | None = Field(default=None, validation_alias="percentRealizedPnl")
-    cur_price: Decimal | None = Field(default=None, validation_alias="curPrice")
-    redeemable: bool | None = None
-    mergeable: bool | None = None
+    ``entry_cost_usdc`` is fee-exclusive. ``entry_fees_usdc`` is disclosure only.
+    Percentage fields are percentages."""
+
+    wallet: EvmAddress = Field(validation_alias="proxy_wallet")
+    asset_id: ClobAssetId = Field(validation_alias="token_id")
+    condition_id: ConditionId
+    current_size: Decimal
+    avg_price: Decimal
+    entry_cost_usdc: Decimal
+    entry_fees_usdc: Decimal
+    total_cost_usdc: Decimal
+    current_price: Decimal
+    current_value: Decimal
+    total_size: Decimal
+    realized_pnl: Decimal
+    unrealized_pnl: Decimal
+    total_pnl: Decimal
+    percent_pnl: Decimal
+    percent_realized_pnl: Decimal
+    status: PositionStatus
+    redeemable: bool
+    mergeable: bool
+    negative_risk: bool
+    archived: bool
+    verified: bool
     title: str | None = None
     slug: str | None = None
     icon: str | None = None
-    event_id: str | None = Field(default=None, validation_alias="eventId")
-    event_slug: str | None = Field(default=None, validation_alias="eventSlug")
+    event_slug: str | None = None
     outcome: str | None = None
-    outcome_index: int | None = Field(default=None, validation_alias="outcomeIndex")
-    opposite_outcome: str | None = Field(default=None, validation_alias="oppositeOutcome")
+    opposite_outcome: str | None = None
+    name: str | None = None
+    profile_image: str | None = None
+    event_id: EventId | None = None
+    outcome_index: int | None = None
     opposite_asset_id: ClobAssetId | None = Field(
-        default=None,
-        validation_alias=AliasChoices("opposite_asset_id", "oppositeAsset", "opposite_token_id"),
+        default=None, validation_alias="opposite_token_id"
     )
-    end_date: date | None = Field(default=None, validation_alias="endDate")
-    negative_risk: bool | None = Field(default=None, validation_alias="negativeRisk")
+    end_date: date | None = None
+    last_event_at: datetime | None = None
+
+    _validate_condition_id_response = field_validator("condition_id", mode="before")(
+        validate_condition_id_response
+    )
+
+    _decimal_from_number = field_validator(
+        "current_size",
+        "avg_price",
+        "entry_cost_usdc",
+        "entry_fees_usdc",
+        "total_cost_usdc",
+        "current_price",
+        "current_value",
+        "total_size",
+        "realized_pnl",
+        "unrealized_pnl",
+        "total_pnl",
+        "percent_pnl",
+        "percent_realized_pnl",
+        mode="before",
+    )(decimal_from_number)
+
+    _optional_text = field_validator(
+        "title",
+        "slug",
+        "icon",
+        "event_slug",
+        "outcome",
+        "opposite_outcome",
+        "name",
+        "profile_image",
+        "opposite_asset_id",
+        mode="before",
+    )(optional_text)
+
+    _optional_event_id = field_validator("event_id", mode="before")(optional_event_id)
+
+    _optional_outcome_index = field_validator("outcome_index", mode="before")(
+        optional_outcome_index
+    )
+
+    _date_from_calendar_string = field_validator("end_date", mode="before")(
+        date_from_calendar_string
+    )
+
+    _optional_datetime_from_epoch_seconds = field_validator("last_event_at", mode="before")(
+        optional_datetime_from_epoch_seconds
+    )
 
     @computed_field
     @property
-    def token_id(self) -> ClobAssetId | None:
+    def token_id(self) -> ClobAssetId:
         """Deprecated alias for :attr:`asset_id`."""
-
         return self.asset_id
 
     @computed_field
     @property
     def opposite_token_id(self) -> ClobAssetId | None:
         """Deprecated alias for :attr:`opposite_asset_id`."""
-
         return self.opposite_asset_id
-
-    @field_validator("condition_id", mode="before")
-    @classmethod
-    def _validate_condition_id(cls, value: object) -> ConditionId:
-        return validate_condition_id(value)
-
-    @field_validator(
-        "size",
-        "avg_price",
-        "initial_value",
-        "current_value",
-        "cash_pnl",
-        "total_bought",
-        "realized_pnl",
-        "cur_price",
-        mode="before",
-    )
-    @classmethod
-    def _parse_decimal(cls, value: object) -> Decimal | None:
-        return parse_optional_decimal(value)
-
-    @field_validator("end_date", mode="before")
-    @classmethod
-    def _parse_end_date(cls, value: object) -> date | None:
-        return parse_optional_date(value)
-
-    @field_validator("icon", mode="before")
-    @classmethod
-    def _normalize_icon(cls, value: object) -> object | None:
-        return empty_string_to_none(value)
 
     def _repr_html_(self) -> str:
         from polymarket._jupyter import card, safe_html_repr, truncate_mid
@@ -139,103 +148,37 @@ class Position(BaseModel):
             rows: list[tuple[str, str]] = []
             if self.outcome:
                 rows.append(("side", self.outcome))
-            if self.size is not None:
-                rows.append(("size", str(self.size)))
-            if self.avg_price is not None:
-                rows.append(("avg_price", str(self.avg_price)))
-            if self.cur_price is not None:
-                rows.append(("current", str(self.cur_price)))
-            if self.cash_pnl is not None:
-                rows.append(("pnl", str(self.cash_pnl)))
+            rows.append(("size", str(self.current_size)))
+            rows.append(("avg_price", str(self.avg_price)))
+            rows.append(("current", str(self.current_price)))
+            rows.append(("pnl", str(self.total_pnl)))
             return card(title, rows=rows)
 
         return render(self)
 
 
-class ClosedPosition(BaseModel):
-    """Closed market position for a wallet."""
-
-    wallet: EvmAddress | None = Field(default=None, validation_alias="proxyWallet")
-    asset_id: ClobAssetId | None = Field(
-        default=None,
-        validation_alias=AliasChoices("asset_id", "asset", "token_id"),
-    )
-    condition_id: ConditionId | None = Field(default=None, validation_alias="conditionId")
-    avg_price: Decimal | None = Field(default=None, validation_alias="avgPrice")
-    total_bought: Decimal | None = Field(default=None, validation_alias="totalBought")
-    realized_pnl: Decimal | None = Field(default=None, validation_alias="realizedPnl")
-    cur_price: Decimal | None = Field(default=None, validation_alias="curPrice")
-    timestamp: datetime | None = None
-    title: str | None = None
-    slug: str | None = None
-    icon: str | None = None
-    event_slug: str | None = Field(default=None, validation_alias="eventSlug")
-    outcome: str | None = None
-    outcome_index: int | None = Field(default=None, validation_alias="outcomeIndex")
-    opposite_outcome: str | None = Field(default=None, validation_alias="oppositeOutcome")
-    opposite_asset_id: ClobAssetId | None = Field(
-        default=None,
-        validation_alias=AliasChoices("opposite_asset_id", "oppositeAsset", "opposite_token_id"),
-    )
-    end_date: date | None = Field(default=None, validation_alias="endDate")
-
-    @computed_field
-    @property
-    def token_id(self) -> ClobAssetId | None:
-        """Deprecated alias for :attr:`asset_id`."""
-
-        return self.asset_id
-
-    @computed_field
-    @property
-    def opposite_token_id(self) -> ClobAssetId | None:
-        """Deprecated alias for :attr:`opposite_asset_id`."""
-
-        return self.opposite_asset_id
-
-    @field_validator("condition_id", mode="before")
-    @classmethod
-    def _validate_condition_id(cls, value: object) -> ConditionId | None:
-        return validate_optional_condition_id(value)
-
-    @field_validator(
-        "avg_price",
-        "total_bought",
-        "realized_pnl",
-        "cur_price",
-        mode="before",
-    )
-    @classmethod
-    def _parse_decimal(cls, value: object) -> Decimal | None:
-        return parse_optional_decimal(value)
-
-    @field_validator("timestamp", mode="before")
-    @classmethod
-    def _parse_timestamp(cls, value: object) -> datetime | None:
-        return parse_epoch_seconds_optional(value)
-
-    @field_validator("end_date", mode="before")
-    @classmethod
-    def _parse_end_date(cls, value: object) -> date | None:
-        return parse_optional_date(value)
-
-    @field_validator("icon", mode="before")
-    @classmethod
-    def _normalize_icon(cls, value: object) -> object | None:
-        return empty_string_to_none(value)
-
-
 class ComboPositionMarketEvent(BaseModel):
-    event_id: str | None = None
+    event_id: EventId | None = None
     event_slug: str | None = None
     event_title: str | None = None
     event_image: str | None = None
 
+    _optional_event_id = field_validator("event_id", mode="before")(optional_event_id)
+
+    _optional_text = field_validator("event_slug", "event_title", "event_image", mode="before")(
+        optional_text
+    )
+
 
 class ComboPositionMarket(BaseModel):
-    market_id: str | None = None
+    market_id: MarketId | None = None
     slug: str | None = None
     title: str | None = None
+    question: str | None = None
+    group_item_title: str | None = None
+    sports_market_type: str | None = None
+    line: Decimal | None = None
+    outcomes: tuple[str, ...] | None = None
     outcome: str | None = None
     image_url: str | None = None
     icon_url: str | None = None
@@ -245,8 +188,32 @@ class ComboPositionMarket(BaseModel):
     end_date: datetime | None = None
     event: ComboPositionMarketEvent | None = None
 
+    _optional_text = field_validator(
+        "slug",
+        "title",
+        "question",
+        "group_item_title",
+        "sports_market_type",
+        "outcome",
+        "image_url",
+        "icon_url",
+        "category",
+        "subcategory",
+        mode="before",
+    )(optional_text)
+
+    _optional_decimal_from_number = field_validator("line", mode="before")(
+        optional_decimal_from_number
+    )
+
+    _optional_datetime_from_epoch_or_iso = field_validator("end_date", mode="before")(
+        optional_datetime_from_epoch_or_iso
+    )
+
 
 class ComboPositionLeg(BaseModel):
+    """A combo leg; ``leg_current_price`` is USDC per share."""
+
     leg_index: int
     leg_position_id: PositionId
     leg_condition_id: ConditionId
@@ -257,65 +224,186 @@ class ComboPositionLeg(BaseModel):
     leg_current_price: Decimal | None = None
     market: ComboPositionMarket | None = None
 
-    @field_validator("leg_condition_id", mode="before")
-    @classmethod
-    def _validate_condition_id(cls, value: object) -> ConditionId:
-        return validate_condition_id(value)
+    _validate_condition_id_response = field_validator("leg_condition_id", mode="before")(
+        validate_condition_id_response
+    )
 
-    @field_validator("leg_current_price", mode="before")
-    @classmethod
-    def _parse_decimal(cls, value: object) -> Decimal | None:
-        return parse_optional_decimal(value)
+    _optional_text = field_validator("leg_outcome_label", mode="before")(optional_text)
+
+    _optional_decimal_from_number = field_validator("leg_current_price", mode="before")(
+        optional_decimal_from_number
+    )
 
 
 class ComboPosition(BaseModel):
+    """A combo position. ``current_size`` is shares; prices, costs and payouts are USDC.
+
+    The fee-exclusive basis is ``gross_entry_cost_usdc - entry_fees_usdc``;
+    ``entry_cost_usdc`` is a rounded weighted-average cost."""
+
     condition_id: ComboConditionId = Field(validation_alias="combo_condition_id")
     position_id: PositionId = Field(validation_alias="combo_position_id")
-    outcome: ComboPositionOutcome = Field(validation_alias="side")
-    module_id: int = Field(validation_alias="module_id")
-    wallet: EvmAddress = Field(validation_alias="user_address")
-    shares: Decimal = Field(validation_alias="shares_balance")
-    entry_avg_price_usdc: Decimal | None = None
-    entry_cost_usdc: Decimal | None = None
-    realized_payout_usdc: Decimal | None = None
-    total_cost_usdc: Decimal | None = None
+    wallet: EvmAddress = Field(validation_alias="proxy_wallet")
+    outcome_index: int
+    outcome_label: str
+    current_size: Decimal
+    entry_avg_price_usdc: Decimal
+    entry_cost_usdc: Decimal
+    gross_entry_cost_usdc: Decimal
+    entry_fees_usdc: Decimal
+    realized_payout_usdc: Decimal
     status: ComboPositionStatus
     redeemable: bool
     first_entry_at: datetime
     resolved_at: datetime | None = None
-    updated_at: datetime | None = None
+    updated_at: datetime
     legs_total: int
     legs_resolved: int
     legs_pending: int
     legs: tuple[ComboPositionLeg, ...]
 
-    @field_validator("condition_id", mode="before")
-    @classmethod
-    def _validate_condition_id(cls, value: object) -> ComboConditionId:
-        return validate_combo_condition_id(value)
+    _validate_combo_condition_id = field_validator("condition_id", mode="before")(
+        validate_combo_condition_id
+    )
 
-    @field_validator(
-        "shares",
+    _decimal_from_number = field_validator(
+        "current_size",
         "entry_avg_price_usdc",
         "entry_cost_usdc",
+        "gross_entry_cost_usdc",
+        "entry_fees_usdc",
         "realized_payout_usdc",
-        "total_cost_usdc",
         mode="before",
+    )(decimal_from_number)
+
+
+class PortfolioValue(BaseModel):
+    """Current portfolio value in USDC."""
+
+    wallet: EvmAddress = Field(validation_alias="proxy_wallet")
+    value: Decimal
+
+    _decimal_from_number = field_validator("value", mode="before")(decimal_from_number)
+
+
+class UserPnlPoint(BaseModel):
+    """Cumulative wallet metrics. ``volume`` is shares; all monetary amounts are USDC.
+
+    Missing cumulative amounts remain ``None``."""
+
+    timestamp: datetime
+    source_block: int
+    trade_count: int
+    realized_market_pnl: Decimal
+    realized_lp_pnl: Decimal
+    realized_combo_pnl: Decimal
+    realized_pnl: Decimal
+    volume: Decimal
+    volume_usdc: Decimal
+    unrealized_pnl: Decimal | None = None
+    fees_refunded: Decimal | None = None
+    maker_rebate: Decimal | None = None
+    taker_rebate: Decimal | None = None
+    reward_income: Decimal | None = None
+    yield_income: Decimal | None = None
+    referral_income: Decimal | None = None
+    sponsored_income: Decimal | None = None
+    deposits: Decimal | None = None
+    withdrawals: Decimal | None = None
+    cashflow_net: Decimal | None = None
+    wallet_income: Decimal | None = None
+    position_pnl: Decimal | None = None
+    settled_pnl: Decimal | None = None
+    economic_pnl: Decimal | None = None
+    trade_pnl: Decimal | None = None
+    fees: Decimal | None = None
+    fees_paid: Decimal | None = None
+
+    _datetime_from_epoch_seconds = field_validator("timestamp", mode="before")(
+        datetime_from_epoch_seconds
     )
-    @classmethod
-    def _parse_decimal(cls, value: object) -> Decimal | None:
-        return parse_optional_decimal(value)
+
+    _decimal_from_number = field_validator(
+        "realized_market_pnl",
+        "realized_lp_pnl",
+        "realized_combo_pnl",
+        "realized_pnl",
+        "volume",
+        "volume_usdc",
+        mode="before",
+    )(decimal_from_number)
+
+    _optional_decimal_from_number = field_validator(
+        "unrealized_pnl",
+        "fees_refunded",
+        "maker_rebate",
+        "taker_rebate",
+        "reward_income",
+        "yield_income",
+        "referral_income",
+        "sponsored_income",
+        "deposits",
+        "withdrawals",
+        "cashflow_net",
+        "wallet_income",
+        "position_pnl",
+        "settled_pnl",
+        "economic_pnl",
+        "trade_pnl",
+        "fees",
+        "fees_paid",
+        mode="before",
+    )(optional_decimal_from_number)
+
+
+class UserStats(BaseModel):
+    """Wallet statistics; ``biggest_win`` is USDC."""
+
+    wallet: EvmAddress = Field(validation_alias="proxy_wallet")
+    traded_market_count: int = Field(validation_alias="trades")
+    biggest_win: Decimal
+    views: int
+    join_date: datetime | None = None
+    all_time_pnl: UserPnlPoint | None = None
+
+    _decimal_from_number = field_validator("biggest_win", mode="before")(decimal_from_number)
+
+    _optional_datetime_from_epoch_seconds = field_validator("join_date", mode="before")(
+        optional_datetime_from_epoch_seconds
+    )
+
+
+class UserPnlSeries(BaseModel):
+    """A cumulative PnL time series for a wallet."""
+
+    wallet: EvmAddress = Field(validation_alias="proxy_wallet")
+    interval: UserPnlInterval
+    fidelity: UserPnlFidelity
+    source_fidelity: UserPnlFidelity
+    points: tuple[UserPnlPoint, ...]
+
+
+class UserVolume(BaseModel):
+    """Trading volume in shares and USDC, with a trade count."""
+
+    volume: Decimal
+    volume_usdc: Decimal
+    trade_count: int
+
+    _decimal_from_number = field_validator("volume", "volume_usdc", mode="before")(
+        decimal_from_number
+    )
 
 
 __all__ = [
-    "ClosedPosition",
-    "ComboPosition",
-    "ComboPositionOutcome",
-    "ComboPositionLeg",
-    "ComboPositionMarket",
-    "ComboPositionMarketEvent",
-    "ComboPositionStatus",
-    "PortfolioValue",
     "Position",
-    "TradedMarketCount",
+    "ComboPositionMarketEvent",
+    "ComboPositionMarket",
+    "ComboPositionLeg",
+    "ComboPosition",
+    "PortfolioValue",
+    "UserPnlPoint",
+    "UserStats",
+    "UserPnlSeries",
+    "UserVolume",
 ]
