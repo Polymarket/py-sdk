@@ -273,7 +273,7 @@ def test_prepare_market_order_draft_buy_max_spend_resizes_then_rounds_shares_dow
         try:
             _install_public_clob(client, _multi_route_handler(routes))
             params = validate_market_order_params(
-                token_id="8501497",
+                token_id=_CTF_ASSET_ID,
                 side="BUY",
                 amount=Decimal("100"),
                 max_spend=Decimal("50"),
