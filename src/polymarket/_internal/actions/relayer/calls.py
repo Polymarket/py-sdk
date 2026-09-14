@@ -9,7 +9,6 @@ from eth_utils.crypto import keccak
 from eth_utils.hexadecimal import decode_hex
 
 from polymarket.errors import UnexpectedResponseError, UserInputError
-from polymarket.models.types import to_combo_condition_id
 from polymarket.types import EvmAddress, HexString
 
 MAX_UINT256 = (1 << 256) - 1
@@ -174,7 +173,7 @@ def decode_erc1155_is_approved_for_all_result(data: str) -> bool:
     return cast(bool, _decode_return_data(data, "bool"))
 
 
-def split_position_call(
+def ctf_split_position_call(
     *,
     target: EvmAddress,
     collateral: EvmAddress,
@@ -195,7 +194,7 @@ def split_position_call(
     return TransactionCall(to=target, data=cast(HexString, "0x" + payload.hex()))
 
 
-def merge_positions_call(
+def ctf_merge_positions_call(
     *,
     target: EvmAddress,
     collateral: EvmAddress,
@@ -234,7 +233,7 @@ def ctf_redeem_positions_call(
     return TransactionCall(to=ctf, data=cast(HexString, "0x" + payload.hex()))
 
 
-def split_v2_call(*, router: EvmAddress, condition_id: str, amount: int) -> TransactionCall:
+def router_split_call(*, router: EvmAddress, condition_id: str, amount: int) -> TransactionCall:
     _expect_uint256(amount, "Split amount")
     payload = _ROUTER_SPLIT_SELECTOR + abi_encode(
         ["bytes31", "uint256"], [_protocol_v2_condition_id_bytes(condition_id), amount]
@@ -242,7 +241,7 @@ def split_v2_call(*, router: EvmAddress, condition_id: str, amount: int) -> Tran
     return TransactionCall(to=router, data=cast(HexString, "0x" + payload.hex()))
 
 
-def merge_v2_call(*, router: EvmAddress, condition_id: str, amount: int) -> TransactionCall:
+def router_merge_call(*, router: EvmAddress, condition_id: str, amount: int) -> TransactionCall:
     _expect_uint256(amount, "Merge amount")
     payload = _ROUTER_MERGE_SELECTOR + abi_encode(
         ["bytes31", "uint256"], [_protocol_v2_condition_id_bytes(condition_id), amount]
@@ -250,7 +249,7 @@ def merge_v2_call(*, router: EvmAddress, condition_id: str, amount: int) -> Tran
     return TransactionCall(to=router, data=cast(HexString, "0x" + payload.hex()))
 
 
-def redeem_v2_call(
+def router_redeem_call(
     *, router: EvmAddress, condition_id: str, outcome_index: int, amount: int
 ) -> TransactionCall:
     if outcome_index not in (0, 1):
@@ -296,10 +295,28 @@ def _condition_id_bytes(condition_id: str) -> bytes:
 
 
 def _protocol_v2_condition_id_bytes(condition_id: str) -> bytes:
+    normalized = condition_id.lower()
+    hex_value = normalized[2:] if normalized.startswith("0x") else ""
+    if len(hex_value) == 64 and hex_value.endswith(("00", "01")):
+        hex_value = hex_value[:-2]
+    if len(hex_value) != 62:
+        raise UserInputError(
+            "Protocol v2 condition ID must be bytes31, or bytes32 with a binary outcome byte"
+        )
     try:
-        return bytes.fromhex(to_combo_condition_id(condition_id)[2:])
-    except TypeError as error:
-        raise UserInputError(str(error)) from error
+        return bytes.fromhex(hex_value)
+    except ValueError as error:
+        raise UserInputError(
+            "Protocol v2 condition ID must be bytes31, or bytes32 with a binary outcome byte"
+        ) from error
+
+
+# Deprecated call-builder aliases retained for compatibility.
+split_position_call = ctf_split_position_call
+merge_positions_call = ctf_merge_positions_call
+split_v2_call = router_split_call
+merge_v2_call = router_merge_call
+redeem_v2_call = router_redeem_call
 
 
 def _position_id_uint256(position_id: str) -> int:
@@ -359,7 +376,9 @@ __all__ = [
     "TransactionCall",
     "authorize_session_signer_call",
     "combinatorial_prepare_condition_call",
+    "ctf_merge_positions_call",
     "ctf_redeem_positions_call",
+    "ctf_split_position_call",
     "decode_erc1155_balance_of_batch_result",
     "decode_erc1155_balance_of_result",
     "decode_erc1155_is_approved_for_all_result",
@@ -376,6 +395,9 @@ __all__ = [
     "merge_positions_call",
     "merge_v2_call",
     "redeem_v2_call",
+    "router_merge_call",
+    "router_redeem_call",
+    "router_split_call",
     "revoke_session_signer_call",
     "split_position_call",
     "split_v2_call",

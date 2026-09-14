@@ -196,6 +196,14 @@ def _required_trading_approvals(
                 operator=cast(EvmAddress, config.auto_redeem_operator),
             ),
             Erc1155TradingApproval(
+                token_address=conditional,
+                operator=cast(EvmAddress, config.binary_module),
+            ),
+            Erc1155TradingApproval(
+                token_address=conditional,
+                operator=cast(EvmAddress, config.neg_risk_module),
+            ),
+            Erc1155TradingApproval(
                 token_address=cast(EvmAddress, config.position_manager),
                 operator=cast(EvmAddress, config.protocol_v2_router),
             ),

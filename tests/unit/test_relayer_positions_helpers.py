@@ -1,6 +1,8 @@
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
+from data_v2_samples import position_payload
 
 # pyright: reportPrivateUsage=false
 from polymarket._internal.actions.relayer.positions import (
@@ -11,14 +13,17 @@ from polymarket._internal.actions.relayer.positions import (
     derive_combo_position_context,
     expect_binary_positions,
     expect_negative_risk_flag,
+    normalize_market_position_context,
     resolve_binary_positions_condition_id,
     resolve_merge_amount,
 )
 from polymarket.errors import UnexpectedResponseError, UserInputError
 from polymarket.models.data.portfolio import Position
+from polymarket.types import EvmAddress
 
 _CONDITION_ID = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 _COMBO_CONDITION_ID = "0x032def24bfb0c5c57fb236fac08b94236a0000000000000000000000000000"
+_ADDRESS = EvmAddress("0x0000000000000000000000000000000000000001")
 
 
 def _pos(
@@ -29,12 +34,14 @@ def _pos(
     condition_id: str = _CONDITION_ID,
 ) -> Position:
     return Position.parse_response(
-        {
-            "conditionId": condition_id,
-            "outcomeIndex": outcome_index,
-            "size": str(size) if size is not None else None,
-            "negativeRisk": negative_risk,
-        }
+        position_payload(
+            **{
+                "condition_id": condition_id,
+                "outcome_index": outcome_index,
+                "current_size": str(size) if size is not None else "0",
+                "negative_risk": negative_risk,
+            }
+        )
     )
 
 
@@ -44,6 +51,40 @@ def test_expect_binary_positions_returns_yes_no_tuple() -> None:
     yes, no = expect_binary_positions([yes_pos, no_pos])
     assert yes is yes_pos
     assert no is no_pos
+
+
+@pytest.mark.parametrize(
+    ("yes_position_id", "no_position_id", "message"),
+    [
+        ("101", None, "Incomplete market position IDs"),
+        (None, None, "Missing tradeable outcome IDs"),
+    ],
+)
+def test_normalize_market_position_context_distinguishes_v2_id_failures(
+    yes_position_id: str | None,
+    no_position_id: str | None,
+    message: str,
+) -> None:
+    market = SimpleNamespace(
+        id="1",
+        condition_id=_CONDITION_ID,
+        state=SimpleNamespace(neg_risk=None),
+        outcomes=SimpleNamespace(
+            yes=SimpleNamespace(token_id=None, position_id=yes_position_id),
+            no=SimpleNamespace(token_id=None, position_id=no_position_id),
+        ),
+    )
+
+    with pytest.raises(UnexpectedResponseError, match=message):
+        normalize_market_position_context(
+            market,  # type: ignore[arg-type]
+            context="test market",
+            collateral_adapter=_ADDRESS,
+            neg_risk_collateral_adapter=_ADDRESS,
+            conditional_tokens=_ADDRESS,
+            neg_risk_adapter=_ADDRESS,
+            position_manager=_ADDRESS,
+        )
 
 
 def test_expect_binary_positions_handles_only_yes() -> None:
@@ -98,9 +139,8 @@ def test_expect_negative_risk_flag_works_with_single_position() -> None:
 
 
 def test_expect_negative_risk_flag_rejects_missing_flag() -> None:
-    yes_pos = _pos(outcome_index=0, negative_risk=None)
-    with pytest.raises(UnexpectedResponseError, match="Missing negativeRisk"):
-        expect_negative_risk_flag((yes_pos, None))
+    with pytest.raises(UnexpectedResponseError):
+        _pos(outcome_index=0, negative_risk=None)
 
 
 def test_expect_negative_risk_flag_rejects_mixed_flags() -> None:
@@ -182,7 +222,7 @@ def test_derive_binary_position_amounts_rejects_non_finite_size() -> None:
     yes_pos = Position.model_construct(
         condition_id=_CONDITION_ID,
         outcome_index=0,
-        size=Decimal("NaN"),
+        current_size=Decimal("NaN"),
         negative_risk=True,
     )
     no_pos = _pos(outcome_index=1, size=Decimal("0"), negative_risk=True)
@@ -194,7 +234,7 @@ def test_derive_binary_position_amounts_rejects_infinity() -> None:
     yes_pos = Position.model_construct(
         condition_id=_CONDITION_ID,
         outcome_index=0,
-        size=Decimal("Infinity"),
+        current_size=Decimal("Infinity"),
         negative_risk=True,
     )
     no_pos = _pos(outcome_index=1, size=Decimal("0"), negative_risk=True)
@@ -230,9 +270,11 @@ def test_decode_combo_outcome_position_id() -> None:
     assert decoded.outcome_index == 1
 
 
-def test_decode_combo_outcome_position_id_rejects_non_combo() -> None:
-    with pytest.raises(UserInputError, match="combinatorial module"):
-        decode_combo_outcome_position_id(_leg_position(1, 0))
+def test_deprecated_combo_decoder_accepts_any_v2_module() -> None:
+    decoded = decode_combo_outcome_position_id(_leg_position(1, 0))
+
+    assert decoded.condition_id == f"0x01{'00' * 29}01"
+    assert decoded.outcome_index == 0
 
 
 def _leg_position(marker: int, outcome: int) -> str:

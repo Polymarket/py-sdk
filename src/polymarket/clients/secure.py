@@ -3,6 +3,7 @@
 import logging
 import time
 from collections.abc import Mapping, Sequence
+from datetime import datetime
 from decimal import Decimal
 from types import TracebackType
 from typing import TYPE_CHECKING, Literal, Self, cast, overload
@@ -22,19 +23,6 @@ from polymarket._internal.actions import gamma as _gamma_actions
 from polymarket._internal.actions import rewards as _rewards_actions
 from polymarket._internal.actions import rfq as _rfq_actions
 from polymarket._internal.actions import session_keys as _session_key_actions
-from polymarket._internal.actions.data import (
-    ActivitySortBy,
-    ActivityTypeFilter,
-    ClosedPositionSortBy,
-    ComboPositionSort,
-    ComboPositionStatus,
-    MarketPositionSortBy,
-    MarketPositionStatus,
-    PositionSortBy,
-    SortDirection,
-    TradeFilterType,
-    TradeSide,
-)
 from polymarket._internal.actions.gamma import (
     CommentParentEntityType,
     DateFilter,
@@ -140,6 +128,7 @@ from polymarket.environments import PRODUCTION, Environment
 from polymarket.errors import (
     RequestRejectedError,
     SigningError,
+    UnexpectedResponseError,
     UserInputError,
 )
 from polymarket.models import (
@@ -152,14 +141,12 @@ from polymarket.models import (
     Comment,
     Event,
     LastTradePrice,
-    LastTradePriceForToken,
+    LastTradePriceForAsset,
     Market,
     Notification,
     OpenOrder,
     OrderBook,
     OrderSide,
-    PriceHistoryInterval,
-    PriceHistoryPoint,
     PriceRequest,
     PublicProfile,
     RelatedTag,
@@ -176,7 +163,7 @@ from polymarket.models.clob import BuilderApiKeyInfo, BuilderTrade
 from polymarket.models.clob.cancel import CancelOrdersResponse
 from polymarket.models.clob.order_response import AcceptedOrder, OrderResponse
 from polymarket.models.clob.orders import MarketOrderType, SignedOrder
-from polymarket.models.clob.relayer import RelayerTransactionType, TransactionOutcome
+from polymarket.models.clob.relayer import RelayerTransactionType
 from polymarket.models.clob.rewards import (
     CurrentReward,
     MarketReward,
@@ -188,26 +175,41 @@ from polymarket.models.clob.rewards import (
 from polymarket.models.collateral_return import CollateralReturnPlanResponse
 from polymarket.models.data import (
     Activity,
-    BuilderVolumeEntry,
-    BuilderVolumeTimePeriod,
-    ClosedPosition,
+    ActivityTypeFilter,
+    BuilderStanding,
+    BuilderVolumeInterval,
+    BuilderVolumePoint,
     ComboActivity,
+    ComboBiggestWinner,
     ComboPosition,
-    LeaderboardCategory,
-    LeaderboardEntry,
-    LeaderboardOrderBy,
-    LeaderboardTimePeriod,
+    ComboPositionSortBy,
+    ComboPositionStatusFilter,
+    LeaderboardWindow,
     LiveVolume,
+    MarketBiggestWinner,
     MetaHolder,
-    MetaMarketPosition,
     OpenInterest,
     PortfolioValue,
     Position,
+    PositionFilterType,
+    PositionSortBy,
+    PositionStatusFilter,
+    PriceHistoryInterval,
+    PriceHistoryPoint,
+    Resolution,
+    SortDirection,
     Trade,
-    TradedMarketCount,
+    TradeFilterType,
     TraderLeaderboardEntry,
+    TraderLeaderboardSort,
+    TraderLeaderboardStanding,
+    UserPnlFidelityInput,
+    UserPnlIntervalInput,
+    UserPnlSeries,
+    UserStats,
+    UserVolume,
 )
-from polymarket.models.types import CtfConditionId, TokenId
+from polymarket.models.types import ClobAssetId, CtfConditionId
 from polymarket.pagination import Page, Paginator
 from polymarket.rate_limit import RateLimitUpdateListener
 from polymarket.rfq import (
@@ -253,6 +255,377 @@ class SecureClient:
     Create instances with :meth:`SecureClient.create` so the SDK can derive or
     validate credentials before authenticated requests are made.
     """
+
+    def list_trades(
+        self,
+        *,
+        user: str | None = None,
+        condition_id: str | Sequence[str] | None = None,
+        event_id: int | Sequence[int] | None = None,
+        side: OrderSide | None = None,
+        taker_only: bool | None = None,
+        filter_type: TradeFilterType | None = None,
+        filter_amount: float | None = None,
+        start: int | datetime | None = None,
+        end: int | datetime | None = None,
+        full_history: bool = False,
+        page_size: int = 100,
+    ) -> Paginator[Trade]:
+        """List trades. Size is shares and price is USDC per share.
+
+        Time filters apply when a user is supplied. ``full_history`` selects all history.
+
+        Omit ``user`` to use the authenticated wallet.
+
+        Resuming a cursor uses the page size stored by that cursor."""
+        spec = _data_actions.list_trades_spec(
+            user=self._user_or_wallet(user),
+            condition_id=condition_id,
+            event_id=event_id,
+            side=side,
+            taker_only=taker_only,
+            filter_type=filter_type,
+            filter_amount=filter_amount,
+            start=start,
+            end=end,
+            full_history=full_history,
+        )
+        return sync_paginate_keyset(self._ctx, spec, page_size=page_size)
+
+    def list_activity(
+        self,
+        *,
+        user: str | None = None,
+        condition_id: str | Sequence[str] | None = None,
+        event_id: int | Sequence[int] | None = None,
+        activity_types: Sequence[ActivityTypeFilter] | None = None,
+        side: OrderSide | None = None,
+        sort_direction: SortDirection | None = None,
+        start: int | datetime | None = None,
+        end: int | datetime | None = None,
+        full_history: bool = False,
+        page_size: int = 100,
+    ) -> Paginator[Activity]:
+        """List wallet activity, including deposits and withdrawals.
+
+        Amounts are USDC and shares are outcome units.
+
+        Omit ``user`` to use the authenticated wallet.
+
+        Resuming a cursor uses the page size stored by that cursor."""
+        spec = _data_actions.list_activity_spec(
+            user=self._user_or_wallet(user),
+            condition_id=condition_id,
+            event_id=event_id,
+            activity_types=activity_types,
+            side=side,
+            sort_direction=sort_direction,
+            start=start,
+            end=end,
+            full_history=full_history,
+        )
+        return sync_paginate_keyset(self._ctx, spec, page_size=page_size)
+
+    def list_combo_activity(
+        self,
+        *,
+        user: str | None = None,
+        condition_id: str | Sequence[str] | None = None,
+        page_size: int = 100,
+    ) -> Paginator[ComboActivity]:
+        """List combo lifecycle activity. Amounts and payouts are USDC.
+
+        Omit ``user`` to use the authenticated wallet.
+
+        Resuming a cursor uses the page size stored by that cursor."""
+        spec = _data_actions.list_combo_activity_spec(
+            user=self._user_or_wallet(user), condition_id=condition_id
+        )
+        return sync_paginate_keyset(self._ctx, spec, page_size=page_size)
+
+    def list_positions(
+        self,
+        *,
+        user: str | None = None,
+        condition_id: str | Sequence[str] | None = None,
+        status: PositionStatusFilter | None = None,
+        event_id: int | Sequence[int] | None = None,
+        filter_type: PositionFilterType | None = None,
+        filter_amount: float | None = None,
+        include_archived: bool | None = None,
+        sort_by: PositionSortBy | None = None,
+        sort_direction: SortDirection | None = None,
+        start: int | datetime | None = None,
+        end: int | datetime | None = None,
+        full_history: bool = False,
+        page_size: int = 100,
+    ) -> Paginator[Position]:
+        """List positions for a wallet or a single market.
+
+        Use ``status="CLOSED"`` for closed positions. Sizes are shares and values are USDC.
+
+        Positions have no time bounds by default. ``full_history=True`` also includes
+        holdings without activity and cannot be combined with ``start`` or ``end``.
+
+        Omit ``user`` to use the authenticated wallet.
+
+        Resuming a cursor uses the page size stored by that cursor."""
+        spec = _data_actions.list_positions_spec(
+            user=self._user_or_wallet(user),
+            condition_id=condition_id,
+            status=status,
+            event_id=event_id,
+            filter_type=filter_type,
+            filter_amount=filter_amount,
+            include_archived=include_archived,
+            sort_by=sort_by,
+            sort_direction=sort_direction,
+            start=start,
+            end=end,
+            full_history=full_history,
+        )
+        return sync_paginate_keyset(self._ctx, spec, page_size=page_size)
+
+    def list_combo_positions(
+        self,
+        *,
+        user: str | None = None,
+        condition_id: str | Sequence[str] | None = None,
+        status: ComboPositionStatusFilter | Sequence[ComboPositionStatusFilter] | None = None,
+        sort_by: ComboPositionSortBy | None = None,
+        sort_direction: SortDirection | None = None,
+        updated_after: int | datetime | None = None,
+        updated_before: int | datetime | None = None,
+        page_size: int = 100,
+    ) -> Paginator[ComboPosition]:
+        """List combo positions, optionally filtering by multiple statuses.
+
+        Update bounds are inclusive. Sizes are shares; costs and payouts are USDC.
+
+        Zero is a valid update bound. Without a status filter, supplying either bound
+        selects the synchronization view, which also includes positions no longer held.
+
+        Omit ``user`` to use the authenticated wallet.
+
+        Resuming a cursor uses the page size stored by that cursor."""
+        spec = _data_actions.list_combo_positions_spec(
+            user=self._user_or_wallet(user),
+            condition_id=condition_id,
+            status=status,
+            sort_by=sort_by,
+            sort_direction=sort_direction,
+            updated_after=updated_after,
+            updated_before=updated_before,
+        )
+        return sync_paginate_keyset(self._ctx, spec, page_size=page_size)
+
+    def get_portfolio_value(
+        self,
+        *,
+        user: str | None = None,
+        condition_ids: str | Sequence[str] | None = None,
+    ) -> PortfolioValue:
+        """Get current portfolio value in USDC.
+
+        Omit ``user`` to use the authenticated wallet."""
+        spec = _data_actions.build_get_portfolio_value_spec(
+            user=self._user_or_wallet(user), condition_ids=condition_ids
+        )
+        return sync_dispatch(self._ctx, spec)
+
+    def get_user_stats(
+        self,
+        *,
+        user: str | None = None,
+    ) -> UserStats | None:
+        """Get wallet statistics, or ``None`` when the wallet has no statistics.
+
+        Omit ``user`` to use the authenticated wallet."""
+        spec = _data_actions.build_get_user_stats_spec(user=self._user_or_wallet(user))
+        return sync_dispatch(self._ctx, spec)
+
+    def get_user_pnl(
+        self,
+        *,
+        user: str | None = None,
+        interval: UserPnlIntervalInput | None = None,
+        fidelity: UserPnlFidelityInput | None = None,
+    ) -> UserPnlSeries:
+        """Get cumulative wallet PnL in USDC and volume in shares.
+
+        Omit ``user`` to use the authenticated wallet."""
+        spec = _data_actions.build_get_user_pnl_spec(
+            user=self._user_or_wallet(user), interval=interval, fidelity=fidelity
+        )
+        return sync_dispatch(self._ctx, spec)
+
+    def get_user_volume(
+        self,
+        *,
+        user: str | None = None,
+        start: int | datetime | None = None,
+        end: int | datetime | None = None,
+        full_history: bool = False,
+    ) -> UserVolume:
+        """Get trading volume in shares and USDC. Time bounds are floored to UTC days.
+
+        Omit ``user`` to use the authenticated wallet."""
+        spec = _data_actions.build_get_user_volume_spec(
+            user=self._user_or_wallet(user), start=start, end=end, full_history=full_history
+        )
+        return sync_dispatch(self._ctx, spec)
+
+    def list_market_holders(
+        self,
+        *,
+        condition_ids: str | Sequence[str],
+        min_balance: float | None = None,
+        include_pnl: bool | None = None,
+        page_size: int = 100,
+    ) -> Paginator[MetaHolder]:
+        """List holders grouped by outcome asset. Amounts are shares; PnL is USDC.
+
+        Page size applies per outcome. Merge groups across pages by ``asset_id``.
+        With ``include_pnl=True``, the maximum page size is 100; amounts are gross per side.
+
+        Resuming a cursor uses the page size stored by that cursor."""
+        spec = _data_actions.build_list_market_holders_spec(
+            condition_ids=condition_ids, min_balance=min_balance, include_pnl=include_pnl
+        )
+        return sync_paginate_keyset(self._ctx, spec, page_size=page_size)
+
+    def get_open_interests(
+        self,
+        *,
+        condition_ids: str | Sequence[str] | None = None,
+    ) -> tuple[OpenInterest, ...]:
+        """Get open interest in USDC. Omit conditions to request global interest."""
+        spec = _data_actions.get_open_interests_spec(condition_ids=condition_ids)
+        return sync_dispatch(self._ctx, spec)
+
+    def get_event_live_volume(
+        self,
+        *,
+        event_ids: int | Sequence[int],
+    ) -> LiveVolume:
+        """Get combined event taker volume in shares with a market breakdown."""
+        spec = _data_actions.build_get_event_live_volume_spec(event_ids=event_ids)
+        return sync_dispatch(self._ctx, spec)
+
+    def list_price_history(
+        self,
+        *,
+        asset_id: str,
+        interval: PriceHistoryInterval | None = None,
+        start: int | datetime | None = None,
+        end: int | datetime | None = None,
+        as_of: int | datetime | None = None,
+        bucket_seconds: int | None = None,
+        page_size: int | None = None,
+    ) -> Paginator[PriceHistoryPoint]:
+        """List historical prices in USDC per share, oldest first.
+
+        Select an interval, a start/end window (end exclusive), or an exact ``as_of``.
+        Windows span at most 15 days. ``as_of`` forbids bucket_seconds and page_size.
+        The default page size is 10000.
+
+        Resuming a cursor uses the page size stored by that cursor."""
+        spec = _data_actions.build_list_price_history_spec(
+            asset_id=asset_id,
+            interval=interval,
+            start=start,
+            end=end,
+            as_of=as_of,
+            bucket_seconds=bucket_seconds,
+            page_size=page_size,
+        )
+        return sync_paginate_keyset(
+            self._ctx, spec, page_size=10000 if page_size is None else page_size
+        )
+
+    def get_resolutions(
+        self,
+        *,
+        question_id: str | None = None,
+        condition_ids: str | Sequence[str] | None = None,
+        event_ids: int | Sequence[int] | None = None,
+    ) -> tuple[Resolution, ...]:
+        """Get resolutions by question, conditions, or events. Missing rows are omitted."""
+        spec = _data_actions.build_get_resolutions_spec(
+            question_id=question_id, condition_ids=condition_ids, event_ids=event_ids
+        )
+        return sync_dispatch(self._ctx, spec)
+
+    def list_trader_leaderboard(
+        self,
+        *,
+        category: str | None = None,
+        window: LeaderboardWindow | None = None,
+        sort_by: TraderLeaderboardSort | None = None,
+        page_size: int = 100,
+    ) -> Paginator[TraderLeaderboardEntry]:
+        """List ranked traders. PnL is USDC and volume is shares; ranks can tie and skip.
+
+        Resuming a cursor uses the page size stored by that cursor."""
+        spec = _data_actions.list_trader_leaderboard_spec(
+            category=category, window=window, sort_by=sort_by
+        )
+        return sync_paginate_keyset(self._ctx, spec, page_size=page_size)
+
+    def get_trader_leaderboard_standing(
+        self,
+        *,
+        user: str | None = None,
+        category: str | None = None,
+        window: LeaderboardWindow | None = None,
+    ) -> TraderLeaderboardStanding | None:
+        """Get wallet leaderboard standings, or ``None`` when unavailable.
+
+        PnL is USDC and volume is shares. Unranked ranks are ``None``.
+
+        Omit ``user`` to use the authenticated wallet."""
+        spec = _data_actions.build_get_trader_leaderboard_standing_spec(
+            user=self._user_or_wallet(user), category=category, window=window
+        )
+        return sync_dispatch(self._ctx, spec)
+
+    def list_biggest_winners(
+        self,
+        *,
+        category: str | None = None,
+        window: LeaderboardWindow | None = None,
+        page_size: int = 100,
+    ) -> Paginator[MarketBiggestWinner | ComboBiggestWinner]:
+        """List winning market and combo positions, ordered by USDC PnL.
+
+        Resuming a cursor uses the page size stored by that cursor."""
+        spec = _data_actions.build_list_biggest_winners_spec(category=category, window=window)
+        return sync_paginate_keyset(self._ctx, spec, page_size=page_size)
+
+    def list_builder_leaderboard(
+        self,
+        *,
+        window: LeaderboardWindow | None = None,
+        page_size: int = 100,
+    ) -> Paginator[BuilderStanding]:
+        """List ranked builders and their trading volume in shares.
+
+        Resuming a cursor uses the page size stored by that cursor."""
+        spec = _data_actions.list_builder_leaderboard_spec(window=window)
+        return sync_paginate_keyset(self._ctx, spec, page_size=page_size)
+
+    def get_builder_volumes(
+        self,
+        *,
+        interval: BuilderVolumeInterval | None = None,
+        bucket_limit: int | None = None,
+    ) -> tuple[BuilderVolumePoint, ...]:
+        """Get builder volume in shares by calendar bucket.
+
+        ``bucket_limit`` counts dates, not rows (default 30, maximum 90).
+        Interval ``all`` yields calendar-year buckets."""
+        spec = _data_actions.get_builder_volumes_spec(interval=interval, bucket_limit=bucket_limit)
+        return sync_dispatch(self._ctx, spec)
 
     def __init__(
         self,
@@ -561,21 +934,21 @@ class SecureClient:
         *,
         address: str,
         idempotency_key: str | None = None,
-    ) -> TransactionOutcome:
+    ) -> None:
         """Revoke a session key authorized for the Deposit Wallet.
 
-        Returns the confirmed transaction after order cleanup and on-chain
-        confirmation. Requires an ``api_key=`` that supports gasless transactions.
+        Returns once the key is absent from the active-key registry and unusable.
+        Requires an ``api_key=`` that supports gasless transactions.
 
         Raises:
             UserInputError: If the client or revocation input is invalid.
             RequestRejectedError: If the revocation request is rejected.
-            RateLimitError: If a revocation or transaction request remains rate-limited.
+            RateLimitError: If a revocation or registry request remains rate-limited.
             SigningError: If the owner signature cannot be produced.
             TransportError: If a network request fails.
-            UnexpectedResponseError: If a revocation or transaction response is malformed.
-            TimeoutError: If transaction confirmation exceeds the wait budget.
             TransactionFailedError: If the revocation transaction fails.
+            UnexpectedResponseError: If a revocation or registry response is malformed.
+            TimeoutError: If registry removal exceeds the wait budget.
         """
         return _session_key_actions.revoke_session_key_sync(
             self._ctx,
@@ -818,63 +1191,12 @@ class SecureClient:
             _gamma_actions.get_comment_thread_spec(id, get_positions=get_positions),
         )
 
-    def get_event_live_volumes(self, *, id: str) -> tuple[LiveVolume, ...]:
-        """Get live volume entries for an event."""
-        return sync_dispatch(self._ctx, _data_actions.get_event_live_volumes_spec(id=id))
-
-    def get_open_interests(
-        self, *, market: Sequence[str] | None = None
-    ) -> tuple[OpenInterest, ...]:
-        """Get open interest values, optionally filtered by market ids."""
-        return sync_dispatch(self._ctx, _data_actions.get_open_interests_spec(market=market))
-
-    def get_market_holders(
-        self,
-        *,
-        market: Sequence[str],
-        limit: int | None = None,
-        min_balance: int | None = None,
-    ) -> tuple[MetaHolder, ...]:
-        """Get holder balances for one or more markets."""
-        return sync_dispatch(
-            self._ctx,
-            _data_actions.get_market_holders_spec(
-                market=market, limit=limit, min_balance=min_balance
-            ),
-        )
-
-    def get_portfolio_values(
-        self,
-        *,
-        user: str | None = None,
-        market: Sequence[str] | None = None,
-    ) -> tuple[PortfolioValue, ...]:
-        """Get portfolio value snapshots for a user or the authenticated wallet."""
-        return sync_dispatch(
-            self._ctx,
-            _data_actions.get_portfolio_values_spec(user=self._user_or_wallet(user), market=market),
-        )
-
-    def get_traded_market_count(self, *, user: str | None = None) -> TradedMarketCount:
-        """Get the number of markets traded by a user or the authenticated wallet."""
-        return sync_dispatch(
-            self._ctx,
-            _data_actions.get_traded_market_count_spec(user=self._user_or_wallet(user)),
-        )
-
-    def get_builder_volumes(
-        self, *, time_period: BuilderVolumeTimePeriod | None = None
-    ) -> tuple[BuilderVolumeEntry, ...]:
-        """Get builder volume leaderboard entries."""
-        return sync_dispatch(
-            self._ctx, _data_actions.get_builder_volumes_spec(time_period=time_period)
-        )
-
     def list_builder_trades(
         self,
         *,
         builder_code: str,
         market: str | None = None,
+        asset_id: str | None = None,
         token_id: str | None = None,
         id: str | None = None,
         after: str | None = None,
@@ -890,6 +1212,7 @@ class SecureClient:
             path, params = _builders_actions.build_list_builder_trades_request(
                 builder_code=builder_code,
                 market=market,
+                asset_id=asset_id,
                 token_id=token_id,
                 id=id,
                 after=after,
@@ -901,239 +1224,12 @@ class SecureClient:
 
         return Paginator(fetch=fetch)
 
-    def list_positions(
-        self,
-        *,
-        user: str | None = None,
-        market: Sequence[str] | None = None,
-        event_id: Sequence[int] | None = None,
-        size_threshold: float | None = None,
-        redeemable: bool | None = None,
-        mergeable: bool | None = None,
-        sort_by: PositionSortBy | None = None,
-        sort_direction: SortDirection | None = None,
-        title: str | None = None,
-        page_size: int = 20,
-    ) -> Paginator[Position]:
-        """List open positions for a user or the authenticated wallet.
-
-        Returns:
-            A paginator over matching positions.
-        """
-        spec = _data_actions.list_positions_spec(
-            user=self._user_or_wallet(user),
-            market=market,
-            event_id=event_id,
-            size_threshold=size_threshold,
-            redeemable=redeemable,
-            mergeable=mergeable,
-            sort_by=sort_by,
-            sort_direction=sort_direction,
-            title=title,
-        )
-        return sync_paginate_offset(self._ctx, spec, page_size=page_size)
-
-    def list_closed_positions(
-        self,
-        *,
-        user: str | None = None,
-        market: Sequence[str] | None = None,
-        event_id: Sequence[int] | None = None,
-        title: str | None = None,
-        sort_by: ClosedPositionSortBy | None = None,
-        sort_direction: SortDirection | None = None,
-        page_size: int = 20,
-    ) -> Paginator[ClosedPosition]:
-        """List closed positions for a user or the authenticated wallet.
-
-        Returns:
-            A paginator over matching closed positions.
-        """
-        spec = _data_actions.list_closed_positions_spec(
-            user=self._user_or_wallet(user),
-            market=market,
-            event_id=event_id,
-            title=title,
-            sort_by=sort_by,
-            sort_direction=sort_direction,
-        )
-        return sync_paginate_offset(self._ctx, spec, page_size=page_size)
-
-    def list_combo_positions(
-        self,
-        *,
-        user: str | None = None,
-        status: ComboPositionStatus | None = None,
-        sort: ComboPositionSort | None = None,
-        condition_id: str | Sequence[str] | None = None,
-        updated_after: int | None = None,
-        updated_before: int | None = None,
-        page_size: int = 20,
-    ) -> Paginator[ComboPosition]:
-        """List combo positions for a user or the authenticated wallet.
-
-        Returns:
-            A paginator over matching combo positions.
-        """
-        spec = _data_actions.list_combo_positions_spec(
-            user=self._user_or_wallet(user),
-            status=status,
-            sort=sort,
-            condition_id=condition_id,
-            updated_after=updated_after,
-            updated_before=updated_before,
-        )
-        return sync_paginate_keyset(self._ctx, spec, page_size=page_size)
-
-    def list_market_positions(
-        self,
-        *,
-        market: str,
-        user: str | None = None,
-        status: MarketPositionStatus | None = None,
-        sort_by: MarketPositionSortBy | None = None,
-        sort_direction: SortDirection | None = None,
-        page_size: int = 20,
-    ) -> Paginator[MetaMarketPosition]:
-        """List positions in a market.
-
-        Returns:
-            A paginator over matching market positions.
-        """
-        spec = _data_actions.list_market_positions_spec(
-            market=market,
-            user=user,
-            status=status,
-            sort_by=sort_by,
-            sort_direction=sort_direction,
-        )
-        return sync_paginate_offset(self._ctx, spec, page_size=page_size)
-
-    def list_trades(
-        self,
-        *,
-        user: str | None = None,
-        market: Sequence[str] | None = None,
-        event_id: Sequence[int] | None = None,
-        side: TradeSide | None = None,
-        taker_only: bool | None = None,
-        filter_type: TradeFilterType | None = None,
-        filter_amount: float | None = None,
-        start: int | None = None,
-        end: int | None = None,
-        page_size: int = 20,
-    ) -> Paginator[Trade]:
-        """List trades for a user or the authenticated wallet.
-
-        Returns:
-            A paginator over matching trades.
-        """
-        spec = _data_actions.list_trades_spec(
-            user=self._user_or_wallet(user),
-            market=market,
-            event_id=event_id,
-            side=side,
-            taker_only=taker_only,
-            filter_type=filter_type,
-            filter_amount=filter_amount,
-            start=start,
-            end=end,
-        )
-        return sync_paginate_offset(self._ctx, spec, page_size=page_size)
-
-    def list_activity(
-        self,
-        *,
-        user: str | None = None,
-        market: Sequence[str] | None = None,
-        event_id: Sequence[int] | None = None,
-        activity_types: Sequence[ActivityTypeFilter] | None = None,
-        side: TradeSide | None = None,
-        sort_by: ActivitySortBy | None = None,
-        sort_direction: SortDirection | None = None,
-        start: int | None = None,
-        end: int | None = None,
-        page_size: int = 20,
-    ) -> Paginator[Activity]:
-        """List activity for a user or the authenticated wallet.
-
-        Returns:
-            A paginator over matching activity entries.
-        """
-        spec = _data_actions.list_activity_spec(
-            user=self._user_or_wallet(user),
-            market=market,
-            event_id=event_id,
-            activity_types=activity_types,
-            side=side,
-            sort_by=sort_by,
-            sort_direction=sort_direction,
-            start=start,
-            end=end,
-        )
-        return sync_paginate_offset(self._ctx, spec, page_size=page_size)
-
-    def list_combo_activity(
-        self,
-        *,
-        user: str | None = None,
-        condition_id: str | Sequence[str] | None = None,
-        page_size: int = 50,
-    ) -> Paginator[ComboActivity]:
-        """List combo lifecycle activity for a user or the authenticated wallet.
-
-        Returns:
-            A paginator over matching combo lifecycle activity entries.
-        """
-        spec = _data_actions.list_combo_activity_spec(
-            user=self._user_or_wallet(user), condition_id=condition_id
-        )
-        return sync_paginate_keyset(self._ctx, spec, page_size=page_size)
-
-    def list_builder_leaderboard(
-        self,
-        *,
-        time_period: LeaderboardTimePeriod | None = None,
-        page_size: int = 20,
-    ) -> Paginator[LeaderboardEntry]:
-        """List builder leaderboard entries.
-
-        Returns:
-            A paginator over leaderboard rows.
-        """
-        spec = _data_actions.list_builder_leaderboard_spec(time_period=time_period)
-        return sync_paginate_offset(self._ctx, spec, page_size=page_size)
-
     def download_accounting_snapshot(self, *, user: str | None = None) -> bytes:
         """Download the accounting snapshot archive for a user or the authenticated wallet."""
         path, params = _data_actions.build_accounting_snapshot_request(
             user=self._user_or_wallet(user)
         )
         return self._ctx.data.get_bytes(path, params=params)
-
-    def list_trader_leaderboard(
-        self,
-        *,
-        category: LeaderboardCategory | None = None,
-        time_period: LeaderboardTimePeriod | None = None,
-        order_by: LeaderboardOrderBy | None = None,
-        user: str | None = None,
-        user_name: str | None = None,
-        page_size: int = 20,
-    ) -> Paginator[TraderLeaderboardEntry]:
-        """List trader leaderboard entries.
-
-        Returns:
-            A paginator over leaderboard rows.
-        """
-        spec = _data_actions.list_trader_leaderboard_spec(
-            category=category,
-            time_period=time_period,
-            order_by=order_by,
-            user=user,
-            user_name=user_name,
-        )
-        return sync_paginate_offset(self._ctx, spec, page_size=page_size)
 
     def list_events(
         self,
@@ -1489,91 +1585,109 @@ class SecureClient:
         )
         return sync_paginate_page_based(self._ctx, spec, page_size=page_size)
 
-    def get_midpoint(self, *, token_id: str) -> Decimal:
-        """Get the midpoint price for a token."""
-        path, params = _clob_actions.build_midpoint_request(token_id=token_id)
+    def get_midpoint(self, *, asset_id: str | None = None, token_id: str | None = None) -> Decimal:
+        """Get the midpoint price for a CLOB asset."""
+        path, params = _clob_actions.build_midpoint_request(asset_id=asset_id, token_id=token_id)
         return _clob_actions.parse_midpoint(self._ctx.clob.get_json(path, params=params))
 
-    def get_midpoints(self, *, token_ids: Sequence[str]) -> dict[TokenId, Decimal]:
-        """Get midpoint prices for multiple tokens."""
-        path, body = _clob_actions.build_midpoints_request(token_ids=token_ids)
+    def get_midpoints(
+        self,
+        *,
+        asset_ids: Sequence[str] | None = None,
+        token_ids: Sequence[str] | None = None,
+    ) -> dict[ClobAssetId, Decimal]:
+        """Get midpoint prices for multiple CLOB assets."""
+        path, body = _clob_actions.build_midpoints_request(asset_ids=asset_ids, token_ids=token_ids)
         return _clob_actions.parse_midpoints(self._ctx.clob.post_json(path, json=body))
 
-    def get_price(self, *, token_id: str, side: OrderSide) -> Decimal:
-        """Get the executable price for a token side."""
-        path, params = _clob_actions.build_price_request(token_id=token_id, side=side)
+    def get_price(
+        self,
+        *,
+        asset_id: str | None = None,
+        token_id: str | None = None,
+        side: OrderSide,
+    ) -> Decimal:
+        """Get the executable price for a CLOB asset side."""
+        path, params = _clob_actions.build_price_request(
+            asset_id=asset_id, token_id=token_id, side=side
+        )
         return _clob_actions.parse_price(self._ctx.clob.get_json(path, params=params))
 
     def get_prices(
         self, *, requests: Sequence[PriceRequest]
-    ) -> dict[TokenId, dict[OrderSide, Decimal]]:
-        """Get executable prices for multiple token-side requests."""
+    ) -> dict[ClobAssetId, dict[OrderSide, Decimal]]:
+        """Get executable prices for multiple CLOB asset-side requests."""
         path, body = _clob_actions.build_prices_request(requests=requests)
         return _clob_actions.parse_prices(self._ctx.clob.post_json(path, json=body))
 
-    def get_order_book(self, *, token_id: str) -> OrderBook:
-        """Get the order book for a token."""
-        path, params = _clob_actions.build_order_book_request(token_id=token_id)
+    def get_order_book(
+        self, *, asset_id: str | None = None, token_id: str | None = None
+    ) -> OrderBook:
+        """Get the order book for a CLOB asset."""
+        path, params = _clob_actions.build_order_book_request(asset_id=asset_id, token_id=token_id)
         return _clob_actions.parse_order_book(self._ctx.clob.get_json(path, params=params))
 
-    def get_order_books(self, *, token_ids: Sequence[str]) -> tuple[OrderBook, ...]:
-        """Get order books for multiple tokens."""
-        path, body = _clob_actions.build_order_books_request(token_ids=token_ids)
+    def get_order_books(
+        self,
+        *,
+        asset_ids: Sequence[str] | None = None,
+        token_ids: Sequence[str] | None = None,
+    ) -> tuple[OrderBook, ...]:
+        """Get order books for multiple CLOB assets."""
+        path, body = _clob_actions.build_order_books_request(
+            asset_ids=asset_ids, token_ids=token_ids
+        )
         return _clob_actions.parse_order_books(self._ctx.clob.post_json(path, json=body))
 
-    def get_spread(self, *, token_id: str) -> Decimal:
-        """Get the bid-ask spread for a token."""
-        path, params = _clob_actions.build_spread_request(token_id=token_id)
+    def get_spread(self, *, asset_id: str | None = None, token_id: str | None = None) -> Decimal:
+        """Get the bid-ask spread for a CLOB asset."""
+        path, params = _clob_actions.build_spread_request(asset_id=asset_id, token_id=token_id)
         return _clob_actions.parse_spread(self._ctx.clob.get_json(path, params=params))
 
-    def get_spreads(self, *, token_ids: Sequence[str]) -> dict[TokenId, Decimal]:
-        """Get bid-ask spreads for multiple tokens."""
-        path, body = _clob_actions.build_spreads_request(token_ids=token_ids)
+    def get_spreads(
+        self,
+        *,
+        asset_ids: Sequence[str] | None = None,
+        token_ids: Sequence[str] | None = None,
+    ) -> dict[ClobAssetId, Decimal]:
+        """Get bid-ask spreads for multiple CLOB assets."""
+        path, body = _clob_actions.build_spreads_request(asset_ids=asset_ids, token_ids=token_ids)
         return _clob_actions.parse_spreads(self._ctx.clob.post_json(path, json=body))
 
-    def get_last_trade_price(self, *, token_id: str) -> LastTradePrice | None:
-        """Get the most recent trade price for a token.
+    def get_last_trade_price(
+        self, *, asset_id: str | None = None, token_id: str | None = None
+    ) -> LastTradePrice | None:
+        """Get the most recent trade price for a CLOB asset.
 
-        Returns ``None`` when the token has not traded.
+        Returns ``None`` when the CLOB asset has not traded.
         """
-        path, params = _clob_actions.build_last_trade_price_request(token_id=token_id)
+        path, params = _clob_actions.build_last_trade_price_request(
+            asset_id=asset_id, token_id=token_id
+        )
         return _clob_actions.parse_last_trade_price(self._ctx.clob.get_json(path, params=params))
 
     def get_last_trade_prices(
-        self, *, token_ids: Sequence[str]
-    ) -> tuple[LastTradePriceForToken, ...]:
-        """Get the most recent trade prices for multiple tokens.
-
-        Tokens without trades are omitted. Match returned entries by ``token_id``;
-        the result is not positionally aligned with ``token_ids``.
-        """
-        path, body = _clob_actions.build_last_trade_prices_request(token_ids=token_ids)
-        return _clob_actions.parse_last_trade_prices(self._ctx.clob.post_json(path, json=body))
-
-    def get_price_history(
         self,
         *,
-        token_id: str,
-        start_ts: int | None = None,
-        end_ts: int | None = None,
-        fidelity: int | None = None,
-        interval: PriceHistoryInterval | None = None,
-    ) -> tuple[PriceHistoryPoint, ...]:
-        """Get historical price points for a token."""
-        path, params = _clob_actions.build_price_history_request(
-            token_id=token_id,
-            start_ts=start_ts,
-            end_ts=end_ts,
-            fidelity=fidelity,
-            interval=interval,
+        asset_ids: Sequence[str] | None = None,
+        token_ids: Sequence[str] | None = None,
+    ) -> tuple[LastTradePriceForAsset, ...]:
+        """Get the most recent trade prices for multiple CLOB assets.
+
+        Assets without trades are omitted. Match returned entries by ``asset_id``;
+        the result is not positionally aligned with ``asset_ids``.
+        """
+        path, body = _clob_actions.build_last_trade_prices_request(
+            asset_ids=asset_ids, token_ids=token_ids
         )
-        return _clob_actions.parse_price_history(self._ctx.clob.get_json(path, params=params))
+        return _clob_actions.parse_last_trade_prices(self._ctx.clob.post_json(path, json=body))
 
     @overload
     def estimate_market_price(
         self,
         *,
-        token_id: str,
+        asset_id: str | None = None,
+        token_id: str | None = None,
         side: Literal["BUY"],
         amount: Decimal | int | float | str,
         order_type: MarketOrderType = "FOK",
@@ -1582,7 +1696,8 @@ class SecureClient:
     def estimate_market_price(
         self,
         *,
-        token_id: str,
+        asset_id: str | None = None,
+        token_id: str | None = None,
         side: Literal["SELL"],
         shares: Decimal | int | float | str,
         order_type: MarketOrderType = "FOK",
@@ -1590,7 +1705,8 @@ class SecureClient:
     def estimate_market_price(
         self,
         *,
-        token_id: str,
+        asset_id: str | None = None,
+        token_id: str | None = None,
         side: OrderSide,
         amount: Decimal | int | float | str | None = None,
         shares: Decimal | int | float | str | None = None,
@@ -1603,6 +1719,7 @@ class SecureClient:
         """
         return _estimate_market_price_sync(
             self._ctx,
+            asset_id=asset_id,
             token_id=token_id,
             side=side,
             amount=amount,
@@ -1701,6 +1818,7 @@ class SecureClient:
     def list_open_orders(
         self,
         *,
+        asset_id: str | None = None,
         token_id: str | None = None,
         id: str | None = None,
         market: str | None = None,
@@ -1713,7 +1831,7 @@ class SecureClient:
 
         def fetch(cursor: str | None) -> Page[OpenOrder]:
             path, params = _account_actions.build_list_open_orders_request(
-                token_id=token_id, id=id, market=market, cursor=cursor
+                asset_id=asset_id, token_id=token_id, id=id, market=market, cursor=cursor
             )
             payload = self._ctx.secure_clob.get_json(path, params=params)
             return _account_actions.parse_open_orders_page(payload)
@@ -1730,6 +1848,7 @@ class SecureClient:
     def list_account_trades(
         self,
         *,
+        asset_id: str | None = None,
         token_id: str | None = None,
         id: str | None = None,
         market: str | None = None,
@@ -1745,6 +1864,7 @@ class SecureClient:
 
         def fetch(cursor: str | None) -> Page[ClobTrade]:
             path, params = _account_actions.build_list_account_trades_request(
+                asset_id=asset_id,
                 token_id=token_id,
                 id=id,
                 market=market,
@@ -1775,11 +1895,20 @@ class SecureClient:
         self._ctx.secure_clob.delete(path, params=params)
 
     def get_balance_allowance(
-        self, *, asset_type: AssetType, token_id: str | None = None
+        self,
+        *,
+        asset_type: AssetType,
+        asset_id: str | None = None,
+        token_id: str | None = None,
     ) -> BalanceAllowance:
-        """Get balance and allowance information for an asset."""
+        """Get balance and allowance information for an asset.
+
+        Use ``COLLATERAL`` for collateral, ``CONDITIONAL`` for a CTF token ID,
+        or ``CONDITIONAL-V2`` for a Polymarket V2 position ID.
+        """
         path, params = _account_actions.build_balance_allowance_request(
             asset_type=asset_type,
+            asset_id=asset_id,
             token_id=token_id,
             signature_type=signature_type_for(self._ctx.wallet_type),
         )
@@ -1790,7 +1919,8 @@ class SecureClient:
     def create_limit_order(
         self,
         *,
-        token_id: str,
+        asset_id: str | None = None,
+        token_id: str | None = None,
         price: Decimal | int | float | str,
         size: Decimal | int | float | str,
         side: OrderSide,
@@ -1812,6 +1942,7 @@ class SecureClient:
             SigningError: If the order cannot be signed.
         """
         return self._prepare_and_sign_limit_order(
+            asset_id=asset_id,
             token_id=token_id,
             price=price,
             size=size,
@@ -1825,7 +1956,8 @@ class SecureClient:
     def create_market_order(
         self,
         *,
-        token_id: str,
+        asset_id: str | None = None,
+        token_id: str | None = None,
         side: Literal["BUY"],
         amount: Decimal | int | float | str,
         max_spend: Decimal | int | float | str | None = None,
@@ -1837,7 +1969,8 @@ class SecureClient:
     def create_market_order(
         self,
         *,
-        token_id: str,
+        asset_id: str | None = None,
+        token_id: str | None = None,
         side: Literal["SELL"],
         shares: Decimal | int | float | str,
         min_price: Decimal | int | float | str | None = None,
@@ -1847,7 +1980,8 @@ class SecureClient:
     def create_market_order(
         self,
         *,
-        token_id: str,
+        asset_id: str | None = None,
+        token_id: str | None = None,
         side: OrderSide,
         amount: Decimal | int | float | str | None = None,
         shares: Decimal | int | float | str | None = None,
@@ -1881,6 +2015,7 @@ class SecureClient:
             SigningError: If the order cannot be signed.
         """
         return self._prepare_and_sign_market_order(
+            asset_id=asset_id,
             token_id=token_id,
             side=side,
             amount=amount,
@@ -1895,7 +2030,8 @@ class SecureClient:
     def place_limit_order(
         self,
         *,
-        token_id: str,
+        asset_id: str | None = None,
+        token_id: str | None = None,
         price: Decimal | int | float | str,
         size: Decimal | int | float | str,
         side: OrderSide,
@@ -1916,6 +2052,7 @@ class SecureClient:
             RequestRejectedError: If posting the order is rejected.
         """
         signed = self._prepare_and_sign_limit_order(
+            asset_id=asset_id,
             token_id=token_id,
             price=price,
             size=size,
@@ -1930,7 +2067,8 @@ class SecureClient:
     def place_market_order(
         self,
         *,
-        token_id: str,
+        asset_id: str | None = None,
+        token_id: str | None = None,
         side: Literal["BUY"],
         amount: Decimal | int | float | str,
         max_spend: Decimal | int | float | str | None = None,
@@ -1942,7 +2080,8 @@ class SecureClient:
     def place_market_order(
         self,
         *,
-        token_id: str,
+        asset_id: str | None = None,
+        token_id: str | None = None,
         side: Literal["SELL"],
         shares: Decimal | int | float | str,
         min_price: Decimal | int | float | str | None = None,
@@ -1952,7 +2091,8 @@ class SecureClient:
     def place_market_order(
         self,
         *,
-        token_id: str,
+        asset_id: str | None = None,
+        token_id: str | None = None,
         side: OrderSide,
         amount: Decimal | int | float | str | None = None,
         shares: Decimal | int | float | str | None = None,
@@ -1988,6 +2128,7 @@ class SecureClient:
             RequestRejectedError: If posting the order is rejected.
         """
         signed = self._prepare_and_sign_market_order(
+            asset_id=asset_id,
             token_id=token_id,
             side=side,
             amount=amount,
@@ -2072,11 +2213,17 @@ class SecureClient:
         )
 
     def cancel_market_orders(
-        self, *, market: str | None = None, token_id: str | None = None
+        self,
+        *,
+        market: str | None = None,
+        asset_id: str | None = None,
+        token_id: str | None = None,
     ) -> CancelOrdersResponse:
-        """Cancel open orders matching a market or token filter."""
+        """Cancel open orders matching a market or CLOB asset filter."""
         path, body = _cancel_actions.build_cancel_market_orders_request(
-            market=market, token_id=token_id
+            market=market,
+            asset_id=asset_id,
+            token_id=token_id,
         )
         return _cancel_actions.parse_cancel_orders_response(
             self._ctx.secure_clob.delete_json(path, json=body)
@@ -2085,7 +2232,8 @@ class SecureClient:
     def _prepare_and_sign_limit_order(
         self,
         *,
-        token_id: str,
+        asset_id: str | None,
+        token_id: str | None,
         price: Decimal | int | float | str,
         size: Decimal | int | float | str,
         side: OrderSide,
@@ -2094,6 +2242,7 @@ class SecureClient:
         builder_code: str | None,
     ) -> SignedOrder:
         params = validate_limit_order_params(
+            asset_id=asset_id,
             token_id=token_id,
             price=price,
             size=size,
@@ -2108,7 +2257,8 @@ class SecureClient:
     def _prepare_and_sign_market_order(
         self,
         *,
-        token_id: str,
+        asset_id: str | None,
+        token_id: str | None,
         side: OrderSide,
         amount: Decimal | int | float | str | None,
         shares: Decimal | int | float | str | None,
@@ -2119,6 +2269,7 @@ class SecureClient:
         builder_code: str | None,
     ) -> SignedOrder:
         params = validate_market_order_params(
+            asset_id=asset_id,
             token_id=token_id,
             side=side,
             amount=amount,
@@ -2434,12 +2585,20 @@ class SecureClient:
             return self._dispatch_calls(calls, metadata=resolved_metadata)
         assert condition_id is not None
         context = self._resolve_market_position_context(condition_id=condition_id)
-        call = split_position_call(
-            target=context.adapter_address,
-            collateral=cast(EvmAddress, self._ctx.environment_config.collateral_token),
-            condition_id=context.condition_id,
-            amount=amount,
-        )
+        if context.protocol == "ctf":
+            assert context.adapter_address is not None
+            call = split_position_call(
+                target=context.adapter_address,
+                collateral=cast(EvmAddress, self._ctx.environment_config.collateral_token),
+                condition_id=context.condition_id,
+                amount=amount,
+            )
+        else:
+            call = split_v2_call(
+                router=cast(EvmAddress, self._ctx.environment_config.protocol_v2_router),
+                condition_id=context.condition_id,
+                amount=amount,
+            )
         resolved_metadata = (
             metadata
             if metadata is not None
@@ -2513,12 +2672,20 @@ class SecureClient:
             self._ctx.rpc.eth_call(to=str(balance_call.to), data=balance_call.data)
         )
         resolved_amount = resolve_merge_amount_from_balances(context.condition_id, balances, amount)
-        call = merge_positions_call(
-            target=context.adapter_address,
-            collateral=cast(EvmAddress, self._ctx.environment_config.collateral_token),
-            condition_id=context.condition_id,
-            amount=resolved_amount,
-        )
+        if context.protocol == "ctf":
+            assert context.adapter_address is not None
+            call = merge_positions_call(
+                target=context.adapter_address,
+                collateral=cast(EvmAddress, self._ctx.environment_config.collateral_token),
+                condition_id=context.condition_id,
+                amount=resolved_amount,
+            )
+        else:
+            call = merge_v2_call(
+                router=cast(EvmAddress, self._ctx.environment_config.protocol_v2_router),
+                condition_id=context.condition_id,
+                amount=resolved_amount,
+            )
         resolved_metadata = (
             metadata
             if metadata is not None
@@ -2532,12 +2699,12 @@ class SecureClient:
         positions: Sequence[MergePositionRequest],
         metadata: str | None = None,
     ) -> SyncTransactionHandle:
-        """Merge multiple market positions or multiple combo positions back into collateral.
+        """Merge multiple market positions or Polymarket V2 positions into collateral.
 
         Args:
-            positions: Position merge requests. Use ``position_id`` for combo
-                positions, or ``condition_id`` / ``market_id`` for market positions.
-                Do not mix combo and market requests in the same batch.
+            positions: Position merge requests. Use ``position_id`` for a
+                Polymarket V2 position, or ``condition_id`` / ``market_id`` for
+                market positions. Do not mix identifier styles in the same batch.
                 Omit ``amount`` or pass ``"max"`` to merge the largest available
                 balanced amount for that condition.
 
@@ -2553,7 +2720,7 @@ class SecureClient:
         ]
         batch_kinds = {position.kind for position in normalized}
         if len(batch_kinds) != 1:
-            raise UserInputError("Cannot mix market and combo positions in one merge batch")
+            raise UserInputError("Cannot mix market and Polymarket V2 positions in one merge batch")
 
         seen_conditions: set[str] = set()
         calls: list[TransactionCall] = []
@@ -2563,7 +2730,9 @@ class SecureClient:
                 decoded = decode_combo_outcome_position_id(position.position_id)
                 condition_key = str(decoded.condition_id)
                 if condition_key in seen_conditions:
-                    raise UserInputError("position_ids must reference distinct combo conditions")
+                    raise UserInputError(
+                        "position_ids must reference distinct Polymarket V2 conditions"
+                    )
                 seen_conditions.add(condition_key)
                 token_ids = derive_combo_outcome_position_ids(decoded.condition_id)
                 balance_call = erc1155_balance_of_batch_call(
@@ -2605,16 +2774,26 @@ class SecureClient:
             resolved_amount = resolve_merge_amount_from_balances(
                 context.condition_id, balances, position.amount
             )
-            calls.append(
-                merge_positions_call(
-                    target=context.adapter_address,
-                    collateral=cast(EvmAddress, self._ctx.environment_config.collateral_token),
-                    condition_id=context.condition_id,
-                    amount=resolved_amount,
+            if context.protocol == "ctf":
+                assert context.adapter_address is not None
+                calls.append(
+                    merge_positions_call(
+                        target=context.adapter_address,
+                        collateral=cast(EvmAddress, self._ctx.environment_config.collateral_token),
+                        condition_id=context.condition_id,
+                        amount=resolved_amount,
+                    )
                 )
-            )
+            else:
+                calls.append(
+                    merge_v2_call(
+                        router=cast(EvmAddress, self._ctx.environment_config.protocol_v2_router),
+                        condition_id=context.condition_id,
+                        amount=resolved_amount,
+                    )
+                )
 
-        batch_label = "combo positions" if "combo" in batch_kinds else "positions"
+        batch_label = "Polymarket V2 positions" if "combo" in batch_kinds else "positions"
         resolved_metadata = (
             metadata if metadata is not None else f"Merge {len(calls)} {batch_label}"
         )
@@ -2640,10 +2819,10 @@ class SecureClient:
         position_id: str | None = None,
         metadata: str | None = None,
     ) -> SyncTransactionHandle:
-        """Redeem resolved market or combo positions.
+        """Redeem resolved market positions or a Polymarket V2 position.
 
-        Provide exactly one of ``condition_id``, ``market_id``, or combo
-        ``position_id``.
+        Provide exactly one of ``condition_id``, ``market_id``, or ``position_id``.
+        A ``position_id`` identifies a specific Polymarket V2 YES/NO position.
 
         Returns:
             A transaction handle. Call ``wait()`` to wait for a terminal outcome.
@@ -2664,7 +2843,7 @@ class SecureClient:
                 self._ctx.rpc.eth_call(to=str(balance_call.to), data=balance_call.data)
             )
             if balance == 0:
-                raise UserInputError("Combo position has no balance to redeem")
+                raise UserInputError("Position has no balance to redeem")
             call = redeem_v2_call(
                 router=cast(EvmAddress, self._ctx.environment_config.protocol_v2_router),
                 condition_id=decoded.condition_id,
@@ -2672,7 +2851,7 @@ class SecureClient:
                 amount=balance,
             )
             resolved_metadata = (
-                metadata if metadata is not None else f"Redeem combo position {position_id}"
+                metadata if metadata is not None else f"Redeem position {position_id}"
             )
             return self._dispatch_single_call(call, metadata=resolved_metadata)
         context = self._resolve_market_position_context(
@@ -2680,17 +2859,47 @@ class SecureClient:
             market_id=market_id,
             closed=True,
         )
-        call = ctf_redeem_positions_call(
-            ctf=context.adapter_address,
-            collateral=cast(EvmAddress, self._ctx.environment_config.collateral_token),
-            condition_id=context.condition_id,
-        )
+        if context.protocol == "ctf":
+            assert context.adapter_address is not None
+            calls = [
+                ctf_redeem_positions_call(
+                    ctf=context.adapter_address,
+                    collateral=cast(EvmAddress, self._ctx.environment_config.collateral_token),
+                    condition_id=context.condition_id,
+                )
+            ]
+        else:
+            balance_call = erc1155_balance_of_batch_call(
+                token_address=context.position_erc1155_address,
+                owners=[self._ctx.wallet, self._ctx.wallet],
+                token_ids=[str(asset_id) for asset_id in context.outcome_ids],
+            )
+            balances = decode_erc1155_balance_of_batch_result(
+                self._ctx.rpc.eth_call(to=str(balance_call.to), data=balance_call.data)
+            )
+            if len(balances) != 2:
+                raise UnexpectedResponseError("Expected two position balances")
+            calls = [
+                redeem_v2_call(
+                    router=cast(EvmAddress, self._ctx.environment_config.protocol_v2_router),
+                    condition_id=context.condition_id,
+                    outcome_index=outcome_index,
+                    amount=balance,
+                )
+                for outcome_index, balance in enumerate(balances)
+                if balance > 0
+            ]
+            if not calls:
+                raise UserInputError(
+                    f"Market positions have no balance to redeem for condition "
+                    f"{context.condition_id}"
+                )
         resolved_metadata = (
             metadata
             if metadata is not None
             else f"Redeem positions for condition {context.condition_id}"
         )
-        return self._dispatch_single_call(call, metadata=resolved_metadata)
+        return self._dispatch_calls(calls, metadata=resolved_metadata)
 
     def plan_collateral_return(self) -> CollateralReturnPlanResponse:
         """Plan a collateral return for the authenticated wallet.
@@ -2953,6 +3162,7 @@ class SecureClient:
             ),
             conditional_tokens=cast(EvmAddress, self._ctx.environment_config.conditional_tokens),
             neg_risk_adapter=cast(EvmAddress, self._ctx.environment_config.neg_risk_adapter),
+            position_manager=cast(EvmAddress, self._ctx.environment_config.position_manager),
         )
 
 

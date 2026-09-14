@@ -10,11 +10,15 @@ if TYPE_CHECKING:
     from polymarket.clients._transport import AsyncTransport, SyncTransport
 
 
-class MergeComboPositionRequest(TypedDict):
-    """Combo position merge request used by batch merge workflows."""
+class MergeV2PositionRequest(TypedDict):
+    """Polymarket V2 position merge request used by batch merge workflows."""
 
     position_id: str
     amount: NotRequired[int | Literal["max"]]
+
+
+MergeComboPositionRequest: TypeAlias = MergeV2PositionRequest
+"""Deprecated alias for :class:`MergeV2PositionRequest`."""
 
 
 class MergeMarketConditionRequest(TypedDict):
@@ -32,7 +36,7 @@ class MergeMarketIdRequest(TypedDict):
 
 
 MergeMarketPositionRequest: TypeAlias = MergeMarketConditionRequest | MergeMarketIdRequest
-MergePositionRequest: TypeAlias = MergeComboPositionRequest | MergeMarketPositionRequest
+MergePositionRequest: TypeAlias = MergeV2PositionRequest | MergeMarketPositionRequest
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,6 +176,7 @@ __all__ = [
     "MergeMarketIdRequest",
     "MergeMarketPositionRequest",
     "MergePositionRequest",
+    "MergeV2PositionRequest",
     "DeprecatedTransactionHandle",
     "SyncDeprecatedTransactionHandle",
     "SyncEoaTransactionHandle",

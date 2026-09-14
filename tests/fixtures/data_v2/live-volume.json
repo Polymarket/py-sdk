@@ -1,0 +1,37 @@
+{
+  "taker_volume_total": 4439931.266595,
+  "conditions": [
+    {
+      "condition_id": "0xe7f239d76b59c4e614f0bdb80467026da833083e38a31a27fde8e0907417ea12",
+      "taker_volume": 1057493.399838
+    },
+    {
+      "condition_id": "0x4d162a40c3e3f458b0e0017485d7f9e6ead0cdd0573e38b26e0d5420525ccfa4",
+      "taker_volume": 780331.374022
+    },
+    {
+      "condition_id": "0xc8929e80e74ae959b3ed9b9e1c5e0903ad38e02e1339462e3acf8b49bbca35a9",
+      "taker_volume": 588112.023677
+    },
+    {
+      "condition_id": "0x02507350fc2b81c3af36c659a805adbda9b0a81e63a27b29cb273cdd7dbc072e",
+      "taker_volume": 576353.148052
+    },
+    {
+      "condition_id": "0x626d0441b078eefbe2c49047960e7a3b6b4512c235507a2528ccc0f95f2474a6",
+      "taker_volume": 507319.025175
+    },
+    {
+      "condition_id": "0xb4022c0b2718eca7ad27195f2d48f06527fa000269d188e1d3001ff8bbc16956",
+      "taker_volume": 479549.81298
+    },
+    {
+      "condition_id": "0xc60022fe066abd6f96c375adb09f38d92c4931f09c10b805354581b4e5465e93",
+      "taker_volume": 313649.055908
+    },
+    {
+      "condition_id": "0x4092815fea8f91e60586882d45fa2f61bfca8a36d595f47fdea9eec5d2893025",
+      "taker_volume": 137123.426943
+    }
+  ]
+}

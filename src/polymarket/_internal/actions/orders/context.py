@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from polymarket._internal.actions.orders.math import decimal_places
 from polymarket._internal.environment import EnvironmentConfig
+from polymarket._internal.protocol import is_v2_position_id
 from polymarket.errors import UnexpectedResponseError, UserInputError
 from polymarket.types import EvmAddress
 
@@ -61,9 +62,18 @@ def resolve_exchange_address(config: EnvironmentConfig, neg_risk: bool) -> EvmAd
     return EvmAddress(config.neg_risk_exchange if neg_risk else config.standard_exchange)
 
 
+def resolve_order_exchange_address(
+    config: EnvironmentConfig, *, asset_id: str, neg_risk: bool
+) -> EvmAddress:
+    if is_v2_position_id(asset_id):
+        return EvmAddress(config.exchange_v3)
+    return resolve_exchange_address(config, neg_risk)
+
+
 __all__ = [
     "RoundingConfig",
     "resolve_exchange_address",
+    "resolve_order_exchange_address",
     "resolve_rounding_config",
     "validate_price_on_tick_grid",
 ]

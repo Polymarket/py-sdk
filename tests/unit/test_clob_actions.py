@@ -12,7 +12,6 @@ from polymarket._internal.actions.clob import (
     build_midpoints_request,
     build_order_book_request,
     build_order_books_request,
-    build_price_history_request,
     build_price_request,
     build_prices_request,
     build_spread_request,
@@ -24,13 +23,12 @@ from polymarket._internal.actions.clob import (
     parse_order_book,
     parse_order_books,
     parse_price,
-    parse_price_history,
     parse_prices,
     parse_spread,
     parse_spreads,
 )
 from polymarket.errors import UnexpectedResponseError, UserInputError
-from polymarket.models import LastTradePrice, OrderSide, PriceRequest, TokenId
+from polymarket.models import ClobAssetId, LastTradePrice, OrderSide, PriceRequest, TokenId
 
 
 def test_build_midpoint_request_targets_midpoint_path_with_token_id() -> None:
@@ -119,7 +117,7 @@ def test_build_last_trade_prices_request_rejects_bare_string() -> None:
 def test_parse_midpoints_returns_decimal_keyed_by_token_id() -> None:
     result = parse_midpoints({"1": "0.5", "2": "0.4"})
 
-    assert_type(result, dict[TokenId, Decimal])
+    assert_type(result, dict[ClobAssetId, Decimal])
     assert result == {
         TokenId("1"): Decimal("0.5"),
         TokenId("2"): Decimal("0.4"),
@@ -220,6 +218,25 @@ def test_build_prices_request_emits_post_body_with_token_id_and_side() -> None:
     ]
 
 
+def test_price_request_preserves_named_tuple_access_patterns() -> None:
+    request = PriceRequest(asset_id="1", side="BUY")
+
+    asset_id, side = request
+    assert (asset_id, side) == ("1", "BUY")
+    assert request[0] == "1"
+    assert request[1] == "BUY"
+    assert len(request) == 2
+    legacy_tuple = ("1", "BUY")
+    assert request == legacy_tuple
+    assert legacy_tuple == request
+    assert hash(request) == hash(legacy_tuple)
+
+
+def test_price_request_raises_user_input_error_for_conflicting_ids() -> None:
+    with pytest.raises(UserInputError, match="mutually exclusive"):
+        PriceRequest(asset_id="1", token_id="2", side="BUY")
+
+
 def test_build_prices_request_rejects_empty_sequence() -> None:
     with pytest.raises(UserInputError):
         build_prices_request(requests=[])
@@ -253,7 +270,7 @@ def test_build_prices_request_rejects_dict_entry() -> None:
 def test_parse_prices_returns_nested_decimal_dict() -> None:
     result = parse_prices({"1": {"BUY": "0.52", "SELL": "0.53"}})
 
-    assert_type(result, dict[TokenId, dict[OrderSide, Decimal]])
+    assert_type(result, dict[ClobAssetId, dict[OrderSide, Decimal]])
     assert result == {TokenId("1"): {"BUY": Decimal("0.52"), "SELL": Decimal("0.53")}}
 
 
@@ -473,7 +490,7 @@ def test_build_spreads_request_emits_post_body() -> None:
 def test_parse_spreads_returns_decimal_keyed_by_token_id() -> None:
     result = parse_spreads({"1": "0.02"})
 
-    assert_type(result, dict[TokenId, Decimal])
+    assert_type(result, dict[ClobAssetId, Decimal])
     assert result == {TokenId("1"): Decimal("0.02")}
 
 
@@ -537,93 +554,3 @@ def test_parse_last_trade_prices_returns_tuple_of_models() -> None:
     assert result[0].token_id == "1"
     assert result[0].price == Decimal("0.5")
     assert result[0].side == "BUY"
-
-
-def test_build_price_history_request_maps_token_id_to_market_param() -> None:
-    path, params = build_price_history_request(token_id="123")
-
-    assert path == "/prices-history"
-    assert params == {"market": "123"}
-
-
-def test_build_price_history_request_preserves_camelcase_optional_params() -> None:
-    path, params = build_price_history_request(
-        token_id="123",
-        start_ts=1000,
-        end_ts=2000,
-        fidelity=60,
-        interval="1d",
-    )
-
-    assert path == "/prices-history"
-    assert params == {
-        "market": "123",
-        "startTs": 1000,
-        "endTs": 2000,
-        "fidelity": 60,
-        "interval": "1d",
-    }
-
-
-def test_build_price_history_request_rejects_empty_token_id() -> None:
-    with pytest.raises(UserInputError):
-        build_price_history_request(token_id="")
-
-
-def test_build_price_history_request_rejects_negative_start_ts() -> None:
-    with pytest.raises(UserInputError):
-        build_price_history_request(token_id="1", start_ts=-1)
-
-
-def test_build_price_history_request_rejects_non_positive_fidelity() -> None:
-    with pytest.raises(UserInputError):
-        build_price_history_request(token_id="1", fidelity=0)
-
-
-def test_build_price_history_request_rejects_invalid_interval() -> None:
-    with pytest.raises(UserInputError, match="interval"):
-        build_price_history_request(token_id="1", interval="weekly")  # type: ignore[arg-type]
-
-
-def test_build_price_history_request_rejects_float_start_ts() -> None:
-    with pytest.raises(UserInputError, match="integer"):
-        build_price_history_request(token_id="1", start_ts=1.5)  # type: ignore[arg-type]
-
-
-def test_build_price_history_request_rejects_bool_fidelity() -> None:
-    with pytest.raises(UserInputError, match="integer"):
-        build_price_history_request(token_id="1", fidelity=True)  # type: ignore[arg-type]
-
-
-def test_parse_price_history_extracts_history_array() -> None:
-    payload = {"history": [{"t": 1000, "p": 0.5}, {"t": 1060, "p": 0.51}]}
-
-    result = parse_price_history(payload)
-
-    assert len(result) == 2
-    assert result[0].t == 1000
-    assert result[0].p == 0.5
-
-
-def test_parse_price_history_accepts_empty_history() -> None:
-    assert parse_price_history({"history": []}) == ()
-
-
-def test_parse_price_history_rejects_missing_history_field() -> None:
-    with pytest.raises(UnexpectedResponseError):
-        parse_price_history({})
-
-
-def test_parse_price_history_rejects_non_dict_response() -> None:
-    with pytest.raises(UnexpectedResponseError):
-        parse_price_history([])
-
-
-def test_parse_price_history_rejects_string_t_value() -> None:
-    with pytest.raises(UnexpectedResponseError):
-        parse_price_history({"history": [{"t": "1000", "p": 0.5}]})
-
-
-def test_parse_price_history_rejects_string_p_value() -> None:
-    with pytest.raises(UnexpectedResponseError):
-        parse_price_history({"history": [{"t": 1000, "p": "0.5"}]})

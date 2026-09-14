@@ -1,206 +1,92 @@
-import asyncio
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
 
-from polymarket import (
-    AsyncPublicClient,
-    BuilderVolumeEntry,
-    LiveVolume,
-    MetaHolder,
-    OpenInterest,
-    PortfolioValue,
-    PublicClient,
-    TradedMarketCount,
-)
+from polymarket import AsyncPublicClient, AsyncSecureClient, PublicClient
 
-EVENT_ID = "902661"
-
-WALLET = "0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b"
+pytestmark = pytest.mark.integration
+CONDITION = "0xe546672750517f62c45a5a00067481981e62b9c20fa8220203232c9dc8fd2093"
 
 
-def _condition_ids_for_event() -> list[str]:
-    with PublicClient() as client:
-        event = client.get_event(id=EVENT_ID)
-    return [m.condition_id for m in event.markets if m.condition_id is not None]
+def test_portfolio_and_metrics(
+    sync_public_client: PublicClient, data_reference_wallet: str, data_empty_wallet: str
+) -> None:
+    client = sync_public_client
+    portfolio = client.get_portfolio_value(user=data_reference_wallet)
+    assert portfolio.wallet == data_reference_wallet and isinstance(portfolio.value, Decimal)
+    stats = client.get_user_stats(user=data_reference_wallet)
+    if stats is None:
+        pytest.skip("reference wallet no longer has statistics")
+    assert stats.traded_market_count > 0 and stats.all_time_pnl is not None
+    assert client.get_user_stats(user=data_empty_wallet) is None
+    pnl = client.get_user_pnl(user=data_reference_wallet, interval="1w", fidelity="1h")
+    assert pnl.interval == "1w" and pnl.fidelity == "1h" and pnl.source_fidelity
+    assert pnl.points
+    volume = client.get_user_volume(
+        user=data_reference_wallet,
+        start=datetime(2026, 9, 1, tzinfo=UTC),
+        end=datetime(2026, 9, 2, tzinfo=UTC),
+    )
+    assert volume.volume >= 0 and volume.volume_usdc >= 0 and volume.trade_count >= 0
 
 
-@pytest.mark.integration
-def test_get_event_live_volumes_returns_volume() -> None:
-    with PublicClient() as client:
-        volumes = client.get_event_live_volumes(id=EVENT_ID)
-
-    assert volumes
-    assert all(isinstance(v, LiveVolume) for v in volumes)
-    assert volumes[0].total is not None
-    assert isinstance(volumes[0].total, Decimal)
-    assert volumes[0].markets is not None
-
-
-@pytest.mark.integration
-def test_get_open_interests_with_market_filter() -> None:
-    condition_ids = _condition_ids_for_event()
-    if not condition_ids:
-        pytest.skip("event has no condition IDs to query")
-
-    with PublicClient() as client:
-        interests = client.get_open_interests(market=condition_ids)
-
-    assert interests
-    assert all(isinstance(oi, OpenInterest) for oi in interests)
-    assert all(oi.market in condition_ids for oi in interests if oi.market is not None)
-    assert all(isinstance(oi.value, Decimal) for oi in interests if oi.value is not None)
+def test_market_analytics_and_resolutions(sync_public_client: PublicClient) -> None:
+    client = sync_public_client
+    global_oi = client.get_open_interests()
+    assert len(global_oi) == 1 and global_oi[0].condition_id is None
+    named = client.get_open_interests(condition_ids=CONDITION)
+    if not named:
+        pytest.skip("reference condition has no open interest row")
+    assert len(named) == 1 and named[0].condition_id == CONDITION
+    volume = client.get_event_live_volume(event_ids=[106884])
+    assert isinstance(volume.taker_volume_total, Decimal) and isinstance(volume.markets, tuple)
+    rows = client.get_resolutions(event_ids=[106884])
+    if not rows:
+        pytest.skip("reference event no longer has resolution rows")
+    condition = rows[0].condition_id
+    assert condition is not None
+    selected = client.get_resolutions(condition_ids=condition)
+    assert selected and selected[0] == rows[0]
 
 
-@pytest.mark.integration
-def test_get_open_interests_without_filter() -> None:
-    with PublicClient() as client:
-        interests = client.get_open_interests()
-
-    assert all(isinstance(oi, OpenInterest) for oi in interests)
-
-
-@pytest.mark.integration
-def test_get_market_holders_returns_holders() -> None:
-    condition_ids = _condition_ids_for_event()
-    if not condition_ids:
-        pytest.skip("event has no condition IDs to query")
-
-    with PublicClient() as client:
-        holders = client.get_market_holders(market=condition_ids[:1], limit=5)
-
-    assert holders
-    assert all(isinstance(meta, MetaHolder) for meta in holders)
-    assert holders[0].token is not None
-    assert holders[0].holders is not None
+def test_builder_volume_counts_buckets(sync_public_client: PublicClient) -> None:
+    points = sync_public_client.get_builder_volumes(interval="day", bucket_limit=2)
+    if not points:
+        pytest.skip("no builder volume buckets available")
+    assert len({p.bucket_date for p in points}) == 2
+    assert len(points) > 2
 
 
-@pytest.mark.integration
-def test_get_portfolio_values_returns_values() -> None:
-    with PublicClient() as client:
-        values = client.get_portfolio_values(user=WALLET)
-
-    assert values
-    assert all(isinstance(v, PortfolioValue) for v in values)
-    assert values[0].user == WALLET
-    assert values[0].value is not None
-    assert isinstance(values[0].value, Decimal)
+def test_accounting_snapshot(sync_public_client: PublicClient, data_reference_wallet: str) -> None:
+    archive = sync_public_client.download_accounting_snapshot(user=data_reference_wallet)
+    assert archive.startswith(b"PK") and len(archive) > 100
 
 
-@pytest.mark.integration
-def test_get_traded_market_count_returns_count() -> None:
-    with PublicClient() as client:
-        count = client.get_traded_market_count(user=WALLET)
-
-    assert isinstance(count, TradedMarketCount)
-    assert count.user == WALLET
-    assert count.traded is not None
-    assert count.traded >= 0
-
-
-@pytest.mark.integration
-def test_get_builder_volumes_returns_entries() -> None:
-    with PublicClient() as client:
-        volumes = client.get_builder_volumes(time_period="DAY")
-
-    assert volumes
-    assert all(isinstance(entry, BuilderVolumeEntry) for entry in volumes)
-    assert any(entry.builder is not None for entry in volumes)
-    assert any(entry.bucket_at is not None for entry in volumes)
-    assert any(isinstance(entry.volume, Decimal) for entry in volumes if entry.volume is not None)
+@pytest.mark.anyio
+async def test_async_portfolio(
+    public_client: AsyncPublicClient, data_reference_wallet: str
+) -> None:
+    value = await public_client.get_portfolio_value(user=data_reference_wallet)
+    assert value.wallet == data_reference_wallet and value.value >= 0
+    assert (
+        await public_client.get_user_pnl(user=data_reference_wallet)
+    ).wallet == data_reference_wallet
 
 
-@pytest.mark.integration
-def test_async_get_event_live_volumes_returns_volume() -> None:
-    async def run() -> None:
-        async with AsyncPublicClient() as client:
-            volumes = await client.get_event_live_volumes(id=EVENT_ID)
-        assert volumes
-        assert all(isinstance(v, LiveVolume) for v in volumes)
-        assert volumes[0].total is not None
-
-    asyncio.run(run())
-
-
-@pytest.mark.integration
-def test_async_get_open_interests_without_filter() -> None:
-    async def run() -> None:
-        async with AsyncPublicClient() as client:
-            interests = await client.get_open_interests()
-        assert all(isinstance(oi, OpenInterest) for oi in interests)
-
-    asyncio.run(run())
-
-
-@pytest.mark.integration
-def test_async_get_market_holders_returns_holders() -> None:
-    condition_ids = _condition_ids_for_event()
-    if not condition_ids:
-        pytest.skip("event has no condition IDs to query")
-
-    async def run() -> None:
-        async with AsyncPublicClient() as client:
-            holders = await client.get_market_holders(market=condition_ids[:1], limit=5)
-        assert holders
-        assert all(isinstance(meta, MetaHolder) for meta in holders)
-        assert holders[0].token is not None
-
-    asyncio.run(run())
-
-
-@pytest.mark.integration
-def test_async_get_portfolio_values_returns_values() -> None:
-    async def run() -> None:
-        async with AsyncPublicClient() as client:
-            values = await client.get_portfolio_values(user=WALLET)
-        assert values
-        assert all(isinstance(v, PortfolioValue) for v in values)
-        assert values[0].user == WALLET
-
-    asyncio.run(run())
-
-
-@pytest.mark.integration
-def test_async_get_traded_market_count_returns_count() -> None:
-    async def run() -> None:
-        async with AsyncPublicClient() as client:
-            count = await client.get_traded_market_count(user=WALLET)
-        assert isinstance(count, TradedMarketCount)
-        assert count.user == WALLET
-        assert count.traded is not None and count.traded >= 0
-
-    asyncio.run(run())
-
-
-@pytest.mark.integration
-def test_download_accounting_snapshot_returns_zip_archive() -> None:
-    with PublicClient() as client:
-        snapshot = client.download_accounting_snapshot(user=WALLET)
-
-    assert isinstance(snapshot, bytes)
-    assert len(snapshot) > 0
-    assert snapshot.startswith(b"PK\x03\x04")
-
-
-@pytest.mark.integration
-def test_async_download_accounting_snapshot_returns_zip_archive() -> None:
-    async def run() -> bytes:
-        async with AsyncPublicClient() as client:
-            return await client.download_accounting_snapshot(user=WALLET)
-
-    snapshot = asyncio.run(run())
-    assert isinstance(snapshot, bytes)
-    assert len(snapshot) > 0
-    assert snapshot.startswith(b"PK\x03\x04")
-
-
-@pytest.mark.integration
-def test_async_get_builder_volumes_returns_entries() -> None:
-    async def run() -> None:
-        async with AsyncPublicClient() as client:
-            volumes = await client.get_builder_volumes(time_period="DAY")
-        assert volumes
-        assert all(isinstance(entry, BuilderVolumeEntry) for entry in volumes)
-        assert any(entry.builder is not None for entry in volumes)
-
-    asyncio.run(run())
+@pytest.mark.anyio
+async def test_authenticated_wallet_defaults(
+    deposit_wallet_client: AsyncSecureClient, deposit_wallet_address: str
+) -> None:
+    client = deposit_wallet_client
+    value = await client.get_portfolio_value()
+    assert value.wallet.lower() == deposit_wallet_address.lower()
+    positions = await client.list_positions().first_page()
+    assert all(p.wallet.lower() == deposit_wallet_address.lower() for p in positions.items)
+    activity = await client.list_activity().first_page()
+    assert all(
+        p.wallet and p.wallet.lower() == deposit_wallet_address.lower() for p in activity.items
+    )
+    standing = await client.get_trader_leaderboard_standing()
+    if standing is not None:
+        assert standing.wallet.lower() == deposit_wallet_address.lower()

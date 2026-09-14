@@ -4,20 +4,9 @@ from typing import get_type_hints
 import pytest
 
 from polymarket.errors import UnexpectedResponseError
-from polymarket.models.data.portfolio import ClosedPosition, Position
 from polymarket.models.gamma.common import parse_optional_date
 from polymarket.models.gamma.event import EventSchedule
 from polymarket.models.rtds_events import CommentRemovedPayload
-
-_POSITION_BASE = {
-    "conditionId": "0x" + "0" * 64,
-    "asset": "1",
-}
-
-_CLOSED_POSITION_BASE = {
-    "conditionId": "0x" + "0" * 64,
-    "asset": "1",
-}
 
 _COMMENT_REMOVED_BASE = {"id": "99"}
 
@@ -65,72 +54,6 @@ class TestParseOptionalDate:
     def test_rejects_boolean(self) -> None:
         with pytest.raises(ValueError):
             parse_optional_date(True)
-
-
-class TestPositionEndDateContract:
-    def test_annotation_resolves_to_date(self) -> None:
-        hints = get_type_hints(Position)
-        assert hints["end_date"] == (date | None)
-
-    def test_parses_date_only_wire_format(self) -> None:
-        pos = Position.parse_response({**_POSITION_BASE, "endDate": "2026-05-31"})
-        assert pos.end_date == date(2026, 5, 31)
-        assert isinstance(pos.end_date, date)
-
-    def test_parses_midnight_utc_wire_format(self) -> None:
-        pos = Position.parse_response({**_POSITION_BASE, "endDate": "2026-04-27T00:00:00Z"})
-        assert pos.end_date == date(2026, 4, 27)
-
-    def test_none_stays_none(self) -> None:
-        pos = Position.parse_response({**_POSITION_BASE, "endDate": None})
-        assert pos.end_date is None
-
-    def test_missing_field_is_none(self) -> None:
-        pos = Position.parse_response(_POSITION_BASE)
-        assert pos.end_date is None
-
-    def test_empty_string_is_none(self) -> None:
-        pos = Position.parse_response({**_POSITION_BASE, "endDate": ""})
-        assert pos.end_date is None
-
-    def test_invalid_string_raises(self) -> None:
-        with pytest.raises(UnexpectedResponseError):
-            Position.parse_response({**_POSITION_BASE, "endDate": "not-a-date"})
-
-
-class TestClosedPositionEndDateContract:
-    def test_annotation_resolves_to_date(self) -> None:
-        hints = get_type_hints(ClosedPosition)
-        assert hints["end_date"] == (date | None)
-
-    def test_parses_midnight_utc_wire_format(self) -> None:
-        pos = ClosedPosition.parse_response(
-            {**_CLOSED_POSITION_BASE, "endDate": "2026-04-27T00:00:00Z"}
-        )
-        assert pos.end_date == date(2026, 4, 27)
-        assert isinstance(pos.end_date, date)
-
-    def test_parses_date_only_wire_format(self) -> None:
-        pos = ClosedPosition.parse_response({**_CLOSED_POSITION_BASE, "endDate": "2026-05-31"})
-        assert pos.end_date == date(2026, 5, 31)
-
-    def test_none_stays_none(self) -> None:
-        pos = ClosedPosition.parse_response({**_CLOSED_POSITION_BASE, "endDate": None})
-        assert pos.end_date is None
-
-    def test_invalid_string_raises(self) -> None:
-        with pytest.raises(UnexpectedResponseError):
-            ClosedPosition.parse_response({**_CLOSED_POSITION_BASE, "endDate": "garbage"})
-
-
-class TestPositionEndDatesAreSamePythonTypeAcrossModels:
-    def test_open_and_closed_end_date_are_both_date(self) -> None:
-        open_pos = Position.parse_response({**_POSITION_BASE, "endDate": "2026-05-31"})
-        closed_pos = ClosedPosition.parse_response(
-            {**_CLOSED_POSITION_BASE, "endDate": "2026-05-31T00:00:00Z"}
-        )
-        assert type(open_pos.end_date) is type(closed_pos.end_date)
-        assert open_pos.end_date == closed_pos.end_date
 
 
 class TestEventScheduleEventDateContract:
@@ -211,14 +134,6 @@ class TestCommentRemovedPayloadDatetimeContract:
 
 
 class TestNoStringDateFieldsRemain:
-    def test_position_end_date_is_not_str(self) -> None:
-        annotation = Position.model_fields["end_date"].annotation
-        assert str not in (getattr(annotation, "__args__", ()) or ())
-
-    def test_closed_position_end_date_is_not_str(self) -> None:
-        annotation = ClosedPosition.model_fields["end_date"].annotation
-        assert str not in (getattr(annotation, "__args__", ()) or ())
-
     def test_event_schedule_event_date_is_not_str(self) -> None:
         annotation = EventSchedule.model_fields["event_date"].annotation
         assert str not in (getattr(annotation, "__args__", ()) or ())

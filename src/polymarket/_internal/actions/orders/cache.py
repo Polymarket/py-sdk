@@ -20,7 +20,7 @@ from polymarket._internal.actions.orders.market_data import (
 )
 from polymarket._internal.actions.orders.types import BYTES32_ZERO
 from polymarket.errors import UnexpectedResponseError
-from polymarket.models.types import CtfConditionId, TokenId
+from polymarket.models.types import ClobAssetId, ConditionId
 from polymarket.types import HexString
 
 if TYPE_CHECKING:
@@ -156,18 +156,18 @@ def _consume_task_exception(task: asyncio.Task[object]) -> None:
 
 class SyncOrderMetadataCache:
     def __init__(self, *, clock: Callable[[], float] = monotonic) -> None:
-        self._conditions = _SyncSingleFlightCache[TokenId, CtfConditionId](ttl_s=None, clock=clock)
-        self._markets = _SyncSingleFlightCache[CtfConditionId, MarketInfo](
+        self._conditions = _SyncSingleFlightCache[ClobAssetId, ConditionId](ttl_s=None, clock=clock)
+        self._markets = _SyncSingleFlightCache[ConditionId, MarketInfo](
             ttl_s=_METADATA_TTL_S, clock=clock
         )
         self._builder_taker_fee_rates = _SyncSingleFlightCache[HexString, Decimal](
             ttl_s=_METADATA_TTL_S, clock=clock
         )
 
-    def resolve_market(self, ctx: SyncClientContext, *, token_id: TokenId) -> MarketInfo:
+    def resolve_market(self, ctx: SyncClientContext, *, token_id: ClobAssetId) -> MarketInfo:
         return self._resolve_market(ctx, token_id=token_id, force=False)
 
-    def fetch_current_market(self, ctx: SyncClientContext, *, token_id: TokenId) -> MarketInfo:
+    def fetch_current_market(self, ctx: SyncClientContext, *, token_id: ClobAssetId) -> MarketInfo:
         return self._resolve_market(ctx, token_id=token_id, force=True)
 
     def resolve_builder_taker_fee_rate(
@@ -181,7 +181,7 @@ class SyncOrderMetadataCache:
         )
 
     def _resolve_market(
-        self, ctx: SyncClientContext, *, token_id: TokenId, force: bool
+        self, ctx: SyncClientContext, *, token_id: ClobAssetId, force: bool
     ) -> MarketInfo:
         condition_id = self._conditions.get(
             token_id,
@@ -192,36 +192,38 @@ class SyncOrderMetadataCache:
             lambda: self._load_market(ctx, condition_id=condition_id),
             force=force,
         )
-        if token_id not in market.token_ids:
+        if token_id not in market.asset_ids:
             self._conditions.discard(token_id)
             self._markets.discard(condition_id)
             raise UnexpectedResponseError(
-                f"Market {condition_id} does not include token {token_id}."
+                f"Market {condition_id} does not include asset {token_id}."
             )
         return market
 
-    def _load_market(self, ctx: SyncClientContext, *, condition_id: CtfConditionId) -> MarketInfo:
+    def _load_market(self, ctx: SyncClientContext, *, condition_id: ConditionId) -> MarketInfo:
         market = fetch_market_info_sync(ctx, condition_id=condition_id)
-        for token_id in market.token_ids:
+        for token_id in market.asset_ids:
             self._conditions.set(token_id, condition_id)
         return market
 
 
 class AsyncOrderMetadataCache:
     def __init__(self, *, clock: Callable[[], float] = monotonic) -> None:
-        self._conditions = _AsyncSingleFlightCache[TokenId, CtfConditionId](ttl_s=None, clock=clock)
-        self._markets = _AsyncSingleFlightCache[CtfConditionId, MarketInfo](
+        self._conditions = _AsyncSingleFlightCache[ClobAssetId, ConditionId](
+            ttl_s=None, clock=clock
+        )
+        self._markets = _AsyncSingleFlightCache[ConditionId, MarketInfo](
             ttl_s=_METADATA_TTL_S, clock=clock
         )
         self._builder_taker_fee_rates = _AsyncSingleFlightCache[HexString, Decimal](
             ttl_s=_METADATA_TTL_S, clock=clock
         )
 
-    async def resolve_market(self, ctx: AsyncClientContext, *, token_id: TokenId) -> MarketInfo:
+    async def resolve_market(self, ctx: AsyncClientContext, *, token_id: ClobAssetId) -> MarketInfo:
         return await self._resolve_market(ctx, token_id=token_id, force=False)
 
     async def fetch_current_market(
-        self, ctx: AsyncClientContext, *, token_id: TokenId
+        self, ctx: AsyncClientContext, *, token_id: ClobAssetId
     ) -> MarketInfo:
         return await self._resolve_market(ctx, token_id=token_id, force=True)
 
@@ -243,7 +245,7 @@ class AsyncOrderMetadataCache:
         )
 
     async def _resolve_market(
-        self, ctx: AsyncClientContext, *, token_id: TokenId, force: bool
+        self, ctx: AsyncClientContext, *, token_id: ClobAssetId, force: bool
     ) -> MarketInfo:
         condition_id = await self._conditions.get(
             token_id,
@@ -254,19 +256,19 @@ class AsyncOrderMetadataCache:
             lambda: self._load_market(ctx, condition_id=condition_id),
             force=force,
         )
-        if token_id not in market.token_ids:
+        if token_id not in market.asset_ids:
             self._conditions.discard(token_id)
             self._markets.discard(condition_id)
             raise UnexpectedResponseError(
-                f"Market {condition_id} does not include token {token_id}."
+                f"Market {condition_id} does not include asset {token_id}."
             )
         return market
 
     async def _load_market(
-        self, ctx: AsyncClientContext, *, condition_id: CtfConditionId
+        self, ctx: AsyncClientContext, *, condition_id: ConditionId
     ) -> MarketInfo:
         market = await fetch_market_info(ctx, condition_id=condition_id)
-        for token_id in market.token_ids:
+        for token_id in market.asset_ids:
             self._conditions.set(token_id, condition_id)
         return market
 

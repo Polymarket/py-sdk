@@ -1,0 +1,20 @@
+[
+  {
+    "rank": 1,
+    "builder_name": "betmoar",
+    "builder_code": "0xceebf77a833b30520287ddd9478ff51abbdffa30aa90a8d655dba0e8a79ce0c1",
+    "profile_image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/betmoar_2.png",
+    "verified": true,
+    "volume": 3420022.424486001,
+    "active_users": 165
+  },
+  {
+    "rank": 2,
+    "builder_name": "Gate",
+    "builder_code": "0x2c6624a23b16a2a69acd14c87b7fc03906870c851fa0a7b7f9d7be0fbbedea8a",
+    "profile_image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/profile-image-6204678-8b397176-c77c-4533-9620-8037e82399cf.png",
+    "verified": true,
+    "volume": 1711992.9589699996,
+    "active_users": 2
+  }
+]

@@ -268,12 +268,12 @@ def test_redeem_v2_call_golden_calldata() -> None:
 def test_protocol_v2_condition_calls_reject_non_combo_condition_id(
     builder: Callable[..., TransactionCall],
 ) -> None:
-    with pytest.raises(UserInputError, match="combo condition ID"):
+    with pytest.raises(UserInputError, match="Protocol v2 condition ID"):
         builder(router=_STANDARD_EXCHANGE, condition_id=_CONDITION_ID, amount=1)
 
 
 def test_redeem_v2_call_rejects_non_binary_wire_condition_id() -> None:
-    with pytest.raises(UserInputError, match="combo condition ID"):
+    with pytest.raises(UserInputError, match="Protocol v2 condition ID"):
         redeem_v2_call(
             router=_STANDARD_EXCHANGE,
             condition_id=f"{_COMBO_CONDITION_ID}02",

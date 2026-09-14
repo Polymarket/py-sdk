@@ -1,0 +1,34 @@
+[
+  {
+    "win_rank": 1,
+    "kind": "combo",
+    "user_id": "0x52a3d09dfc47bacc18634dda9d962be530c0ebae",
+    "pnl": 18850.657054,
+    "initial_value": 6011.009993,
+    "final_value": 24861.667047,
+    "resolved_at": 1788841102,
+    "condition_id": "0x034ac2995e3c79456b6dc479c041840d710000000000000000000000000000",
+    "position_id": "1489028302130749909393502144137050574966865845692975023495969610710307045376",
+    "event_id": 0,
+    "event_slug": "",
+    "event_title": "Cleveland Guardians vs. Baltimore Orioles / Spread: Los Angeles Dodgers (-1.5)",
+    "user_name": "lebronstinks",
+    "profile_image": ""
+  },
+  {
+    "win_rank": 2,
+    "kind": "combo",
+    "user_id": "0xee88371850f0e1332c526e1b8e6f43a7e3ef2826",
+    "pnl": 18433.461481,
+    "initial_value": 28427.617524,
+    "final_value": 46861.079005,
+    "resolved_at": 1788833404,
+    "condition_id": "0x034a13236e4063bf50f54c8251fd8acd3e0000000000000000000000000000",
+    "position_id": "1487817316932962420729822757388213655719565867999465295119740623688564736001",
+    "event_id": 0,
+    "event_slug": "",
+    "event_title": "US Open ATP: Karen Khachanov vs Learner Tien / US Open ATP: Francisco Cerundolo vs Alexander Blockx",
+    "user_name": "comboseoa",
+    "profile_image": ""
+  }
+]

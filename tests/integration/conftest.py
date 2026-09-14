@@ -1,6 +1,6 @@
 import asyncio
 import os
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Callable, Iterator
 from decimal import Decimal
 from pathlib import Path
 
@@ -17,6 +17,7 @@ from polymarket import (
     BuilderApiKey,
     Environment,
     Market,
+    PublicClient,
     RelayerApiKey,
 )
 from polymarket.models.types import TokenId
@@ -58,6 +59,18 @@ def require_env() -> Callable[[str], str]:
         return value
 
     return get
+
+
+@pytest.fixture
+def data_reference_wallet() -> str:
+    """Public wallet with portfolio, trade, and combo history for read-only tests."""
+    return "0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b"
+
+
+@pytest.fixture
+def data_empty_wallet() -> str:
+    """Public address used to check absent wallet statistics."""
+    return "0x00000000000000000000000000000000000000aa"
 
 
 @pytest.fixture
@@ -162,6 +175,12 @@ async def public_client(
     integration_environment: Environment,
 ) -> AsyncGenerator[AsyncPublicClient, None]:
     async with AsyncPublicClient(environment=integration_environment) as client:
+        yield client
+
+
+@pytest.fixture(scope="session")
+def sync_public_client(integration_environment: Environment) -> Iterator[PublicClient]:
+    with PublicClient(environment=integration_environment) as client:
         yield client
 
 

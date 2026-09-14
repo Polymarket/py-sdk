@@ -157,7 +157,7 @@ def test_redeem_positions_raises_when_market_token_ids_missing() -> None:
             (_market(neg_risk=False, no_token_id=None),)
         )
         try:
-            with pytest.raises(UnexpectedResponseError, match="Missing market token IDs"):
+            with pytest.raises(UnexpectedResponseError, match="Incomplete market token IDs"):
                 await client.redeem_positions(condition_id=_CONDITION_ID)
         finally:
             await client.close()

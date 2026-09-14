@@ -419,7 +419,7 @@ def test_market_without_requested_token_evicts_mapping_and_market() -> None:
         client = await _make_client()
         try:
             _install_clob(client, httpx.MockTransport(handler))
-            with pytest.raises(UnexpectedResponseError, match="does not include token"):
+            with pytest.raises(UnexpectedResponseError, match="does not include asset"):
                 await client.create_limit_order(
                     token_id="8501497", price="0.5", size="10", side="BUY"
                 )
@@ -581,7 +581,7 @@ def test_cancel_market_orders_sends_filters_in_body() -> None:
     assert "asset_id" in body
 
 
-def test_cancel_market_orders_requires_market_or_token() -> None:
+def test_cancel_market_orders_requires_market_or_asset() -> None:
     async def run() -> None:
         client = await _make_client()
         try:
@@ -589,5 +589,5 @@ def test_cancel_market_orders_requires_market_or_token() -> None:
         finally:
             await client.close()
 
-    with pytest.raises(UserInputError, match="market or token_id"):
+    with pytest.raises(UserInputError, match="market or asset_id"):
         asyncio.run(run())

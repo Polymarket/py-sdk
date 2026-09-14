@@ -3,7 +3,7 @@ import asyncio
 import dataclasses
 import json
 from decimal import Decimal
-from typing import cast
+from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -13,13 +13,12 @@ from polymarket import (
     ApiKeyCreds,
     AsyncPublicClient,
     AsyncSecureClient,
+    ClobAssetId,
     LastTradePrice,
     LastTradePriceForToken,
     OrderBook,
     OrderSide,
-    PriceHistoryPoint,
     PriceRequest,
-    TokenId,
 )
 from polymarket._internal.context import AsyncSecureClientContext
 from polymarket.clients._transport import AsyncTransport
@@ -104,7 +103,7 @@ def test_async_get_midpoint_propagates_malformed_response_error() -> None:
 def test_async_get_midpoints_posts_token_ids_to_clob() -> None:
     captured: list[httpx.Request] = []
 
-    async def run() -> dict[TokenId, Decimal]:
+    async def run() -> dict[ClobAssetId, Decimal]:
         async with AsyncPublicClient() as client:
             _install_async_clob(client, _clob_handler(captured, {"1": "0.5", "2": "0.4"}))
             return await client.get_midpoints(token_ids=["1", "2"])
@@ -136,7 +135,7 @@ def test_async_get_price_includes_token_id_and_side() -> None:
 def test_async_get_prices_posts_token_id_and_side() -> None:
     captured: list[httpx.Request] = []
 
-    async def run() -> dict[TokenId, dict[OrderSide, Decimal]]:
+    async def run() -> dict[ClobAssetId, dict[OrderSide, Decimal]]:
         async with AsyncPublicClient() as client:
             _install_async_clob(
                 client,
@@ -169,6 +168,25 @@ _ORDER_BOOK_PAYLOAD = {
     "last_trade_price": "0.52",
     "hash": "abc123",
 }
+
+
+def test_order_book_accepts_token_id_without_asset_id() -> None:
+    payload = {**_ORDER_BOOK_PAYLOAD, "token_id": "legacy-token"}
+    del payload["asset_id"]
+
+    book = cast(Any, OrderBook)(**payload)
+
+    assert book.asset_id == "legacy-token"
+    assert book.token_id == "legacy-token"
+
+
+def test_order_book_keeps_asset_id_and_token_id_synchronized_when_copied() -> None:
+    book = OrderBook.model_validate(_ORDER_BOOK_PAYLOAD)
+
+    updated_by_asset = book.model_copy(update={"asset_id": "new-asset"})
+
+    assert updated_by_asset.asset_id == "new-asset"
+    assert updated_by_asset.token_id == "new-asset"
 
 
 def test_async_get_order_book_returns_parsed_model() -> None:
@@ -217,7 +235,7 @@ def test_async_get_spread_returns_decimal() -> None:
 def test_async_get_spreads_posts_token_ids() -> None:
     captured: list[httpx.Request] = []
 
-    async def run() -> dict[TokenId, Decimal]:
+    async def run() -> dict[ClobAssetId, Decimal]:
         async with AsyncPublicClient() as client:
             _install_async_clob(client, _clob_handler(captured, {"1": "0.02"}))
             return await client.get_spreads(token_ids=["1"])
@@ -266,47 +284,3 @@ def test_async_get_last_trade_prices_posts_token_ids_at_correct_path() -> None:
     assert captured[0].method == "POST"
     assert urlparse(str(captured[0].url)).path == "/last-trades-prices"
     assert _body(captured[0]) == [{"token_id": "1"}, {"token_id": "2"}]
-
-
-def test_async_get_price_history_maps_token_id_to_market_param() -> None:
-    captured: list[httpx.Request] = []
-
-    async def run() -> tuple[PriceHistoryPoint, ...]:
-        async with AsyncPublicClient() as client:
-            _install_async_clob(
-                client, _clob_handler(captured, {"history": [{"t": 1000, "p": 0.5}]})
-            )
-            return await client.get_price_history(token_id="123")
-
-    result = asyncio.run(run())
-
-    assert len(result) == 1
-    parsed = urlparse(str(captured[0].url))
-    assert parsed.path == "/prices-history"
-    assert parse_qs(parsed.query) == {"market": ["123"]}
-
-
-def test_async_get_price_history_preserves_camelcase_optional_params_on_wire() -> None:
-    captured: list[httpx.Request] = []
-
-    async def run() -> tuple[PriceHistoryPoint, ...]:
-        async with AsyncPublicClient() as client:
-            _install_async_clob(client, _clob_handler(captured, {"history": []}))
-            return await client.get_price_history(
-                token_id="123",
-                start_ts=1000,
-                end_ts=2000,
-                fidelity=60,
-                interval="1d",
-            )
-
-    asyncio.run(run())
-
-    parsed_qs = parse_qs(urlparse(str(captured[0].url)).query)
-    assert parsed_qs == {
-        "market": ["123"],
-        "startTs": ["1000"],
-        "endTs": ["2000"],
-        "fidelity": ["60"],
-        "interval": ["1d"],
-    }

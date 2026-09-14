@@ -49,6 +49,8 @@ _CONTRACT_FIELDS = {
     "negRiskExchange": "neg_risk_exchange",
     "exchangeV3": "exchange_v3",
     "protocolV2Router": "protocol_v2_router",
+    "binaryModule": "binary_module",
+    "negRiskModule": "neg_risk_module",
     "combinatorialModule": "combinatorial_module",
     "positionManager": "position_manager",
     "autoRedeemOperator": "auto_redeem_operator",

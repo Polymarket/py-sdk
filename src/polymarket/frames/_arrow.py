@@ -175,6 +175,9 @@ _DECIMAL256_MAX_PRECISION = 76
 def _infer_scalar_column_type(non_null_values: Sequence[object]) -> pa.DataType:
     pa = _require_pyarrow()
 
+    # Infer the values written to Arrow, so enums can share a column with their primitives.
+    non_null_values = [_serialize_value(v) if isinstance(v, Enum) else v for v in non_null_values]
+
     # bool subclasses int; treat them as distinct categories.
     types_seen = {type(v) for v in non_null_values}
 

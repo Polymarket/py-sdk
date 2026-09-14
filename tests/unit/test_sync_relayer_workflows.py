@@ -18,6 +18,7 @@ from _relayer_helpers import (
     request_json,
     trading_approval_rpc_handler,
 )
+from data_v2_samples import position_payload
 from eth_abi.abi import decode as abi_decode
 from eth_abi.abi import encode as abi_encode
 
@@ -194,7 +195,7 @@ def test_setup_trading_approvals_bundles_required_calls_for_deposit_wallet() -> 
     submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
     body = request_json(submit_calls[0])
     inner_calls = body["depositWalletParams"]["calls"]
-    assert len(inner_calls) == 15
+    assert len(inner_calls) == 17
 
 
 def test_setup_trading_approvals_skips_submit_when_already_approved() -> None:
@@ -444,10 +445,10 @@ def test_merge_multiple_positions_batches_market_merges() -> None:
     ]
 
 
-def test_merge_multiple_positions_rejects_mixed_market_and_combo_positions() -> None:
+def test_merge_multiple_positions_rejects_mixed_identifier_styles() -> None:
     with (
         make_sync_deposit_client() as client,
-        pytest.raises(UserInputError, match="Cannot mix market and combo"),
+        pytest.raises(UserInputError, match="Cannot mix market and Polymarket V2"),
     ):
         client.merge_multiple_positions(
             positions=[
@@ -478,20 +479,24 @@ def _stub_binary_positions(  # type: ignore[no-untyped-def]
     from polymarket.pagination import Page
 
     yes = Position.parse_response(
-        {
-            "conditionId": condition_id,
-            "outcomeIndex": 0,
-            "size": yes_size,
-            "negativeRisk": neg_risk,
-        }
+        position_payload(
+            **{
+                "condition_id": condition_id,
+                "outcome_index": 0,
+                "current_size": yes_size,
+                "negative_risk": neg_risk,
+            }
+        )
     )
     no = Position.parse_response(
-        {
-            "conditionId": condition_id,
-            "outcomeIndex": 1,
-            "size": no_size,
-            "negativeRisk": neg_risk,
-        }
+        position_payload(
+            **{
+                "condition_id": condition_id,
+                "outcome_index": 1,
+                "current_size": no_size,
+                "negative_risk": neg_risk,
+            }
+        )
     )
 
     class _StubPaginator:
@@ -512,14 +517,16 @@ def _stub_market(
     neg_risk: bool | None = True,
     yes_token_id: str | None = "101",
     no_token_id: str | None = "202",
+    yes_position_id: str | None = None,
+    no_position_id: str | None = None,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         id="123",
         condition_id=condition_id,
         state=SimpleNamespace(neg_risk=neg_risk),
         outcomes=SimpleNamespace(
-            yes=SimpleNamespace(token_id=yes_token_id),
-            no=SimpleNamespace(token_id=no_token_id),
+            yes=SimpleNamespace(token_id=yes_token_id, position_id=yes_position_id),
+            no=SimpleNamespace(token_id=no_token_id, position_id=no_position_id),
         ),
     )
 
@@ -574,6 +581,24 @@ def test_redeem_positions_routes_through_neg_risk_collateral_adapter() -> None:
     body = request_json(submit)
     inner = body["depositWalletParams"]["calls"][0]
     assert inner["target"].lower() == PRODUCTION_CONFIG.neg_risk_collateral_adapter.lower()
+
+
+def test_sync_redeem_market_position_requires_two_v2_balances() -> None:
+    condition_id = "0x01" + "99" * 30
+    market = _stub_market(
+        condition_id,
+        neg_risk=None,
+        yes_token_id=None,
+        no_token_id=None,
+        yes_position_id=_combo_position(condition_id, 0),
+        no_position_id=_combo_position(condition_id, 1),
+    )
+
+    with make_sync_deposit_client() as client:
+        client.list_markets = lambda **_: _stub_page((market,))  # type: ignore[method-assign]
+        install_sync_rpc_handler(client, _eth_call_result("uint256[]", [12]))
+        with pytest.raises(UnexpectedResponseError, match="Expected two position balances"):
+            client.redeem_positions(condition_id=condition_id)
 
 
 def test_redeem_positions_market_id_resolves_condition_before_fetching_positions() -> None:

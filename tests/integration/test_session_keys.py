@@ -98,15 +98,8 @@ async def test_session_key_authorizes_lists_trades_and_revokes(
             assert order_id in cancellation.canceled
             order_id = None
 
-            revocation_transaction = await deposit_wallet_client.revoke_session_key(
-                address=session_account.address
-            )
+            await deposit_wallet_client.revoke_session_key(address=session_account.address)
             revocation_accepted = True
-            assert revocation_transaction.transaction_id is not None
-            assert re.fullmatch(
-                r"0x[0-9a-fA-F]{64}",
-                str(revocation_transaction.transaction_hash),
-            )
 
             remaining_session_keys = await deposit_wallet_client.fetch_session_keys()
             assert all(

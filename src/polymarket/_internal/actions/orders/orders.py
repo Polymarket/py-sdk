@@ -2,6 +2,7 @@ import secrets
 import time
 
 from polymarket._internal.actions.orders.types import BYTES32_ZERO, OrderDraft, UnsignedOrder
+from polymarket._internal.protocol import is_v2_position_id
 from polymarket._internal.wallet import WalletType, signature_type_for
 from polymarket.models.clob.orders import SignedOrder
 from polymarket.types import EvmAddress, HexString
@@ -33,7 +34,8 @@ def create_unsigned_order(
         signer=signer,
         taker_amount=draft.requested_amount,
         timestamp=_current_timestamp_ms(),
-        token_id=draft.token_id,
+        token_id=draft.asset_id,
+        protocol_version="3" if is_v2_position_id(draft.asset_id) else "2",
     )
 
 

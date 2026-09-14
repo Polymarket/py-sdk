@@ -8,7 +8,11 @@ from polymarket._internal.actions.orders.types import BYTES32_ZERO
 from polymarket._internal.validation import require_nonempty, validate_builder_code
 from polymarket.errors import RequestRejectedError, UnexpectedResponseError, UserInputError
 from polymarket.models.clob.builder import BuilderFeeRates
-from polymarket.models.types import CtfConditionId, TokenId, validate_ctf_condition_id
+from polymarket.models.types import (
+    ClobAssetId,
+    ConditionId,
+    validate_condition_id,
+)
 
 if TYPE_CHECKING:
     from polymarket._internal.context import AsyncClientContext, SyncClientContext
@@ -36,7 +40,13 @@ class MarketInfo:
     fee_info: PlatformFeeInfo
     neg_risk: bool
     tick_size: Decimal
-    token_ids: frozenset[TokenId]
+    token_ids: frozenset[ClobAssetId]
+
+    @property
+    def asset_ids(self) -> frozenset[ClobAssetId]:
+        """Canonical alias for the CLOB market's assets."""
+
+        return self.token_ids
 
 
 async def fetch_tick_size(ctx: AsyncClientContext, *, token_id: str) -> Decimal:
@@ -64,25 +74,27 @@ def fetch_neg_risk_sync(ctx: SyncClientContext, *, token_id: str) -> bool:
 
 
 async def resolve_condition_by_token(
-    ctx: AsyncClientContext, *, token_id: TokenId
-) -> CtfConditionId:
+    ctx: AsyncClientContext, *, token_id: ClobAssetId
+) -> ConditionId:
     validated = require_nonempty("token_id", token_id)
     data = await ctx.clob.get_json(f"/markets-by-token/{validated}")
     return _parse_condition_by_token(data)
 
 
-def resolve_condition_by_token_sync(ctx: SyncClientContext, *, token_id: TokenId) -> CtfConditionId:
+def resolve_condition_by_token_sync(
+    ctx: SyncClientContext, *, token_id: ClobAssetId
+) -> ConditionId:
     validated = require_nonempty("token_id", token_id)
     data = ctx.clob.get_json(f"/markets-by-token/{validated}")
     return _parse_condition_by_token(data)
 
 
 async def fetch_platform_fee_info(
-    ctx: AsyncClientContext, *, condition_id: CtfConditionId
+    ctx: AsyncClientContext, *, condition_id: ConditionId
 ) -> PlatformFeeInfo:
     validated = require_nonempty("condition_id", condition_id)
     try:
-        validated = validate_ctf_condition_id(validated)
+        validated = validate_condition_id(validated)
     except ValueError as error:
         raise UserInputError(str(error)) from error
     data = await ctx.clob.get_json(f"/clob-markets/{validated}")
@@ -90,24 +102,24 @@ async def fetch_platform_fee_info(
 
 
 def fetch_platform_fee_info_sync(
-    ctx: SyncClientContext, *, condition_id: CtfConditionId
+    ctx: SyncClientContext, *, condition_id: ConditionId
 ) -> PlatformFeeInfo:
     validated = require_nonempty("condition_id", condition_id)
     try:
-        validated = validate_ctf_condition_id(validated)
+        validated = validate_condition_id(validated)
     except ValueError as error:
         raise UserInputError(str(error)) from error
     data = ctx.clob.get_json(f"/clob-markets/{validated}")
     return _parse_platform_fee_info(data)
 
 
-async def fetch_market_info(ctx: AsyncClientContext, *, condition_id: CtfConditionId) -> MarketInfo:
+async def fetch_market_info(ctx: AsyncClientContext, *, condition_id: ConditionId) -> MarketInfo:
     validated = _validate_condition_id(condition_id)
     data = await ctx.clob.get_json(f"/clob-markets/{validated}")
     return _parse_market_info(data)
 
 
-def fetch_market_info_sync(ctx: SyncClientContext, *, condition_id: CtfConditionId) -> MarketInfo:
+def fetch_market_info_sync(ctx: SyncClientContext, *, condition_id: ConditionId) -> MarketInfo:
     validated = _validate_condition_id(condition_id)
     data = ctx.clob.get_json(f"/clob-markets/{validated}")
     return _parse_market_info(data)
@@ -178,14 +190,14 @@ def _parse_neg_risk(data: object) -> bool:
     return raw
 
 
-def _parse_condition_by_token(data: object) -> CtfConditionId:
+def _parse_condition_by_token(data: object) -> ConditionId:
     if not isinstance(data, dict):
         raise UnexpectedResponseError("markets-by-token response did not match expected shape")
     raw = cast(dict[str, object], data).get("condition_id")
     if not isinstance(raw, str) or not raw:
         raise UnexpectedResponseError("markets-by-token response missing or invalid 'condition_id'")
     try:
-        return validate_ctf_condition_id(raw)
+        return validate_condition_id(raw)
     except ValueError as error:
         raise UnexpectedResponseError(
             "markets-by-token response missing or invalid 'condition_id'"
@@ -224,26 +236,26 @@ def _parse_market_info(data: object) -> MarketInfo:
         raise UnexpectedResponseError(
             f"clob-markets 't' must be an array, got {type(raw_tokens).__name__}"
         )
-    token_ids: set[TokenId] = set()
+    asset_ids: set[ClobAssetId] = set()
     for index, raw_token in enumerate(cast(list[object], raw_tokens)):
         if not isinstance(raw_token, dict):
             raise UnexpectedResponseError(f"clob-markets 't[{index}]' must be an object")
         raw_token_id = cast(dict[str, object], raw_token).get("t")
         if not isinstance(raw_token_id, str) or not raw_token_id:
             raise UnexpectedResponseError(f"clob-markets 't[{index}].t' must be a non-empty string")
-        token_ids.add(TokenId(raw_token_id))
+        asset_ids.add(cast(ClobAssetId, raw_token_id))
     return MarketInfo(
         fee_info=_parse_platform_fee_info(payload),
         neg_risk=raw_neg_risk,
         tick_size=_parse_tick_size_value(payload.get("mts"), "clob-markets 'mts'"),
-        token_ids=frozenset(token_ids),
+        token_ids=frozenset(asset_ids),
     )
 
 
-def _validate_condition_id(condition_id: CtfConditionId) -> CtfConditionId:
+def _validate_condition_id(condition_id: ConditionId) -> ConditionId:
     validated = require_nonempty("condition_id", condition_id)
     try:
-        return validate_ctf_condition_id(validated)
+        return validate_condition_id(validated)
     except ValueError as error:
         raise UserInputError(str(error)) from error
 

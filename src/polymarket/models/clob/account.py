@@ -4,7 +4,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Literal, TypeAlias, cast
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, computed_field, field_validator
 
 from polymarket.models._validators import parse_decimal_string
 from polymarket.models.base import BaseModel
@@ -12,9 +12,9 @@ from polymarket.models.clob._validators import (
     _parse_expiration_timestamp,  # pyright: ignore[reportPrivateUsage]
     _require_epoch_or_iso_timestamp,  # pyright: ignore[reportPrivateUsage]
 )
-from polymarket.models.types import CtfConditionId, OrderSide, TokenId
+from polymarket.models.types import ClobAssetId, ConditionId, OrderSide
 
-AssetType: TypeAlias = Literal["COLLATERAL", "CONDITIONAL"]
+AssetType: TypeAlias = Literal["COLLATERAL", "CONDITIONAL", "CONDITIONAL-V2"]
 
 TradeStatus: TypeAlias = Literal[
     "MATCHED",
@@ -45,14 +45,14 @@ class OpenOrder(BaseModel):
     """Open order owned by an account."""
 
     id: str
-    market: CtfConditionId = Field(
+    market: ConditionId = Field(
         description="Deprecated: use condition_id. Retained for backward compatibility."
     )
-    condition_id: CtfConditionId = Field(
+    condition_id: ConditionId = Field(
         validation_alias="market",
-        description="CTF condition id for the market associated with this order.",
+        description="Condition ID for the market associated with this order.",
     )
-    token_id: TokenId = Field(validation_alias="asset_id")
+    asset_id: ClobAssetId = Field(validation_alias=AliasChoices("asset_id", "token_id"))
     owner: str
     maker_address: str = Field(validation_alias="maker_address")
     side: OrderSide
@@ -65,6 +65,13 @@ class OpenOrder(BaseModel):
     associate_trades: tuple[str, ...] = Field(default=(), validation_alias="associate_trades")
     created_at: datetime = Field(validation_alias="created_at")
     expires_at: datetime | None = Field(default=None, validation_alias="expiration")
+
+    @computed_field
+    @property
+    def token_id(self) -> ClobAssetId:
+        """Deprecated alias for :attr:`asset_id`."""
+
+        return self.asset_id
 
     _validate_decimals = field_validator("price", "original_size", "size_matched", mode="before")(
         parse_decimal_string
@@ -96,7 +103,7 @@ class MakerOrder(BaseModel):
     """Maker-side fill information attached to a trade."""
 
     order_id: str = Field(validation_alias="order_id")
-    token_id: TokenId = Field(validation_alias="asset_id")
+    asset_id: ClobAssetId = Field(validation_alias=AliasChoices("asset_id", "token_id"))
     maker_address: str = Field(validation_alias="maker_address")
     owner: str
     side: OrderSide
@@ -104,6 +111,13 @@ class MakerOrder(BaseModel):
     matched_amount: Decimal = Field(validation_alias="matched_amount")
     outcome: str
     fee_rate_bps: Decimal | None = Field(default=None, validation_alias="fee_rate_bps")
+
+    @computed_field
+    @property
+    def token_id(self) -> ClobAssetId:
+        """Deprecated alias for :attr:`asset_id`."""
+
+        return self.asset_id
 
     _validate_decimals = field_validator("price", "matched_amount", "fee_rate_bps", mode="before")(
         parse_decimal_string
@@ -119,14 +133,14 @@ class ClobTrade(BaseModel):
     """Executed trade for an account or market."""
 
     id: str
-    market: CtfConditionId = Field(
+    market: ConditionId = Field(
         description="Deprecated: use condition_id. Retained for backward compatibility."
     )
-    condition_id: CtfConditionId = Field(
+    condition_id: ConditionId = Field(
         validation_alias="market",
-        description="CTF condition id for the market associated with this trade.",
+        description="Condition ID for the market associated with this trade.",
     )
-    token_id: TokenId = Field(validation_alias="asset_id")
+    asset_id: ClobAssetId = Field(validation_alias=AliasChoices("asset_id", "token_id"))
     owner: str
     maker_address: str = Field(validation_alias="maker_address")
     taker_order_id: str = Field(validation_alias="taker_order_id")
@@ -142,6 +156,13 @@ class ClobTrade(BaseModel):
     maker_orders: tuple[MakerOrder, ...] = Field(validation_alias="maker_orders")
     matched_at: datetime = Field(validation_alias="match_time")
     updated_at: datetime = Field(validation_alias="last_update")
+
+    @computed_field
+    @property
+    def token_id(self) -> ClobAssetId:
+        """Deprecated alias for :attr:`asset_id`."""
+
+        return self.asset_id
 
     _validate_decimals = field_validator("price", "size", "fee_rate_bps", mode="before")(
         parse_decimal_string

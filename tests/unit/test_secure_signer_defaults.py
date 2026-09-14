@@ -20,7 +20,14 @@ FAKE_CREDS = ApiKeyCreds(key="test-key", passphrase="test-passphrase", secret="d
 def _capturing_handler(captured: list[httpx.Request], payload: Any) -> httpx.MockTransport:
     def handler(request: httpx.Request) -> httpx.Response:
         captured.append(request)
-        return httpx.Response(200, json=payload, request=request)
+        payload_value: dict[str, Any]
+        if request.url.path == "/v2/value":
+            payload_value = {"data": {"proxy_wallet": request.url.params["user"], "value": 0}}
+        elif request.url.path == "/v2/user-stats":
+            payload_value = {"data": None}
+        else:
+            payload_value = {"data": [], "pagination": {"has_more": False, "next_cursor": None}}
+        return httpx.Response(200, json=payload_value, request=request)
 
     return httpx.MockTransport(handler)
 
@@ -50,10 +57,10 @@ def _captured() -> list[httpx.Request]:
     return []
 
 
-# ---- get_portfolio_values ----
+# ---- get_portfolio_value ----
 
 
-def test_secure_get_portfolio_values_defaults_to_signer(captured: list[httpx.Request]) -> None:
+def test_secure_get_portfolio_value_defaults_to_signer(captured: list[httpx.Request]) -> None:
     with SecureClient._create(
         private_key=PRIVATE_KEY,
         wallet=SIGNER_ADDRESS,
@@ -61,12 +68,12 @@ def test_secure_get_portfolio_values_defaults_to_signer(captured: list[httpx.Req
         validate_credentials=False,
     ) as client:
         _install_sync_data(client, _capturing_handler(captured, []))
-        client.get_portfolio_values()
+        client.get_portfolio_value()
 
     assert _qs_user(captured[0]) == SIGNER_ADDRESS
 
 
-def test_secure_get_portfolio_values_respects_explicit_user(
+def test_secure_get_portfolio_value_respects_explicit_user(
     captured: list[httpx.Request],
 ) -> None:
     with SecureClient._create(
@@ -76,15 +83,15 @@ def test_secure_get_portfolio_values_respects_explicit_user(
         validate_credentials=False,
     ) as client:
         _install_sync_data(client, _capturing_handler(captured, []))
-        client.get_portfolio_values(user=OTHER_WALLET)
+        client.get_portfolio_value(user=OTHER_WALLET)
 
     assert _qs_user(captured[0]) == OTHER_WALLET
 
 
-# ---- get_traded_market_count ----
+# ---- get_user_stats ----
 
 
-def test_secure_get_traded_market_count_defaults_to_signer(
+def test_secure_get_user_stats_defaults_to_signer(
     captured: list[httpx.Request],
 ) -> None:
     with SecureClient._create(
@@ -96,12 +103,12 @@ def test_secure_get_traded_market_count_defaults_to_signer(
         _install_sync_data(
             client, _capturing_handler(captured, {"user": SIGNER_ADDRESS, "traded": 0})
         )
-        client.get_traded_market_count()
+        client.get_user_stats()
 
     assert _qs_user(captured[0]) == SIGNER_ADDRESS
 
 
-def test_secure_get_traded_market_count_respects_explicit_user(
+def test_secure_get_user_stats_respects_explicit_user(
     captured: list[httpx.Request],
 ) -> None:
     with SecureClient._create(
@@ -113,7 +120,7 @@ def test_secure_get_traded_market_count_respects_explicit_user(
         _install_sync_data(
             client, _capturing_handler(captured, {"user": OTHER_WALLET, "traded": 0})
         )
-        client.get_traded_market_count(user=OTHER_WALLET)
+        client.get_user_stats(user=OTHER_WALLET)
 
     assert _qs_user(captured[0]) == OTHER_WALLET
 
@@ -199,7 +206,7 @@ def test_secure_list_closed_positions_defaults_to_signer(captured: list[httpx.Re
         validate_credentials=False,
     ) as client:
         _install_sync_data(client, _capturing_handler(captured, []))
-        client.list_closed_positions().first_page()
+        client.list_positions(status="CLOSED").first_page()
 
     assert _qs_user(captured[0]) == SIGNER_ADDRESS
 
@@ -346,7 +353,7 @@ def test_secure_list_positions_rejects_explicit_empty_user(
             client.list_positions(user="").first_page()
 
 
-def test_secure_get_portfolio_values_rejects_explicit_empty_user(
+def test_secure_get_portfolio_value_rejects_explicit_empty_user(
     captured: list[httpx.Request],
 ) -> None:
     from polymarket.errors import UserInputError
@@ -359,4 +366,4 @@ def test_secure_get_portfolio_values_rejects_explicit_empty_user(
     ) as client:
         _install_sync_data(client, _capturing_handler(captured, []))
         with pytest.raises(UserInputError, match="user is required"):
-            client.get_portfolio_values(user="")
+            client.get_portfolio_value(user="")
