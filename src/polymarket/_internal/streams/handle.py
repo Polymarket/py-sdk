@@ -78,8 +78,13 @@ class AsyncSubscriptionHandle(Generic[T]):
         except asyncio.QueueFull:
             self._dropped += 1
 
-    def _end(self, error: BaseException | None = None) -> None:
+    def _end(self, error: BaseException | None = None, *, discard_pending: bool = False) -> None:
+        if discard_pending:
+            while not self._queue.empty():
+                self._queue.get_nowait()
         if self._ended:
+            if discard_pending:
+                self._queue.put_nowait(_END)
             return
         self._ended = True
         self._end_error = error
@@ -101,6 +106,10 @@ class AsyncSubscriptionHandle(Generic[T]):
         return self
 
     async def __anext__(self) -> T:
+        if self._ended and self._queue.empty():
+            if self._end_error is not None:
+                raise self._end_error
+            raise StopAsyncIteration
         item = await self._queue.get()
         if isinstance(item, _EndSentinel):
             if self._end_error is not None:
@@ -111,7 +120,7 @@ class AsyncSubscriptionHandle(Generic[T]):
     async def close(self) -> None:
         if self._closing is None:
             self._closing = asyncio.create_task(self._do_close())
-        await self._closing
+        await asyncio.shield(self._closing)
 
     async def _do_close(self) -> None:
         on_close = self._on_close
@@ -120,7 +129,7 @@ class AsyncSubscriptionHandle(Generic[T]):
             # Best-effort: close() must always leave the handle terminal.
             with contextlib.suppress(Exception):
                 await on_close(self)
-        self._end()
+        self._end(discard_pending=True)
 
     async def __aenter__(self) -> Self:
         return self

@@ -1,4 +1,5 @@
 # pyright: reportUnnecessaryIsInstance=false
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Literal, TypeVar
@@ -157,6 +158,9 @@ class CryptoPricesSpec:
 
     When ``symbols`` is omitted, the subscription receives all symbols for the
     selected topic.
+
+    Deprecated: use ``CryptoPriceSpec`` with an ``AsyncSecureClient`` and
+    explicit canonical USD symbols such as ``btcusd``.
     """
 
     topic: CryptoPricesTopic
@@ -177,6 +181,9 @@ class CryptoPricesChainlinkTwapSpec:
     ``window_seconds`` selects the 30-second or 60-second averaging window.
     Symbols are lowercase slash-delimited pairs such as ``btc/usd``. When
     ``symbols`` is omitted, the subscription receives every symbol.
+
+    Deprecated: use ``CryptoTwapPriceSpec`` for a fixed 60-second USD TWAP
+    with an ``AsyncSecureClient``.
     """
 
     window_seconds: CryptoPricesChainlinkTwapWindowSeconds
@@ -197,7 +204,10 @@ class CryptoPricesChainlinkTwapSpec:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class EquityPricesSpec:
-    """Subscribe to realtime equity price updates for one symbol."""
+    """Subscribe to realtime equity price updates for one symbol.
+
+    Deprecated: use ``EquityPriceSpec`` with an ``AsyncSecureClient``.
+    """
 
     symbol: str
     types: Sequence[EquityPricesEventType] | None = None
@@ -346,6 +356,82 @@ class PerpsStatisticsSpec:
         _validate_perps_instrument_id(self.instrument_id, optional=True)
 
 
+def _normalize_price_symbols(symbols: Sequence[str]) -> tuple[str, ...]:
+    if not isinstance(symbols, Sequence) or isinstance(symbols, str | bytes) or not symbols:
+        raise UserInputError("symbols must be a non-empty sequence of canonical USD pairs")
+    for symbol in symbols:
+        if (
+            not isinstance(symbol, str)
+            or len(symbol) > 64
+            or re.fullmatch(r"[a-z0-9]+usd", symbol) is None
+        ):
+            raise UserInputError(
+                "Use canonical lowercase USD pairs such as btcusd; slash and USDT pairs "
+                "are not supported"
+            )
+    return tuple(dict.fromkeys(symbols))
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class CryptoPriceSpec:
+    """Subscribe to authenticated USD crypto prices and recent history.
+
+    Use explicit canonical lowercase symbols such as ``btcusd`` and ``ethusd``.
+    Requires ``AsyncSecureClient``; subscription waits for server acceptance.
+    """
+
+    symbols: Sequence[str]
+    topic: Literal["prices.crypto"] = field(default="prices.crypto", init=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "symbols", _normalize_price_symbols(self.symbols))
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class CryptoTwapPriceSpec:
+    """Subscribe to authenticated 60-second USD crypto TWAPs and recent history.
+
+    Use explicit canonical lowercase USD pairs such as ``btcusd``.
+    The averaging window is fixed at 60 seconds. Requires ``AsyncSecureClient``.
+    """
+
+    symbols: Sequence[str]
+    topic: Literal["prices.crypto.twap"] = field(default="prices.crypto.twap", init=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "symbols", _normalize_price_symbols(self.symbols))
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class EquityPriceSpec:
+    """Subscribe to authenticated USD equity prices for one symbol, such as ``aapl``.
+
+    Symbols are trimmed and lowercased. Omitted or empty ``types`` receives both
+    history (``subscribe``) and live (``update``) events. Requires ``AsyncSecureClient``.
+    """
+
+    symbol: str
+    types: Sequence[EquityPricesEventType] | None = None
+    topic: Literal["prices.equity"] = field(default="prices.equity", init=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.symbol, str):
+            raise UserInputError("symbol must be a string")
+        symbol = self.symbol.strip()
+        if not 1 <= len(symbol) <= 64 or re.fullmatch(r"[a-zA-Z0-9._:/-]+", symbol) is None:
+            raise UserInputError("symbol must contain 1 to 64 supported symbol characters")
+        object.__setattr__(self, "symbol", symbol.lower())
+        if self.types is not None:
+            if (
+                not isinstance(self.types, Sequence)
+                or isinstance(self.types, str | bytes)
+                or any(not isinstance(t, str) or t not in _EQUITY_EVENT_TYPES for t in self.types)
+            ):
+                raise UserInputError("types must be a sequence of 'update' or 'subscribe'")
+            object.__setattr__(self, "types", tuple(self.types))
+
+
+PriceSpec = CryptoPriceSpec | CryptoTwapPriceSpec | EquityPriceSpec
 RtdsSpec = CommentsSpec | CryptoPricesSpec | CryptoPricesChainlinkTwapSpec | EquityPricesSpec
 PerpsSpec = (
     PerpsTradesSpec
@@ -356,11 +442,14 @@ PerpsSpec = (
     | PerpsStatisticsSpec
 )
 PublicSubscription = MarketSpec | SportsSpec | RtdsSpec | PerpsSpec
-SecureSubscription = PublicSubscription | UserSpec
+SecureSubscription = PublicSubscription | UserSpec | PriceSpec
 Subscription = SecureSubscription
 
 
 _SPEC_TYPES: tuple[type[Subscription], ...] = (
+    CryptoPriceSpec,
+    CryptoTwapPriceSpec,
+    EquityPriceSpec,
     MarketSpec,
     SportsSpec,
     CommentsSpec,
@@ -396,6 +485,10 @@ def normalize_specs(specs: _S | Sequence[_S]) -> list[_S]:
 
 
 __all__ = [
+    "CryptoPriceSpec",
+    "CryptoTwapPriceSpec",
+    "EquityPriceSpec",
+    "PriceSpec",
     "PublicSubscription",
     "SecureSubscription",
     "CommentsEventType",

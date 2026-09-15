@@ -26,6 +26,7 @@ _ROOT_KEYS = {
     "combos",
     "perps",
     "rtds",
+    "realtime",
     "sports",
     "relayerMaxPolls",
     "relayerPollFrequencyMs",
@@ -194,6 +195,17 @@ def load_integration_environment(raw_config: str | None) -> Environment:
         _reject_unknown_keys(endpoint, allowed={"ws", "headers"}, path=json_name)
         _require_empty_headers(endpoint, path=json_name)
         _copy_string(endpoint, "ws", config_updates, python_name, path=f"{json_name}.ws")
+
+    realtime = _optional_object(fork, "realtime")
+    if realtime is not None:
+        _reject_unknown_keys(realtime, allowed={"ws", "headers"}, path="realtime")
+        _copy_string(realtime, "ws", config_updates, "realtime_ws_url", path="realtime.ws")
+        headers = _optional_object(realtime, "headers", parent_path="realtime")
+        if headers is not None:
+            config_updates["realtime_ws_headers"] = {
+                key: _require_string(value, path=f"realtime.headers.{key}")
+                for key, value in headers.items()
+            }
 
     bridge = _optional_object(fork, "bridge")
     if bridge is not None:

@@ -40,7 +40,7 @@ from polymarket._internal.eoa.rpc import JsonRpcClient
 from polymarket._internal.streams.handle import AsyncSubscriptionHandle, SubscriptionHandle
 from polymarket.clients._transport import AsyncTransport
 from polymarket.environments import PRODUCTION, Environment
-from polymarket.errors import RequestRejectedError
+from polymarket.errors import RequestRejectedError, UserInputError
 from polymarket.models import (
     ComboMarket,
     Comment,
@@ -131,6 +131,7 @@ from polymarket.streams._specs import (
     EquityPricesSpec,
     MarketSpec,
     PerpsSpec,
+    PriceSpec,
     PublicSubscription,
     SportsSpec,
     normalize_specs,
@@ -592,6 +593,8 @@ class AsyncPublicClient:
             when finished.
         """
         items = normalize_specs(specs)
+        if any(isinstance(cast(object, spec), PriceSpec) for spec in items):
+            raise UserInputError("Authenticated subscriptions require AsyncSecureClient")
         # AsyncSubscriptionHandle is invariant in T, so per-channel handles
         # can't widen to the union type at the type level. Cast at the
         # boundary — the underlying queue holds whatever was pushed into it.
