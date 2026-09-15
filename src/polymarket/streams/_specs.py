@@ -223,10 +223,9 @@ class CryptoPricesChainlinkTwapSpec:
             CryptoTwapPriceSpec(symbols=["btcusd"])
 
     The replacement requires authentication and explicit symbols; omitting
-    symbols to receive every symbol is no longer supported. The price source
-    changes, so consumers that depend on Chainlink prices must assess the new
-    feed before migrating. Events use ``CryptoTwapPriceEvent`` and the
-    ``prices.crypto.twap`` topic. Branch on ``event.type``: ``subscribe`` carries
+    symbols to receive every symbol is no longer supported. Events use
+    ``CryptoTwapPriceEvent`` and the ``prices.crypto.twap`` topic.
+    Branch on ``event.type``: ``subscribe`` carries
     history in ``payload.data``, while ``update`` carries ``payload.value``.
     Payload timestamps are UTC ``datetime`` values instead of epoch-millisecond
     integers; prices remain ``Decimal`` values, with ``window_seconds=60``.
