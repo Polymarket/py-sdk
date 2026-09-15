@@ -278,12 +278,12 @@ from polymarket.session_keys import (
 )
 from polymarket.streams._specs import (
     CommentsSpec,
-    CryptoPricesChainlinkTwapSpec,
+    CryptoPricesChainlinkTwapSpec,  # pyright: ignore[reportDeprecated]
     CryptoPriceSpec,
-    CryptoPricesSpec,
+    CryptoPricesSpec,  # pyright: ignore[reportDeprecated]
     CryptoTwapPriceSpec,
     EquityPriceSpec,
-    EquityPricesSpec,
+    EquityPricesSpec,  # pyright: ignore[reportDeprecated]
     MarketSpec,
     PerpsSpec,
     PriceSpec,
@@ -1053,6 +1053,18 @@ class AsyncSecureClient:
         self, specs: EquityPriceSpec | Sequence[EquityPriceSpec], /
     ) -> SubscriptionHandle[EquityPriceEvent]: ...
     @overload
+    async def subscribe(
+        self, specs: Sequence[CryptoPriceSpec | CryptoTwapPriceSpec], /
+    ) -> SubscriptionHandle[CryptoPriceEvent | CryptoTwapPriceEvent]: ...
+    @overload
+    async def subscribe(
+        self, specs: Sequence[CryptoPriceSpec | EquityPriceSpec], /
+    ) -> SubscriptionHandle[CryptoPriceEvent | EquityPriceEvent]: ...
+    @overload
+    async def subscribe(
+        self, specs: Sequence[CryptoTwapPriceSpec | EquityPriceSpec], /
+    ) -> SubscriptionHandle[CryptoTwapPriceEvent | EquityPriceEvent]: ...
+    @overload
     async def subscribe(self, specs: Sequence[PriceSpec], /) -> SubscriptionHandle[PriceEvent]: ...
     @overload
     async def subscribe(self, specs: SportsSpec, /) -> SubscriptionHandle[SportsEvent]: ...
@@ -1060,15 +1072,21 @@ class AsyncSecureClient:
     async def subscribe(self, specs: CommentsSpec, /) -> SubscriptionHandle[CommentsEvent]: ...
     @overload
     async def subscribe(
-        self, specs: CryptoPricesSpec, /
+        self,
+        specs: CryptoPricesSpec,  # pyright: ignore[reportDeprecated]
+        /,
     ) -> SubscriptionHandle[CryptoPricesEvent]: ...
     @overload
     async def subscribe(
-        self, specs: CryptoPricesChainlinkTwapSpec, /
+        self,
+        specs: CryptoPricesChainlinkTwapSpec,  # pyright: ignore[reportDeprecated]
+        /,
     ) -> SubscriptionHandle[CryptoPricesChainlinkTwapEvent]: ...
     @overload
     async def subscribe(
-        self, specs: EquityPricesSpec, /
+        self,
+        specs: EquityPricesSpec,  # pyright: ignore[reportDeprecated]
+        /,
     ) -> SubscriptionHandle[EquityPricesEvent]: ...
     @overload
     async def subscribe(self, specs: PerpsSpec, /) -> SubscriptionHandle[PerpsMarketEvent]: ...
@@ -1088,15 +1106,21 @@ class AsyncSecureClient:
     ) -> SubscriptionHandle[CommentsEvent]: ...
     @overload
     async def subscribe(
-        self, specs: Sequence[CryptoPricesSpec], /
+        self,
+        specs: Sequence[CryptoPricesSpec],  # pyright: ignore[reportDeprecated]
+        /,
     ) -> SubscriptionHandle[CryptoPricesEvent]: ...
     @overload
     async def subscribe(
-        self, specs: Sequence[CryptoPricesChainlinkTwapSpec], /
+        self,
+        specs: Sequence[CryptoPricesChainlinkTwapSpec],  # pyright: ignore[reportDeprecated]
+        /,
     ) -> SubscriptionHandle[CryptoPricesChainlinkTwapEvent]: ...
     @overload
     async def subscribe(
-        self, specs: Sequence[EquityPricesSpec], /
+        self,
+        specs: Sequence[EquityPricesSpec],  # pyright: ignore[reportDeprecated]
+        /,
     ) -> SubscriptionHandle[EquityPricesEvent]: ...
     @overload
     async def subscribe(
@@ -1159,13 +1183,13 @@ class AsyncSecureClient:
                     handles.append(await self._get_user_manager().subscribe(markets=spec.markets))
                 elif isinstance(spec, PerpsSpec):
                     handles.append(await self._get_perps_manager().subscribe(spec))
-                elif isinstance(
+                elif isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
                     spec,
                     CommentsSpec
-                    | CryptoPricesSpec
-                    | CryptoPricesChainlinkTwapSpec
-                    | EquityPricesSpec,
-                ):  # pyright: ignore[reportUnnecessaryIsInstance]
+                    | CryptoPricesSpec  # pyright: ignore[reportDeprecated]
+                    | CryptoPricesChainlinkTwapSpec  # pyright: ignore[reportDeprecated]
+                    | EquityPricesSpec,  # pyright: ignore[reportDeprecated]
+                ):
                     handles.append(await self._get_rtds_manager().subscribe(spec))
                 else:
                     assert_never(spec)

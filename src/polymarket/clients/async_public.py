@@ -126,9 +126,9 @@ from polymarket.models.types import ClobAssetId, CtfConditionId
 from polymarket.pagination import AsyncPaginator, Page
 from polymarket.streams._specs import (
     CommentsSpec,
-    CryptoPricesChainlinkTwapSpec,
-    CryptoPricesSpec,
-    EquityPricesSpec,
+    CryptoPricesChainlinkTwapSpec,  # pyright: ignore[reportDeprecated]
+    CryptoPricesSpec,  # pyright: ignore[reportDeprecated]
+    EquityPricesSpec,  # pyright: ignore[reportDeprecated]
     MarketSpec,
     PerpsSpec,
     PriceSpec,
@@ -535,15 +535,21 @@ class AsyncPublicClient:
     async def subscribe(self, specs: CommentsSpec, /) -> SubscriptionHandle[CommentsEvent]: ...
     @overload
     async def subscribe(
-        self, specs: CryptoPricesSpec, /
+        self,
+        specs: CryptoPricesSpec,  # pyright: ignore[reportDeprecated]
+        /,
     ) -> SubscriptionHandle[CryptoPricesEvent]: ...
     @overload
     async def subscribe(
-        self, specs: CryptoPricesChainlinkTwapSpec, /
+        self,
+        specs: CryptoPricesChainlinkTwapSpec,  # pyright: ignore[reportDeprecated]
+        /,
     ) -> SubscriptionHandle[CryptoPricesChainlinkTwapEvent]: ...
     @overload
     async def subscribe(
-        self, specs: EquityPricesSpec, /
+        self,
+        specs: EquityPricesSpec,  # pyright: ignore[reportDeprecated]
+        /,
     ) -> SubscriptionHandle[EquityPricesEvent]: ...
     @overload
     async def subscribe(self, specs: PerpsSpec, /) -> SubscriptionHandle[PerpsMarketEvent]: ...
@@ -561,15 +567,21 @@ class AsyncPublicClient:
     ) -> SubscriptionHandle[CommentsEvent]: ...
     @overload
     async def subscribe(
-        self, specs: Sequence[CryptoPricesSpec], /
+        self,
+        specs: Sequence[CryptoPricesSpec],  # pyright: ignore[reportDeprecated]
+        /,
     ) -> SubscriptionHandle[CryptoPricesEvent]: ...
     @overload
     async def subscribe(
-        self, specs: Sequence[CryptoPricesChainlinkTwapSpec], /
+        self,
+        specs: Sequence[CryptoPricesChainlinkTwapSpec],  # pyright: ignore[reportDeprecated]
+        /,
     ) -> SubscriptionHandle[CryptoPricesChainlinkTwapEvent]: ...
     @overload
     async def subscribe(
-        self, specs: Sequence[EquityPricesSpec], /
+        self,
+        specs: Sequence[EquityPricesSpec],  # pyright: ignore[reportDeprecated]
+        /,
     ) -> SubscriptionHandle[EquityPricesEvent]: ...
     @overload
     async def subscribe(
@@ -612,13 +624,13 @@ class AsyncPublicClient:
                     handles.append(await self._get_sports_manager().subscribe())
                 elif isinstance(spec, PerpsSpec):
                     handles.append(await self._get_perps_manager().subscribe(spec))
-                elif isinstance(
+                elif isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
                     spec,
                     CommentsSpec
-                    | CryptoPricesSpec
-                    | CryptoPricesChainlinkTwapSpec
-                    | EquityPricesSpec,
-                ):  # pyright: ignore[reportUnnecessaryIsInstance]
+                    | CryptoPricesSpec  # pyright: ignore[reportDeprecated]
+                    | CryptoPricesChainlinkTwapSpec  # pyright: ignore[reportDeprecated]
+                    | EquityPricesSpec,  # pyright: ignore[reportDeprecated]
+                ):
                     handles.append(await self._get_rtds_manager().subscribe(spec))
                 else:
                     assert_never(spec)

@@ -4,6 +4,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Literal, TypeVar
 
+from typing_extensions import deprecated
+
 from polymarket.errors import UserInputError
 
 _COMMENT_EVENT_TYPES: frozenset[str] = frozenset(
@@ -152,6 +154,7 @@ class CommentsSpec:
             )
 
 
+@deprecated("Use CryptoPriceSpec with AsyncSecureClient.", category=None)
 @dataclass(frozen=True, slots=True, kw_only=True)
 class CryptoPricesSpec:
     """Subscribe to realtime crypto price updates for a topic.
@@ -161,6 +164,28 @@ class CryptoPricesSpec:
 
     Deprecated: use ``CryptoPriceSpec`` with an ``AsyncSecureClient`` and
     explicit canonical USD symbols such as ``btcusd``.
+
+    Examples:
+        Before::
+
+            CryptoPricesSpec(topic="prices.crypto.binance", symbols=["btcusdt"])
+            CryptoPricesSpec(topic="prices.crypto.chainlink", symbols=["btc/usd"])
+
+        After, using AsyncSecureClient::
+
+            CryptoPriceSpec(symbols=["btcusd"])
+
+    The replacement requires authentication and explicit symbols; omitting
+    symbols to receive every symbol is no longer supported.
+    Migrating Binance subscriptions changes the quote currency from USDT to USD
+    and the price source. Chainlink subscriptions also change price source.
+    Consumers that depend on a specific currency or source must assess these
+    changes before migrating. The replacement includes history snapshots as
+    well as live updates. Events use ``CryptoPriceEvent`` and the
+    ``prices.crypto`` topic. Branch on ``event.type``: ``subscribe`` carries
+    history in ``payload.data``, while ``update`` carries ``payload.value``.
+    Payload timestamps are UTC ``datetime`` values instead of epoch-millisecond
+    integers; prices remain ``Decimal`` values.
     """
 
     topic: CryptoPricesTopic
@@ -174,6 +199,7 @@ class CryptoPricesSpec:
         object.__setattr__(self, "symbols", _normalize_crypto_symbols(self.symbols))
 
 
+@deprecated("Use CryptoTwapPriceSpec with AsyncSecureClient.", category=None)
 @dataclass(frozen=True, slots=True, kw_only=True)
 class CryptoPricesChainlinkTwapSpec:
     """Subscribe to Chainlink TWAP price updates.
@@ -183,7 +209,27 @@ class CryptoPricesChainlinkTwapSpec:
     ``symbols`` is omitted, the subscription receives every symbol.
 
     Deprecated: use ``CryptoTwapPriceSpec`` for a fixed 60-second USD TWAP
-    with an ``AsyncSecureClient``.
+    with an ``AsyncSecureClient`` and explicit canonical USD symbols such as
+    ``btcusd``. The replacement includes history snapshots and live updates.
+    There is no replacement for the 30-second averaging window.
+
+    Examples:
+        Before::
+
+            CryptoPricesChainlinkTwapSpec(window_seconds=60, symbols=["btc/usd"])
+
+        After, using AsyncSecureClient::
+
+            CryptoTwapPriceSpec(symbols=["btcusd"])
+
+    The replacement requires authentication and explicit symbols; omitting
+    symbols to receive every symbol is no longer supported. The price source
+    changes, so consumers that depend on Chainlink prices must assess the new
+    feed before migrating. Events use ``CryptoTwapPriceEvent`` and the
+    ``prices.crypto.twap`` topic. Branch on ``event.type``: ``subscribe`` carries
+    history in ``payload.data``, while ``update`` carries ``payload.value``.
+    Payload timestamps are UTC ``datetime`` values instead of epoch-millisecond
+    integers; prices remain ``Decimal`` values, with ``window_seconds=60``.
     """
 
     window_seconds: CryptoPricesChainlinkTwapWindowSeconds
@@ -202,11 +248,31 @@ class CryptoPricesChainlinkTwapSpec:
         object.__setattr__(self, "symbols", _normalize_crypto_symbols(self.symbols))
 
 
+@deprecated("Use EquityPriceSpec with AsyncSecureClient.", category=None)
 @dataclass(frozen=True, slots=True, kw_only=True)
 class EquityPricesSpec:
     """Subscribe to realtime equity price updates for one symbol.
 
     Deprecated: use ``EquityPriceSpec`` with an ``AsyncSecureClient``.
+
+    Examples:
+        Before::
+
+            EquityPricesSpec(symbol="aapl", types=["update"])
+
+        After, using AsyncSecureClient::
+
+            EquityPriceSpec(symbol="aapl", types=["update"])
+
+    The replacement requires authentication and trims and lowercases symbols.
+    ``types`` still selects ``subscribe`` snapshots and/or ``update`` events;
+    omit it to receive both. The replacement also accepts an empty ``types``
+    sequence to receive both, which the legacy spec rejects.
+    Events use ``EquityPriceEvent`` and the ``prices.equity`` topic instead of
+    ``EquityPricesEvent`` and ``prices.equity.pyth``. Snapshots still carry
+    ``payload.data`` and updates still carry ``payload.value``. Payload
+    timestamps and optional ``received_at`` are UTC ``datetime`` values instead
+    of epoch-millisecond integers; prices remain ``Decimal`` values.
     """
 
     symbol: str
@@ -432,7 +498,7 @@ class EquityPriceSpec:
 
 
 PriceSpec = CryptoPriceSpec | CryptoTwapPriceSpec | EquityPriceSpec
-RtdsSpec = CommentsSpec | CryptoPricesSpec | CryptoPricesChainlinkTwapSpec | EquityPricesSpec
+RtdsSpec = CommentsSpec | CryptoPricesSpec | CryptoPricesChainlinkTwapSpec | EquityPricesSpec  # pyright: ignore[reportDeprecated]
 PerpsSpec = (
     PerpsTradesSpec
     | PerpsBboSpec
@@ -453,9 +519,9 @@ _SPEC_TYPES: tuple[type[Subscription], ...] = (
     MarketSpec,
     SportsSpec,
     CommentsSpec,
-    CryptoPricesSpec,
-    CryptoPricesChainlinkTwapSpec,
-    EquityPricesSpec,
+    CryptoPricesSpec,  # pyright: ignore[reportDeprecated]
+    CryptoPricesChainlinkTwapSpec,  # pyright: ignore[reportDeprecated]
+    EquityPricesSpec,  # pyright: ignore[reportDeprecated]
     PerpsTradesSpec,
     PerpsBboSpec,
     PerpsBookSpec,

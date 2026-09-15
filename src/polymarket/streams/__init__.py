@@ -99,15 +99,15 @@ from polymarket.models.sports_events import (
 from polymarket.streams._specs import (
     CommentsEventType,
     CommentsSpec,
-    CryptoPricesChainlinkTwapSpec,
+    CryptoPricesChainlinkTwapSpec,  # pyright: ignore[reportDeprecated]
     CryptoPricesChainlinkTwapWindowSeconds,
     CryptoPriceSpec,
-    CryptoPricesSpec,
+    CryptoPricesSpec,  # pyright: ignore[reportDeprecated]
     CryptoPricesTopic,
     CryptoTwapPriceSpec,
     EquityPricesEventType,
     EquityPriceSpec,
-    EquityPricesSpec,
+    EquityPricesSpec,  # pyright: ignore[reportDeprecated]
     MarketSpec,
     ParentEntityType,
     PerpsBboSpec,

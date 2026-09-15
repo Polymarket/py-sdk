@@ -442,7 +442,7 @@ def test_close_cascades_to_both_managers() -> None:
 
 def test_subscribe_with_rtds_spec_returns_rtds_handle() -> None:
     from polymarket.models.rtds_events import CryptoPricesBinanceEvent
-    from polymarket.streams import CryptoPricesSpec
+    from polymarket.streams import CryptoPricesSpec  # pyright: ignore[reportDeprecated]
 
     async def handler(ws: ServerConnection) -> None:
         await ws.recv()
@@ -468,7 +468,7 @@ def test_subscribe_with_rtds_spec_returns_rtds_handle() -> None:
             client = AsyncPublicClient(environment=_env_with_rtds_ws(url))
             try:
                 async with await client.subscribe(
-                    CryptoPricesSpec(topic="prices.crypto.binance")
+                    CryptoPricesSpec(topic="prices.crypto.binance")  # pyright: ignore[reportDeprecated]
                 ) as stream:
                     event = await asyncio.wait_for(stream.__aiter__().__anext__(), timeout=2.0)
                     assert isinstance(event, CryptoPricesBinanceEvent)
@@ -483,7 +483,9 @@ def test_subscribe_with_chainlink_twap_spec_returns_twap_handle() -> None:
     from decimal import Decimal
 
     from polymarket.models.rtds_events import CryptoPricesChainlinkTwapEvent
-    from polymarket.streams import CryptoPricesChainlinkTwapSpec
+    from polymarket.streams import (
+        CryptoPricesChainlinkTwapSpec,  # pyright: ignore[reportDeprecated]
+    )
 
     received: list[dict[str, Any]] = []
 
@@ -515,7 +517,7 @@ def test_subscribe_with_chainlink_twap_spec_returns_twap_handle() -> None:
             client = AsyncPublicClient(environment=_env_with_rtds_ws(url))
             try:
                 async with await client.subscribe(
-                    CryptoPricesChainlinkTwapSpec(
+                    CryptoPricesChainlinkTwapSpec(  # pyright: ignore[reportDeprecated]
                         window_seconds=30,
                         symbols=["btc/usd"],
                     )
@@ -539,7 +541,7 @@ def test_subscribe_with_chainlink_twap_spec_returns_twap_handle() -> None:
 
 
 def test_subscribe_with_market_sports_and_rtds_returns_merged_handle() -> None:
-    from polymarket.streams import CryptoPricesSpec, SportsSpec
+    from polymarket.streams import CryptoPricesSpec, SportsSpec  # pyright: ignore[reportDeprecated]
 
     async def market_handler(ws: ServerConnection) -> None:
         await ws.recv()
@@ -594,7 +596,7 @@ def test_subscribe_with_market_sports_and_rtds_returns_merged_handle() -> None:
                     [
                         MarketSpec(token_ids=["a"]),
                         SportsSpec(),
-                        CryptoPricesSpec(topic="prices.crypto.binance"),
+                        CryptoPricesSpec(topic="prices.crypto.binance"),  # pyright: ignore[reportDeprecated]
                     ]
                 ) as stream:
                     seen: set[str] = set()
@@ -610,7 +612,7 @@ def test_subscribe_with_market_sports_and_rtds_returns_merged_handle() -> None:
 
 
 def test_close_cascades_to_rtds_manager() -> None:
-    from polymarket.streams import CryptoPricesSpec
+    from polymarket.streams import CryptoPricesSpec  # pyright: ignore[reportDeprecated]
 
     async def handler(ws: ServerConnection) -> None:
         async for _ in ws:
@@ -619,7 +621,7 @@ def test_close_cascades_to_rtds_manager() -> None:
     async def run() -> None:
         async with ws_server(handler) as url:
             client = AsyncPublicClient(environment=_env_with_rtds_ws(url))
-            handle = await client.subscribe(CryptoPricesSpec(topic="prices.crypto.binance"))
+            handle = await client.subscribe(CryptoPricesSpec(topic="prices.crypto.binance"))  # pyright: ignore[reportDeprecated]
             await asyncio.sleep(0.05)
             await client.close()
             with pytest.raises(StopAsyncIteration):
@@ -629,16 +631,18 @@ def test_close_cascades_to_rtds_manager() -> None:
 
 
 def test_crypto_prices_spec_topic_field_is_caller_required() -> None:
-    from polymarket.streams import CryptoPricesSpec
+    from polymarket.streams import CryptoPricesSpec  # pyright: ignore[reportDeprecated]
 
     with pytest.raises(TypeError):
-        CryptoPricesSpec()  # pyright: ignore[reportCallIssue]
+        CryptoPricesSpec()  # pyright: ignore[reportCallIssue, reportDeprecated]
 
 
 def test_chainlink_twap_spec_validates_window_and_symbols_before_subscribe() -> None:
-    from polymarket.streams import CryptoPricesChainlinkTwapSpec
+    from polymarket.streams import (
+        CryptoPricesChainlinkTwapSpec,  # pyright: ignore[reportDeprecated]
+    )
 
-    spec = CryptoPricesChainlinkTwapSpec(
+    spec = CryptoPricesChainlinkTwapSpec(  # pyright: ignore[reportDeprecated]
         window_seconds=30,
         symbols=["btc/usd", "eth/usd"],
     )
@@ -646,26 +650,28 @@ def test_chainlink_twap_spec_validates_window_and_symbols_before_subscribe() -> 
     assert spec.symbols == ("btc/usd", "eth/usd")
 
     with pytest.raises(TypeError):
-        CryptoPricesChainlinkTwapSpec()  # pyright: ignore[reportCallIssue]
+        CryptoPricesChainlinkTwapSpec()  # pyright: ignore[reportCallIssue, reportDeprecated]
     for invalid_window in (45, "30", 30.0, True):
         with pytest.raises(UserInputError, match="30 or 60"):
-            CryptoPricesChainlinkTwapSpec(
+            CryptoPricesChainlinkTwapSpec(  # pyright: ignore[reportDeprecated]
                 window_seconds=invalid_window  # pyright: ignore[reportArgumentType]
             )
     with pytest.raises(UserInputError, match="single string"):
-        CryptoPricesChainlinkTwapSpec(
+        CryptoPricesChainlinkTwapSpec(  # pyright: ignore[reportDeprecated]
             window_seconds=30,
             symbols="btc/usd",  # pyright: ignore[reportArgumentType]
         )
     with pytest.raises(UserInputError, match="non-empty"):
-        CryptoPricesChainlinkTwapSpec(window_seconds=30, symbols=[])
+        CryptoPricesChainlinkTwapSpec(window_seconds=30, symbols=[])  # pyright: ignore[reportDeprecated]
 
 
 def test_chainlink_twap_spec_topic_field_is_not_caller_settable() -> None:
-    from polymarket.streams import CryptoPricesChainlinkTwapSpec
+    from polymarket.streams import (
+        CryptoPricesChainlinkTwapSpec,  # pyright: ignore[reportDeprecated]
+    )
 
     with pytest.raises(TypeError):
-        CryptoPricesChainlinkTwapSpec(
+        CryptoPricesChainlinkTwapSpec(  # pyright: ignore[reportDeprecated]
             window_seconds=30,
             topic="prices.crypto.chainlink",  # pyright: ignore[reportCallIssue]
         )
@@ -679,10 +685,10 @@ def test_comments_spec_topic_field_is_not_caller_settable() -> None:
 
 
 def test_equity_spec_topic_field_is_not_caller_settable() -> None:
-    from polymarket.streams import EquityPricesSpec
+    from polymarket.streams import EquityPricesSpec  # pyright: ignore[reportDeprecated]
 
     with pytest.raises(TypeError):
-        EquityPricesSpec(symbol="AAPL", topic="comments")  # pyright: ignore[reportCallIssue]
+        EquityPricesSpec(symbol="AAPL", topic="comments")  # pyright: ignore[reportCallIssue, reportDeprecated]
 
 
 def test_public_client_assert_never_protects_against_smuggled_user_spec() -> None:

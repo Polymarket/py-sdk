@@ -1097,6 +1097,7 @@ dependencies = [
     { name = "httpx", extra = ["http2"] },
     { name = "msgpack" },
     { name = "pydantic" },
+    { name = "typing-extensions" },
     { name = "websockets" },
 ]
 
@@ -1152,6 +1153,7 @@ requires-dist = [
     { name = "pyarrow", marker = "extra == 'polars'", specifier = ">=15,<22" },
     { name = "pyarrow", marker = "extra == 'quant'", specifier = ">=15,<22" },
     { name = "pydantic", specifier = ">=2,<3" },
+    { name = "typing-extensions", specifier = ">=4.15,<5" },
     { name = "websockets", specifier = ">=13,<16" },
 ]
 provides-extras = ["arrow", "pandas", "polars", "quant"]

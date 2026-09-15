@@ -4,7 +4,10 @@ import pytest
 
 from polymarket import AsyncPublicClient
 from polymarket.environments import PRODUCTION
-from polymarket.streams import CryptoPricesBinanceEvent, CryptoPricesSpec
+from polymarket.streams import (
+    CryptoPricesBinanceEvent,
+    CryptoPricesSpec,  # pyright: ignore[reportDeprecated]
+)
 
 
 @pytest.mark.integration
@@ -12,7 +15,7 @@ def test_live_rtds_clean_shutdown() -> None:
     async def run() -> None:
         client = AsyncPublicClient(environment=PRODUCTION)
         try:
-            async with await client.subscribe(CryptoPricesSpec(topic="prices.crypto.binance")):
+            async with await client.subscribe(CryptoPricesSpec(topic="prices.crypto.binance")):  # pyright: ignore[reportDeprecated]
                 await asyncio.sleep(0.5)
         finally:
             await client.close()
@@ -26,7 +29,7 @@ def test_live_rtds_receives_a_crypto_price_event() -> None:
         client = AsyncPublicClient(environment=PRODUCTION)
         try:
             async with await client.subscribe(
-                CryptoPricesSpec(topic="prices.crypto.binance")
+                CryptoPricesSpec(topic="prices.crypto.binance")  # pyright: ignore[reportDeprecated]
             ) as stream:
                 async for event in stream:
                     assert isinstance(event, CryptoPricesBinanceEvent)
