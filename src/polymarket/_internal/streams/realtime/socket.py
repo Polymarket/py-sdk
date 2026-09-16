@@ -188,9 +188,11 @@ class PriceConnection:
                 matches = [
                     i for i, candidate in enumerate(pending.channels) if candidate == channel
                 ]
-                if channel is None or len(matches) != 1:
+                if channel is None or not matches:
                     pending.future.set_exception(error)
                     return
+                # Per-item replies arrive in request order, including rejections.
+                # As with successful acks, consume the next filter on this channel.
                 index = matches[0]
                 pending.channels[index] = None
                 pending.rejected.append((index, error))

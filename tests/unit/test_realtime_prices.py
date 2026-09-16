@@ -400,6 +400,76 @@ def test_identified_batch_rejection_isolated_from_other_channel() -> None:
     asyncio.run(asyncio.wait_for(run(), 5))
 
 
+@pytest.mark.parametrize("spec_type", [CryptoPriceSpec, CryptoTwapPriceSpec])
+def test_same_channel_rejection_preserves_concurrent_subscriptions(
+    spec_type: type[CryptoPriceSpec] | type[CryptoTwapPriceSpec],
+) -> None:
+    async def run() -> None:
+        feed = Feed()
+        feed.reject_symbols.add("badusd")
+        async with feed_server(feed) as url:
+            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            try:
+                first, bad, last = await asyncio.gather(
+                    manager.subscribe(spec_type(symbols=["btcusd"])),
+                    manager.subscribe(spec_type(symbols=["badusd"])),
+                    manager.subscribe(spec_type(symbols=["ethusd"])),
+                    return_exceptions=True,
+                )
+                assert isinstance(bad, RequestRejectedError)
+                assert bad.code == "bad_filter"
+                for stream, symbol in ((first, "btcusd"), (last, "ethusd")):
+                    assert not isinstance(stream, BaseException)
+                    snapshot = await anext(stream)
+                    assert snapshot.type == "subscribe" and snapshot.payload.symbol == symbol
+                    channel = snapshot.topic.replace("prices.", "price.", 1)
+                    await feed.connections[0].send(json.dumps(price_frame(channel, symbol)))
+                    assert (await anext(stream)).type == "update"
+                assert len(feed.connections) == 1
+                assert len(feed.operations("subscribe")) == 1
+                assert not feed.operations("unsubscribe")
+            finally:
+                await manager.close()
+
+    asyncio.run(asyncio.wait_for(run(), 5))
+
+
+@pytest.mark.parametrize("spec_type", [CryptoPriceSpec, CryptoTwapPriceSpec])
+def test_same_channel_rejection_during_reconnect_preserves_live_siblings(
+    spec_type: type[CryptoPriceSpec] | type[CryptoTwapPriceSpec],
+) -> None:
+    async def run() -> None:
+        feed = Feed()
+        async with feed_server(feed) as url:
+            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            try:
+                first, rejected, last = await asyncio.gather(
+                    manager.subscribe(spec_type(symbols=["btcusd"])),
+                    manager.subscribe(spec_type(symbols=["solusd"])),
+                    manager.subscribe(spec_type(symbols=["ethusd"])),
+                )
+                for stream in (first, rejected, last):
+                    assert (await anext(stream)).type == "subscribe"
+                feed.reject_symbols.add("solusd")
+                await feed.connections[0].close(4002, "replay subscriptions")
+                with pytest.raises(RequestRejectedError) as failure:
+                    await anext(rejected)
+                assert failure.value.code == "bad_filter"
+                for stream, symbol in ((first, "btcusd"), (last, "ethusd")):
+                    snapshot = await anext(stream)
+                    assert snapshot.type == "subscribe" and snapshot.payload.symbol == symbol
+                    channel = snapshot.topic.replace("prices.", "price.", 1)
+                    await feed.connections[-1].send(json.dumps(price_frame(channel, symbol)))
+                    assert (await anext(stream)).type == "update"
+                assert len(feed.connections) == 2
+                assert len(feed.operations("subscribe")) == 2
+                assert not feed.operations("unsubscribe")
+            finally:
+                await manager.close()
+
+    asyncio.run(asyncio.wait_for(run(), 5))
+
+
 def test_unsubscribe_timeout_replays_replacement_without_orphaned_filter(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
