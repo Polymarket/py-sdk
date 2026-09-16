@@ -1147,10 +1147,12 @@ class AsyncSecureClient:
         are supported only by secure clients.
 
         ``CryptoPriceSpec``, ``CryptoTwapPriceSpec`` and ``EquityPriceSpec`` wait
-        for server acceptance and deliver recent history followed by live USD
-        prices. Crypto symbols use canonical lowercase pairs such as ``btcusd``;
-        TWAPs have a fixed 60-second window. Prices are ``Decimal`` values and
-        timestamps are timezone-aware. Shared subscriptions reuse connections.
+        for server acceptance and deliver recent history followed by live prices.
+        Crypto prices and crypto TWAPs are quoted in USD. Equity and forex prices
+        use the instrument's quote currency. Crypto symbols use canonical lowercase
+        pairs such as ``btcusd``; TWAPs have a fixed 60-second window.
+        Prices are ``Decimal`` values and timestamps are timezone-aware.
+        Shared subscriptions reuse connections.
         Sequence numbers are local to a channel on a connection, reset after
         reconnecting, and can interleave when more than 64 filters span sockets.
 

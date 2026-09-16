@@ -2,9 +2,13 @@ Price Streams
 #############
 
 Use ``AsyncSecureClient.subscribe`` with explicit symbols to receive recent
-history and live USD prices. Cryptocurrency pairs are canonical lowercase USD
+history and live prices. Cryptocurrency pairs are canonical lowercase USD
 symbols such as ``btcusd``; TWAPs use a fixed 60-second window. Equity symbols
 are trimmed and lowercased.
+
+Crypto prices and crypto TWAPs are quoted in USD. Equity and forex prices use
+the instrument's quote currency: ``usdjpy`` is JPY per USD and ``usdcad`` is
+CAD per USD.
 
 Prices are exact ``Decimal`` values and timestamps are timezone-aware UTC
 ``datetime`` values. History events have ``type="subscribe"`` and a sequence

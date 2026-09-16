@@ -469,8 +469,10 @@ class CryptoTwapPriceSpec:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class EquityPriceSpec:
-    """Subscribe to authenticated USD equity prices for one symbol, such as ``aapl``.
+    """Subscribe to authenticated prices for one symbol, such as ``aapl`` or ``usdjpy``.
 
+    Prices use the instrument's quote currency: ``usdjpy`` is JPY per USD and
+    ``usdcad`` is CAD per USD.
     Symbols are trimmed and lowercased. Omitted or empty ``types`` receives both
     history (``subscribe``) and live (``update``) events. Requires ``AsyncSecureClient``.
     """

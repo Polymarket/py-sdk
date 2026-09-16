@@ -1,4 +1,4 @@
-"""Stream authenticated USD prices using the normal secure-client setup."""
+"""Stream authenticated prices using the normal secure-client setup."""
 
 import asyncio
 

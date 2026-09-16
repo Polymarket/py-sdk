@@ -37,7 +37,7 @@ Or pass them inline on the command (as shown in each script's header):
   Use `client.list_positions(status="CLOSED", user=wallet)` for closed positions.
 - `create_limit_order` / `create_market_order` need `POLYMARKET_PRIVATE_KEY`
   and `POLYMARKET_DEPOSIT_WALLET`.
-- `stream_realtime_prices` uses the same secure-client credentials to read USD
+- `stream_realtime_prices` uses the same secure-client credentials to read
   crypto, fixed 60-second TWAP, and equity prices. It prints recent history and
   live updates, then closes its subscriptions. See `.env.example` for setup.
 
@@ -48,7 +48,9 @@ must be canonical lowercase USD pairs such as `btcusd`, rather than `btc/usd` or
 `btcusdt`. Keep existing legacy subscriptions during your application's migration;
 no Python removal date has been scheduled by this change.
 
-New price events use `Decimal` values and timezone-aware timestamps. History
+New price events use `Decimal` values in the instrument's quote currency and
+timezone-aware timestamps. Crypto prices and crypto TWAPs are quoted in USD.
+Equity and forex prices retain their quote currency. History
 events have `type="subscribe"`; live events have `type="update"`. Sequence numbers
 are local to one channel on one connection and reset on reconnection. Subscriptions
 spanning multiple connections may interleave sequence values.

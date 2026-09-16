@@ -22,14 +22,17 @@ class RealtimeErrorCode(StrEnum):
 
 
 class RealtimePricePoint(BaseModel):
-    """One exact USD price at a UTC instant."""
+    """One exact price in the instrument's quote currency at a UTC instant."""
 
     timestamp: datetime
     value: Decimal
 
 
 class RealtimePriceUpdate(RealtimePricePoint):
-    """A symbol's latest USD price, with optional receipt and carry-forward metadata."""
+    """A symbol's latest price in its quote currency.
+
+    Includes optional receipt and carry-forward metadata.
+    """
 
     symbol: str
     received_at: datetime | None = None
@@ -37,7 +40,7 @@ class RealtimePriceUpdate(RealtimePricePoint):
 
 
 class RealtimePriceSnapshot(BaseModel):
-    """A symbol's recent USD price history, in chronological order."""
+    """A symbol's recent prices in its quote currency, in chronological order."""
 
     symbol: str
     data: tuple[RealtimePricePoint, ...]
@@ -102,7 +105,7 @@ class CryptoTwapPriceSnapshotEvent(_PriceEventMetadata):
 
 
 class EquityPriceUpdateEvent(_PriceEventMetadata):
-    """An equity USD price update."""
+    """A price update in the instrument's quote currency."""
 
     topic: Literal["prices.equity"] = "prices.equity"
     type: Literal["update"] = "update"
@@ -110,7 +113,7 @@ class EquityPriceUpdateEvent(_PriceEventMetadata):
 
 
 class EquityPriceSnapshotEvent(_PriceEventMetadata):
-    """Recent equity USD prices on subscription or recovery."""
+    """Recent prices in the instrument's quote currency on subscription or recovery."""
 
     topic: Literal["prices.equity"] = "prices.equity"
     type: Literal["subscribe"] = "subscribe"
