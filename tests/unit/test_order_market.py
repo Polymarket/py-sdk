@@ -3,6 +3,7 @@ import asyncio
 import dataclasses
 from decimal import Decimal
 from typing import Any
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -347,7 +348,83 @@ def test_market_buy_amounts_encode_a_price_that_crosses_at_max_price(
     )
     encoded_price = Decimal(maker) / Decimal(taker)
     assert encoded_price >= Decimal(max_price)
-    assert encoded_price < Decimal(max_price) + Decimal(tick_size)
+    assert encoded_price < Decimal(max_price) + Decimal("0.0001")
+
+
+@pytest.mark.parametrize(("amount", "max_price", "tick_size"), _PROTECTED_BUY_CASES)
+def test_protected_market_buy_stays_safe_after_tick_refinement(
+    amount: str, max_price: str, tick_size: str
+) -> None:
+    routes = _market_routes()
+    routes[f"/clob-markets/{_CONDITION_ID}"]["mts"] = tick_size
+    captured: list[str] = []
+
+    async def run() -> tuple[int, int]:
+        client = await _make_client()
+        try:
+            _install_public_clob(client, _tracked_route_handler(routes, captured))
+            params = validate_market_order_params(
+                token_id=_CTF_ASSET_ID,
+                side="BUY",
+                amount=amount,
+                max_price=max_price,
+            )
+            draft = await prepare_market_order_draft(client._ctx, params)
+            return draft.offered_amount, draft.requested_amount
+        finally:
+            await client.close()
+
+    maker, taker = asyncio.run(run())
+    price = Decimal(maker) / Decimal(taker)
+    # The signed order must still exclude the first higher ask if the tick
+    # refines to the smallest supported size after signing, without a refresh.
+    assert Decimal(max_price) <= price < Decimal(max_price) + Decimal("0.0001")
+    assert maker <= Decimal(amount) * 10**6
+    config = resolve_rounding_config(Decimal(tick_size))
+    assert maker % 10 ** (6 - config.size) == 0
+    assert taker % 10 ** (6 - config.amount) == 0
+    assert captured.count(f"/clob-markets/{_CONDITION_ID}") == 1
+    assert "/book" not in captured
+
+
+@pytest.mark.parametrize(
+    ("maker", "taker", "safe"),
+    [
+        pytest.param(700_099, 1_000_000, True, id="below-next-price"),
+        pytest.param(700_100, 1_000_000, False, id="exactly-next-price"),
+        pytest.param(700_101, 1_000_000, False, id="above-next-price"),
+        pytest.param(1_000_000, 0, False, id="zero-shares"),
+    ],
+)
+def test_protected_buy_rounding_guard_uses_strict_integer_boundary(
+    maker: int, taker: int, safe: bool
+) -> None:
+    routes = _market_routes()
+
+    async def run() -> None:
+        client = await _make_client()
+        try:
+            _install_public_clob(client, _multi_route_handler(routes))
+            params = validate_market_order_params(
+                token_id=_CTF_ASSET_ID, side="BUY", amount="1", max_price="0.7"
+            )
+            # Isolate the safety check at final amount boundaries: equality at
+            # the next possible ask must be rejected too.
+            with patch(
+                "polymarket._internal.actions.orders.market._compute_market_order_amounts",
+                return_value=(maker, taker),
+            ):
+                if safe:
+                    draft = await prepare_market_order_draft(client._ctx, params)
+                    assert (draft.offered_amount, draft.requested_amount) == (maker, taker)
+                else:
+                    error = "rounds to zero" if taker == 0 else "max_price"
+                    with pytest.raises(UserInputError, match=error):
+                        await prepare_market_order_draft(client._ctx, params)
+        finally:
+            await client.close()
+
+    asyncio.run(run())
 
 
 @pytest.mark.parametrize(("amount", "max_price", "tick_size"), _PROTECTED_BUY_CASES)

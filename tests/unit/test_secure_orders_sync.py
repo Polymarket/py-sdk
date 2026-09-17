@@ -3,7 +3,7 @@ import dataclasses
 import time
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 import httpx
@@ -196,6 +196,93 @@ def test_protected_market_buy_rounds_shares_down_on_the_sync_client() -> None:
     # max_price and the order can lift an ask resting at 0.55.
     assert signed.maker_amount == 100_000_000
     assert signed.taker_amount == 181_818_100
+
+
+@pytest.mark.parametrize("order_type", ["FAK", "FOK"])
+@pytest.mark.parametrize(("amount", "max_spend"), [("1", None), ("100", "1")])
+def test_protected_buy_refreshes_unsafe_cached_tick(
+    order_type: Literal["FAK", "FOK"], amount: str, max_spend: str | None
+) -> None:
+    captured: list[httpx.Request] = []
+    routes = _public_routes()
+    market_path = f"/clob-markets/{_CONDITION_ID}"
+    routes[market_path]["mts"] = 0.1
+
+    with _make_client() as client:
+        _install_clob(client, _routed_handler(captured, routes))
+        client.create_limit_order(token_id="8501497", price="0.5", size="10", side="BUY")
+        routes[market_path]["mts"] = 0.0001
+        signed = client.create_market_order(
+            token_id="8501497",
+            side="BUY",
+            amount=amount,
+            max_spend=max_spend,
+            max_price="0.7",
+            order_type=order_type,
+        )
+
+    assert signed.maker_amount == 1_000_000
+    assert signed.taker_amount == 1_428_571
+    assert signed.order_type == order_type
+    assert signed.maker_amount * 10 >= signed.taker_amount * 7
+    assert signed.maker_amount * 10_000 < signed.taker_amount * 7_001
+    paths = [request.url.path for request in captured]
+    assert paths.count("/markets-by-token/8501497") == 1
+    assert paths.count(market_path) == 2
+    assert "/book" not in paths
+
+
+@pytest.mark.parametrize("order_type", ["FAK", "FOK"])
+@pytest.mark.parametrize(("amount", "max_spend"), [("1", None), ("100", "1")])
+def test_protected_buy_rejects_unsafe_tick_without_posting(
+    order_type: Literal["FAK", "FOK"], amount: str, max_spend: str | None
+) -> None:
+    captured: list[httpx.Request] = []
+    routes = _public_routes()
+    market_path = f"/clob-markets/{_CONDITION_ID}"
+    routes[market_path]["mts"] = 0.1
+
+    with _make_client() as client:
+        _install_clob(client, _routed_handler(captured, routes))
+        _install_secure_clob(client, _routed_handler(captured, _secure_routes()))
+        client.create_limit_order(token_id="8501497", price="0.5", size="10", side="BUY")
+        with pytest.raises(UserInputError, match="max_price"):
+            client.place_market_order(
+                token_id="8501497",
+                side="BUY",
+                amount=amount,
+                max_spend=max_spend,
+                max_price="0.7",
+                order_type=order_type,
+            )
+
+    paths = [request.url.path for request in captured]
+    assert paths.count("/markets-by-token/8501497") == 1
+    assert paths.count(market_path) == 2
+    assert "/book" not in paths
+    assert all(request.method == "GET" for request in captured)
+
+
+def test_protected_buy_refresh_recalculates_max_spend_with_current_fees() -> None:
+    captured: list[httpx.Request] = []
+    routes = _public_routes()
+    market_path = f"/clob-markets/{_CONDITION_ID}"
+    routes[market_path]["mts"] = 0.1
+
+    with _make_client() as client:
+        _install_clob(client, _routed_handler(captured, routes))
+        client.create_limit_order(token_id="8501497", price="0.5", size="10", side="BUY")
+        routes[market_path]["mts"] = 0.0001
+        routes[market_path]["fd"] = {"r": 0.07, "e": 0}
+        signed = client.create_market_order(
+            token_id="8501497", side="BUY", amount="100", max_spend="1.1", max_price="0.7"
+        )
+
+    # The refreshed fee consumes $0.10 of the $1.10 budget at a $0.70 share price.
+    assert signed.maker_amount == 1_000_000
+    assert signed.taker_amount == 1_428_571
+    assert signed.maker_amount * 10_000 < signed.taker_amount * 7_001
+    assert [request.url.path for request in captured].count(market_path) == 2
 
 
 def test_concurrent_metadata_reads_are_coalesced() -> None:
