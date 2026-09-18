@@ -48,6 +48,24 @@ from polymarket.models.perps.events import (
     PerpsTradeEvent,
     PerpsWithdrawalEvent,
 )
+from polymarket.models.price_events import (
+    CryptoPriceEvent,
+    CryptoPriceSnapshotEvent,
+    CryptoPriceUpdateEvent,
+    CryptoTwapPriceEvent,
+    CryptoTwapPriceSnapshotEvent,
+    CryptoTwapPriceUpdateEvent,
+    EquityPriceEvent,
+    EquityPriceSnapshotEvent,
+    EquityPriceUpdateEvent,
+    PriceEvent,
+    RealtimeErrorCode,
+    RealtimePricePoint,
+    RealtimePriceSnapshot,
+    RealtimePriceUpdate,
+    RealtimeTwapSnapshot,
+    RealtimeTwapUpdate,
+)
 from polymarket.models.rtds_events import (
     Comment,
     CommentCreatedEvent,
@@ -81,12 +99,15 @@ from polymarket.models.sports_events import (
 from polymarket.streams._specs import (
     CommentsEventType,
     CommentsSpec,
-    CryptoPricesChainlinkTwapSpec,
+    CryptoPricesChainlinkTwapSpec,  # pyright: ignore[reportDeprecated]
     CryptoPricesChainlinkTwapWindowSeconds,
-    CryptoPricesSpec,
+    CryptoPriceSpec,
+    CryptoPricesSpec,  # pyright: ignore[reportDeprecated]
     CryptoPricesTopic,
+    CryptoTwapPriceSpec,
     EquityPricesEventType,
-    EquityPricesSpec,
+    EquityPriceSpec,
+    EquityPricesSpec,  # pyright: ignore[reportDeprecated]
     MarketSpec,
     ParentEntityType,
     PerpsBboSpec,
@@ -96,6 +117,7 @@ from polymarket.streams._specs import (
     PerpsStatisticsSpec,
     PerpsTickersSpec,
     PerpsTradesSpec,
+    PriceSpec,
     PublicSubscription,
     RtdsSpec,
     SecureSubscription,
@@ -104,9 +126,29 @@ from polymarket.streams._specs import (
     UserSpec,
 )
 
-StreamEvent = MarketEvent | SportsEvent | RtdsEvent | UserEvent | PerpsMarketEvent
+StreamEvent = MarketEvent | SportsEvent | RtdsEvent | UserEvent | PerpsMarketEvent | PriceEvent
 
 __all__ = [
+    "CryptoPriceEvent",
+    "CryptoPriceSnapshotEvent",
+    "CryptoPriceSpec",
+    "CryptoPriceUpdateEvent",
+    "CryptoTwapPriceEvent",
+    "CryptoTwapPriceSnapshotEvent",
+    "CryptoTwapPriceSpec",
+    "CryptoTwapPriceUpdateEvent",
+    "EquityPriceEvent",
+    "EquityPriceSnapshotEvent",
+    "EquityPriceSpec",
+    "EquityPriceUpdateEvent",
+    "PriceEvent",
+    "PriceSpec",
+    "RealtimeErrorCode",
+    "RealtimePricePoint",
+    "RealtimePriceSnapshot",
+    "RealtimePriceUpdate",
+    "RealtimeTwapSnapshot",
+    "RealtimeTwapUpdate",
     "Comment",
     "CommentCreatedEvent",
     "CommentMedia",

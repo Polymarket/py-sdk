@@ -4,6 +4,8 @@ import asyncio
 import pytest
 
 from polymarket._internal.streams.handle import AsyncSubscriptionHandle
+from polymarket._internal.streams.merged_handle import MergedSubscriptionHandle
+from polymarket.errors import ConnectionLostError
 
 
 def test_async_iteration_yields_pushed_events() -> None:
@@ -50,6 +52,30 @@ def test_end_with_error_raises_in_iteration() -> None:
         assert first == 1
         with pytest.raises(RuntimeError, match="boom"):
             await handle.__aiter__().__anext__()
+
+    asyncio.run(run())
+
+
+def test_merged_terminal_error_closes_live_sibling_and_reaches_consumer() -> None:
+    async def run() -> None:
+        failed: AsyncSubscriptionHandle[int] = AsyncSubscriptionHandle(queue_size=4)
+        live: AsyncSubscriptionHandle[int] = AsyncSubscriptionHandle(queue_size=4)
+        sibling_closed = asyncio.Event()
+
+        async def close_sibling(_: AsyncSubscriptionHandle[int]) -> None:
+            sibling_closed.set()
+
+        live._bind_close(close_sibling)
+        merged = MergedSubscriptionHandle([failed, live])
+        failure = ConnectionLostError("session expired", code=4001, reason="expired")
+        failed._end(failure)
+        with pytest.raises(ConnectionLostError) as caught:
+            await asyncio.wait_for(anext(merged), 1)
+        assert caught.value is failure
+        await asyncio.wait_for(sibling_closed.wait(), 1)
+        await merged.close()
+        with pytest.raises(StopAsyncIteration):
+            await anext(live)
 
     asyncio.run(run())
 
@@ -101,3 +127,16 @@ def test_push_after_end_is_a_noop() -> None:
 def test_invalid_queue_size_raises() -> None:
     with pytest.raises(ValueError, match="queue_size"):
         AsyncSubscriptionHandle[int](queue_size=0)
+
+
+def test_explicit_close_discards_buffered_events_and_iteration_remains_terminal() -> None:
+    async def run() -> None:
+        handle: AsyncSubscriptionHandle[int] = AsyncSubscriptionHandle(queue_size=4)
+        handle._push(1)
+        handle._push(2)
+        await handle.close()
+        for _ in range(2):
+            with pytest.raises(StopAsyncIteration):
+                await asyncio.wait_for(anext(handle), 1)
+
+    asyncio.run(run())

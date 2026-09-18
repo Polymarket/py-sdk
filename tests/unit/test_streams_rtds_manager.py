@@ -15,9 +15,9 @@ from polymarket.models.rtds_events import (
     EquityPricesUpdateEvent,
 )
 from polymarket.streams._specs import (
-    CryptoPricesChainlinkTwapSpec,
-    CryptoPricesSpec,
-    EquityPricesSpec,
+    CryptoPricesChainlinkTwapSpec,  # pyright: ignore[reportDeprecated]
+    CryptoPricesSpec,  # pyright: ignore[reportDeprecated]
+    EquityPricesSpec,  # pyright: ignore[reportDeprecated]
 )
 
 Handler = Callable[[ServerConnection], Awaitable[None]]
@@ -79,7 +79,7 @@ def test_initial_subscribe_frame_sent_on_connect() -> None:
         async with ws_server(handler) as url:
             mgr = RtdsStreamManager(url=url)
             try:
-                handle = await mgr.subscribe(CryptoPricesSpec(topic="prices.crypto.binance"))
+                handle = await mgr.subscribe(CryptoPricesSpec(topic="prices.crypto.binance"))  # pyright: ignore[reportDeprecated]
                 await asyncio.sleep(0.1)
                 await handle.close()
             finally:
@@ -105,8 +105,8 @@ def test_incremental_subscribe_for_new_topic_type() -> None:
         async with ws_server(handler) as url:
             mgr = RtdsStreamManager(url=url)
             try:
-                h1 = await mgr.subscribe(CryptoPricesSpec(topic="prices.crypto.binance"))
-                h2 = await mgr.subscribe(CryptoPricesSpec(topic="prices.crypto.chainlink"))
+                h1 = await mgr.subscribe(CryptoPricesSpec(topic="prices.crypto.binance"))  # pyright: ignore[reportDeprecated]
+                h2 = await mgr.subscribe(CryptoPricesSpec(topic="prices.crypto.chainlink"))  # pyright: ignore[reportDeprecated]
                 await asyncio.sleep(0.1)
                 await h1.close()
                 await h2.close()
@@ -139,8 +139,8 @@ def test_twap_windows_route_independently_and_preserve_exact_value() -> None:
         async with ws_server(handler) as url:
             mgr = RtdsStreamManager(url=url)
             try:
-                thirty = await mgr.subscribe(CryptoPricesChainlinkTwapSpec(window_seconds=30))
-                sixty = await mgr.subscribe(CryptoPricesChainlinkTwapSpec(window_seconds=60))
+                thirty = await mgr.subscribe(CryptoPricesChainlinkTwapSpec(window_seconds=30))  # pyright: ignore[reportDeprecated]
+                sixty = await mgr.subscribe(CryptoPricesChainlinkTwapSpec(window_seconds=60))  # pyright: ignore[reportDeprecated]
                 event_30 = await asyncio.wait_for(thirty.__aiter__().__anext__(), timeout=2.0)
                 event_60 = await asyncio.wait_for(sixty.__aiter__().__anext__(), timeout=2.0)
                 assert isinstance(event_30, CryptoPricesChainlinkTwapEvent)
@@ -193,13 +193,13 @@ def test_twap_same_window_shares_upstream_and_filters_symbols_per_handle() -> No
             mgr = RtdsStreamManager(url=url)
             try:
                 btc = await mgr.subscribe(
-                    CryptoPricesChainlinkTwapSpec(
+                    CryptoPricesChainlinkTwapSpec(  # pyright: ignore[reportDeprecated]
                         window_seconds=30,
                         symbols=["btc/usd"],
                     )
                 )
                 eth = await mgr.subscribe(
-                    CryptoPricesChainlinkTwapSpec(
+                    CryptoPricesChainlinkTwapSpec(  # pyright: ignore[reportDeprecated]
                         window_seconds=30,
                         symbols=["eth/usd"],
                     )
@@ -240,10 +240,10 @@ def test_overlapping_specs_dedup_one_subscribe_frame() -> None:
             mgr = RtdsStreamManager(url=url)
             try:
                 h1 = await mgr.subscribe(
-                    CryptoPricesSpec(topic="prices.crypto.binance", symbols=["btcusdt"])
+                    CryptoPricesSpec(topic="prices.crypto.binance", symbols=["btcusdt"])  # pyright: ignore[reportDeprecated]
                 )
                 h2 = await mgr.subscribe(
-                    CryptoPricesSpec(topic="prices.crypto.binance", symbols=["ethusdt"])
+                    CryptoPricesSpec(topic="prices.crypto.binance", symbols=["ethusdt"])  # pyright: ignore[reportDeprecated]
                 )
                 await asyncio.sleep(0.1)
                 await h1.close()
@@ -270,10 +270,10 @@ def test_unsubscribe_only_after_last_user_drops_a_topic_type() -> None:
             mgr = RtdsStreamManager(url=url)
             try:
                 h1 = await mgr.subscribe(
-                    CryptoPricesSpec(topic="prices.crypto.binance", symbols=["btcusdt"])
+                    CryptoPricesSpec(topic="prices.crypto.binance", symbols=["btcusdt"])  # pyright: ignore[reportDeprecated]
                 )
                 h2 = await mgr.subscribe(
-                    CryptoPricesSpec(topic="prices.crypto.binance", symbols=["ethusdt"])
+                    CryptoPricesSpec(topic="prices.crypto.binance", symbols=["ethusdt"])  # pyright: ignore[reportDeprecated]
                 )
                 await asyncio.sleep(0.05)
                 await h1.close()
@@ -299,7 +299,7 @@ def test_event_topic_remapped_from_wire_to_api() -> None:
         async with ws_server(handler) as url:
             mgr = RtdsStreamManager(url=url)
             try:
-                handle = await mgr.subscribe(CryptoPricesSpec(topic="prices.crypto.binance"))
+                handle = await mgr.subscribe(CryptoPricesSpec(topic="prices.crypto.binance"))  # pyright: ignore[reportDeprecated]
                 event = await asyncio.wait_for(handle.__aiter__().__anext__(), timeout=2.0)
                 assert isinstance(event, CryptoPricesBinanceEvent)
                 topic = event.topic
@@ -324,7 +324,7 @@ def test_crypto_symbol_filter_applies_client_side() -> None:
             mgr = RtdsStreamManager(url=url)
             try:
                 handle = await mgr.subscribe(
-                    CryptoPricesSpec(topic="prices.crypto.binance", symbols=["btcusdt"])
+                    CryptoPricesSpec(topic="prices.crypto.binance", symbols=["btcusdt"])  # pyright: ignore[reportDeprecated]
                 )
                 event = await asyncio.wait_for(handle.__aiter__().__anext__(), timeout=2.0)
                 assert isinstance(event, CryptoPricesBinanceEvent)
@@ -367,7 +367,7 @@ def test_equity_type_filter_applies_client_side() -> None:
         async with ws_server(handler) as url:
             mgr = RtdsStreamManager(url=url)
             try:
-                handle = await mgr.subscribe(EquityPricesSpec(symbol="AAPL", types=["update"]))
+                handle = await mgr.subscribe(EquityPricesSpec(symbol="AAPL", types=["update"]))  # pyright: ignore[reportDeprecated]
                 event = await asyncio.wait_for(handle.__aiter__().__anext__(), timeout=2.0)
                 assert isinstance(event, EquityPricesUpdateEvent)
                 event_type = event.type
@@ -391,7 +391,7 @@ def test_malformed_event_dropped_and_counter_increments() -> None:
         async with ws_server(handler) as url:
             mgr = RtdsStreamManager(url=url)
             try:
-                handle = await mgr.subscribe(CryptoPricesSpec(topic="prices.crypto.binance"))
+                handle = await mgr.subscribe(CryptoPricesSpec(topic="prices.crypto.binance"))  # pyright: ignore[reportDeprecated]
                 event = await asyncio.wait_for(handle.__aiter__().__anext__(), timeout=2.0)
                 assert isinstance(event, CryptoPricesBinanceEvent)
                 symbol = event.payload.symbol
@@ -426,7 +426,7 @@ def test_mismatched_twap_frame_is_dropped_before_valid_frame() -> None:
         async with ws_server(handler) as url:
             mgr = RtdsStreamManager(url=url)
             try:
-                handle = await mgr.subscribe(CryptoPricesChainlinkTwapSpec(window_seconds=30))
+                handle = await mgr.subscribe(CryptoPricesChainlinkTwapSpec(window_seconds=30))  # pyright: ignore[reportDeprecated]
                 event = await asyncio.wait_for(handle.__aiter__().__anext__(), timeout=2.0)
                 assert isinstance(event, CryptoPricesChainlinkTwapEvent)
                 await asyncio.sleep(0.05)
@@ -462,7 +462,7 @@ def test_reconnect_resends_full_state() -> None:
         async with ws_server(handler) as url:
             mgr = RtdsStreamManager(url=url)
             try:
-                handle = await mgr.subscribe(CryptoPricesSpec(topic="prices.crypto.binance"))
+                handle = await mgr.subscribe(CryptoPricesSpec(topic="prices.crypto.binance"))  # pyright: ignore[reportDeprecated]
                 await asyncio.sleep(1.5)
                 await handle.close()
             finally:
@@ -504,19 +504,19 @@ def test_reconnect_resends_each_twap_window_once() -> None:
             try:
                 handles = [
                     await mgr.subscribe(
-                        CryptoPricesChainlinkTwapSpec(
+                        CryptoPricesChainlinkTwapSpec(  # pyright: ignore[reportDeprecated]
                             window_seconds=30,
                             symbols=["btc/usd"],
                         )
                     ),
                     await mgr.subscribe(
-                        CryptoPricesChainlinkTwapSpec(
+                        CryptoPricesChainlinkTwapSpec(  # pyright: ignore[reportDeprecated]
                             window_seconds=30,
                             symbols=["eth/usd"],
                         )
                     ),
                     await mgr.subscribe(
-                        CryptoPricesChainlinkTwapSpec(
+                        CryptoPricesChainlinkTwapSpec(  # pyright: ignore[reportDeprecated]
                             window_seconds=60,
                             symbols=["btc/usd"],
                         )
@@ -549,7 +549,7 @@ def test_last_handle_close_drops_socket() -> None:
         async with ws_server(handler) as url:
             mgr = RtdsStreamManager(url=url)
             try:
-                handle = await mgr.subscribe(CryptoPricesSpec(topic="prices.crypto.binance"))
+                handle = await mgr.subscribe(CryptoPricesSpec(topic="prices.crypto.binance"))  # pyright: ignore[reportDeprecated]
                 await asyncio.sleep(0.05)
                 await handle.close()
                 await asyncio.sleep(0.1)
@@ -565,6 +565,6 @@ def test_subscribe_after_close_raises() -> None:
         mgr = RtdsStreamManager(url="ws://127.0.0.1:1")
         await mgr.close()
         with pytest.raises(RuntimeError, match="closed"):
-            await mgr.subscribe(CryptoPricesSpec(topic="prices.crypto.binance"))
+            await mgr.subscribe(CryptoPricesSpec(topic="prices.crypto.binance"))  # pyright: ignore[reportDeprecated]
 
     asyncio.run(run())

@@ -244,6 +244,12 @@ from polymarket.models.perps import (
     PerpsTrade,
     PerpsWithdrawalId,
 )
+from polymarket.models.price_events import (
+    CryptoPriceEvent,
+    CryptoTwapPriceEvent,
+    EquityPriceEvent,
+    PriceEvent,
+)
 from polymarket.models.rtds_events import (
     CommentsEvent,
     CryptoPricesChainlinkTwapEvent,
@@ -272,11 +278,15 @@ from polymarket.session_keys import (
 )
 from polymarket.streams._specs import (
     CommentsSpec,
-    CryptoPricesChainlinkTwapSpec,
-    CryptoPricesSpec,
-    EquityPricesSpec,
+    CryptoPricesChainlinkTwapSpec,  # pyright: ignore[reportDeprecated]
+    CryptoPriceSpec,
+    CryptoPricesSpec,  # pyright: ignore[reportDeprecated]
+    CryptoTwapPriceSpec,
+    EquityPriceSpec,
+    EquityPricesSpec,  # pyright: ignore[reportDeprecated]
     MarketSpec,
     PerpsSpec,
+    PriceSpec,
     SecureSubscription,
     SportsSpec,
     UserSpec,
@@ -299,6 +309,7 @@ if TYPE_CHECKING:
     from polymarket._internal.streams.clob.market import ClobMarketStreamManager
     from polymarket._internal.streams.clob.user import ClobUserStreamManager
     from polymarket._internal.streams.perps.market import PerpsMarketStreamManager
+    from polymarket._internal.streams.realtime.manager import RealtimeStreamManager
     from polymarket._internal.streams.rtds.manager import RtdsStreamManager
     from polymarket._internal.streams.sports.manager import SportsStreamManager
     from polymarket.rfq import RfqSession
@@ -713,6 +724,7 @@ class AsyncSecureClient:
         self._market_manager: ClobMarketStreamManager | None = None
         self._sports_manager: SportsStreamManager | None = None
         self._rtds_manager: RtdsStreamManager | None = None
+        self._realtime_manager: RealtimeStreamManager | None = None
         self._user_manager: ClobUserStreamManager | None = None
         self._perps_manager: PerpsMarketStreamManager | None = None
         self._perps_sessions: set[PerpsSession] = set()
@@ -1029,20 +1041,52 @@ class AsyncSecureClient:
     @overload
     async def subscribe(self, specs: MarketSpec, /) -> SubscriptionHandle[MarketEvent]: ...
     @overload
+    async def subscribe(
+        self, specs: CryptoPriceSpec | Sequence[CryptoPriceSpec], /
+    ) -> SubscriptionHandle[CryptoPriceEvent]: ...
+    @overload
+    async def subscribe(
+        self, specs: CryptoTwapPriceSpec | Sequence[CryptoTwapPriceSpec], /
+    ) -> SubscriptionHandle[CryptoTwapPriceEvent]: ...
+    @overload
+    async def subscribe(
+        self, specs: EquityPriceSpec | Sequence[EquityPriceSpec], /
+    ) -> SubscriptionHandle[EquityPriceEvent]: ...
+    @overload
+    async def subscribe(
+        self, specs: Sequence[CryptoPriceSpec | CryptoTwapPriceSpec], /
+    ) -> SubscriptionHandle[CryptoPriceEvent | CryptoTwapPriceEvent]: ...
+    @overload
+    async def subscribe(
+        self, specs: Sequence[CryptoPriceSpec | EquityPriceSpec], /
+    ) -> SubscriptionHandle[CryptoPriceEvent | EquityPriceEvent]: ...
+    @overload
+    async def subscribe(
+        self, specs: Sequence[CryptoTwapPriceSpec | EquityPriceSpec], /
+    ) -> SubscriptionHandle[CryptoTwapPriceEvent | EquityPriceEvent]: ...
+    @overload
+    async def subscribe(self, specs: Sequence[PriceSpec], /) -> SubscriptionHandle[PriceEvent]: ...
+    @overload
     async def subscribe(self, specs: SportsSpec, /) -> SubscriptionHandle[SportsEvent]: ...
     @overload
     async def subscribe(self, specs: CommentsSpec, /) -> SubscriptionHandle[CommentsEvent]: ...
     @overload
     async def subscribe(
-        self, specs: CryptoPricesSpec, /
+        self,
+        specs: CryptoPricesSpec,  # pyright: ignore[reportDeprecated]
+        /,
     ) -> SubscriptionHandle[CryptoPricesEvent]: ...
     @overload
     async def subscribe(
-        self, specs: CryptoPricesChainlinkTwapSpec, /
+        self,
+        specs: CryptoPricesChainlinkTwapSpec,  # pyright: ignore[reportDeprecated]
+        /,
     ) -> SubscriptionHandle[CryptoPricesChainlinkTwapEvent]: ...
     @overload
     async def subscribe(
-        self, specs: EquityPricesSpec, /
+        self,
+        specs: EquityPricesSpec,  # pyright: ignore[reportDeprecated]
+        /,
     ) -> SubscriptionHandle[EquityPricesEvent]: ...
     @overload
     async def subscribe(self, specs: PerpsSpec, /) -> SubscriptionHandle[PerpsMarketEvent]: ...
@@ -1062,15 +1106,21 @@ class AsyncSecureClient:
     ) -> SubscriptionHandle[CommentsEvent]: ...
     @overload
     async def subscribe(
-        self, specs: Sequence[CryptoPricesSpec], /
+        self,
+        specs: Sequence[CryptoPricesSpec],  # pyright: ignore[reportDeprecated]
+        /,
     ) -> SubscriptionHandle[CryptoPricesEvent]: ...
     @overload
     async def subscribe(
-        self, specs: Sequence[CryptoPricesChainlinkTwapSpec], /
+        self,
+        specs: Sequence[CryptoPricesChainlinkTwapSpec],  # pyright: ignore[reportDeprecated]
+        /,
     ) -> SubscriptionHandle[CryptoPricesChainlinkTwapEvent]: ...
     @overload
     async def subscribe(
-        self, specs: Sequence[EquityPricesSpec], /
+        self,
+        specs: Sequence[EquityPricesSpec],  # pyright: ignore[reportDeprecated]
+        /,
     ) -> SubscriptionHandle[EquityPricesEvent]: ...
     @overload
     async def subscribe(
@@ -1082,17 +1132,35 @@ class AsyncSecureClient:
     async def subscribe(
         self, specs: Sequence[SecureSubscription], /
     ) -> SubscriptionHandle[
-        MarketEvent | SportsEvent | RtdsEvent | PerpsMarketEvent | UserEvent
+        MarketEvent | SportsEvent | RtdsEvent | PerpsMarketEvent | UserEvent | PriceEvent
     ]: ...
     async def subscribe(
         self,
         specs: SecureSubscription | Sequence[SecureSubscription],
-    ) -> SubscriptionHandle[MarketEvent | SportsEvent | RtdsEvent | PerpsMarketEvent | UserEvent]:
+    ) -> SubscriptionHandle[
+        MarketEvent | SportsEvent | RtdsEvent | PerpsMarketEvent | UserEvent | PriceEvent
+    ]:
         """Subscribe to one or more public or authenticated realtime streams.
 
         Pass a single subscription spec for one stream or a sequence of specs to
         receive events through one merged handle. Authenticated user stream specs
         are supported only by secure clients.
+
+        ``CryptoPriceSpec``, ``CryptoTwapPriceSpec`` and ``EquityPriceSpec`` wait
+        for server acceptance and deliver recent history followed by live prices.
+        Crypto prices and crypto TWAPs are quoted in USD. Equity and forex prices
+        use the instrument's quote currency. Crypto symbols use canonical lowercase
+        pairs such as ``btcusd``; TWAPs have a fixed 60-second window.
+        Prices are ``Decimal`` values and timestamps are timezone-aware.
+        Shared subscriptions reuse connections.
+        Sequence numbers are local to a channel on a connection, reset after
+        reconnecting, and can interleave when more than 64 filters span sockets.
+
+        Raises:
+            UserInputError: Subscription input is invalid.
+            RequestRejectedError: Authentication or a subscription was rejected.
+            TransportError: Connection or acceptance failed or timed out.
+            ConnectionLostError: The stream received a terminal connection close.
 
         Returns:
             A subscription handle. Iterate over it to receive events and close it
@@ -1102,7 +1170,9 @@ class AsyncSecureClient:
         handles: list[AsyncSubscriptionHandle[Any]] = []
         try:
             for spec in items:
-                if isinstance(spec, MarketSpec):
+                if isinstance(spec, PriceSpec):
+                    handles.append(await self._get_realtime_manager().subscribe(spec))
+                elif isinstance(spec, MarketSpec):
                     handles.append(
                         await self._get_market_manager().subscribe(
                             token_ids=spec.token_ids,
@@ -1115,13 +1185,13 @@ class AsyncSecureClient:
                     handles.append(await self._get_user_manager().subscribe(markets=spec.markets))
                 elif isinstance(spec, PerpsSpec):
                     handles.append(await self._get_perps_manager().subscribe(spec))
-                elif isinstance(
+                elif isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
                     spec,
                     CommentsSpec
-                    | CryptoPricesSpec
-                    | CryptoPricesChainlinkTwapSpec
-                    | EquityPricesSpec,
-                ):  # pyright: ignore[reportUnnecessaryIsInstance]
+                    | CryptoPricesSpec  # pyright: ignore[reportDeprecated]
+                    | CryptoPricesChainlinkTwapSpec  # pyright: ignore[reportDeprecated]
+                    | EquityPricesSpec,  # pyright: ignore[reportDeprecated]
+                ):
                     handles.append(await self._get_rtds_manager().subscribe(spec))
                 else:
                     assert_never(spec)
@@ -1133,7 +1203,12 @@ class AsyncSecureClient:
         if len(handles) == 1:
             return cast(
                 SubscriptionHandle[
-                    MarketEvent | SportsEvent | RtdsEvent | PerpsMarketEvent | UserEvent
+                    MarketEvent
+                    | SportsEvent
+                    | RtdsEvent
+                    | PerpsMarketEvent
+                    | UserEvent
+                    | PriceEvent
                 ],
                 handles[0],
             )
@@ -1141,10 +1216,22 @@ class AsyncSecureClient:
 
         return cast(
             SubscriptionHandle[
-                MarketEvent | SportsEvent | RtdsEvent | PerpsMarketEvent | UserEvent
+                MarketEvent | SportsEvent | RtdsEvent | PerpsMarketEvent | UserEvent | PriceEvent
             ],
             MergedSubscriptionHandle(handles),
         )
+
+    def _get_realtime_manager(self) -> "RealtimeStreamManager":
+        if self._realtime_manager is None:
+            from polymarket._internal.streams.realtime.manager import RealtimeStreamManager
+
+            self._realtime_manager = RealtimeStreamManager(
+                url=self._ctx.environment_config.realtime_ws_url,
+                headers=self._ctx.environment_config.realtime_ws_headers,
+                credentials=self._ctx.credentials,
+                logger=self._streams_logger,
+            )
+        return self._realtime_manager
 
     def _get_market_manager(self) -> "ClobMarketStreamManager":
         if self._market_manager is None:
@@ -1419,6 +1506,7 @@ class AsyncSecureClient:
             self._market_manager,
             self._sports_manager,
             self._rtds_manager,
+            self._realtime_manager,
             self._user_manager,
             self._perps_manager,
             *tuple(self._perps_sessions),
