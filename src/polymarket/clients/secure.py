@@ -1997,6 +1997,17 @@ class SecureClient:
         ``max_spend`` and ``max_price``. SELL orders use ``shares`` as the
         number of shares to sell and may include ``min_price``.
 
+        ``max_price`` and ``min_price`` bound the execution price: fills happen at
+        the resting order's price, never worse than the bound. Because order
+        amounts have fixed precision, the price encoded in a signed BUY may sit
+        fractionally above ``max_price``, but cannot reach a higher price on any
+        supported tick grid, even if the market's tick becomes finer. Metadata
+        is refreshed once if rounding is unsafe; if the cap still cannot be
+        preserved, ``UserInputError`` is raised before signing or posting.
+        Sub-cent digits of ``amount`` are dropped and the share count is floored
+        to the market's amount precision, so a fraction of a share's worth of
+        ``amount`` may go unspent.
+
         ``max_spend`` is an estimated all-in spend target based on recently
         resolved platform and builder fee rates. Actual fees may change before
         execution.
@@ -2099,6 +2110,17 @@ class SecureClient:
         BUY orders use ``amount`` as the spend amount and may include
         ``max_spend`` and ``max_price``. SELL orders use ``shares`` as the
         number of shares to sell and may include ``min_price``.
+
+        ``max_price`` and ``min_price`` bound the execution price: fills happen at
+        the resting order's price, never worse than the bound. Because order
+        amounts have fixed precision, the price encoded in a signed BUY may sit
+        fractionally above ``max_price``, but cannot reach a higher price on any
+        supported tick grid, even if the market's tick becomes finer. Metadata
+        is refreshed once if rounding is unsafe; if the cap still cannot be
+        preserved, ``UserInputError`` is raised before signing or posting.
+        Sub-cent digits of ``amount`` are dropped and the share count is floored
+        to the market's amount precision, so a fraction of a share's worth of
+        ``amount`` may go unspent.
 
         ``max_spend`` is an estimated all-in spend target based on recently
         resolved platform and builder fee rates. Actual fees may change before

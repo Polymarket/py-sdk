@@ -23,6 +23,7 @@ _ROUNDING_BY_TICK: dict[Decimal, RoundingConfig] = {
     Decimal("0.001"): RoundingConfig(amount=5, price=3, size=2),
     Decimal("0.0001"): RoundingConfig(amount=6, price=4, size=2),
 }
+MIN_SUPPORTED_TICK_SIZE = min(_ROUNDING_BY_TICK)
 
 
 def resolve_rounding_config(tick_size: Decimal) -> RoundingConfig:
@@ -71,6 +72,7 @@ def resolve_order_exchange_address(
 
 
 __all__ = [
+    "MIN_SUPPORTED_TICK_SIZE",
     "RoundingConfig",
     "resolve_exchange_address",
     "resolve_order_exchange_address",

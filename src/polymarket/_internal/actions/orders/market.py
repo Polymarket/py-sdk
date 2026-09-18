@@ -5,6 +5,7 @@ from decimal import Decimal
 from polymarket._internal.actions.exchange_asset import resolve_asset_id
 from polymarket._internal.actions.orders._numeric import coerce_positive_decimal
 from polymarket._internal.actions.orders.context import (
+    MIN_SUPPORTED_TICK_SIZE,
     resolve_order_exchange_address,
     resolve_rounding_config,
     validate_price_on_tick_grid,
@@ -130,7 +131,6 @@ def prepare_market_order_draft_sync(
 async def _prepare_protected_market_order_draft(
     ctx: AsyncSecureClientContext, params: PrepareMarketOrderParams
 ) -> OrderDraft:
-    notional = _resolve_market_order_notional(params)
     if params.side == "BUY" and params.max_spend is not None:
         metadata, builder_taker_fee_rate = await asyncio.gather(
             ctx.order_metadata.resolve_market(ctx, token_id=params.asset_id),
@@ -142,34 +142,19 @@ async def _prepare_protected_market_order_draft(
         metadata = await ctx.order_metadata.resolve_market(ctx, token_id=params.asset_id)
         builder_taker_fee_rate = Decimal(0)
     try:
-        price = _resolve_protected_market_order_price(params, metadata.tick_size)
+        return _build_protected_market_order_draft(
+            ctx, params, metadata=metadata, builder_taker_fee_rate=builder_taker_fee_rate
+        )
     except UserInputError:
         metadata = await ctx.order_metadata.fetch_current_market(ctx, token_id=params.asset_id)
-        price = _resolve_protected_market_order_price(params, metadata.tick_size)
-    resolved_amount = notional
-    if params.side == "BUY" and params.max_spend is not None:
-        resolved_amount = _resolve_buy_amount_for_fees(
-            amount=notional,
-            max_spend=params.max_spend,
-            price=price,
-            metadata=metadata,
-            builder_taker_fee_rate=builder_taker_fee_rate,
-        )
-    return _build_market_order_draft(
-        ctx,
-        params,
-        price=price,
-        tick_size=metadata.tick_size,
-        neg_risk=metadata.neg_risk,
-        resolved_amount=resolved_amount,
-        protect_price=True,
+    return _build_protected_market_order_draft(
+        ctx, params, metadata=metadata, builder_taker_fee_rate=builder_taker_fee_rate
     )
 
 
 def _prepare_protected_market_order_draft_sync(
     ctx: SyncSecureClientContext, params: PrepareMarketOrderParams
 ) -> OrderDraft:
-    notional = _resolve_market_order_notional(params)
     metadata = ctx.order_metadata.resolve_market(ctx, token_id=params.asset_id)
     builder_taker_fee_rate = (
         ctx.order_metadata.resolve_builder_taker_fee_rate(ctx, builder_code=params.builder_code)
@@ -177,10 +162,25 @@ def _prepare_protected_market_order_draft_sync(
         else Decimal(0)
     )
     try:
-        price = _resolve_protected_market_order_price(params, metadata.tick_size)
+        return _build_protected_market_order_draft(
+            ctx, params, metadata=metadata, builder_taker_fee_rate=builder_taker_fee_rate
+        )
     except UserInputError:
         metadata = ctx.order_metadata.fetch_current_market(ctx, token_id=params.asset_id)
-        price = _resolve_protected_market_order_price(params, metadata.tick_size)
+    return _build_protected_market_order_draft(
+        ctx, params, metadata=metadata, builder_taker_fee_rate=builder_taker_fee_rate
+    )
+
+
+def _build_protected_market_order_draft(
+    ctx: AsyncSecureClientContext | SyncSecureClientContext,
+    params: PrepareMarketOrderParams,
+    *,
+    metadata: MarketInfo,
+    builder_taker_fee_rate: Decimal,
+) -> OrderDraft:
+    notional = _resolve_market_order_notional(params)
+    price = _resolve_protected_market_order_price(params, metadata.tick_size)
     resolved_amount = notional
     if params.side == "BUY" and params.max_spend is not None:
         resolved_amount = _resolve_buy_amount_for_fees(
@@ -190,15 +190,37 @@ def _prepare_protected_market_order_draft_sync(
             metadata=metadata,
             builder_taker_fee_rate=builder_taker_fee_rate,
         )
-    return _build_market_order_draft(
+    draft = _build_market_order_draft(
         ctx,
         params,
         price=price,
         tick_size=metadata.tick_size,
         neg_risk=metadata.neg_risk,
         resolved_amount=resolved_amount,
-        protect_price=True,
     )
+    if params.side == "BUY":
+        if draft.offered_amount <= 0 or draft.requested_amount <= 0:
+            raise UserInputError(
+                "Protected BUY amount rounds to zero; increase amount and, if set, max_spend."
+            )
+        # Ticks may become finer after metadata is cached or the order is signed.
+        # Keep the encoded price strictly below the next possible resting ask on
+        # the finest supported grid, not merely below the next cached tick.
+        price_numerator, price_denominator = price.as_integer_ratio()
+        tick_numerator, tick_denominator = MIN_SUPPORTED_TICK_SIZE.as_integer_ratio()
+        next_price_numerator = (
+            price_numerator * tick_denominator + tick_numerator * price_denominator
+        )
+        next_price_denominator = price_denominator * tick_denominator
+        if (
+            draft.offered_amount * next_price_denominator
+            >= draft.requested_amount * next_price_numerator
+        ):
+            raise UserInputError(
+                "Cannot preserve max_price with this BUY amount and tick precision; "
+                "increase amount and, if set, max_spend, or choose a different max_price."
+            )
+    return draft
 
 
 async def _prepare_unprotected_market_order_draft(
@@ -284,7 +306,6 @@ def _build_unprotected_market_order_draft(
         tick_size=price_context.tick_size,
         neg_risk=price_context.neg_risk,
         resolved_amount=resolved_amount,
-        protect_price=False,
     )
 
 
@@ -296,12 +317,10 @@ def _build_market_order_draft(
     tick_size: Decimal,
     neg_risk: bool,
     resolved_amount: Decimal,
-    protect_price: bool,
 ) -> OrderDraft:
     offered, requested = _compute_market_order_amounts(
         amount=resolved_amount,
         price=price,
-        protect_price=protect_price,
         side=params.side,
         tick_size=tick_size,
     )
@@ -351,7 +370,6 @@ def _compute_market_order_amounts(
     price: Decimal,
     side: OrderSide,
     tick_size: Decimal,
-    protect_price: bool = False,
 ) -> tuple[int, int]:
     config = resolve_rounding_config(tick_size)
     raw_price = round_down(price, config.price)
@@ -360,11 +378,14 @@ def _compute_market_order_amounts(
     if decimal_places(raw_taker) > config.amount:
         raw_taker = round_up(raw_taker, config.amount + 4)
         if decimal_places(raw_taker) > config.amount:
-            raw_taker = (
-                round_up(raw_taker, config.amount)
-                if protect_price
-                else round_down(raw_taker, config.amount)
-            )
+            # Always round the taker amount down. For a BUY the exchange derives the
+            # order price as maker / taker and only matches when it is at or above the
+            # ask, so rounding shares up (fewer dollars per share) would place the
+            # price a hair below ``price`` and an ask resting exactly there could
+            # never be lifted. Rounding down keeps the price at or fractionally above
+            # ``price``. Protected BUYs separately check that the final amounts cannot
+            # reach a higher ask even if the market's tick becomes finer.
+            raw_taker = round_down(raw_taker, config.amount)
     return parse_amount(raw_maker), parse_amount(raw_taker)
 
 
