@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.10.1](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.10.0...polymarket-client-v0.10.1) (2026-09-18)
+
+
+### Bug Fixes
+
+* **client:** preserve protected BUY caps across tick refinements ([1ed8b7c](https://github.com/Polymarket/py-sdk/commit/1ed8b7cdc3f9fa4065cce168019d4046d82c66bd))
+* **client:** round protected market BUY shares down so the order can cross at max_price ([24e3463](https://github.com/Polymarket/py-sdk/commit/24e346374acef3e3a3da4e3c08a8981e0122ea81))
+* **client:** send order=volume and order=liquidity as their numeric fields on list_markets ([ac09e73](https://github.com/Polymarket/py-sdk/commit/ac09e7321867da768ab3eefb5f581355bc00ca89))
+
 ## [0.10.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.9.0...polymarket-client-v0.10.0) (2026-09-10)
 
 
