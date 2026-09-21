@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.11.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.10.0...polymarket-client-v0.11.0) (2026-09-21)
+
+
+### Features
+
+* **streams:** add authenticated PolyBolt price streams ([324783f](https://github.com/Polymarket/py-sdk/commit/324783f1fcdce9da37f77a8aeea229871425f2fb))
+* **streams:** add authenticated PolyBolt price streams ([3f5b181](https://github.com/Polymarket/py-sdk/commit/3f5b18121f04b1157ff17de46e40b3f2891752d3))
+
+
+### Bug Fixes
+
+* **client:** preserve protected BUY caps across tick refinements ([1ed8b7c](https://github.com/Polymarket/py-sdk/commit/1ed8b7cdc3f9fa4065cce168019d4046d82c66bd))
+* **client:** round protected market BUY shares down so the order can cross at max_price ([24e3463](https://github.com/Polymarket/py-sdk/commit/24e346374acef3e3a3da4e3c08a8981e0122ea81))
+* **client:** send order=volume and order=liquidity as their numeric fields on list_markets ([ac09e73](https://github.com/Polymarket/py-sdk/commit/ac09e7321867da768ab3eefb5f581355bc00ca89))
+* **streams:** isolate same-channel filter rejections ([8461a1e](https://github.com/Polymarket/py-sdk/commit/8461a1e5c911e9071ef41938326c63b5ecb6549d))
+* **streams:** narrow price unions and make legacy migrations actionable ([2cbb833](https://github.com/Polymarket/py-sdk/commit/2cbb8335563419c20eb1c9987eeaed526df55872))
+
+
+### Documentation
+
+* **streams:** correct TWAP migration caveat ([9ae87cb](https://github.com/Polymarket/py-sdk/commit/9ae87cb8f0809678264ff361121733d7ce458377))
+* **streams:** describe prices in instrument quote currency ([59963ad](https://github.com/Polymarket/py-sdk/commit/59963add7914a937fdce73d922881935c6a25dbf))
+
 ## [0.10.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.9.0...polymarket-client-v0.10.0) (2026-09-10)
 
 
