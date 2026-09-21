@@ -263,6 +263,7 @@ class Team(BaseModel):
 class SportsMetadata(BaseModel):
     id: SportId
     sport: str
+    name: str | None = None
     image: str
     resolution: str
     ordering: str
