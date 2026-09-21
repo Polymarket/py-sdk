@@ -345,6 +345,16 @@ def test_event_normalizes_groups_from_flat_payload() -> None:
         homeTeamName="Home",
         awayTeamName="Away",
         teams=[{"id": 114315, "name": "Paris Saint-Germain FC", "ordering": "home"}],
+        sport={
+            "id": 11,
+            "sport": "fl1",
+            "name": "Ligue 1",
+            "image": "https://example.test/league.png",
+            "resolution": "https://example.test/results",
+            "ordering": "home",
+            "tags": "1,2",
+            "series": "3",
+        },
         bestLines=[],
         markets=[],
         externalPartners=[
@@ -400,6 +410,9 @@ def test_event_normalizes_groups_from_flat_payload() -> None:
     assert event.sports.series_slug == "sport-series"
     assert event.sports.game_id == 999
     assert event.sports.teams[0].ordering is TeamOrdering.HOME
+    assert event.sports.sport is not None
+    assert event.sports.sport.sport == "fl1"
+    assert event.sports.sport.name == "Ligue 1"
     assert len(event.partners) == 1
     assert event.partners[0].external_id == "EXT-7"
     assert event.partners[0].partner is not None
@@ -702,6 +715,7 @@ def test_sports_metadata_requires_all_string_fields() -> None:
         {
             "id": 1,
             "sport": "Basketball",
+            "name": "National Basketball Association",
             "image": "https://example.test/b.png",
             "resolution": "live",
             "ordering": "manual",
@@ -713,7 +727,27 @@ def test_sports_metadata_requires_all_string_fields() -> None:
 
     assert meta.id == 1
     assert meta.sport == "Basketball"
+    assert meta.name == "National Basketball Association"
     assert meta.created_at == datetime(2026, 1, 1, tzinfo=UTC)
+
+
+@pytest.mark.parametrize("optional_fields", [{}, {"name": None}])
+def test_sports_metadata_accepts_missing_or_null_name(optional_fields: dict[str, object]) -> None:
+    meta = SportsMetadata.parse_response(
+        {
+            "id": 1,
+            "sport": "nba",
+            "image": "https://example.test/b.png",
+            "resolution": "live",
+            "ordering": "away",
+            "tags": "1,2",
+            "series": "3",
+            **optional_fields,
+        }
+    )
+
+    assert meta.sport == "nba"
+    assert meta.name is None
 
 
 def test_sports_market_types_parses_market_types() -> None:
