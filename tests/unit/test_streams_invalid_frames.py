@@ -143,12 +143,12 @@ def test_rtds_drops_invalid_frame_and_keeps_socket_open() -> None:
             pass
 
     async def run() -> tuple[int, Any]:
-        from polymarket.streams import CryptoPricesSpec
+        from polymarket.streams import CryptoPricesSpec  # pyright: ignore[reportDeprecated]
 
         async with ws_server(handler) as url:
             mgr = RtdsStreamManager(url=url)
             try:
-                handle = await mgr.subscribe(CryptoPricesSpec(topic="prices.crypto.binance"))
+                handle = await mgr.subscribe(CryptoPricesSpec(topic="prices.crypto.binance"))  # pyright: ignore[reportDeprecated]
                 event = await _next_event(handle)
                 await handle.close()
                 return mgr.dropped_events, event

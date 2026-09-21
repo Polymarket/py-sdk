@@ -41,6 +41,7 @@ class MergedSubscriptionHandle(Generic[T]):
         self._handles: list[AsyncSubscriptionHandle[T]] = list(handles)
         self._queue: asyncio.Queue[T | _MergedEnd] = asyncio.Queue(maxsize=queue_size)
         self._closing: asyncio.Task[None] | None = None
+        self._closed = False
         self._open = len(self._handles)
         self._dropped = 0
         self._first_error: BaseException | None = None
@@ -61,6 +62,10 @@ class MergedSubscriptionHandle(Generic[T]):
         except BaseException as exc:
             if self._first_error is None:
                 self._first_error = exc
+                # A failed child must not wait for unrelated, potentially infinite
+                # streams to finish before exposing its terminal error.
+                if self._closing is None:
+                    self._closing = asyncio.create_task(self._do_close())
         finally:
             self._open -= 1
             if self._open == 0:
@@ -101,6 +106,10 @@ class MergedSubscriptionHandle(Generic[T]):
         return self
 
     async def __anext__(self) -> T:
+        if self._closed or (self._open == 0 and self._queue.empty()):
+            if self._first_error is not None:
+                raise self._first_error
+            raise StopAsyncIteration
         item = await self._queue.get()
         if isinstance(item, _MergedEnd):
             if self._first_error is not None:
@@ -111,7 +120,7 @@ class MergedSubscriptionHandle(Generic[T]):
     async def close(self) -> None:
         if self._closing is None:
             self._closing = asyncio.create_task(self._do_close())
-        await self._closing
+        await asyncio.shield(self._closing)
 
     async def _do_close(self) -> None:
         results = await asyncio.gather(*(h.close() for h in self._handles), return_exceptions=True)
@@ -121,6 +130,10 @@ class MergedSubscriptionHandle(Generic[T]):
         for pump in self._pumps:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await pump
+        self._closed = True
+        while not self._queue.empty():
+            self._queue.get_nowait()
+        self._enqueue_end()
         for result in results:
             if isinstance(result, BaseException) and not isinstance(result, Exception):
                 raise result

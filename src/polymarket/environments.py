@@ -50,6 +50,8 @@ class _EnvironmentConfig:
     collateral_return_url: str = "https://combos-rfq-collateral-return.polymarket.com"
     perps_url: str = "https://api.perpetuals.polymarket.com"
     perps_ws_url: str = "wss://ws.perpetuals.polymarket.com/v1/ws"
+    realtime_ws_url: str = "wss://ws-live-v2.polymarket.com/ws"
+    realtime_ws_headers: dict[str, str] | None = None
     perps_deposit_contract: str = "0xDCa4af75705dbB50f62437045afF9921947917d2"
     relayer_max_polls: int = 100
     relayer_poll_frequency_ms: int = 2000
