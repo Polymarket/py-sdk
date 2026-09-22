@@ -2065,6 +2065,10 @@ class AsyncSecureClient:
     ) -> AsyncPaginator[Comment]:
         """List comments for a market or event.
 
+        Pages starting past offset 200 are not served. Following a cursor past
+        that point raises ``PaginationLimitError`` before any request is sent;
+        the pages already returned stay valid.
+
         Returns:
             An async paginator over matching comments.
         """
@@ -2087,6 +2091,10 @@ class AsyncSecureClient:
         page_size: int = 20,
     ) -> AsyncPaginator[Comment]:
         """List comments authored by a user address.
+
+        Pages starting past offset 200 are not served. Following a cursor past
+        that point raises ``PaginationLimitError`` before any request is sent;
+        the pages already returned stay valid.
 
         Returns:
             An async paginator over matching comments.

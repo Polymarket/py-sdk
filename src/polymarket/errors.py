@@ -17,6 +17,16 @@ class UnexpectedResponseError(PolymarketError):
     """Error raised when a response does not match the expected shape."""
 
 
+class PaginationLimitError(PolymarketError):
+    """Error raised when pagination would pass the deepest page the service serves.
+
+    Some list endpoints cap how far an offset-paginated read may go and reject
+    requests past the cap. The SDK raises this before sending such a request;
+    the pages already returned stay valid, but whether more items exist past
+    the cap cannot be established. Narrow the query to read the rest.
+    """
+
+
 class TransportError(PolymarketError):
     """Error raised when a network or runtime transport failure occurs."""
 

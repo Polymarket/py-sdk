@@ -677,6 +677,16 @@ def list_teams_spec(
     )
 
 
+# The upstream offset cap for the comments listings; deeper pages are rejected.
+_MAX_COMMENTS_OFFSET = 200
+
+
+def _count_root_comments(items: tuple[Comment, ...]) -> int:
+    # A comments page holds `limit` top-level comments plus their replies, so
+    # the limit was applied to the roots, not to every row.
+    return sum(1 for comment in items if comment.parent_comment_id is None)
+
+
 def list_comments_spec(
     *,
     parent_entity_id: str,
@@ -703,6 +713,8 @@ def list_comments_spec(
         path="/comments",
         # Matches the upstream per-request limit cap.
         max_page_size=100,
+        max_offset=_MAX_COMMENTS_OFFSET,
+        page_fill=_count_root_comments,
         parse_items=Comment.parse_response_list,
         base_params=params,
     )
@@ -725,6 +737,7 @@ def list_comments_by_user_address_spec(
         path=path,
         # Matches the upstream per-request limit cap.
         max_page_size=100,
+        max_offset=_MAX_COMMENTS_OFFSET,
         parse_items=Comment.parse_response_list,
         base_params=params or None,
     )

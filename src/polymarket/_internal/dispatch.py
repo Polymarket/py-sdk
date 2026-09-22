@@ -21,7 +21,7 @@ from polymarket._internal.request import (
 )
 from polymarket._internal.retry import async_run_with_rate_limit_retry, run_with_rate_limit_retry
 from polymarket.clients._transport import AsyncTransport, SyncTransport
-from polymarket.errors import UserInputError
+from polymarket.errors import PaginationLimitError, UserInputError
 from polymarket.pagination import AsyncPaginator, Page, Paginator
 
 T = TypeVar("T")
@@ -75,6 +75,21 @@ async def async_dispatch(ctx: AsyncClientContext, spec: RequestSpec[T]) -> T:
     return spec.parse(payload)
 
 
+def _check_offset_window(spec: OffsetPaginatedSpec[T], offset: int, page_size: int) -> None:
+    # A cursor carries the offset and page size it was minted with, so both
+    # are re-checked here rather than trusting the caller-supplied page size
+    # alone. The service rejects offsets past its cap; fail before the request
+    # so the pages already returned stay valid and no round trip is wasted.
+    if spec.max_page_size is not None and page_size > spec.max_page_size:
+        raise UserInputError(f"page_size must be at most {spec.max_page_size}.")
+    if spec.max_offset is not None and offset > spec.max_offset:
+        raise PaginationLimitError(
+            f"Pagination reached the deepest page served for {spec.path} (offset "
+            f"{spec.max_offset}); whether more items exist cannot be established. "
+            "Narrow the query to read further."
+        )
+
+
 def sync_paginate_offset(
     ctx: SyncClientContext,
     spec: OffsetPaginatedSpec[T],
@@ -99,6 +114,7 @@ def sync_paginate_offset(
             if cursor is not None
             else (0, page_size)
         )
+        _check_offset_window(spec, offset, effective_size)
         params: dict[str, QueryParamValue] = {
             **(spec.base_params or {}),
             "limit": effective_size,
@@ -113,6 +129,7 @@ def sync_paginate_offset(
             offset=offset,
             page_size=effective_size,
             items=items,
+            page_fill=spec.page_fill,
         )
 
     return Paginator(fetch=fetch, initial_cursor=initial_cursor)
@@ -142,6 +159,7 @@ def async_paginate_offset(
             if cursor is not None
             else (0, page_size)
         )
+        _check_offset_window(spec, offset, effective_size)
         params: dict[str, QueryParamValue] = {
             **(spec.base_params or {}),
             "limit": effective_size,
@@ -156,6 +174,7 @@ def async_paginate_offset(
             offset=offset,
             page_size=effective_size,
             items=items,
+            page_fill=spec.page_fill,
         )
 
     return AsyncPaginator(fetch=fetch, initial_cursor=initial_cursor)
