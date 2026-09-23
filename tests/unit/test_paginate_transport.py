@@ -628,11 +628,15 @@ def _comments_handler(
     return httpx.MockTransport(handler)
 
 
-def test_list_comments_walks_to_the_cap_and_stops_normally() -> None:
+def test_list_comments_walks_to_the_cap_and_stops_normally_on_offset_pages() -> None:
+    # Holder filtering is served on offset pages only, so this read cannot
+    # switch to server cursors and the offset cap still applies.
     captured: list[httpx.Request] = []
     with PublicClient() as client:
         _install_sync_gamma_transport(client, _comments_handler(captured, 20, 2))
-        paginator = client.list_comments(parent_entity_id="1", parent_entity_type="Event")
+        paginator = client.list_comments(
+            parent_entity_id="1", parent_entity_type="Event", holders_only=True
+        )
         pages = list(paginator)
 
     assert _offsets(captured) == list(range(0, 201, 20))
@@ -686,7 +690,10 @@ def test_list_comments_to_pandas_without_a_limit_marks_the_cap() -> None:
     with PublicClient() as client:
         _install_sync_gamma_transport(client, _comments_handler(captured, 100, 2))
         paginator = client.list_comments(
-            parent_entity_id="1", parent_entity_type="Event", page_size=100
+            parent_entity_id="1",
+            parent_entity_type="Event",
+            holders_only=True,
+            page_size=100,
         )
         df = paginator.to_pandas(limit=None)
 
