@@ -200,6 +200,24 @@ def decode_keyset_cursor(
     return raw_server
 
 
+def cursor_path(cursor: str) -> str:
+    # Reads only the endpoint path a cursor was minted for, so a listing served
+    # from two paginated routes can pick the decoder. Nothing else is trusted
+    # here; the chosen decoder validates the whole envelope.
+    try:
+        decoded = base64.b64decode(cursor, validate=True).decode("utf-8")
+        parsed = json.loads(decoded)
+    except (binascii.Error, ValueError, UnicodeDecodeError) as error:
+        raise UserInputError("Invalid pagination cursor.") from error
+
+    if not isinstance(parsed, dict):
+        raise UserInputError("Invalid pagination cursor.")
+    raw_path = cast(dict[str, object], parsed).get("p")
+    if not isinstance(raw_path, str) or not raw_path:
+        raise UserInputError("Invalid pagination cursor.")
+    return raw_path
+
+
 def compute_keyset_page(
     *,
     service: Service,
@@ -327,6 +345,7 @@ __all__ = [
     "compute_keyset_page",
     "compute_offset_page",
     "compute_page_based_page",
+    "cursor_path",
     "decode_keyset_cursor",
     "decode_offset_cursor",
     "decode_page_cursor",
