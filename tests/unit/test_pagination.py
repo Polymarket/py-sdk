@@ -7,6 +7,7 @@ import pytest
 from polymarket._internal.pagination import (
     compute_keyset_page,
     compute_offset_page,
+    cursor_path,
     decode_keyset_cursor,
     decode_offset_cursor,
     decode_page_cursor,
@@ -642,3 +643,33 @@ def test_page_decode_rejects_query_mismatch() -> None:
             expected_path="/public-search",
             expected_base_params={"q": "y"},
         )
+
+
+def test_cursor_path_reads_the_endpoint_of_either_cursor_shape() -> None:
+    offset = encode_offset_cursor(
+        service="gamma", path="/comments", base_params=None, offset=0, page_size=20
+    )
+    keyset = encode_keyset_cursor(
+        service="gamma",
+        path="/comments/keyset",
+        base_params={"parent_entity_id": "1"},
+        server_cursor="tok",
+    )
+
+    assert cursor_path(offset) == "/comments"
+    assert cursor_path(keyset) == "/comments/keyset"
+
+
+@pytest.mark.parametrize(
+    "cursor",
+    [
+        "not-a-cursor",
+        "",
+        base64.b64encode(b"[]").decode(),
+        base64.b64encode(b'{"v":1}').decode(),
+        base64.b64encode(b'{"p":""}').decode(),
+    ],
+)
+def test_cursor_path_rejects_cursors_without_a_readable_path(cursor: str) -> None:
+    with pytest.raises(UserInputError, match="Invalid pagination cursor"):
+        cursor_path(cursor)
