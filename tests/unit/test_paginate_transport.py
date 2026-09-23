@@ -623,10 +623,14 @@ def _comments_handler(
 
 
 def test_list_comments_walks_to_the_cap_and_raises_on_the_next_page() -> None:
+    # Holder filtering is served on offset pages only, so this read cannot
+    # switch to server cursors and the offset cap still applies.
     captured: list[httpx.Request] = []
     with PublicClient() as client:
         _install_sync_gamma_transport(client, _comments_handler(captured, 20, 2))
-        paginator = client.list_comments(parent_entity_id="1", parent_entity_type="Event")
+        paginator = client.list_comments(
+            parent_entity_id="1", parent_entity_type="Event", holders_only=True
+        )
         pages: list[Page[Comment]] = []
         with pytest.raises(PaginationLimitError, match="/comments"):
             for page in paginator:
@@ -680,7 +684,10 @@ def test_list_comments_to_pandas_without_a_limit_raises_at_the_cap() -> None:
     with PublicClient() as client:
         _install_sync_gamma_transport(client, _comments_handler(captured, 100, 0))
         paginator = client.list_comments(
-            parent_entity_id="1", parent_entity_type="Event", page_size=100
+            parent_entity_id="1",
+            parent_entity_type="Event",
+            holders_only=True,
+            page_size=100,
         )
         with pytest.raises(PaginationLimitError):
             paginator.to_pandas(limit=None)
