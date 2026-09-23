@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.11.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.10.0...polymarket-client-v0.11.0) (2026-09-21)
+
+### Features
+
+* **streams:** add authenticated PolyBolt crypto, 60-second TWAP, and equity price streams with history snapshots, automatic reconnects, typed price events, and isolated filter rejections ([324783f](https://github.com/Polymarket/py-sdk/commit/324783f1fcdce9da37f77a8aeea229871425f2fb)). Crypto symbols use canonical USD pairs such as `btcusd`; equity prices use the instrument's quote currency. Legacy price topics remain deprecated. Migrating Binance prices changes the quote currency from USDT to USD; 30-second TWAP has no replacement. See the [migration guide](https://docs.polymarket.com/api-reference/live-data/migrating-from-rtds#migrate-sdks-to-polybolt).
+
+### Bug Fixes
+
+* **client:** preserve protected BUY caps across tick refinements ([1ed8b7c](https://github.com/Polymarket/py-sdk/commit/1ed8b7cdc3f9fa4065cce168019d4046d82c66bd)).
+* **client:** round protected market BUY shares down so the order can cross at `max_price` ([24e3463](https://github.com/Polymarket/py-sdk/commit/24e346374acef3e3a3da4e3c08a8981e0122ea81)).
+* **client:** sort `list_markets` numerically for `order="volume"` and `order="liquidity"` ([ac09e73](https://github.com/Polymarket/py-sdk/commit/ac09e7321867da768ab3eefb5f581355bc00ca89)). Restart pagination when upgrading: cursors issued by earlier releases with these sort fields no longer resume.
+
 ## [0.10.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.9.0...polymarket-client-v0.10.0) (2026-09-10)
 
 
