@@ -9,7 +9,9 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from types import TracebackType
-from typing import Any, Literal, Self, cast, overload
+from typing import Any, Literal, Self, TypeVar, cast, overload
+
+from pydantic import TypeAdapter, ValidationError
 
 from polymarket._internal.actions.perps import account as _account
 from polymarket._internal.actions.perps.paging import to_epoch_ms
@@ -40,12 +42,14 @@ from polymarket._internal.actions.perps.trading import (
 )
 from polymarket._internal.streams.perps.heartbeat import PerpsWebSocketHeartbeat
 from polymarket._internal.streams.reconnect import ReconnectScheduler
+from polymarket._internal.ws.backoff import jittered_backoff
 from polymarket._internal.ws.connection import AsyncWebSocketConnection
 from polymarket.clients._transport import AsyncTransport
 from polymarket.errors import (
     AutoCancelDailyLimitError,
     RequestRejectedError,
     TransportError,
+    UnexpectedResponseError,
     UserInputError,
 )
 from polymarket.errors import (
@@ -75,6 +79,8 @@ from polymarket.models.perps.notifications import (
 from polymarket.models.perps.orders import (
     PerpsAutoCancelResponse,
     PerpsCancelAllOrdersResponse,
+    PerpsCancelOrderErrorCode,
+    PerpsCancelOrderRejection,
     PerpsCancelOrderResult,
     PerpsFill,
     PerpsOrder,
@@ -83,6 +89,7 @@ from polymarket.models.perps.orders import (
 )
 from polymarket.models.perps.requests import (
     DecimalInput,
+    PerpsCancelRetryOptions,
     PerpsOrderRequest,
     PerpsPositionTpSlTrigger,
     PerpsTpSlTrigger,
@@ -105,6 +112,11 @@ _AUTH_TIMEOUT_S = 30.0
 _ACK_TIMEOUT_S = 30.0
 _MIN_AUTO_CANCEL_BUFFER_MS = 5_000
 _QUEUE_SIZE = 1024
+_CANCEL_RETRY_BASE_DELAY_S = 0.1
+_CANCEL_RETRY_MAX_DELAY_S = 1.0
+
+_CancelIdentifier = TypeVar("_CancelIdentifier", int, str)
+_CANCEL_RESULT_ADAPTER: TypeAdapter[PerpsCancelOrderResult] = TypeAdapter(PerpsCancelOrderResult)
 
 _SESSION_CHANNELS = (
     "balances",
@@ -375,6 +387,7 @@ class PerpsSession:
         order_id: int,
         client_order_id: None = None,
         expires_at: datetime | int | None = None,
+        retry: PerpsCancelRetryOptions | Literal[False] | None = None,
     ) -> PerpsCancelOrderResult: ...
     @overload
     async def cancel_order(
@@ -383,6 +396,7 @@ class PerpsSession:
         client_order_id: str,
         order_id: None = None,
         expires_at: datetime | int | None = None,
+        retry: PerpsCancelRetryOptions | Literal[False] | None = None,
     ) -> PerpsCancelOrderResult: ...
     async def cancel_order(
         self,
@@ -390,20 +404,24 @@ class PerpsSession:
         order_id: int | None = None,
         client_order_id: str | None = None,
         expires_at: datetime | int | None = None,
+        retry: PerpsCancelRetryOptions | Literal[False] | None = None,
     ) -> PerpsCancelOrderResult:
         """Cancel one order by ``order_id`` or ``client_order_id``.
 
-        Provide exactly one identifier. The returned status reflects whether
-        the cancel happened.
+        Provide exactly one identifier. Only ``order_in_flight`` rejections are
+        retried. Pass ``retry=False`` to make one attempt. If the retry budget
+        is exhausted, the final ``order_in_flight`` result is returned.
         """
         if (order_id is None) == (client_order_id is None):
             raise UserInputError("Provide exactly one of order_id or client_order_id")
         if order_id is not None:
-            results = await self.cancel_orders(order_ids=[order_id], expires_at=expires_at)
+            results = await self.cancel_orders(
+                order_ids=[order_id], expires_at=expires_at, retry=retry
+            )
         else:
             assert client_order_id is not None
             results = await self.cancel_orders(
-                client_order_ids=[client_order_id], expires_at=expires_at
+                client_order_ids=[client_order_id], expires_at=expires_at, retry=retry
             )
         return results[0]
 
@@ -414,6 +432,7 @@ class PerpsSession:
         order_ids: Sequence[int],
         client_order_ids: None = None,
         expires_at: datetime | int | None = None,
+        retry: PerpsCancelRetryOptions | Literal[False] | None = None,
     ) -> tuple[PerpsCancelOrderResult, ...]: ...
     @overload
     async def cancel_orders(
@@ -422,6 +441,7 @@ class PerpsSession:
         client_order_ids: Sequence[str],
         order_ids: None = None,
         expires_at: datetime | int | None = None,
+        retry: PerpsCancelRetryOptions | Literal[False] | None = None,
     ) -> tuple[PerpsCancelOrderResult, ...]: ...
     async def cancel_orders(
         self,
@@ -429,26 +449,105 @@ class PerpsSession:
         order_ids: Sequence[int] | None = None,
         client_order_ids: Sequence[str] | None = None,
         expires_at: datetime | int | None = None,
+        retry: PerpsCancelRetryOptions | Literal[False] | None = None,
     ) -> tuple[PerpsCancelOrderResult, ...]:
         """Cancel orders and return one result per requested order.
 
         Provide exactly one identifier list: ``order_ids`` or
-        ``client_order_ids``.
+        ``client_order_ids``. Only results rejected with ``order_in_flight``
+        are retried; terminal results retain their original position. Pass
+        ``retry=False`` to make one attempt.
         """
         if (order_ids is None) == (client_order_ids is None):
             raise UserInputError("Provide exactly one of order_ids or client_order_ids")
+        expires_at_ms = to_epoch_ms("expires_at", expires_at)
         if order_ids is not None:
-            op = cancel_orders_op(order_ids)
-        else:
-            assert client_order_ids is not None
-            op = cancel_orders_by_client_id_op(client_order_ids)
-        results = await self._send_signed_command(
-            op,
-            parse=_parse_cancel_results,
-            timeout_message="Perps cancel order response timed out.",
-            expires_at=expires_at,
+            identifiers = tuple(order_ids)
+            if not identifiers:
+                raise UserInputError("order_ids must be non-empty")
+            return await self._cancel_orders_with_retry(
+                identifiers,
+                build_op=cancel_orders_op,
+                expires_at_ms=expires_at_ms,
+                retry=retry,
+            )
+        assert client_order_ids is not None
+        identifiers = tuple(client_order_ids)
+        if not identifiers:
+            raise UserInputError("client_order_ids must be non-empty")
+        return await self._cancel_orders_with_retry(
+            identifiers,
+            build_op=cancel_orders_by_client_id_op,
+            expires_at_ms=expires_at_ms,
+            retry=retry,
         )
-        return tuple(results)
+
+    async def _cancel_orders_with_retry(
+        self,
+        identifiers: Sequence[_CancelIdentifier],
+        *,
+        build_op: Callable[[Sequence[_CancelIdentifier]], list[Any]],
+        expires_at_ms: int | None,
+        retry: PerpsCancelRetryOptions | Literal[False] | None,
+    ) -> tuple[PerpsCancelOrderResult, ...]:
+        if retry is False:
+            max_attempts = 1
+            retry_deadline = float("inf")
+        else:
+            if retry is None:
+                retry = PerpsCancelRetryOptions()
+            elif not isinstance(retry, PerpsCancelRetryOptions):  # pyright: ignore[reportUnnecessaryIsInstance]
+                raise UserInputError("retry must be PerpsCancelRetryOptions, False, or None")
+            max_attempts = retry.max_attempts
+            retry_deadline = asyncio.get_running_loop().time() + retry.max_elapsed_s
+
+        final_results: list[PerpsCancelOrderResult | None] = [None] * len(identifiers)
+        pending = list(enumerate(identifiers))
+        attempts = 0
+
+        while pending:
+            if attempts > 0:
+                delay_s = jittered_backoff(
+                    attempts - 1,
+                    base_s=_CANCEL_RETRY_BASE_DELAY_S,
+                    max_s=_CANCEL_RETRY_MAX_DELAY_S,
+                )
+                remaining_s = _remaining_cancel_retry_s(retry_deadline, expires_at_ms=expires_at_ms)
+                if remaining_s <= 0 or delay_s >= remaining_s:
+                    break
+                await asyncio.sleep(delay_s)
+                if _remaining_cancel_retry_s(retry_deadline, expires_at_ms=expires_at_ms) <= 0:
+                    break
+
+            attempt_results = await self._send_signed_command(
+                build_op([identifier for _, identifier in pending]),
+                parse=_parse_cancel_results,
+                timeout_message="Perps cancel order response timed out.",
+                expires_at=expires_at_ms,
+            )
+            if len(attempt_results) != len(pending):
+                raise UnexpectedResponseError(
+                    "Perps cancel response did not include one result per requested order."
+                )
+
+            attempts += 1
+            retryable: list[tuple[int, _CancelIdentifier]] = []
+            for (result_index, identifier), result in zip(pending, attempt_results, strict=True):
+                final_results[result_index] = result
+                if (
+                    attempts < max_attempts
+                    and isinstance(result, PerpsCancelOrderRejection)
+                    and result.error == PerpsCancelOrderErrorCode.ORDER_IN_FLIGHT
+                ):
+                    retryable.append((result_index, identifier))
+            pending = retryable
+
+        resolved: list[PerpsCancelOrderResult] = []
+        for result in final_results:
+            if result is None:
+                raise RuntimeError("expected a final Perps cancel order result")
+            resolved.append(result)
+        return tuple(resolved)
 
     async def cancel_all_orders(
         self,
@@ -930,7 +1029,7 @@ class PerpsSession:
         data = message.get("data")
         try:
             result = pending.parse(data)
-        except RequestRejectedError as error:
+        except (RequestRejectedError, UnexpectedResponseError) as error:
             self._reject_future(pending.future, error)
             return True
         except Exception:
@@ -1077,8 +1176,22 @@ def _parse_post_order_acks(data: object) -> list[PerpsPostOrderAck]:
 
 def _parse_cancel_results(data: object) -> list[PerpsCancelOrderResult]:
     if not isinstance(data, list):
-        raise ValueError("expected a list of Perps cancel order results")
-    return [PerpsCancelOrderResult.parse_response(item) for item in cast("list[object]", data)]
+        raise UnexpectedResponseError(
+            "Perps cancel order results response did not match expected shape"
+        )
+    try:
+        return [_CANCEL_RESULT_ADAPTER.validate_python(item) for item in cast("list[object]", data)]
+    except ValidationError as error:
+        raise UnexpectedResponseError(
+            "Perps cancel order result response did not match expected shape"
+        ) from error
+
+
+def _remaining_cancel_retry_s(retry_deadline: float, *, expires_at_ms: int | None) -> float:
+    remaining_s = retry_deadline - asyncio.get_running_loop().time()
+    if expires_at_ms is not None:
+        remaining_s = min(remaining_s, (expires_at_ms - now_ms()) / 1_000)
+    return remaining_s
 
 
 def _error_ack(value: object) -> str | None:

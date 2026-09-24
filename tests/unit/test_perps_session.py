@@ -30,6 +30,7 @@ from polymarket.models.perps.events import (
     PerpsOrderEvent,
     PerpsResyncEvent,
 )
+from polymarket.models.perps.orders import PerpsCancelOrderErrorCode
 
 Handler = Callable[[ServerConnection], Awaitable[None]]
 
@@ -607,7 +608,7 @@ def test_cancel_order_returns_result_without_raising_on_err_status() -> None:
                 json.dumps(
                     {
                         "id": message["id"],
-                        "data": [{"status": "err", "oid": 55, "error": "order not found"}],
+                        "data": [{"status": "err", "oid": 55, "error": "order_not_found"}],
                     }
                 )
             )
@@ -616,7 +617,7 @@ def test_cancel_order_returns_result_without_raising_on_err_status() -> None:
         async with ws_server(handler) as url, _open_session(url) as session:
             result = await session.cancel_order(order_id=55)
             assert result.status == "err"
-            assert result.error == "order not found"
+            assert result.error is PerpsCancelOrderErrorCode.ORDER_NOT_FOUND
 
     asyncio.run(asyncio.wait_for(run(), timeout=10.0))
 
