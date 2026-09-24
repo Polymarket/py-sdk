@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.1](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.11.0...polymarket-client-v0.11.1) (2026-09-24)
+
+
+### Bug Fixes
+
+* **models:** accept the REDEEMABLE_LOST and MERGEABLE position filters ([#311](https://github.com/Polymarket/py-sdk/issues/311)) ([0e00e28](https://github.com/Polymarket/py-sdk/commit/0e00e28365f57ab8fa7c5a7f3f320e77bb36e356))
+
 ## [0.11.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.10.0...polymarket-client-v0.11.0) (2026-09-21)
 
 ### Features
