@@ -1,7 +1,7 @@
 """Perps order and fill models."""
 
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation, localcontext
 from typing import Any, Literal, cast
 
 from pydantic import AliasChoices, Field, field_validator, model_validator
@@ -13,6 +13,7 @@ from polymarket.models.perps._validators import (
     _parse_tx_hash,  # pyright: ignore[reportPrivateUsage]
     _require_epoch_ms,  # pyright: ignore[reportPrivateUsage]
 )
+from polymarket.models.perps.builders import PerpsBuilderAttribution
 from polymarket.models.perps.types import (
     PerpsInstrumentId,
     PerpsOrderId,
@@ -73,6 +74,7 @@ class PerpsOrder(BaseModel):
         default=None, validation_alias=AliasChoices("client_order_id", "coid")
     )
     tp_sl: PerpsTpSlOrderFields | None = Field(default=None, validation_alias="tpsl")
+    builder: PerpsBuilderAttribution | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -108,6 +110,9 @@ class PerpsFill(BaseModel):
     quantity: Decimal = Field(validation_alias=AliasChoices("quantity", "qty"))
     taker: bool
     fee: Decimal
+    builder_fee: Decimal = Decimal(0)
+    total_fee: Decimal
+    builder: PerpsBuilderAttribution | None = None
     fee_asset: str = Field(validation_alias=AliasChoices("fee_asset", "fea"))
     previous_size: Decimal = Field(validation_alias=AliasChoices("previous_size", "psz"))
     previous_entry_price: Decimal = Field(
@@ -119,10 +124,37 @@ class PerpsFill(BaseModel):
     hash: str | None = None
     client_order_id: str | None = Field(default=None, validation_alias="coid")
 
+    @model_validator(mode="before")
+    @classmethod
+    def _fees(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        data = dict(cast(dict[str, Any], value))
+        if "total_fee" not in data and "fee" in data:
+            try:
+                fee = Decimal(str(_coerce_decimalish(data["fee"])))
+                builder_fee = Decimal(str(_coerce_decimalish(data.get("builder_fee", "0"))))
+            except InvalidOperation as error:
+                raise ValueError("Invalid fill fee decimal") from error
+            if not fee.is_finite() or not builder_fee.is_finite():
+                raise ValueError("Fill fees must be finite")
+            with localcontext() as context:
+                context.prec = max(
+                    28,
+                    len(fee.as_tuple().digits)
+                    + len(builder_fee.as_tuple().digits)
+                    + abs(int(fee.as_tuple().exponent) - int(builder_fee.as_tuple().exponent))
+                    + 2,
+                )
+                data["total_fee"] = fee + builder_fee
+        return data
+
     @field_validator(
         "price",
         "quantity",
         "fee",
+        "builder_fee",
+        "total_fee",
         "previous_size",
         "previous_entry_price",
         "pnl",
@@ -157,6 +189,7 @@ def _default_ack_error(data: object) -> object:
 class PerpsPostOrderAck(BaseModel):
     """Acknowledgement for one posted Perps order."""
 
+    builder: PerpsBuilderAttribution | None = None
     status: Literal["ok", "err"]
     order_id: PerpsOrderId | None = Field(default=None, validation_alias="oid")
     client_order_id: str | None = Field(default=None, validation_alias="coid")

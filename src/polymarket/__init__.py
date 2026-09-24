@@ -214,6 +214,19 @@ from polymarket.models.data import (
     WithdrawalActivity,
     YieldActivity,
 )
+from polymarket.models.perps.builder_events import PerpsBuilderFillEvent, PerpsBuilderFillsEvent
+from polymarket.models.perps.builders import (
+    PerpsBuilderApproval,
+    PerpsBuilderAttribution,
+    PerpsBuilderEarning,
+    PerpsBuilderEarningsAsset,
+    PerpsBuilderEarningsPage,
+    PerpsBuilderEarningsPaginator,
+    PerpsBuilderEarningsSnapshot,
+    PerpsBuilderEarningsSummary,
+    PerpsBuilderStatus,
+    PerpsLiquidityRole,
+)
 from polymarket.pagination import AsyncPaginator, Page, Paginator
 from polymarket.rate_limit import RateLimitUpdate, RateLimitUpdateListener
 from polymarket.rfq import (
@@ -278,6 +291,18 @@ from polymarket.types import EvmAddress, HexString, TransactionHash
 from polymarket.version import __version__
 
 __all__ = [
+    "PerpsBuilderAttribution",
+    "PerpsBuilderStatus",
+    "PerpsBuilderApproval",
+    "PerpsLiquidityRole",
+    "PerpsBuilderEarning",
+    "PerpsBuilderEarningsSnapshot",
+    "PerpsBuilderEarningsAsset",
+    "PerpsBuilderEarningsSummary",
+    "PerpsBuilderEarningsPage",
+    "PerpsBuilderEarningsPaginator",
+    "PerpsBuilderFillEvent",
+    "PerpsBuilderFillsEvent",
     "Activity",
     "ActivityType",
     "ActivityTypeFilter",

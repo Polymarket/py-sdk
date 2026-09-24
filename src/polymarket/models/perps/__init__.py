@@ -18,6 +18,19 @@ from polymarket.models.perps.account import (
     PerpsPosition,
     PerpsProxyKey,
 )
+from polymarket.models.perps.builder_events import PerpsBuilderFillEvent, PerpsBuilderFillsEvent
+from polymarket.models.perps.builders import (
+    PerpsBuilderApproval,
+    PerpsBuilderAttribution,
+    PerpsBuilderEarning,
+    PerpsBuilderEarningsAsset,
+    PerpsBuilderEarningsPage,
+    PerpsBuilderEarningsPaginator,
+    PerpsBuilderEarningsSnapshot,
+    PerpsBuilderEarningsSummary,
+    PerpsBuilderStatus,
+    PerpsLiquidityRole,
+)
 from polymarket.models.perps.credentials import PerpsCredentials
 from polymarket.models.perps.events import (
     PerpsBalanceEvent,
@@ -122,6 +135,18 @@ from polymarket.models.perps.types import (
 )
 
 __all__ = [
+    "PerpsBuilderAttribution",
+    "PerpsBuilderStatus",
+    "PerpsBuilderApproval",
+    "PerpsLiquidityRole",
+    "PerpsBuilderEarning",
+    "PerpsBuilderEarningsSnapshot",
+    "PerpsBuilderEarningsAsset",
+    "PerpsBuilderEarningsSummary",
+    "PerpsBuilderEarningsPage",
+    "PerpsBuilderEarningsPaginator",
+    "PerpsBuilderFillEvent",
+    "PerpsBuilderFillsEvent",
     "PerpsAccountConfig",
     "PerpsAccountStats",
     "PerpsAutoCancelStatus",
