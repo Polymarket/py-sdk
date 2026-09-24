@@ -82,7 +82,7 @@ class PositionStatus(StrEnum):
     REDEEMABLE_LOST = "REDEEMABLE_LOST"
     """Still-held positions that resolved to a zero payout. Requires a wallet."""
     MERGEABLE = "MERGEABLE"
-    """Live complementary pairs the wallet can merge back to collateral."""
+    """Live complementary pairs the wallet can merge back to collateral. Requires a wallet."""
     CLOSED = "CLOSED"
 
 

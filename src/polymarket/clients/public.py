@@ -208,14 +208,10 @@ class PublicClient:
         Use ``status="CLOSED"`` for closed positions. Sizes are shares and values are USDC.
 
         ``status="REDEEMABLE_LOST"`` lists still-held positions that resolved to a zero
-        payout and requires ``user``. ``status="MERGEABLE"`` lists live complementary
-        pairs. Both are filters only: a lost position still reports ``REDEEMABLE`` and a
+        payout. ``status="MERGEABLE"`` lists live complementary pairs. Both require
+        ``user`` and are filters only: a lost position still reports ``REDEEMABLE`` and a
         mergeable one ``OPEN``. ``sort_by`` defaults to ``TOKENS`` for ``MERGEABLE``,
         ``REALIZED_PNL`` for ``CLOSED``, and ``CURRENT_VALUE`` for every other status.
-
-        For ``MERGEABLE``, provide ``user`` to filter to that wallet's mergeable
-        positions. A ``condition_id``-only request falls back to the broader ``OPEN``
-        listing and can include positions with ``mergeable=False``.
 
         Positions have no time bounds by default. ``full_history=True`` also includes
         holdings without activity and cannot be combined with ``start`` or ``end``.

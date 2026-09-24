@@ -62,6 +62,8 @@ WALLET = "0x" + "12" * 20
         ("list_trades", {"user": ""}),
         ("list_positions", {"user": WALLET, "status": "open"}),
         ("list_positions", {"condition_id": CONDITION, "status": "REDEEMABLE_LOST"}),
+        ("list_positions", {"condition_id": CONDITION, "status": "MERGEABLE"}),
+        ("list_positions", {"condition_id": CONDITION, "status": PositionStatus.MERGEABLE}),
         ("list_activity", {"user": WALLET, "activity_types": "TRADE"}),
         ("list_activity", {"user": WALLET, "activity_types": ActivityType.TRADE}),
         ("list_trader_leaderboard", {"category": ""}),
@@ -211,17 +213,16 @@ def test_enum_members_serialize_like_plain_strings() -> None:
 
 
 def test_positions_accepts_the_wallet_scoped_status_filters() -> None:
-    for status in (PositionStatus.REDEEMABLE_LOST, "MERGEABLE"):
+    for status in (
+        PositionStatus.REDEEMABLE_LOST,
+        "REDEEMABLE_LOST",
+        PositionStatus.MERGEABLE,
+        "MERGEABLE",
+    ):
         assert data.list_positions_spec(user=WALLET, status=status).base_params == {
             "user": WALLET,
             "status": status,
         }
-    # Unlike REDEEMABLE_LOST, MERGEABLE stays valid on a market anchor, where it
-    # falls back to the OPEN listing.
-    assert data.list_positions_spec(condition_id=CONDITION, status="MERGEABLE").base_params == {
-        "condition_id": CONDITION,
-        "status": "MERGEABLE",
-    }
 
 
 def test_condition_canonicalization_and_time_flooring() -> None:
