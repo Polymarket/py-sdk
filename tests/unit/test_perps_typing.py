@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import UTC, datetime
-from decimal import Decimal
 from types import CoroutineType
 from typing import TYPE_CHECKING, Any, assert_type
 
@@ -18,12 +16,8 @@ from polymarket.models.perps import (
     PerpsBuilderFillsEvent,
     PerpsBuilderStatus,
     PerpsCancelOrderResult,
-    PerpsFill,
-    PerpsInstrumentId,
-    PerpsOrderId,
     PerpsOrderRequest,
     PerpsPostOrderAck,
-    PerpsTradeId,
 )
 from polymarket.perps import PerpsOrderPlacement, PerpsSession
 from polymarket.streams import SubscriptionHandle
@@ -120,24 +114,3 @@ if TYPE_CHECKING:
         )
 
     _builder_typing_check = _check_builder_typing
-
-
-def test_legacy_fill_constructor_derives_total_fee() -> None:
-    fill = PerpsFill(
-        trade_id=PerpsTradeId(1),
-        order_id=PerpsOrderId(2),
-        instrument_id=PerpsInstrumentId(3),
-        side="long",
-        price=Decimal("100"),
-        quantity=Decimal("1"),
-        taker=True,
-        fee=Decimal("0.1"),
-        fee_asset="USDC",
-        previous_size=Decimal(0),
-        previous_entry_price=Decimal(0),
-        pnl=Decimal(0),
-        liquidation=False,
-        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
-    )
-    assert_type(fill.total_fee, Decimal)
-    assert fill.total_fee == Decimal("0.1")

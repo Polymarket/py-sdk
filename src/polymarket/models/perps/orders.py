@@ -189,11 +189,11 @@ def _default_ack_error(data: object) -> object:
 class PerpsPostOrderAck(BaseModel):
     """Acknowledgement for one posted Perps order."""
 
-    builder: PerpsBuilderAttribution | None = None
     status: Literal["ok", "err"]
     order_id: PerpsOrderId | None = Field(default=None, validation_alias="oid")
     client_order_id: str | None = Field(default=None, validation_alias="coid")
     error: str | None = None
+    builder: PerpsBuilderAttribution | None = None
 
     @model_validator(mode="before")
     @classmethod

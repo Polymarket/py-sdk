@@ -1,17 +1,17 @@
 """Perps builder validation, reporting, and owner consent."""
 
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from eth_account.signers.local import LocalAccount
 from eth_utils.address import is_address
-from pydantic import ValidationError
 
 from polymarket._internal.actions.perps.paging import as_json_dict, to_epoch_ms
 from polymarket._internal.actions.perps.signing import now_ms, random_perps_salt, sign_perps_op
 from polymarket.clients._transport import AsyncTransport
 from polymarket.errors import UnexpectedResponseError, UserInputError
+from polymarket.models.perps._validators import _require_builder_fee_rate
 from polymarket.models.perps.builders import (
     PerpsBuilderApproval,
     PerpsBuilderAttribution,
@@ -38,13 +38,8 @@ def validate_address(name: str, value: object) -> str:
 
 def validate_fee_rate(value: Decimal | str) -> str:
     try:
-        rate = PerpsBuilderAttribution.model_validate(
-            {
-                "address": "0x0000000000000000000000000000000000000000",
-                "fee_rate": value,
-            }
-        ).fee_rate
-    except ValidationError as error:
+        rate = _require_builder_fee_rate(Decimal(value))
+    except (InvalidOperation, TypeError, ValueError) as error:
         raise UserInputError(
             "max_fee_rate must be between 0 and 0.001 with at most 28 decimal places"
         ) from error
@@ -102,7 +97,7 @@ async def approve_fee(
     return PerpsBuilderApproval.parse_response(data)
 
 
-def reporting_params(
+def build_builder_reporting_params(
     *, start: datetime | int | None, end: datetime | int | None, as_of_sequence: int | None
 ) -> dict[str, Any]:
     start_ms, end_ms = to_epoch_ms("start", start), to_epoch_ms("end", end)
@@ -122,7 +117,7 @@ def list_earnings(
     end: datetime | int | None = None,
     as_of_sequence: int | None = None,
 ) -> PerpsBuilderEarningsPaginator:
-    params = reporting_params(start=start, end=end, as_of_sequence=as_of_sequence)
+    params = build_builder_reporting_params(start=start, end=end, as_of_sequence=as_of_sequence)
 
     async def fetch(cursor: str | None) -> PerpsBuilderEarningsPage:
         data = as_json_dict(
@@ -155,7 +150,7 @@ async def fetch_summary(
     end: datetime | int | None = None,
     as_of_sequence: int | None = None,
 ) -> PerpsBuilderEarningsSummary:
-    params = reporting_params(start=start, end=end, as_of_sequence=as_of_sequence)
+    params = build_builder_reporting_params(start=start, end=end, as_of_sequence=as_of_sequence)
     return PerpsBuilderEarningsSummary.parse_response(
         await api.get_json("/v1/account/builder-earnings-summary", params=params)
     )

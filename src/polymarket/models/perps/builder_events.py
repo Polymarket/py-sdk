@@ -12,7 +12,7 @@ from polymarket.models.perps.events import PerpsResyncEvent
 
 
 class PerpsBuilderFillEvent(BaseModel):
-    """Experimental: a batch of builder receipts; engine sequences may be sparse."""
+    """Experimental: a batch of builder receipts; sequence numbers may skip values."""
 
     type: Literal["builder_fill"] = "builder_fill"
     channel: Literal["builderFills"] = "builderFills"

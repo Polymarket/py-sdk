@@ -214,7 +214,7 @@ class PerpsSession:
 
         Handles are independent and share the session socket. There is no initial
         snapshot. On resync, reconcile with list_builder_earnings and deduplicate
-        by earning_id. Sparse engine sequences are not treated as missing frames.
+        by earning_id. Gaps between sequence numbers are not treated as missing frames.
         The configured order builder does not change whose receipts are read.
         Close each handle; closing the last handle unsubscribes the channel.
         """
@@ -355,7 +355,7 @@ class PerpsSession:
 
         Every fetched page retains its snapshot, including empty pages. Use the
         snapshot's start, end, and as_of_sequence to reconcile a summary. Windows
-        are at most 90 days; omitted bounds use the server's seven-day default.
+        are at most 90 days; omitted bounds default to a seven-day window.
         """
         return _builders.list_earnings(
             self._api, start=start, end=end, as_of_sequence=as_of_sequence

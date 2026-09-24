@@ -10,10 +10,10 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Any, cast
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 
 from polymarket.models.base import BaseModel
-from polymarket.models.perps._validators import _require_epoch_ms
+from polymarket.models.perps._validators import _require_builder_fee_rate, _require_epoch_ms
 from polymarket.models.perps.types import PerpsInstrumentId, PerpsOrderId, PerpsTradeId
 from polymarket.models.types import OrderSide
 from polymarket.pagination import AsyncPaginator, Page
@@ -38,11 +38,7 @@ class PerpsBuilderAttribution(BaseModel):
     @field_validator("fee_rate")
     @classmethod
     def _rate(cls, value: Decimal) -> Decimal:
-        if not value.is_finite() or not Decimal(0) <= value <= Decimal("0.001"):
-            raise ValueError("fee_rate must be between 0 and 0.001 (10 bps)")
-        if int(value.as_tuple().exponent) < -28:
-            raise ValueError("fee_rate must have at most 28 decimal places")
-        return value
+        return _require_builder_fee_rate(value)
 
 
 class PerpsBuilderStatus(BaseModel):
@@ -109,7 +105,7 @@ class PerpsBuilderEarning(BaseModel):
         if "buy" in data:
             if not isinstance(data["buy"], bool):
                 raise ValueError("buy must be a bool")
-            data["liquidity_role"] = data["side"]
+            data["liquidity_role"] = data.get("side")
             data["side"] = "BUY" if data["buy"] else "SELL"
         return data
 
@@ -120,10 +116,10 @@ class PerpsBuilderEarning(BaseModel):
 
 
 class PerpsBuilderEarningsSnapshot(BaseModel):
-    """Experimental: fixed reporting window and indexed sequence cutoff."""
+    """Experimental: fixed reporting window and the sequence it includes up to."""
 
-    start: datetime = Field(validation_alias="start_timestamp")
-    end: datetime = Field(validation_alias="end_timestamp")
+    start: datetime = Field(validation_alias=AliasChoices("start", "start_timestamp"))
+    end: datetime = Field(validation_alias=AliasChoices("end", "end_timestamp"))
     as_of_sequence: int = Field(ge=0)
 
     @field_validator("start", "end", mode="before")
@@ -144,7 +140,9 @@ class PerpsBuilderEarningsAsset(BaseModel):
 class PerpsBuilderEarningsSummary(BaseModel):
     """Experimental: earnings at a fixed cutoff and the current approval count."""
 
-    assets: tuple[PerpsBuilderEarningsAsset, ...] = Field(validation_alias="data")
+    assets: tuple[PerpsBuilderEarningsAsset, ...] = Field(
+        validation_alias=AliasChoices("assets", "data")
+    )
     trader_count: int = Field(ge=0)
     active_approval_count: int = Field(ge=0)
     snapshot: PerpsBuilderEarningsSnapshot

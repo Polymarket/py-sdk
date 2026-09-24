@@ -1,6 +1,8 @@
 """Builder receipt, pagination, and signing contracts."""
 
 import asyncio
+import inspect
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -21,8 +23,12 @@ from polymarket.models.perps import (
     PerpsBuilderAttribution,
     PerpsBuilderEarningsPage,
     PerpsBuilderEarningsSnapshot,
+    PerpsBuilderEarningsSummary,
     PerpsFill,
+    PerpsInstrumentId,
+    PerpsOrderId,
     PerpsOrderRequest,
+    PerpsTradeId,
 )
 
 BUILDER = "0x" + "ab" * 20
@@ -54,7 +60,7 @@ def test_builder_order_signed_payload_and_body_match() -> None:
 
 
 @pytest.mark.parametrize(
-    "rate", ["NaN", "Infinity", "-0.0001", "0.0011", "0.00000000000000000000000000001"]
+    "rate", ["NaN", "Infinity", "-0", "-0.0001", "0.0011", "0.00000000000000000000000000001"]
 )
 def test_builder_rate_constraints(rate: str) -> None:
     with pytest.raises(ValidationError):
@@ -88,6 +94,35 @@ def test_legacy_fill_fee_totals_are_exact() -> None:
         }
     )
     assert parsed.total_fee == Decimal("10000000000000000000000000000")
+
+
+def test_legacy_fill_constructor_derives_total_fee() -> None:
+    fill = PerpsFill(
+        trade_id=PerpsTradeId(1),
+        order_id=PerpsOrderId(2),
+        instrument_id=PerpsInstrumentId(3),
+        side="long",
+        price=Decimal("100"),
+        quantity=Decimal("1"),
+        taker=True,
+        fee=Decimal("0.1"),
+        fee_asset="USDC",
+        previous_size=Decimal(0),
+        previous_entry_price=Decimal(0),
+        pnl=Decimal(0),
+        liquidation=False,
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    assert fill.total_fee == Decimal("0.1")
+
+
+def test_earnings_report_constructors_use_python_field_names() -> None:
+    assert list(inspect.signature(PerpsBuilderEarningsSnapshot).parameters) == [
+        "start",
+        "end",
+        "as_of_sequence",
+    ]
+    assert "assets" in inspect.signature(PerpsBuilderEarningsSummary).parameters
 
 
 def test_earnings_empty_page_retains_snapshot_and_continuations_are_independent() -> None:
