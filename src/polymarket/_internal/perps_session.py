@@ -229,6 +229,11 @@ class PerpsSession:
         except BaseException:
             self._builder_handles.discard(handle)
             handle._end(discard_pending=True)  # pyright: ignore[reportPrivateUsage]
+            if not self.closed and self._builder_ready:
+                # The server may have applied the subscription before cancellation
+                # or a lost acknowledgement. Reconcile the remaining consumers.
+                with contextlib.suppress(Exception):
+                    await self._sync_builder_subscription()
             raise
         handle._bind_close(self._close_builder_handle)  # pyright: ignore[reportPrivateUsage]
         return handle
@@ -582,7 +587,6 @@ class PerpsSession:
         *,
         order_id: int | None = None,
         client_order_id: str | None = None,
-        builder_attribution: PerpsBuilderAttribution | None | EllipsisType = ...,
         expires_at: datetime | int | None = None,
     ) -> PerpsCancelOrderResult:
         """Cancel one order by ``order_id`` or ``client_order_id``.
@@ -797,7 +801,6 @@ class PerpsSession:
         *,
         order_id: int | None = None,
         client_order_id: str | None = None,
-        builder_attribution: PerpsBuilderAttribution | None | EllipsisType = ...,
         instrument_id: int | None = None,
         start: datetime | int | None = None,
         end: datetime | int | None = None,

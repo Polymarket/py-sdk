@@ -1164,3 +1164,76 @@ def test_builder_stream_handles_pre_ack_frames_sparse_sequences_and_close() -> N
             assert frames[-1]["req"] == "unsub"
 
     asyncio.run(run())
+
+
+def test_cancelled_builder_subscription_reconciles_server_before_retry() -> None:
+    async def run() -> None:
+        received_sub = asyncio.Event()
+        frames: list[str] = []
+
+        async def handler(ws: ServerConnection) -> None:
+            await _handshake(ws)
+            async for raw in ws:
+                frame = json.loads(raw)
+                if _is_ping(frame):
+                    continue
+                frames.append(frame["req"])
+                if len(frames) == 1:
+                    received_sub.set()
+                    # The server subscribed, but its acknowledgement is lost.
+                    continue
+                await ws.send(json.dumps({"id": frame["id"], "data": {"status": "ok"}}))
+
+        async with ws_server(handler) as url, _open_session(url) as session:
+            pending = asyncio.create_task(session.subscribe_builder_fills())
+            await received_sub.wait()
+            pending.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await pending
+            assert frames == ["sub", "unsub"]
+            handle = await session.subscribe_builder_fills()
+            await handle.close()
+            assert frames == ["sub", "unsub", "sub", "unsub"]
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10))
+
+
+def test_builder_stream_resubscribes_after_reconnect() -> None:
+    async def run() -> None:
+        disconnect = asyncio.Event()
+        connections = 0
+
+        async def handler(ws: ServerConnection) -> None:
+            nonlocal connections
+            connections += 1
+            current = connections
+            await _handshake(ws)
+            async for raw in ws:
+                frame = json.loads(raw)
+                if _is_ping(frame):
+                    continue
+                assert frame["chs"] == ["builderFills"]
+                await ws.send(json.dumps({"id": frame["id"], "data": {"status": "ok"}}))
+                if frame["req"] == "sub":
+                    if current == 1:
+                        await disconnect.wait()
+                        await ws.close()
+                        return
+                    await ws.send(
+                        json.dumps(
+                            {"ch": "builderFills", "ts": 1751500000000, "sq": 100, "data": []}
+                        )
+                    )
+
+        async with ws_server(handler) as url, _open_session(url) as session:
+            handle = await session.subscribe_builder_fills()
+            disconnect.set()
+            resync = await anext(handle)
+            assert isinstance(resync, PerpsResyncEvent)
+            assert resync.reason == "reconnect"
+            receipt = await anext(handle)
+            assert receipt.type == "builder_fill" and receipt.sequence == 100
+            await handle.close()
+            assert connections == 2
+
+    asyncio.run(asyncio.wait_for(run(), timeout=15))

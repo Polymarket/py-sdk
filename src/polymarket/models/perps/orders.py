@@ -111,7 +111,7 @@ class PerpsFill(BaseModel):
     taker: bool
     fee: Decimal
     builder_fee: Decimal = Decimal(0)
-    total_fee: Decimal
+    total_fee: Decimal = Decimal(0)
     builder: PerpsBuilderAttribution | None = None
     fee_asset: str = Field(validation_alias=AliasChoices("fee_asset", "fea"))
     previous_size: Decimal = Field(validation_alias=AliasChoices("previous_size", "psz"))
