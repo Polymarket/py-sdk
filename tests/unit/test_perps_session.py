@@ -1236,12 +1236,48 @@ def test_builder_stream_resubscribes_after_reconnect() -> None:
         async with ws_server(handler) as url, _open_session(url) as session:
             handle = await session.subscribe_builder_fills()
             disconnect.set()
-            resync = await anext(handle)
-            assert isinstance(resync, PerpsResyncEvent)
+            events = [await anext(handle), await anext(handle)]
+            resync = next(e for e in events if isinstance(e, PerpsResyncEvent))
             assert resync.reason == "reconnect"
-            receipt = await anext(handle)
+            receipt = next(e for e in events if not isinstance(e, PerpsResyncEvent))
             assert receipt.type == "builder_fill" and receipt.sequence == 100
             await handle.close()
+            assert connections == 2
+
+    asyncio.run(asyncio.wait_for(run(), timeout=15))
+
+
+def test_rejected_builder_resubscribe_does_not_block_reconnect() -> None:
+    async def run() -> None:
+        disconnect = asyncio.Event()
+        connections = 0
+
+        async def handler(ws: ServerConnection) -> None:
+            nonlocal connections
+            connections += 1
+            current = connections
+            await _handshake(ws)
+            async for raw in ws:
+                frame = json.loads(raw)
+                if _is_ping(frame):
+                    continue
+                if current == 2:
+                    await ws.send(
+                        json.dumps({"id": frame["id"], "data": {"status": "err", "error": "down"}})
+                    )
+                    continue
+                await ws.send(json.dumps({"id": frame["id"], "data": {"status": "ok"}}))
+                await disconnect.wait()
+                await ws.close()
+                return
+
+        async with ws_server(handler) as url, _open_session(url) as session:
+            handle = await session.subscribe_builder_fills()
+            disconnect.set()
+            event = await anext(session)
+            assert isinstance(event, PerpsResyncEvent) and event.reason == "reconnect"
+            with pytest.raises(RequestRejectedError, match="down"):
+                await anext(handle)
             assert connections == 2
 
     asyncio.run(asyncio.wait_for(run(), timeout=15))

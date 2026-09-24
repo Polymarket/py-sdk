@@ -967,13 +967,22 @@ class PerpsSession:
         await self._authenticate()
         self._builder_ready = True
         await self._subscribe_channels()
-        if emit_resync:
-            self._push_builder_event(PerpsResyncEvent(reason="reconnect", channel="builderFills"))
-        await self._sync_builder_subscription()
         self._scheduler.reset()
         if emit_resync:
             self._sequences.clear()
             self._push(PerpsResyncEvent(reason="reconnect"))
+            await self._recover_builder_subscription()
+
+    async def _recover_builder_subscription(self) -> None:
+        try:
+            await self._sync_builder_subscription()
+        except Exception as error:
+            handles = tuple(self._builder_handles)
+            self._builder_handles.clear()
+            for handle in handles:
+                handle._end(error)  # pyright: ignore[reportPrivateUsage]
+            return
+        self._push_builder_event(PerpsResyncEvent(reason="reconnect", channel="builderFills"))
 
     async def _authenticate(self) -> None:
         await self._send_request(
