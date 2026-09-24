@@ -41,7 +41,7 @@ def validate_fee_rate(value: Decimal | str) -> str:
         rate = _require_builder_fee_rate(Decimal(value))
     except (InvalidOperation, TypeError, ValueError) as error:
         raise UserInputError(
-            "max_fee_rate must be between 0 and 0.001 with at most 28 decimal places"
+            "max_fee_rate must be a non-negative decimal with at most 28 decimal places"
         ) from error
     return format(rate, "f")
 

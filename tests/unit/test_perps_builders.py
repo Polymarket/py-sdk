@@ -60,7 +60,7 @@ def test_builder_order_signed_payload_and_body_match() -> None:
 
 
 @pytest.mark.parametrize(
-    "rate", ["NaN", "Infinity", "-0", "-0.0001", "0.0011", "0.00000000000000000000000000001"]
+    "rate", ["NaN", "Infinity", "-0", "-0.0001", "0.00000000000000000000000000001"]
 )
 def test_builder_rate_constraints(rate: str) -> None:
     with pytest.raises(ValidationError):

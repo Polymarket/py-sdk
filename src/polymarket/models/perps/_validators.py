@@ -38,8 +38,8 @@ def _require_epoch_ms(value: object) -> object:
 
 
 def _require_builder_fee_rate(value: Decimal) -> Decimal:
-    if not value.is_finite() or value.is_signed() or value > Decimal("0.001"):
-        raise ValueError("fee_rate must be between 0 and 0.001 (10 bps)")
+    if not value.is_finite() or value.is_signed():
+        raise ValueError("fee_rate must be a non-negative finite decimal")
     if int(value.as_tuple().exponent) < -28:
         raise ValueError("fee_rate must have at most 28 decimal places")
     return value
