@@ -71,15 +71,31 @@ class TipSide(StrEnum):
 
 
 class PositionStatus(StrEnum):
-    """Lifecycle status of a position."""
+    """Lifecycle status of a position.
+
+    ``REDEEMABLE_LOST`` and ``MERGEABLE`` narrow a listing; they are never
+    reported back on a position. See :data:`PositionRowStatus`.
+    """
 
     OPEN = "OPEN"
     REDEEMABLE = "REDEEMABLE"
+    REDEEMABLE_LOST = "REDEEMABLE_LOST"
+    """Still-held positions that resolved to a zero payout. Requires a wallet."""
+    MERGEABLE = "MERGEABLE"
+    """Live complementary pairs the wallet can merge back to collateral. Requires a wallet."""
     CLOSED = "CLOSED"
 
 
-PositionStatusFilter = Literal["OPEN", "REDEEMABLE", "CLOSED"] | PositionStatus
+PositionStatusFilter = (
+    Literal["OPEN", "REDEEMABLE", "REDEEMABLE_LOST", "MERGEABLE", "CLOSED"] | PositionStatus
+)
 """Position statuses accepted by filters, as plain strings or :class:`PositionStatus`."""
+
+PositionRowStatus = Literal[PositionStatus.OPEN, PositionStatus.REDEEMABLE, PositionStatus.CLOSED]
+"""Statuses a position reports, which is narrower than the filter vocabulary.
+
+A lost position still reports ``REDEEMABLE`` and a mergeable one ``OPEN``.
+"""
 
 PositionSortBy = Literal[
     "CURRENT_VALUE", "TOKENS", "UNREALIZED_PNL", "REALIZED_PNL", "TOTAL_PNL", "TIMESTAMP"
@@ -262,6 +278,7 @@ __all__ = [
     "ComboPositionStatusFilter",
     "LeaderboardWindow",
     "PositionFilterType",
+    "PositionRowStatus",
     "PositionSortBy",
     "PositionStatus",
     "PositionStatusFilter",

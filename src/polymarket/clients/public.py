@@ -207,6 +207,12 @@ class PublicClient:
 
         Use ``status="CLOSED"`` for closed positions. Sizes are shares and values are USDC.
 
+        ``status="REDEEMABLE_LOST"`` lists still-held positions that resolved to a zero
+        payout. ``status="MERGEABLE"`` lists live complementary pairs. Both require
+        ``user`` and are filters only: a lost position still reports ``REDEEMABLE`` and a
+        mergeable one ``OPEN``. ``sort_by`` defaults to ``TOKENS`` for ``MERGEABLE``,
+        ``REALIZED_PNL`` for ``CLOSED``, and ``CURRENT_VALUE`` for every other status.
+
         Positions have no time bounds by default. ``full_history=True`` also includes
         holdings without activity and cannot be combined with ``start`` or ``end``.
 
