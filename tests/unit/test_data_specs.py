@@ -61,6 +61,7 @@ WALLET = "0x" + "12" * 20
         ("list_trades", {"condition_id": 123}),
         ("list_trades", {"user": ""}),
         ("list_positions", {"user": WALLET, "status": "open"}),
+        ("list_positions", {"condition_id": CONDITION, "status": "REDEEMABLE_LOST"}),
         ("list_activity", {"user": WALLET, "activity_types": "TRADE"}),
         ("list_activity", {"user": WALLET, "activity_types": ActivityType.TRADE}),
         ("list_trader_leaderboard", {"category": ""}),
@@ -207,6 +208,14 @@ def test_enum_members_serialize_like_plain_strings() -> None:
     assert data.build_get_user_pnl_spec(
         user=WALLET, interval=UserPnlInterval.ONE_WEEK, fidelity="1h"
     ).params == {"user": WALLET, "interval": "1w", "fidelity": "1h"}
+
+
+def test_positions_accepts_the_wallet_scoped_status_filters() -> None:
+    for status in (PositionStatus.REDEEMABLE_LOST, "MERGEABLE"):
+        assert data.list_positions_spec(user=WALLET, status=status).base_params == {
+            "user": WALLET,
+            "status": status,
+        }
 
 
 def test_condition_canonicalization_and_time_flooring() -> None:

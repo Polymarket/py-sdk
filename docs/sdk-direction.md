@@ -95,4 +95,6 @@ The split is principled: inputs are write-once at the call site and benefit from
 
 Some vocabularies travel in both directions, such as `PositionStatus`, which filters `list_positions` and is also a field on every returned `Position`. Those keep the `StrEnum` name for the output type and expose an input alias that accepts either the plain string literals or the enum members, for example `PositionStatusFilter` and `UserPnlIntervalInput`. The `Filter` suffix marks parameters that select rows and the `Input` suffix marks other request parameters. Callers can pass `"CLOSED"` or `PositionStatus.CLOSED`, and can feed a returned value straight back into a request.
 
+Where the two directions genuinely differ, the narrower side gets its own alias rather than widening the other. `PositionStatus` carries all five listing filters, but `REDEEMABLE_LOST` and `MERGEABLE` only ever select rows — a lost position still reports `REDEEMABLE` and a mergeable one `OPEN` — so `Position.status` is typed `PositionRowStatus`, the three members a position can actually report.
+
 Arrow, pandas, and Polars exports use the enum's value. SDK fields that mix `StrEnum` members and plain strings export together as a string column, such as trade and tip sides or known and unknown activity types. The original SDK objects retain their enum members after export.

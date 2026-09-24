@@ -8,7 +8,7 @@ from pydantic import Field, computed_field, field_validator
 from polymarket.models.base import BaseModel
 from polymarket.models.data.common import (
     ComboPositionStatus,
-    PositionStatus,
+    PositionRowStatus,
     UserPnlFidelity,
     UserPnlInterval,
     date_from_calendar_string,
@@ -56,7 +56,7 @@ class Position(BaseModel):
     total_pnl: Decimal
     percent_pnl: Decimal
     percent_realized_pnl: Decimal
-    status: PositionStatus
+    status: PositionRowStatus
     redeemable: bool
     mergeable: bool
     negative_risk: bool

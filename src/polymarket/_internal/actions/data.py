@@ -205,6 +205,10 @@ def list_positions_spec(
         raise UserInputError("Provide user or exactly one condition_id")
     if event_id is not None and not user:
         raise UserInputError("event_id requires user")
+    # A lost position is only defined relative to a wallet. MERGEABLE is
+    # user-scoped too, but a market-anchored request widens to OPEN instead.
+    if status == "REDEEMABLE_LOST" and not user:
+        raise UserInputError("REDEEMABLE_LOST requires user")
     if status == "CLOSED" and include_archived:
         raise UserInputError("include_archived is invalid with CLOSED")
     _check_nonnegative_amount("filter_amount", filter_amount)

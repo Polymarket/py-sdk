@@ -65,6 +65,12 @@ def test_positions_and_market_anchor(
     if not closed.items:
         pytest.skip("reference wallet no longer has closed positions")
     assert all(row.status == "CLOSED" for row in closed.items)
+    # REDEEMABLE_LOST and MERGEABLE select rows but are never reported back on one.
+    for status, reported in (("REDEEMABLE_LOST", "REDEEMABLE"), ("MERGEABLE", "OPEN")):
+        page = sync_public_client.list_positions(
+            user=data_reference_wallet, status=status
+        ).first_page()
+        assert all(row.status == reported for row in page.items)
     market = sync_public_client.list_positions(condition_id=CONDITION).first_page()
     assert len({row.wallet for row in market.items}) > 1
 
