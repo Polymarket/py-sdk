@@ -216,6 +216,7 @@ from polymarket.models.data import (
 )
 from polymarket.models.perps.builder_events import PerpsBuilderFillEvent, PerpsBuilderFillsEvent
 from polymarket.models.perps.builders import (
+    USE_SESSION_DEFAULT,
     PerpsBuilderApproval,
     PerpsBuilderAttribution,
     PerpsBuilderEarning,
@@ -226,6 +227,7 @@ from polymarket.models.perps.builders import (
     PerpsBuilderEarningsSummary,
     PerpsBuilderStatus,
     PerpsLiquidityRole,
+    UseSessionDefault,
 )
 from polymarket.pagination import AsyncPaginator, Page, Paginator
 from polymarket.rate_limit import RateLimitUpdate, RateLimitUpdateListener
@@ -292,6 +294,8 @@ from polymarket.version import __version__
 
 __all__ = [
     "PerpsBuilderAttribution",
+    "USE_SESSION_DEFAULT",
+    "UseSessionDefault",
     "PerpsBuilderStatus",
     "PerpsBuilderApproval",
     "PerpsLiquidityRole",

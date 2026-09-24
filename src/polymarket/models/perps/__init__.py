@@ -20,6 +20,7 @@ from polymarket.models.perps.account import (
 )
 from polymarket.models.perps.builder_events import PerpsBuilderFillEvent, PerpsBuilderFillsEvent
 from polymarket.models.perps.builders import (
+    USE_SESSION_DEFAULT,
     PerpsBuilderApproval,
     PerpsBuilderAttribution,
     PerpsBuilderEarning,
@@ -30,6 +31,7 @@ from polymarket.models.perps.builders import (
     PerpsBuilderEarningsSummary,
     PerpsBuilderStatus,
     PerpsLiquidityRole,
+    UseSessionDefault,
 )
 from polymarket.models.perps.credentials import PerpsCredentials
 from polymarket.models.perps.events import (
@@ -136,6 +138,8 @@ from polymarket.models.perps.types import (
 
 __all__ = [
     "PerpsBuilderAttribution",
+    "USE_SESSION_DEFAULT",
+    "UseSessionDefault",
     "PerpsBuilderStatus",
     "PerpsBuilderApproval",
     "PerpsLiquidityRole",

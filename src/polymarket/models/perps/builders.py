@@ -7,8 +7,8 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from enum import StrEnum
-from typing import Any, cast
+from enum import Enum, StrEnum
+from typing import Any, Final, cast
 
 from pydantic import AliasChoices, Field, field_validator, model_validator
 
@@ -39,6 +39,16 @@ class PerpsBuilderAttribution(BaseModel):
     @classmethod
     def _rate(cls, value: Decimal) -> Decimal:
         return _require_builder_fee_rate(value)
+
+
+class UseSessionDefault(Enum):
+    """Experimental: marker type for inheriting the session's builder attribution."""
+
+    USE_SESSION_DEFAULT = "USE_SESSION_DEFAULT"
+
+
+USE_SESSION_DEFAULT: Final = UseSessionDefault.USE_SESSION_DEFAULT
+"""Experimental: inherit the session's builder attribution; the default for orders."""
 
 
 class PerpsBuilderStatus(BaseModel):

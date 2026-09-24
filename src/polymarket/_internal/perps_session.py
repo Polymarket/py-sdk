@@ -9,7 +9,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from types import EllipsisType, TracebackType
+from types import TracebackType
 from typing import Any, Literal, Self, cast, overload
 
 from eth_account.signers.local import LocalAccount
@@ -68,10 +68,12 @@ from polymarket.models.perps.account import (
 )
 from polymarket.models.perps.builder_events import PerpsBuilderFillEvent, PerpsBuilderFillsEvent
 from polymarket.models.perps.builders import (
+    USE_SESSION_DEFAULT,
     PerpsBuilderApproval,
     PerpsBuilderAttribution,
     PerpsBuilderEarningsPaginator,
     PerpsBuilderEarningsSummary,
+    UseSessionDefault,
 )
 from polymarket.models.perps.credentials import PerpsCredentials
 from polymarket.models.perps.events import (
@@ -446,7 +448,9 @@ class PerpsSession:
         post_only: bool = False,
         reduce_only: bool = False,
         client_order_id: str | None = None,
-        builder_attribution: PerpsBuilderAttribution | None | EllipsisType = ...,
+        builder_attribution: (
+            PerpsBuilderAttribution | None | UseSessionDefault
+        ) = USE_SESSION_DEFAULT,
         take_profit: PerpsTpSlTrigger | None = None,
         stop_loss: PerpsTpSlTrigger | None = None,
         expires_at: datetime | int | None = None,
@@ -462,7 +466,9 @@ class PerpsSession:
         price: DecimalInput | None = None,
         reduce_only: bool = False,
         client_order_id: str | None = None,
-        builder_attribution: PerpsBuilderAttribution | None | EllipsisType = ...,
+        builder_attribution: (
+            PerpsBuilderAttribution | None | UseSessionDefault
+        ) = USE_SESSION_DEFAULT,
         take_profit: PerpsTpSlTrigger | None = None,
         stop_loss: PerpsTpSlTrigger | None = None,
         expires_at: datetime | int | None = None,
@@ -478,7 +484,9 @@ class PerpsSession:
         post_only: bool = False,
         reduce_only: bool = False,
         client_order_id: str | None = None,
-        builder_attribution: PerpsBuilderAttribution | None | EllipsisType = ...,
+        builder_attribution: (
+            PerpsBuilderAttribution | None | UseSessionDefault
+        ) = USE_SESSION_DEFAULT,
         take_profit: PerpsTpSlTrigger | None = None,
         stop_loss: PerpsTpSlTrigger | None = None,
         expires_at: datetime | int | None = None,
@@ -544,7 +552,9 @@ class PerpsSession:
         self,
         *,
         instrument_id: int,
-        builder_attribution: PerpsBuilderAttribution | None | EllipsisType = ...,
+        builder_attribution: (
+            PerpsBuilderAttribution | None | UseSessionDefault
+        ) = USE_SESSION_DEFAULT,
         take_profit: PerpsPositionTpSlTrigger | None = None,
         stop_loss: PerpsPositionTpSlTrigger | None = None,
         expires_at: datetime | int | None = None,
@@ -559,7 +569,7 @@ class PerpsSession:
             self,
             instrument_id=instrument_id,
             builder_attribution=self.builder_attribution
-            if builder_attribution is Ellipsis
+            if builder_attribution is USE_SESSION_DEFAULT
             else _builders.validate_attribution(builder_attribution),
             take_profit=take_profit,
             stop_loss=stop_loss,

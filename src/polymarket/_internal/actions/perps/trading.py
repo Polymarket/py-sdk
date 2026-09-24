@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast
 
 from polymarket.errors import RequestRejectedError, UserInputError
-from polymarket.models.perps.builders import PerpsBuilderAttribution
+from polymarket.models.perps.builders import USE_SESSION_DEFAULT, PerpsBuilderAttribution
 from polymarket.models.perps.events import PerpsOrderEvent, PerpsSessionEvent
 from polymarket.models.perps.orders import PerpsOrder, PerpsPostOrderAck
 from polymarket.models.perps.requests import (
@@ -51,8 +51,10 @@ async def place_order(
     stop_loss: PerpsTpSlTrigger | None,
     expires_at: datetime | int | None,
 ) -> PerpsOrderPlacement:
-    if request.builder_attribution is Ellipsis:
-        request = replace(request, builder_attribution=session.builder_attribution)
+    builder_attribution = request.builder_attribution
+    if builder_attribution is USE_SESSION_DEFAULT:
+        builder_attribution = session.builder_attribution
+        request = replace(request, builder_attribution=builder_attribution)
     if request.client_order_id is None:
         request = replace(request, client_order_id=secrets.token_hex(16))
     client_order_id = request.client_order_id
@@ -78,9 +80,7 @@ async def place_order(
                 instrument_id=request.instrument_id,
                 kind="tp",
                 quantity=quantity_string,
-                builder_attribution=cast(
-                    PerpsBuilderAttribution | None, request.builder_attribution
-                ),
+                builder_attribution=builder_attribution,
                 trigger=take_profit,
             )
         )
@@ -91,9 +91,7 @@ async def place_order(
                 instrument_id=request.instrument_id,
                 kind="sl",
                 quantity=quantity_string,
-                builder_attribution=cast(
-                    PerpsBuilderAttribution | None, request.builder_attribution
-                ),
+                builder_attribution=builder_attribution,
                 trigger=stop_loss,
             )
         )
@@ -133,7 +131,7 @@ async def post_orders(
         [
             to_raw_order(
                 replace(order, builder_attribution=session.builder_attribution)
-                if order.builder_attribution is Ellipsis
+                if order.builder_attribution is USE_SESSION_DEFAULT
                 else order
             )
             for order in orders
