@@ -85,8 +85,7 @@ def _check_offset_window(spec: OffsetPaginatedSpec[T], offset: int, page_size: i
     if spec.max_offset is not None and offset > spec.max_offset:
         raise PaginationLimitError(
             f"Pagination reached the deepest page served for {spec.path} (offset "
-            f"{spec.max_offset}); whether more items exist cannot be established. "
-            "Narrow the query to read further."
+            f"{spec.max_offset}); whether more items exist cannot be established."
         )
 
 

@@ -23,7 +23,7 @@ class PaginationLimitError(PolymarketError):
     Some list endpoints cap how far an offset-paginated read may go and reject
     requests past the cap. The SDK raises this before sending such a request;
     the pages already returned stay valid, but whether more items exist past
-    the cap cannot be established. Narrow the query to read the rest.
+    the cap cannot be established.
     """
 
 

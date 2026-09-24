@@ -1536,6 +1536,9 @@ class SecureClient:
         that point raises ``PaginationLimitError`` before any request is sent;
         the pages already returned stay valid.
 
+        This is a hard stop for this listing: there are no range filters to
+        retrieve the remaining comments.
+
         Returns:
             A paginator over matching comments.
         """
