@@ -7,6 +7,7 @@ from polymarket._internal.pagination import (
     compute_keyset_page,
     compute_offset_page,
     compute_page_based_page,
+    cursor_path,
     decode_keyset_cursor,
     decode_offset_cursor,
     decode_page_cursor,
@@ -270,6 +271,49 @@ def async_paginate_keyset(
     return AsyncPaginator(fetch=fetch, initial_cursor=initial_cursor)
 
 
+def sync_paginate_keyset_or_resume_offset(
+    ctx: SyncClientContext,
+    *,
+    keyset_spec: KeysetPaginatedSpec[T],
+    offset_spec: OffsetPaginatedSpec[T],
+    page_size: int,
+) -> Paginator[T]:
+    # New walks page by server cursor. A cursor minted by the offset spec
+    # (saved before cursor pagination existed) finishes on offset pages, where
+    # the offset cap still applies; a walk never switches route midway.
+    keyset = sync_paginate_keyset(ctx, keyset_spec, page_size=page_size)
+    offset = sync_paginate_offset(ctx, offset_spec, page_size=page_size)
+
+    def fetch(cursor: str | None) -> Page[T]:
+        if cursor is None:
+            return keyset.first_page()
+        if cursor_path(cursor) == offset_spec.path:
+            return offset.from_cursor(cursor).first_page()
+        return keyset.from_cursor(cursor).first_page()
+
+    return Paginator(fetch=fetch)
+
+
+def async_paginate_keyset_or_resume_offset(
+    ctx: AsyncClientContext,
+    *,
+    keyset_spec: KeysetPaginatedSpec[T],
+    offset_spec: OffsetPaginatedSpec[T],
+    page_size: int,
+) -> AsyncPaginator[T]:
+    keyset = async_paginate_keyset(ctx, keyset_spec, page_size=page_size)
+    offset = async_paginate_offset(ctx, offset_spec, page_size=page_size)
+
+    async def fetch(cursor: str | None) -> Page[T]:
+        if cursor is None:
+            return await keyset.first_page()
+        if cursor_path(cursor) == offset_spec.path:
+            return await offset.from_cursor(cursor).first_page()
+        return await keyset.from_cursor(cursor).first_page()
+
+    return AsyncPaginator(fetch=fetch)
+
+
 def sync_paginate_page_based(
     ctx: SyncClientContext,
     spec: PageBasedSpec[T],
@@ -361,10 +405,12 @@ def async_paginate_page_based(
 __all__ = [
     "async_dispatch",
     "async_paginate_keyset",
+    "async_paginate_keyset_or_resume_offset",
     "async_paginate_offset",
     "async_paginate_page_based",
     "sync_dispatch",
     "sync_paginate_keyset",
+    "sync_paginate_keyset_or_resume_offset",
     "sync_paginate_offset",
     "sync_paginate_page_based",
 ]
