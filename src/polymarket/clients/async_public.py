@@ -253,10 +253,10 @@ class AsyncPublicClient:
         Use ``status="CLOSED"`` for closed positions. Sizes are shares and values are USDC.
 
         ``status="REDEEMABLE_LOST"`` lists still-held positions that resolved to a zero
-        payout and requires a wallet. ``status="MERGEABLE"`` lists live complementary
-        pairs and sorts by ``TOKENS`` by default, where every other status sorts by
-        ``CURRENT_VALUE`` and ``CLOSED`` by ``REALIZED_PNL``. Both are filters only: a
-        lost position still reports ``REDEEMABLE`` and a mergeable one ``OPEN``.
+        payout and requires ``user``. ``status="MERGEABLE"`` lists live complementary
+        pairs. Both are filters only: a lost position still reports ``REDEEMABLE`` and a
+        mergeable one ``OPEN``. ``sort_by`` defaults to ``TOKENS`` for ``MERGEABLE``,
+        ``REALIZED_PNL`` for ``CLOSED``, and ``CURRENT_VALUE`` for every other status.
 
         For ``MERGEABLE``, provide ``user`` to filter to that wallet's mergeable
         positions. A ``condition_id``-only request falls back to the broader ``OPEN``

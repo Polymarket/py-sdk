@@ -216,6 +216,12 @@ def test_positions_accepts_the_wallet_scoped_status_filters() -> None:
             "user": WALLET,
             "status": status,
         }
+    # Unlike REDEEMABLE_LOST, MERGEABLE stays valid on a market anchor, where it
+    # falls back to the OPEN listing.
+    assert data.list_positions_spec(condition_id=CONDITION, status="MERGEABLE").base_params == {
+        "condition_id": CONDITION,
+        "status": "MERGEABLE",
+    }
 
 
 def test_condition_canonicalization_and_time_flooring() -> None:
