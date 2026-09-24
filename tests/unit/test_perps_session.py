@@ -981,11 +981,19 @@ def test_builder_approval_defaults_and_revoked_version() -> None:
                             {
                                 "trader": signer.address,
                                 "builder": builder,
+                                "max_fee_rate": "0.0005",
+                                "approval_version": 3,
+                                "timestamp": 1751400000000,
+                                "sequence": 0,
+                            },
+                            {
+                                "trader": signer.address,
+                                "builder": builder,
                                 "max_fee_rate": "0",
                                 "approval_version": version,
                                 "timestamp": 1751500000000,
                                 "sequence": 1,
-                            }
+                            },
                         ]
                     },
                 )

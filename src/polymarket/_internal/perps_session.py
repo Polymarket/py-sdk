@@ -320,15 +320,15 @@ class PerpsSession:
         ):
             raise UserInputError("approval_version must be a positive safe integer")
         if approval_version is None:
-            previous = next(
+            previous = max(
                 (
-                    a
+                    a.approval_version
                     for a in await self.fetch_builder_approvals(builder=builder)
                     if a.builder.lower() == builder.lower()
                 ),
-                None,
+                default=0,
             )
-            approval_version = (previous.approval_version if previous else 0) + 1
+            approval_version = previous + 1
         if approval_version > 2**53 - 1:
             raise UserInputError("approval_version exceeds the supported range")
         return await _builders.approve_fee(
