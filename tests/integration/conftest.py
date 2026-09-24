@@ -68,6 +68,12 @@ def data_reference_wallet() -> str:
 
 
 @pytest.fixture
+def data_lost_positions_wallet() -> str:
+    """Public wallet holding lost positions as of 2026-09-24, shared with TS coverage."""
+    return "0x2005d16a84ceefa912d4e380cd32e7ff827875ea"
+
+
+@pytest.fixture
 def data_empty_wallet() -> str:
     """Public address used to check absent wallet statistics."""
     return "0x00000000000000000000000000000000000000aa"

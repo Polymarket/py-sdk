@@ -2,7 +2,13 @@ from typing import TypeVar
 
 import pytest
 
-from polymarket import AsyncPublicClient, ComboBiggestWinner, PublicClient, TradeActivity
+from polymarket import (
+    AsyncPublicClient,
+    ComboBiggestWinner,
+    PositionStatus,
+    PublicClient,
+    TradeActivity,
+)
 from polymarket.pagination import Page, Paginator
 
 pytestmark = pytest.mark.integration
@@ -65,14 +71,37 @@ def test_positions_and_market_anchor(
     if not closed.items:
         pytest.skip("reference wallet no longer has closed positions")
     assert all(row.status == "CLOSED" for row in closed.items)
-    # REDEEMABLE_LOST and MERGEABLE select rows but are never reported back on one.
-    for status, reported in (("REDEEMABLE_LOST", "REDEEMABLE"), ("MERGEABLE", "OPEN")):
-        page = sync_public_client.list_positions(
-            user=data_reference_wallet, status=status
-        ).first_page()
-        assert all(row.status == reported for row in page.items)
     market = sync_public_client.list_positions(condition_id=CONDITION).first_page()
     assert len({row.wallet for row in market.items}) > 1
+
+
+def test_redeemable_lost_positions(
+    sync_public_client: PublicClient, data_lost_positions_wallet: str
+) -> None:
+    page = sync_public_client.list_positions(
+        user=data_lost_positions_wallet, status=PositionStatus.REDEEMABLE_LOST, page_size=50
+    ).first_page()
+    assert page.items
+    for row in page.items:
+        assert row.wallet == data_lost_positions_wallet
+        assert row.status is PositionStatus.REDEEMABLE
+        assert row.redeemable
+        assert row.current_size > 0
+        assert row.current_price == 0
+        assert row.current_value == 0
+
+
+def test_mergeable_positions(sync_public_client: PublicClient, data_reference_wallet: str) -> None:
+    page = sync_public_client.list_positions(
+        user=data_reference_wallet, status=PositionStatus.MERGEABLE, page_size=50
+    ).first_page()
+    assert page.items
+    for row in page.items:
+        assert row.wallet == data_reference_wallet
+        assert row.status is PositionStatus.OPEN
+        assert row.mergeable
+        assert not row.redeemable
+        assert row.current_size > 0
 
 
 def test_combo_positions_and_filters(

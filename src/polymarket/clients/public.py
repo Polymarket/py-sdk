@@ -213,6 +213,10 @@ class PublicClient:
         ``CURRENT_VALUE`` and ``CLOSED`` by ``REALIZED_PNL``. Both are filters only: a
         lost position still reports ``REDEEMABLE`` and a mergeable one ``OPEN``.
 
+        For ``MERGEABLE``, provide ``user`` to filter to that wallet's mergeable
+        positions. A ``condition_id``-only request falls back to the broader ``OPEN``
+        listing and can include positions with ``mergeable=False``.
+
         Positions have no time bounds by default. ``full_history=True`` also includes
         holdings without activity and cannot be combined with ``start`` or ``end``.
 
