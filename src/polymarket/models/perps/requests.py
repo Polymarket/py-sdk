@@ -10,6 +10,7 @@ from polymarket.models.perps.types import PerpsTimeInForce
 from polymarket.models.types import OrderSide
 
 _CLIENT_ORDER_ID = re.compile(r"^[0-9a-f]{32}$")
+_MAX_U32 = 2**32 - 1
 
 DecimalInput = Decimal | int | float | str
 """Decimal-valued input accepted for Perps prices and quantities."""
@@ -166,8 +167,33 @@ class PerpsPositionTpSlTrigger:
         to_decimal_string("trigger_price", self.trigger_price)
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PerpsLeverageUpdate:
+    """One instrument configuration in a batch leverage update."""
+
+    instrument_id: int
+    """Perps instrument identifier."""
+    leverage: int
+    """Positive leverage multiplier."""
+    cross_margin: bool
+    """Whether the instrument should use cross margin."""
+
+    def __post_init__(self) -> None:
+        if isinstance(self.instrument_id, bool) or not isinstance(self.instrument_id, int):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise UserInputError("instrument_id must be an int")
+        if not 0 <= self.instrument_id <= _MAX_U32:
+            raise UserInputError(f"instrument_id must be between 0 and {_MAX_U32}")
+        if isinstance(self.leverage, bool) or not isinstance(self.leverage, int):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise UserInputError("leverage must be an int")
+        if not 1 <= self.leverage <= _MAX_U32:
+            raise UserInputError(f"leverage must be between 1 and {_MAX_U32}")
+        if not isinstance(self.cross_margin, bool):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise UserInputError("cross_margin must be a bool")
+
+
 __all__ = [
     "DecimalInput",
+    "PerpsLeverageUpdate",
     "PerpsOrderRequest",
     "PerpsPositionTpSlTrigger",
     "PerpsTpSlTrigger",

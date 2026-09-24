@@ -30,6 +30,8 @@ from polymarket.models.perps.events import (
     PerpsOrderEvent,
     PerpsResyncEvent,
 )
+from polymarket.models.perps.orders import PerpsLeverageUpdateRejection
+from polymarket.models.perps.requests import PerpsLeverageUpdate
 
 Handler = Callable[[ServerConnection], Awaitable[None]]
 
@@ -715,6 +717,115 @@ def test_arm_auto_cancel_daily_limit_raises_typed_error() -> None:
             with pytest.raises(AutoCancelDailyLimitError) as excinfo:
                 await session.arm_auto_cancel(cancel_at=datetime.now(tz=UTC) + timedelta(minutes=1))
             assert excinfo.value.status == 422
+        finally:
+            await session.close()
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+
+
+def test_update_leverages_preserves_order_and_mixed_results() -> None:
+    commands: list[dict[str, Any]] = []
+
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        async for raw in ws:
+            message = json.loads(raw)
+            if _is_ping(message):
+                continue
+            commands.append(message)
+            await ws.send(
+                json.dumps(
+                    {
+                        "id": message["id"],
+                        "data": [
+                            {
+                                "status": "ok",
+                                "instrument_id": 2,
+                                "leverage": 10,
+                                "cross": True,
+                            },
+                            {
+                                "status": "err",
+                                "instrument_id": 1,
+                                "error": "internal_error",
+                            },
+                        ],
+                    }
+                )
+            )
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            results = await session.update_leverages(
+                [
+                    PerpsLeverageUpdate(instrument_id=2, leverage=10, cross_margin=True),
+                    PerpsLeverageUpdate(instrument_id=1, leverage=5, cross_margin=False),
+                ]
+            )
+            assert [result.instrument_id for result in results] == [2, 1]
+            assert [result.status for result in results] == ["ok", "err"]
+            assert isinstance(results[1], PerpsLeverageUpdateRejection)
+            assert results[1].error == "internal_error"
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+    assert commands[0]["req"] == "post"
+    assert commands[0]["op"] == {
+        "type": "updateLeverages",
+        "args": [
+            {"cross": True, "iid": 2, "lev": 10},
+            {"cross": False, "iid": 1, "lev": 5},
+        ],
+    }
+    assert commands[0]["sig"].startswith("0x") and len(commands[0]["sig"]) == 132
+
+
+def test_update_leverages_request_rejection_raises() -> None:
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        async for raw in ws:
+            message = json.loads(raw)
+            if _is_ping(message):
+                continue
+            await ws.send(
+                json.dumps(
+                    {
+                        "id": message["id"],
+                        "data": [{"status": "err", "error": "batch_rate_limited"}],
+                    }
+                )
+            )
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            with pytest.raises(RequestRejectedError, match="batch_rate_limited"):
+                await session.update_leverages(
+                    [PerpsLeverageUpdate(instrument_id=1, leverage=5, cross_margin=False)]
+                )
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+
+
+def test_update_leverages_validates_batch_before_transport() -> None:
+    async def run() -> None:
+        session = PerpsSession(
+            chain_id=137,
+            credentials=_CREDENTIALS,
+            rest_url="http://127.0.0.1:9",
+            ws_url="ws://127.0.0.1:9",
+        )
+        try:
+            with pytest.raises(UserInputError, match="between 1 and 100"):
+                await session.update_leverages([])
+            update = PerpsLeverageUpdate(instrument_id=1, leverage=5, cross_margin=False)
+            with pytest.raises(UserInputError, match="duplicate 1"):
+                await session.update_leverages([update, update])
+            with pytest.raises(UserInputError, match="between 1 and 100"):
+                await session.update_leverages(
+                    [
+                        PerpsLeverageUpdate(instrument_id=index, leverage=1, cross_margin=False)
+                        for index in range(101)
+                    ]
+                )
         finally:
             await session.close()
 
