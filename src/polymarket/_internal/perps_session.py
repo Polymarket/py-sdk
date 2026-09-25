@@ -976,7 +976,7 @@ class PerpsSession:
     async def _recover_builder_subscription(self) -> None:
         try:
             await self._sync_builder_subscription()
-        except Exception as error:
+        except RequestRejectedError as error:
             handles = tuple(self._builder_handles)
             self._builder_handles.clear()
             for handle in handles:

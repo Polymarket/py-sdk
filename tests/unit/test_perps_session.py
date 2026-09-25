@@ -1206,13 +1206,20 @@ def test_cancelled_builder_subscription_reconciles_server_before_retry() -> None
     asyncio.run(asyncio.wait_for(run(), timeout=10))
 
 
-def test_builder_stream_resubscribes_after_reconnect() -> None:
+@pytest.mark.parametrize("recovery_failure", [None, "disconnect", "timeout"])
+def test_builder_stream_resubscribes_after_reconnect(
+    recovery_failure: str | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if recovery_failure == "timeout":
+        monkeypatch.setattr("polymarket._internal.perps_session._ACK_TIMEOUT_S", 0.1)
+
     async def run() -> None:
         disconnect = asyncio.Event()
         connections = 0
+        subscriptions = 0
 
         async def handler(ws: ServerConnection) -> None:
-            nonlocal connections
+            nonlocal connections, subscriptions
             connections += 1
             current = connections
             await _handshake(ws)
@@ -1220,7 +1227,18 @@ def test_builder_stream_resubscribes_after_reconnect() -> None:
                 frame = json.loads(raw)
                 if _is_ping(frame):
                     continue
-                assert frame["chs"] == ["builderFills"]
+                if frame.get("chs") != ["builderFills"]:
+                    # A timeout can retry authentication on the still-open socket.
+                    await ws.send(json.dumps({"id": frame["id"], "data": {"status": "ok"}}))
+                    continue
+                if frame["req"] == "sub":
+                    subscriptions += 1
+                if subscriptions == 2 and recovery_failure is not None:
+                    if recovery_failure == "disconnect":
+                        await ws.close()
+                        return
+                    # Keep reading, but omit this recovery acknowledgement.
+                    continue
                 await ws.send(json.dumps({"id": frame["id"], "data": {"status": "ok"}}))
                 if frame["req"] == "sub":
                     if current == 1:
@@ -1242,7 +1260,8 @@ def test_builder_stream_resubscribes_after_reconnect() -> None:
             receipt = next(e for e in events if not isinstance(e, PerpsResyncEvent))
             assert receipt.type == "builder_fill" and receipt.sequence == 100
             await handle.close()
-            assert connections == 2
+            assert connections == (3 if recovery_failure == "disconnect" else 2)
+            assert subscriptions == (2 if recovery_failure is None else 3)
 
     asyncio.run(asyncio.wait_for(run(), timeout=15))
 
