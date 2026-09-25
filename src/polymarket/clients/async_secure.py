@@ -69,6 +69,7 @@ from polymarket._internal.actions.orders.typed_data import (
     build_order_typed_data,
 )
 from polymarket._internal.actions.orders.types import OrderDraft
+from polymarket._internal.actions.perps import builders as _perps_builders
 from polymarket._internal.actions.perps import credentials as _perps_credentials
 from polymarket._internal.actions.perps import funds as _perps_funds
 from polymarket._internal.actions.perps import public as _perps_actions
@@ -244,6 +245,7 @@ from polymarket.models.perps import (
     PerpsTrade,
     PerpsWithdrawalId,
 )
+from polymarket.models.perps.builders import PerpsBuilderAttribution, PerpsBuilderStatus
 from polymarket.models.price_events import (
     CryptoPriceEvent,
     CryptoTwapPriceEvent,
@@ -1296,6 +1298,7 @@ class AsyncSecureClient:
     async def open_perps_session(
         self,
         *,
+        builder_attribution: PerpsBuilderAttribution | None = None,
         credentials: PerpsCredentials | None = None,
         expires_in: "timedelta | None" = None,
         label: str | None = None,
@@ -1311,7 +1314,12 @@ class AsyncSecureClient:
         ``credentials`` to validate and resume them without a new wallet
         signature.
 
+        Attribution applies to new orders and their TP/SL exits. It does not
+        grant fee consent; call session.approve_builder_fee() separately. Supply
+        attribution again when resuming credentials.
+
         Args:
+            builder_attribution: Optional immutable order defaults.
             credentials: Existing delegated credentials to validate and resume.
             expires_in: Delegated credential lifetime for newly created credentials.
             label: Optional label for newly created credentials.
@@ -1323,6 +1331,7 @@ class AsyncSecureClient:
         """
         from polymarket._internal.perps_session import PerpsSession
 
+        _perps_builders.validate_attribution(builder_attribution)
         if credentials is not None:
             if expires_in is not None or label is not None:
                 raise UserInputError("expires_in and label cannot be combined with credentials")
@@ -1344,6 +1353,8 @@ class AsyncSecureClient:
                 label=label,
             )
         session = PerpsSession(
+            builder_attribution=builder_attribution,
+            owner_signer=self._ctx.signer,
             chain_id=self._ctx.environment_config.chain_id,
             credentials=resolved,
             rest_url=self._ctx.environment_config.perps_url,
@@ -3710,6 +3721,10 @@ class AsyncSecureClient:
         return _rewards_actions.parse_reward_percentages(
             await self._ctx.secure_clob.get_json(path, params=params)
         )
+
+    async def fetch_perps_builder_status(self, *, address: str) -> PerpsBuilderStatus:
+        """Experimental: read builder registration, availability, and fee cap."""
+        return await _perps_builders.fetch_status(self._ctx.perps, address=address)
 
     async def fetch_perps_instruments(
         self,

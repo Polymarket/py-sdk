@@ -6,12 +6,21 @@ from collections.abc import Callable
 from types import CoroutineType
 from typing import TYPE_CHECKING, Any, assert_type
 
+from polymarket import AsyncPublicClient, AsyncSecureClient
 from polymarket.models.perps import (
+    PerpsBuilderApproval,
+    PerpsBuilderAttribution,
+    PerpsBuilderEarningsPage,
+    PerpsBuilderEarningsPaginator,
+    PerpsBuilderEarningsSummary,
+    PerpsBuilderFillsEvent,
+    PerpsBuilderStatus,
     PerpsCancelOrderResult,
     PerpsOrderRequest,
     PerpsPostOrderAck,
 )
 from polymarket.perps import PerpsOrderPlacement, PerpsSession
+from polymarket.streams import SubscriptionHandle
 
 if TYPE_CHECKING:
     assert_type(
@@ -77,3 +86,31 @@ if TYPE_CHECKING:
     _session_typing_check: Callable[[PerpsSession], CoroutineType[Any, Any, None]] = (
         _check_session_typing
     )
+
+if TYPE_CHECKING:
+
+    async def _check_builder_typing(
+        client: AsyncSecureClient,
+        public: AsyncPublicClient,
+        session: PerpsSession,
+        terms: PerpsBuilderAttribution,
+    ) -> None:
+        assert_type(await client.open_perps_session(builder_attribution=terms), PerpsSession)
+        assert_type(
+            await public.fetch_perps_builder_status(address=terms.address), PerpsBuilderStatus
+        )
+        assert_type(
+            await client.fetch_perps_builder_status(address=terms.address), PerpsBuilderStatus
+        )
+        assert_type(await session.approve_builder_fee(), PerpsBuilderApproval)
+        assert_type(await session.fetch_builder_approvals(), tuple[PerpsBuilderApproval, ...])
+        assert_type(session.list_builder_earnings(), PerpsBuilderEarningsPaginator)
+        assert_type(await session.list_builder_earnings().first_page(), PerpsBuilderEarningsPage)
+        async for page in session.list_builder_earnings():
+            assert_type(page, PerpsBuilderEarningsPage)
+        assert_type(await session.fetch_builder_earnings_summary(), PerpsBuilderEarningsSummary)
+        assert_type(
+            await session.subscribe_builder_fills(), SubscriptionHandle[PerpsBuilderFillsEvent]
+        )
+
+    _builder_typing_check = _check_builder_typing

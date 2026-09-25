@@ -73,3 +73,12 @@ RevokeSessionKeyRequest
 .. autoclass:: polymarket.RevokeSessionKeyRequest
    :members:
    :undoc-members:
+
+Perps Builder Codes
+-------------------
+
+.. automodule:: polymarket.models.perps.builders
+   :members:
+
+.. automodule:: polymarket.models.perps.builder_events
+   :members:

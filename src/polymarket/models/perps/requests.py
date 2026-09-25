@@ -6,6 +6,11 @@ from decimal import Decimal, InvalidOperation
 from typing import Literal, overload
 
 from polymarket.errors import UserInputError
+from polymarket.models.perps.builders import (
+    USE_SESSION_DEFAULT,
+    PerpsBuilderAttribution,
+    UseSessionDefault,
+)
 from polymarket.models.perps.types import PerpsTimeInForce
 from polymarket.models.types import OrderSide
 
@@ -61,6 +66,9 @@ class PerpsOrderRequest:
     client_order_id: str | None = None
     """Optional caller-supplied idempotency identifier."""
 
+    builder_attribution: PerpsBuilderAttribution | None | UseSessionDefault = USE_SESSION_DEFAULT
+    """Defaults to ``USE_SESSION_DEFAULT``; None disables builder attribution."""
+
     @overload
     def __init__(
         self,
@@ -73,6 +81,9 @@ class PerpsOrderRequest:
         post_only: bool = False,
         reduce_only: bool = False,
         client_order_id: str | None = None,
+        builder_attribution: (
+            PerpsBuilderAttribution | None | UseSessionDefault
+        ) = USE_SESSION_DEFAULT,
     ) -> None: ...
 
     @overload
@@ -86,6 +97,9 @@ class PerpsOrderRequest:
         price: DecimalInput | None = None,
         reduce_only: bool = False,
         client_order_id: str | None = None,
+        builder_attribution: (
+            PerpsBuilderAttribution | None | UseSessionDefault
+        ) = USE_SESSION_DEFAULT,
     ) -> None: ...
 
     def __init__(
@@ -99,6 +113,9 @@ class PerpsOrderRequest:
         post_only: bool = False,
         reduce_only: bool = False,
         client_order_id: str | None = None,
+        builder_attribution: (
+            PerpsBuilderAttribution | None | UseSessionDefault
+        ) = USE_SESSION_DEFAULT,
     ) -> None:
         object.__setattr__(self, "instrument_id", instrument_id)
         object.__setattr__(self, "side", side)
@@ -108,9 +125,16 @@ class PerpsOrderRequest:
         object.__setattr__(self, "post_only", post_only)
         object.__setattr__(self, "reduce_only", reduce_only)
         object.__setattr__(self, "client_order_id", client_order_id)
+        object.__setattr__(self, "builder_attribution", builder_attribution)
         self.__post_init__()
 
     def __post_init__(self) -> None:
+        if (
+            self.builder_attribution is not USE_SESSION_DEFAULT
+            and self.builder_attribution is not None
+            and not isinstance(self.builder_attribution, PerpsBuilderAttribution)  # pyright: ignore[reportUnnecessaryIsInstance]
+        ):
+            raise UserInputError("builder_attribution must be a PerpsBuilderAttribution or None")
         if isinstance(self.instrument_id, bool) or not isinstance(self.instrument_id, int):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise UserInputError("instrument_id must be an int")
         if self.instrument_id < 0:
