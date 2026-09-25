@@ -41,6 +41,10 @@ def _normalize_trade_status(value: object) -> object:
     return value
 
 
+def _empty_string_to_none(value: object) -> object:
+    return None if value == "" else value
+
+
 class OpenOrder(BaseModel):
     """Open order owned by an account."""
 
@@ -123,10 +127,7 @@ class MakerOrder(BaseModel):
         parse_decimal_string
     )
 
-    @field_validator("fee_rate_bps", mode="before")
-    @classmethod
-    def _empty_to_none(cls, value: object) -> object:
-        return None if value == "" else value
+    _empty_fee_rate_to_none = field_validator("fee_rate_bps", mode="before")(_empty_string_to_none)
 
 
 class ClobTrade(BaseModel):
@@ -152,7 +153,11 @@ class ClobTrade(BaseModel):
     status: TradeStatus
     fee_rate_bps: Decimal = Field(validation_alias="fee_rate_bps")
     bucket_index: int = Field(validation_alias="bucket_index")
-    transaction_hash: str = Field(validation_alias="transaction_hash")
+    transaction_hash: str | None = Field(
+        default=None,
+        validation_alias="transaction_hash",
+        description="Transaction hash, or None when unavailable.",
+    )
     maker_orders: tuple[MakerOrder, ...] = Field(validation_alias="maker_orders")
     matched_at: datetime = Field(validation_alias="match_time")
     updated_at: datetime = Field(validation_alias="last_update")
@@ -170,6 +175,10 @@ class ClobTrade(BaseModel):
     _validate_status = field_validator("status", mode="before")(_normalize_trade_status)
     _validate_timestamps = field_validator("matched_at", "updated_at", mode="before")(
         _require_epoch_or_iso_timestamp
+    )
+
+    _empty_transaction_hash_to_none = field_validator("transaction_hash", mode="before")(
+        _empty_string_to_none
     )
 
     def _repr_html_(self) -> str:
