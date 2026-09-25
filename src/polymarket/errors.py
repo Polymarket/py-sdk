@@ -21,9 +21,10 @@ class PaginationLimitError(PolymarketError):
     """Error raised when pagination would pass the deepest page the service serves.
 
     Some list endpoints cap how far an offset-paginated read may go and reject
-    requests past the cap. The SDK raises this before sending such a request;
-    the pages already returned stay valid, but whether more items exist past
-    the cap cannot be established.
+    requests past the cap. Explicitly resuming an over-limit cursor raises
+    this before sending a request. Automatic iteration instead yields the
+    final accessible page with ``limit_reached=True`` and stops normally;
+    whether more items exist past the cap cannot be established.
     """
 
 

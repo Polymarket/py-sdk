@@ -43,6 +43,12 @@ def to_pandas(
     if explode:
         df = df.explode(list(explode))
 
+    metadata = table.schema.metadata or {}
+    if metadata.get(b"polymarket_truncated") == b"true":
+        df.attrs["polymarket_truncated"] = True
+    if metadata.get(b"polymarket_limit_reached") == b"true":
+        df.attrs["polymarket_limit_reached"] = True
+
     return df
 
 
@@ -71,7 +77,9 @@ def _cast_decimal_to_float(table, pa):  # type: ignore[no-untyped-def] # noqa: A
             field = pa.field(field.name, pa.float64(), nullable=field.nullable)
         new_arrays.append(column)
         new_fields.append(field)
-    return pa.Table.from_arrays(new_arrays, schema=pa.schema(new_fields))
+    return pa.Table.from_arrays(
+        new_arrays, schema=pa.schema(new_fields, metadata=table.schema.metadata)
+    )
 
 
 def _require_pandas_stack():  # noqa: ANN202

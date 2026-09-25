@@ -1269,9 +1269,11 @@ class AsyncPublicClient:
     ) -> AsyncPaginator[Comment]:
         """List comments for a market or event.
 
-        Pages starting past offset 200 are not served. Following a cursor past
-        that point raises ``PaginationLimitError`` before any request is sent;
-        the pages already returned stay valid.
+        Pages starting past offset 200 are not served. Automatic iteration
+        yields the final accessible full page with ``limit_reached=True`` and
+        stops normally. Its ``has_more`` stays True: completeness is unknown,
+        not proof that more comments exist. Explicitly following its cursor
+        raises ``PaginationLimitError`` before any request is sent.
 
         Returns:
             An async paginator over matching comments.
@@ -1296,9 +1298,11 @@ class AsyncPublicClient:
     ) -> AsyncPaginator[Comment]:
         """List comments authored by a user address.
 
-        Pages starting past offset 200 are not served. Following a cursor past
-        that point raises ``PaginationLimitError`` before any request is sent;
-        the pages already returned stay valid.
+        Pages starting past offset 200 are not served. Automatic iteration
+        yields the final accessible full page with ``limit_reached=True`` and
+        stops normally. Its ``has_more`` stays True: completeness is unknown,
+        not proof that more comments exist. Explicitly following its cursor
+        raises ``PaginationLimitError`` before any request is sent.
 
         This is a hard stop for this listing: there are no range filters to
         retrieve the remaining comments.

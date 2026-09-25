@@ -129,6 +129,7 @@ def sync_paginate_offset(
             page_size=effective_size,
             items=items,
             page_fill=spec.page_fill,
+            max_offset=spec.max_offset,
         )
 
     return Paginator(fetch=fetch, initial_cursor=initial_cursor)
@@ -174,6 +175,7 @@ def async_paginate_offset(
             page_size=effective_size,
             items=items,
             page_fill=spec.page_fill,
+            max_offset=spec.max_offset,
         )
 
     return AsyncPaginator(fetch=fetch, initial_cursor=initial_cursor)

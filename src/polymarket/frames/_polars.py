@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
@@ -26,6 +27,13 @@ def to_polars(
 
     if explode:
         df = df.explode(list(explode))
+
+    if (table.schema.metadata or {}).get(b"polymarket_limit_reached") == b"true":
+        warnings.warn(
+            "Reached the supported pagination depth limit; completeness is unknown. "
+            "Polars cannot retain this marker; use page.limit_reached or pandas/Arrow metadata.",
+            stacklevel=2,
+        )
 
     return df
 

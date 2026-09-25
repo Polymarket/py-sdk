@@ -28,7 +28,13 @@ def to_arrow(value: object) -> pa.Table:
         return override(value)
 
     if isinstance(value, Page):
-        return to_arrow(tuple(value.items))
+        table = to_arrow(tuple(value.items))
+        if value.limit_reached:
+            metadata = dict(table.schema.metadata or {})
+            metadata[b"polymarket_truncated"] = b"true"
+            metadata[b"polymarket_limit_reached"] = b"true"
+            table = table.replace_schema_metadata(metadata)
+        return table
 
     if isinstance(value, Paginator):
         raise TypeError(

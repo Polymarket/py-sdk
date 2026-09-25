@@ -110,6 +110,7 @@ def compute_offset_page(
     page_size: int,
     items: tuple[T, ...],
     page_fill: Callable[[tuple[T, ...]], int] | None = None,
+    max_offset: int | None = None,
 ) -> Page[T]:
     # Requests ask for exactly page_size rows, so a full page means another
     # page may exist. This costs one extra empty-page request when the total
@@ -130,7 +131,12 @@ def compute_offset_page(
         if has_more
         else None
     )
-    return Page(items=items, has_more=has_more, next_cursor=next_cursor)
+    return Page(
+        items=items,
+        has_more=has_more,
+        next_cursor=next_cursor,
+        limit_reached=has_more and max_offset is not None and offset + page_size > max_offset,
+    )
 
 
 def encode_keyset_cursor(
