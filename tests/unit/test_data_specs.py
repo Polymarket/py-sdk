@@ -70,6 +70,7 @@ WALLET = "0x" + "12" * 20
         ("list_biggest_winners", {"category": ""}),
         ("get_trader_leaderboard_standing", {"user": WALLET, "category": ""}),
         ("get_builder_volumes", {"bucket_limit": 91}),
+        ("get_trading_approvals_state", {"wallet": "not-an-address"}),
     ],
 )
 def test_validation_before_transport(method: str, kwargs: dict[str, Any]) -> None:
