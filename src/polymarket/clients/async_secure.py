@@ -73,6 +73,7 @@ from polymarket._internal.actions.perps import credentials as _perps_credentials
 from polymarket._internal.actions.perps import funds as _perps_funds
 from polymarket._internal.actions.perps import public as _perps_actions
 from polymarket._internal.actions.relayer.approvals import (
+    build_get_trading_approvals_state_spec,
     build_missing_trading_approval_calls,
     get_trading_approvals_state,
 )
@@ -2790,11 +2791,18 @@ class AsyncSecureClient:
     async def get_trading_approvals_state(
         self, *, wallet: str | None = None
     ) -> TradingApprovalsState:
-        """Get missing trading approvals for a wallet or the authenticated wallet."""
-        return await get_trading_approvals_state(
-            self._ctx.rpc,
-            wallet=self._ctx.wallet if wallet is None else wallet,
-            config=self._ctx.environment_config,
+        """Get missing trading approvals for a wallet or the authenticated wallet.
+
+        Recent grants or revocations can take time to appear. Reads use indexed
+        state from the configured environment, not the RPC endpoint.
+        setup_trading_approvals checks RPC directly.
+        """
+        return await async_dispatch(
+            self._ctx,
+            build_get_trading_approvals_state_spec(
+                wallet=self._ctx.wallet if wallet is None else wallet,
+                config=self._ctx.environment_config,
+            ),
         )
 
     async def setup_trading_approvals(self) -> DeprecatedTransactionHandle:
@@ -2807,7 +2815,9 @@ class AsyncSecureClient:
         Returns:
             A deprecated compatibility handle whose ``wait()`` returns immediately.
         """
-        state = await self.get_trading_approvals_state()
+        state = await get_trading_approvals_state(
+            self._ctx.rpc, wallet=self._ctx.wallet, config=self._ctx.environment_config
+        )
         calls = build_missing_trading_approval_calls(state.missing)
         if not calls:
             return DeprecatedTransactionHandle()
