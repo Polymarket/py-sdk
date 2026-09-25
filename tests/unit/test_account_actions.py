@@ -200,14 +200,20 @@ def test_parse_account_trades_page_returns_empty_tuple_for_empty_data() -> None:
 
 
 def test_parse_account_trades_page_parses_full_trade() -> None:
+    failed_trade = {**_CLOB_TRADE_PAYLOAD, "id": "trade-2", "status": "FAILED"}
+    failed_trade.pop("transaction_hash")
     page = parse_account_trades_page(
-        {"data": [_CLOB_TRADE_PAYLOAD], "next_cursor": END_CURSOR, "count": 1}
+        {"data": [_CLOB_TRADE_PAYLOAD, failed_trade], "next_cursor": END_CURSOR, "count": 2}
     )
-    assert len(page.items) == 1
+    assert len(page.items) == 2
     trade = page.items[0]
     assert trade.id == "trade-1"
     assert trade.maker_orders[0].order_id == "order-1"
     assert trade.trader_side == "TAKER"
+    assert trade.transaction_hash == "0xTX"
+    assert page.items[1].id == "trade-2"
+    assert page.items[1].status == "FAILED"
+    assert page.items[1].transaction_hash is None
 
 
 def test_build_notifications_request_includes_signature_type() -> None:
