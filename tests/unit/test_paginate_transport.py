@@ -13,12 +13,16 @@ from polymarket._internal.dispatch import (
     sync_paginate_offset,
     sync_paginate_page_based,
 )
-from polymarket._internal.pagination import decode_offset_cursor, decode_page_cursor
+from polymarket._internal.pagination import (
+    decode_offset_cursor,
+    decode_page_cursor,
+    encode_offset_cursor,
+)
 from polymarket._internal.request import OffsetPaginatedSpec, PageBasedPagePayload, PageBasedSpec
 from polymarket.clients._transport import AsyncTransport, SyncTransport
 from polymarket.clients.async_public import AsyncPublicClient
 from polymarket.clients.public import PublicClient
-from polymarket.errors import UserInputError
+from polymarket.errors import PaginationLimitError, UserInputError
 
 
 def _items_handler(captured: list[httpx.Request], rows: list[list[int]]) -> httpx.MockTransport:
@@ -36,6 +40,7 @@ def _spec(
     path: str = "/positions",
     base_params: dict[str, str] | None = None,
     max_page_size: int | None = None,
+    max_offset: int | None = None,
 ):
     return OffsetPaginatedSpec[int](
         service="data",
@@ -43,7 +48,23 @@ def _spec(
         parse_items=lambda payload: tuple(payload),  # type: ignore[arg-type]
         base_params=base_params,
         max_page_size=max_page_size,
+        max_offset=max_offset,
     )
+
+
+def _full_pages_handler(captured: list[httpx.Request], page_size: int) -> httpx.MockTransport:
+    # Every offset answers a full page, standing in for a listing deeper than
+    # the client is allowed to page.
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        offset = int(parse_qs(urlparse(str(request.url)).query)["offset"][0])
+        return httpx.Response(200, json=list(range(offset, offset + page_size)), request=request)
+
+    return httpx.MockTransport(handler)
+
+
+def _offsets(captured: list[httpx.Request]) -> list[int]:
+    return [int(parse_qs(urlparse(str(r.url)).query)["offset"][0]) for r in captured]
 
 
 def _install_sync_data_transport(client: PublicClient, handler: httpx.MockTransport) -> None:
@@ -431,3 +452,245 @@ def test_async_paginate_page_based_round_trip_next_cursor() -> None:
         assert qs2["page"] == ["2"]
 
     asyncio.run(run())
+
+
+def test_sync_paginate_offset_serves_the_page_at_the_cap_then_stops() -> None:
+    # The cap is on the starting offset: offset 200 is served, the cursor it
+    # mints is minted normally, and following it raises before any request.
+    captured: list[httpx.Request] = []
+    handler = _full_pages_handler(captured, 100)
+    with PublicClient() as client:
+        _install_sync_data_transport(client, handler)
+        paginator = sync_paginate_offset(client._ctx, _spec(max_offset=200), page_size=100)
+        pages = list(paginator)
+        with pytest.raises(PaginationLimitError, match="deepest page served for /positions"):
+            paginator.from_cursor(pages[-1].next_cursor).first_page()
+
+    assert _offsets(captured) == [0, 100, 200]
+    assert len(pages) == 3
+    assert pages[-1].has_more is True
+    assert pages[-1].next_cursor is not None
+    assert pages[-1].items == tuple(range(200, 300))
+    assert [page.limit_reached for page in pages] == [False, False, True]
+
+
+def test_sync_paginate_offset_default_page_size_stops_after_offset_200() -> None:
+    captured: list[httpx.Request] = []
+    handler = _full_pages_handler(captured, 20)
+    with PublicClient() as client:
+        _install_sync_data_transport(client, handler)
+        paginator = sync_paginate_offset(client._ctx, _spec(max_offset=200), page_size=20)
+        items = list(paginator.iter_items())
+
+    assert _offsets(captured) == list(range(0, 201, 20))
+    assert items == list(range(220))
+
+
+def test_sync_paginate_offset_never_clamps_a_non_divisor_page_size() -> None:
+    # 0 -> 75 -> 150 -> 225: the next offset past the cap is refused, not
+    # pulled back to 200, which would re-read 25 rows.
+    captured: list[httpx.Request] = []
+    handler = _full_pages_handler(captured, 75)
+    with PublicClient() as client:
+        _install_sync_data_transport(client, handler)
+        paginator = sync_paginate_offset(client._ctx, _spec(max_offset=200), page_size=75)
+        pages = list(paginator)
+
+    assert _offsets(captured) == [0, 75, 150]
+    assert [page.limit_reached for page in pages] == [False, False, True]
+    assert pages[-1].items == tuple(range(150, 225))
+
+
+@pytest.mark.parametrize("count", [0, 3])
+def test_sync_paginate_offset_short_page_at_the_cap_finishes_normally(count: int) -> None:
+    captured: list[httpx.Request] = []
+    handler = _items_handler(captured, [list(range(200, 200 + count))])
+    with PublicClient() as client:
+        _install_sync_data_transport(client, handler)
+        cursor = encode_offset_cursor(
+            service="data", path="/positions", base_params=None, offset=200, page_size=100
+        )
+        page = (
+            sync_paginate_offset(client._ctx, _spec(max_offset=200), page_size=100)
+            .from_cursor(cursor)
+            .first_page()
+        )
+
+    assert _offsets(captured) == [200]
+    assert page.items == tuple(range(200, 200 + count))
+    assert page.has_more is False
+    assert page.limit_reached is False
+    assert page.next_cursor is None
+
+
+def test_sync_paginate_offset_rejects_a_saved_cursor_past_the_cap_before_any_request() -> None:
+    captured: list[httpx.Request] = []
+    handler = _full_pages_handler(captured, 20)
+    with PublicClient() as client:
+        _install_sync_data_transport(client, handler)
+        cursor = encode_offset_cursor(
+            service="data", path="/positions", base_params=None, offset=201, page_size=20
+        )
+        paginator = sync_paginate_offset(client._ctx, _spec(max_offset=200), page_size=20)
+        with pytest.raises(PaginationLimitError):
+            paginator.from_cursor(cursor).first_page()
+
+    assert captured == []
+
+
+def test_sync_paginate_offset_rejects_a_saved_cursor_with_an_oversized_page_size() -> None:
+    captured: list[httpx.Request] = []
+    handler = _full_pages_handler(captured, 20)
+    with PublicClient() as client:
+        _install_sync_data_transport(client, handler)
+        cursor = encode_offset_cursor(
+            service="data", path="/positions", base_params=None, offset=0, page_size=101
+        )
+        paginator = sync_paginate_offset(client._ctx, _spec(max_page_size=100), page_size=20)
+        with pytest.raises(UserInputError, match="page_size must be at most 100"):
+            paginator.from_cursor(cursor).first_page()
+
+    assert captured == []
+
+
+def test_sync_paginate_offset_without_a_cap_keeps_walking() -> None:
+    captured: list[httpx.Request] = []
+    handler = _items_handler(captured, [list(range(o, o + 20)) for o in range(0, 300, 20)])
+    with PublicClient() as client:
+        _install_sync_data_transport(client, handler)
+        items = list(sync_paginate_offset(client._ctx, _spec(), page_size=20).iter_items())
+
+    assert len(items) == 300
+    assert _offsets(captured)[-1] == 300
+
+
+@pytest.mark.parametrize("page_size, offsets", [(100, [0, 100, 200]), (75, [0, 75, 150])])
+def test_async_paginate_offset_serves_the_final_accessible_page_then_stops(
+    page_size: int, offsets: list[int]
+) -> None:
+    async def run() -> None:
+        captured: list[httpx.Request] = []
+        handler = _full_pages_handler(captured, page_size)
+        async with AsyncPublicClient() as client:
+            _install_async_data_transport(client, handler)
+            paginator = async_paginate_offset(
+                client._ctx, _spec(max_offset=200), page_size=page_size
+            )
+            pages = [page async for page in paginator]
+            with pytest.raises(PaginationLimitError):
+                await paginator.from_cursor(pages[-1].next_cursor).first_page()
+
+        assert _offsets(captured) == offsets
+        assert len(pages) == 3
+        assert pages[-1].has_more is True
+        assert pages[-1].next_cursor is not None
+        assert pages[-1].items == tuple(range(offsets[-1], offsets[-1] + page_size))
+        assert [page.limit_reached for page in pages] == [False, False, True]
+
+    asyncio.run(run())
+
+
+def test_async_paginate_offset_rejects_a_saved_cursor_past_the_cap_before_any_request() -> None:
+    async def run() -> None:
+        captured: list[httpx.Request] = []
+        handler = _full_pages_handler(captured, 20)
+        async with AsyncPublicClient() as client:
+            _install_async_data_transport(client, handler)
+            cursor = encode_offset_cursor(
+                service="data", path="/positions", base_params=None, offset=220, page_size=20
+            )
+            paginator = async_paginate_offset(client._ctx, _spec(max_offset=200), page_size=20)
+            with pytest.raises(PaginationLimitError):
+                await paginator.from_cursor(cursor).first_page()
+
+        assert captured == []
+
+    asyncio.run(run())
+
+
+def _comments_handler(
+    captured: list[httpx.Request], roots_per_page: int, replies_per_root: int
+) -> httpx.MockTransport:
+    # Each root comment is followed by its replies, the shape the comments
+    # listing returns; the server's limit bounds the roots only.
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        qs = parse_qs(urlparse(str(request.url)).query)
+        offset = int(qs["offset"][0])
+        rows: list[dict[str, str]] = []
+        for i in range(roots_per_page):
+            root_id = str(offset + i + 1)
+            rows.append({"id": root_id, "body": "root"})
+            for j in range(replies_per_root):
+                rows.append({"id": f"{root_id}-{j}", "body": "reply", "parentCommentID": root_id})
+        return httpx.Response(200, json=rows, request=request)
+
+    return httpx.MockTransport(handler)
+
+
+def test_list_comments_walks_to_the_cap_and_stops_normally() -> None:
+    captured: list[httpx.Request] = []
+    with PublicClient() as client:
+        _install_sync_gamma_transport(client, _comments_handler(captured, 20, 2))
+        paginator = client.list_comments(parent_entity_id="1", parent_entity_type="Event")
+        pages = list(paginator)
+
+    assert _offsets(captured) == list(range(0, 201, 20))
+    assert len(pages) == 11
+    assert all(len(page.items) == 60 for page in pages)
+    assert pages[-1].has_more is True
+    assert pages[-1].limit_reached is True
+    assert all(not page.limit_reached for page in pages[:-1])
+
+
+def test_list_comments_short_root_page_with_many_replies_finishes() -> None:
+    # 8 roots with 4 replies each is 40 rows for a page size of 20, but only 8
+    # roots were served, so the listing is exhausted and no cap error fires.
+    captured: list[httpx.Request] = []
+    with PublicClient() as client:
+        _install_sync_gamma_transport(client, _comments_handler(captured, 8, 4))
+        cursor = encode_offset_cursor(
+            service="gamma",
+            path="/comments",
+            base_params={"parent_entity_id": "1", "parent_entity_type": "Event"},
+            offset=200,
+            page_size=20,
+        )
+        page = (
+            client.list_comments(parent_entity_id="1", parent_entity_type="Event")
+            .from_cursor(cursor)
+            .first_page()
+        )
+
+    assert _offsets(captured) == [200]
+    assert len(page.items) == 40
+    assert page.has_more is False
+    assert page.limit_reached is False
+    assert page.next_cursor is None
+
+
+def test_list_comments_by_user_address_counts_every_row_and_stops_at_the_cap() -> None:
+    captured: list[httpx.Request] = []
+    with PublicClient() as client:
+        _install_sync_gamma_transport(client, _comments_handler(captured, 10, 1))
+        paginator = client.list_comments_by_user_address(address="0x" + "a" * 40)
+        pages = list(paginator)
+
+    assert _offsets(captured) == list(range(0, 201, 20))
+    assert sum(len(page.items) for page in pages) == 220
+    assert pages[-1].limit_reached is True
+
+
+def test_list_comments_to_pandas_without_a_limit_marks_the_cap() -> None:
+    captured: list[httpx.Request] = []
+    with PublicClient() as client:
+        _install_sync_gamma_transport(client, _comments_handler(captured, 100, 2))
+        paginator = client.list_comments(
+            parent_entity_id="1", parent_entity_type="Event", page_size=100
+        )
+        df = paginator.to_pandas(limit=None)
+
+    assert _offsets(captured) == [0, 100, 200]
+    assert len(df) == 900
+    assert df.attrs["polymarket_truncated"] is True
+    assert df.attrs["polymarket_limit_reached"] is True
