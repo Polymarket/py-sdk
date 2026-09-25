@@ -60,6 +60,7 @@ from polymarket._internal.actions.orders.typed_data import (
 )
 from polymarket._internal.actions.orders.types import OrderDraft
 from polymarket._internal.actions.relayer.approvals import (
+    build_get_trading_approvals_state_spec,
     build_missing_trading_approval_calls,
     get_trading_approvals_state_sync,
 )
@@ -2485,11 +2486,18 @@ class SecureClient:
         return self._dispatch_single_call(call, metadata=resolved_metadata)
 
     def get_trading_approvals_state(self, *, wallet: str | None = None) -> TradingApprovalsState:
-        """Get missing trading approvals for a wallet or the authenticated wallet."""
-        return get_trading_approvals_state_sync(
-            self._ctx.rpc,
-            wallet=self._ctx.wallet if wallet is None else wallet,
-            config=self._ctx.environment_config,
+        """Get missing trading approvals for a wallet or the authenticated wallet.
+
+        Recent grants or revocations can take time to appear. Reads use indexed
+        state from the configured environment, not the RPC endpoint.
+        setup_trading_approvals checks RPC directly.
+        """
+        return sync_dispatch(
+            self._ctx,
+            build_get_trading_approvals_state_spec(
+                wallet=self._ctx.wallet if wallet is None else wallet,
+                config=self._ctx.environment_config,
+            ),
         )
 
     def setup_trading_approvals(self) -> SyncDeprecatedTransactionHandle:
@@ -2502,7 +2510,9 @@ class SecureClient:
         Returns:
             A deprecated compatibility handle whose ``wait()`` returns immediately.
         """
-        state = self.get_trading_approvals_state()
+        state = get_trading_approvals_state_sync(
+            self._ctx.rpc, wallet=self._ctx.wallet, config=self._ctx.environment_config
+        )
         calls = build_missing_trading_approval_calls(state.missing)
         if not calls:
             return SyncDeprecatedTransactionHandle()
