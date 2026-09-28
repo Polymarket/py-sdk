@@ -5,7 +5,13 @@ from decimal import Decimal
 import pytest
 
 from polymarket import AsyncSecureClient
-from polymarket.streams import CryptoPriceSpec, CryptoTwapPriceSpec, EquityPriceSpec, PriceEvent
+from polymarket.streams import (
+    CryptoPriceSpec,
+    CryptoTwapPriceSpec,
+    EquityPriceSpec,
+    EquityTwapPriceSpec,
+    PriceEvent,
+)
 
 
 def assert_price_values(event: PriceEvent) -> None:
@@ -18,8 +24,37 @@ def assert_price_values(event: PriceEvent) -> None:
     if event.type == "subscribe":
         timestamps = [point.timestamp for point in event.payload.data]
         assert timestamps == sorted(timestamps)
-    if event.topic == "prices.crypto.twap":
+    if event.topic == "prices.crypto.twap" or event.topic == "prices.equity.twap":
         assert event.payload.window_seconds == 60
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_equity_twap_history_and_updates(
+    deposit_wallet_client: AsyncSecureClient,
+) -> None:
+    """Read FX TWAPs with the default subscription; no trading or account writes."""
+    async with asyncio.timeout(60):
+        async with await deposit_wallet_client.subscribe(
+            EquityTwapPriceSpec(symbol=" EURUSD ")
+        ) as stream:
+            snapshot = await anext(stream)
+            assert snapshot.type == "subscribe" and snapshot.payload.symbol == "eurusd"
+            assert_price_values(snapshot)
+            if not snapshot.payload.data:
+                pytest.skip("EURUSD has no recent TWAP history; live updates are unavailable")
+            while True:
+                event = await anext(stream)
+                assert_price_values(event)
+                if event.type == "update":
+                    assert event.payload.symbol == "eurusd"
+                    break
+            async with await deposit_wallet_client.subscribe(
+                EquityTwapPriceSpec(symbol="eurusd")
+            ) as joined:
+                history = await anext(joined)
+                assert history.type == "subscribe" and history.payload.data
+                assert_price_values(history)
 
 
 @pytest.mark.integration
