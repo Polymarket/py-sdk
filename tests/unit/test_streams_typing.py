@@ -21,8 +21,13 @@ from polymarket.streams import (
     EquityTwapPriceEvent,
     EquityTwapPriceSpec,
     PriceEvent,
+    PriceSource,
     SubscriptionHandle,
 )
+
+
+def check_price_source_typing(event: PriceEvent) -> None:
+    assert_type(event.payload.source, PriceSource)
 
 
 async def check_authenticated_price_typing(client: AsyncSecureClient) -> None:

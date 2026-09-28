@@ -7,9 +7,10 @@ from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any, cast
+from typing import Any, cast, get_type_hints
 
 import pytest
+from pydantic import ValidationError
 from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
@@ -31,8 +32,14 @@ from polymarket.streams import (
     CryptoTwapPriceSpec,
     EquityPriceSpec,
     EquityTwapPriceSpec,
+    KnownPriceSource,
     MarketSpec,
+    PriceSource,
     PriceSpec,
+    RealtimePriceSnapshot,
+    RealtimePriceUpdate,
+    RealtimeTwapSnapshot,
+    RealtimeTwapUpdate,
 )
 
 CREDS = ApiKeyCreds(key="test-key", secret="test-secret", passphrase="test-pass")
@@ -49,11 +56,13 @@ def price_frame(
     *,
     snapshot: bool = False,
     timestamp: int = TIMESTAMP,
+    source: str = "pyth",
 ) -> dict[str, Any]:
     point = {"timestamp": timestamp, "value": 78803.76, "full_accuracy_value": EXACT}
     payload: dict[str, Any] = (
         {"symbol": symbol, "data": [point]} if snapshot else {"symbol": symbol, **point}
     )
+    payload["source"] = source
     if channel in ("price.crypto.twap", "price.equity.twap"):
         payload["window_seconds"] = 60
     return {
@@ -163,13 +172,19 @@ def fast_protocol(monkeypatch: pytest.MonkeyPatch) -> None:
     "channel", ["price.crypto", "price.crypto.twap", "price.equity", "price.equity.twap"]
 )
 @pytest.mark.parametrize("snapshot", [False, True])
-def test_price_frames_preserve_exact_values_and_public_types(channel: str, snapshot: bool) -> None:
-    frame = price_frame(channel, snapshot=snapshot)
+@pytest.mark.parametrize("source", ["pyth", "chainlink", "massive", "future-vendor"])
+def test_price_frames_preserve_exact_values_and_public_types(
+    channel: str, snapshot: bool, source: str
+) -> None:
+    frame = price_frame(channel, snapshot=snapshot, source=source)
     frame["dropped"] = 0
     if not snapshot and channel == "price.equity":
         frame["payload"].update(received_at=0, is_carried_forward=False)
     event = parse_price_event(frame)
     assert event is not None
+    assert event.payload.source == source
+    if source != "future-vendor":
+        assert event.payload.source is KnownPriceSource(source)
     assert event.timestamp == datetime.fromtimestamp(TIMESTAMP / 1000, UTC)
     assert event.seq == 1 and event.dropped == 0
     point = event.payload.data[0] if event.type == "subscribe" else event.payload
@@ -180,6 +195,122 @@ def test_price_frames_preserve_exact_values_and_public_types(channel: str, snaps
     if event.topic == "prices.equity" and event.type == "update":
         assert event.payload.received_at == datetime(1970, 1, 1, tzinfo=UTC)
         assert event.payload.is_carried_forward is False
+
+
+@pytest.mark.parametrize(
+    "channel", ["price.crypto", "price.crypto.twap", "price.equity", "price.equity.twap"]
+)
+@pytest.mark.parametrize("snapshot", [False, True])
+def test_price_source_is_required_even_for_empty_history(channel: str, snapshot: bool) -> None:
+    frame = price_frame(channel, snapshot=snapshot)
+    if snapshot:
+        frame["payload"]["data"] = []
+    del frame["payload"]["source"]
+    assert parse_price_event(frame) is None
+
+
+@pytest.mark.parametrize(
+    "channel", ["price.crypto", "price.crypto.twap", "price.equity", "price.equity.twap"]
+)
+@pytest.mark.parametrize("snapshot", [False, True])
+@pytest.mark.parametrize("source", [None, 42, True, [], {}, b"pyth"])
+def test_price_frames_reject_non_string_sources(
+    channel: str, snapshot: bool, source: object
+) -> None:
+    frame = price_frame(channel, snapshot=snapshot)
+    frame["payload"]["source"] = source
+    assert parse_price_event(frame) is None
+
+
+@pytest.mark.parametrize(
+    "channel", ["price.crypto", "price.crypto.twap", "price.equity", "price.equity.twap"]
+)
+@pytest.mark.parametrize("source", ["pyth", "chainlink", "massive", "future-vendor"])
+@pytest.mark.parametrize("empty", [False, True])
+def test_snapshot_and_refreshed_history_preserve_source(
+    channel: str, source: str, empty: bool
+) -> None:
+    frame = price_frame(channel, snapshot=True, source=source)
+    if empty:
+        frame["payload"]["data"] = []
+    snapshot = parse_price_event(frame)
+    assert snapshot is not None and snapshot.type == "subscribe"
+    assert snapshot.payload.source == source
+    assert all("source" not in point.model_dump() for point in snapshot.payload.data)
+    update = parse_price_event(price_frame(channel, source=source, timestamp=TIMESTAMP + 1))
+    assert update is not None
+    history = refresh_snapshot(snapshot, update)
+    assert history is not None and history.type == "subscribe"
+    assert history.topic == snapshot.topic
+    assert history.payload.source == source
+    assert len(history.payload.data) == (1 if empty else 2)
+
+
+@pytest.mark.parametrize(
+    "channel", ["price.crypto", "price.crypto.twap", "price.equity", "price.equity.twap"]
+)
+def test_snapshot_source_is_read_from_the_batch_not_its_points(channel: str) -> None:
+    frame = price_frame(channel, snapshot=True, source="chainlink")
+    frame["payload"]["data"][0]["source"] = "pyth"
+    snapshot = parse_price_event(frame)
+    assert snapshot is not None and snapshot.type == "subscribe"
+    assert snapshot.payload.source is KnownPriceSource.CHAINLINK
+    assert "source" not in snapshot.payload.data[0].model_dump()
+    del frame["payload"]["source"]
+    assert parse_price_event(frame) is None
+
+
+@pytest.mark.parametrize(
+    "channel", ["price.crypto", "price.crypto.twap", "price.equity", "price.equity.twap"]
+)
+@pytest.mark.parametrize("offset", [-1, 0, 1])
+def test_changed_source_starts_fresh_history_before_timestamp_comparison(
+    channel: str, offset: int
+) -> None:
+    frame = price_frame(channel, snapshot=True, source="pyth")
+    frame["payload"]["data"].insert(
+        0, {"timestamp": TIMESTAMP - 2, "value": 1, "full_accuracy_value": "1"}
+    )
+    snapshot = parse_price_event(frame)
+    update = parse_price_event(
+        price_frame(channel, source="future-vendor", timestamp=TIMESTAMP + offset)
+    )
+    assert snapshot is not None and update is not None
+    history = refresh_snapshot(snapshot, update)
+    assert history is not None and history.type == "subscribe"
+    assert history.payload.source == "future-vendor"
+    assert len(history.payload.data) == 1
+    assert history.payload.data[0].timestamp == datetime.fromtimestamp(
+        (TIMESTAMP + offset) / 1000, UTC
+    )
+    assert history.payload.data[0].value == Decimal(EXACT)
+
+
+@pytest.mark.parametrize(
+    "model", [RealtimePriceUpdate, RealtimePriceSnapshot, RealtimeTwapUpdate, RealtimeTwapSnapshot]
+)
+def test_public_payload_models_validate_source_at_the_model_boundary(
+    model: type[
+        RealtimePriceUpdate | RealtimePriceSnapshot | RealtimeTwapUpdate | RealtimeTwapSnapshot
+    ],
+) -> None:
+    payload: dict[str, object] = {
+        "symbol": "btcusd",
+        "source": "chainlink",
+        "timestamp": datetime.fromtimestamp(TIMESTAMP / 1000, UTC),
+        "value": Decimal(EXACT),
+        "data": [],
+    }
+    assert model.model_validate(payload).source is KnownPriceSource.CHAINLINK
+    assert model.model_validate({**payload, "source": "future-vendor"}).source == "future-vendor"
+    invalid_sources: tuple[object, ...] = (None, 42, True, [], {}, b"pyth")
+    for invalid in invalid_sources:
+        with pytest.raises(ValidationError):
+            model.model_validate({**payload, "source": invalid})
+    del payload["source"]
+    with pytest.raises(ValidationError):
+        model.model_validate(payload)
+    assert get_type_hints(model)["source"] == PriceSource
 
 
 @pytest.mark.parametrize("channel", ["price.crypto.twap", "price.equity.twap"])
@@ -291,6 +422,24 @@ def test_equity_twap_late_joiner_gets_current_history() -> None:
                 assert len(history.payload.data) == 2
                 assert history.payload.data[-1].timestamp == update.payload.timestamp
                 assert len(feed.operations("subscribe")) == 1
+                await feed.connections[0].send(
+                    json.dumps(
+                        price_frame(
+                            "price.equity.twap",
+                            "usdjpy",
+                            timestamp=TIMESTAMP - 1,
+                            source="chainlink",
+                        )
+                    )
+                )
+                changed = await anext(first)
+                latest = await manager.subscribe(spec)
+                fresh = await anext(latest)
+                assert fresh.type == "subscribe" and changed.type == "update"
+                assert fresh.payload.source is KnownPriceSource.CHAINLINK
+                assert len(fresh.payload.data) == 1
+                assert fresh.payload.data[0].timestamp == changed.payload.timestamp
+                assert len(feed.operations("subscribe")) == 1
             finally:
                 await manager.close()
 
@@ -322,15 +471,18 @@ def test_price_requires_exact_decimal_string(value: object) -> None:
     assert parse_price_event(frame) is None
 
 
-def test_history_replaces_same_timestamp_and_ignores_older_updates() -> None:
-    old = parse_price_event(price_frame(snapshot=True, timestamp=TIMESTAMP - 120001))
-    current = parse_price_event(price_frame())
+@pytest.mark.parametrize(
+    "channel", ["price.crypto", "price.crypto.twap", "price.equity", "price.equity.twap"]
+)
+def test_history_replaces_same_timestamp_and_ignores_older_updates(channel: str) -> None:
+    old = parse_price_event(price_frame(channel, snapshot=True, timestamp=TIMESTAMP - 120001))
+    current = parse_price_event(price_frame(channel))
     assert old is not None and current is not None
     history = refresh_snapshot(old, current)
     assert history is not None and history.type == "subscribe"
     assert len(history.payload.data) == 1
     assert refresh_snapshot(history, current) == history
-    older = parse_price_event(price_frame(timestamp=TIMESTAMP - 1))
+    older = parse_price_event(price_frame(channel, timestamp=TIMESTAMP - 1))
     assert older is not None and refresh_snapshot(history, older) == history
 
 
