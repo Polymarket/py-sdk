@@ -80,6 +80,7 @@ class Feed:
 
     def __init__(self) -> None:
         self.connections: list[ServerConnection] = []
+        self.connection_frames: list[list[dict[str, Any]]] = []
         self.frames: list[dict[str, Any]] = []
         self.received_times: list[float] = []
         self.reject_symbols: set[str] = set()
@@ -88,14 +89,18 @@ class Feed:
         self.ignore_subscriptions = 0
         self.ignore_unsubscriptions = 0
         self.auth_close_code: int | None = None
+        self.ack_provider: str | None = None
         self.unsubscribed = asyncio.Event()
 
     async def handler(self, ws: ServerConnection) -> None:
         self.connections.append(ws)
+        connection_frames: list[dict[str, Any]] = []
+        self.connection_frames.append(connection_frames)
         try:
             async for raw in ws:
                 frame = json.loads(raw)
                 self.frames.append(frame)
+                connection_frames.append(frame)
                 self.received_times.append(time.monotonic())
                 if frame["op"] == "auth":
                     if self.auth_close_code is not None:
@@ -132,6 +137,8 @@ class Feed:
                         channel, symbol = sub["channel"], sub["filter"]["symbol"]
                         op = "subscribed" if frame["op"] == "subscribe" else "unsubscribed"
                         ack = {"op": op, "rid": frame["rid"], "channel": channel}
+                        if op == "subscribed" and self.ack_provider is not None:
+                            ack["provider"] = self.ack_provider
                         if op == "subscribed" and symbol in self.reject_symbols:
                             ack.update(op="error", code="bad_filter")
                         await ws.send(json.dumps(ack))
@@ -166,6 +173,179 @@ def fast_protocol(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(socket_module, "OPERATION_INTERVAL_S", 0.001)
     monkeypatch.setattr(session_module, "reconnect_delay", delay)
+
+
+@pytest.mark.parametrize(
+    ("spec_type", "arguments"),
+    [
+        (CryptoPriceSpec, {"symbols": ["btcusd"]}),
+        (CryptoTwapPriceSpec, {"symbols": ["btcusd"]}),
+        (EquityPriceSpec, {"symbol": "aapl"}),
+        (EquityTwapPriceSpec, {"symbol": "usdjpy"}),
+    ],
+)
+@pytest.mark.parametrize("provider", ["", "massive", KnownPriceSource.MASSIVE, "PYTH", 1, [], {}])
+def test_price_specs_reject_unsupported_providers(
+    spec_type: Any, arguments: dict[str, Any], provider: object
+) -> None:
+    with pytest.raises(UserInputError, match="provider"):
+        spec_type(**arguments, provider=provider)
+
+
+@pytest.mark.parametrize(
+    ("spec_type", "arguments", "channel", "price_filter"),
+    [
+        (CryptoPriceSpec, {"symbols": ["btcusd"]}, "price.crypto", {"symbol": "btcusd"}),
+        (
+            CryptoTwapPriceSpec,
+            {"symbols": ["btcusd"]},
+            "price.crypto.twap",
+            {"symbol": "btcusd", "window_seconds": 60},
+        ),
+        (EquityPriceSpec, {"symbol": "AAPL"}, "price.equity", {"symbol": "aapl"}),
+        (
+            EquityTwapPriceSpec,
+            {"symbol": "USDJPY"},
+            "price.equity.twap",
+            {"symbol": "usdjpy", "window_seconds": 60},
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "provider", [None, "pyth", "chainlink", KnownPriceSource.CHAINLINK, KnownPriceSource.PYTH]
+)
+def test_price_provider_subscribe_and_unsubscribe_requests(
+    spec_type: Any,
+    arguments: dict[str, Any],
+    channel: str,
+    price_filter: dict[str, object],
+    provider: object,
+) -> None:
+    async def scenario() -> None:
+        feed = Feed()
+        async with feed_server(feed) as url:
+            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            try:
+                spec = spec_type(**arguments, provider=provider)
+                handle = await manager.subscribe(spec)
+                assert (await anext(handle)).topic == spec.topic
+                expected_filter = dict(price_filter)
+                if provider is not None:
+                    assert type(spec.provider) is str
+                    expected_filter["provider"] = str(provider)
+                expected = [{"channel": channel, "filter": expected_filter}]
+                assert feed.operations("subscribe")[0]["subscriptions"] == expected
+                await handle.close()
+                await eventually(lambda: bool(feed.operations("unsubscribe")))
+                assert feed.operations("unsubscribe")[0]["subscriptions"] == expected
+            finally:
+                await manager.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("ack_provider", [None, "pyth", "future-vendor"])
+def test_provider_groups_isolate_frames_and_reuse_duplicate_pins(ack_provider: str | None) -> None:
+    async def scenario() -> None:
+        feed = Feed()
+        feed.ack_provider = ack_provider
+        async with feed_server(feed) as url:
+            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            try:
+                default = await manager.subscribe(EquityPriceSpec(symbol="aapl"))
+                chainlink = await manager.subscribe(
+                    EquityPriceSpec(symbol="aapl", provider="chainlink")
+                )
+                pyth = await manager.subscribe(EquityPriceSpec(symbol="aapl", provider="pyth"))
+                duplicate = await manager.subscribe(
+                    EquityPriceSpec(symbol="AAPL", provider=KnownPriceSource.CHAINLINK)
+                )
+                handles = [default, chainlink, pyth, duplicate]
+                for handle in handles:
+                    assert (await anext(handle)).payload.source is KnownPriceSource.PYTH
+                assert len(feed.connections) == 3
+                assert len(feed.operations("subscribe")) == 3
+                for connection, seq in zip(feed.connections, [11, 22, 33], strict=True):
+                    frame = price_frame("price.equity", "aapl", timestamp=TIMESTAMP + seq)
+                    frame["seq"] = seq
+                    await connection.send(json.dumps(frame))
+                for handle, seq in zip(handles, [11, 22, 33, 22], strict=True):
+                    assert (await asyncio.wait_for(anext(handle), 1)).seq == seq
+                await chainlink.close()
+                assert not feed.operations("unsubscribe")
+                await default.close()
+                await eventually(lambda: len(feed.operations("unsubscribe")) == 1)
+                assert feed.operations("unsubscribe")[0]["subscriptions"] == [
+                    {"channel": "price.equity", "filter": {"symbol": "aapl"}}
+                ]
+                frame = price_frame("price.equity", "aapl", timestamp=TIMESTAMP + 44)
+                frame["seq"] = 44
+                await feed.connections[1].send(json.dumps(frame))
+                assert (await asyncio.wait_for(anext(duplicate), 1)).seq == 44
+            finally:
+                await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_idle_provider_group_survives_cancellation_and_reconnect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(session_module, "IDLE_TIMEOUT_S", 60)
+
+    async def scenario() -> None:
+        feed = Feed()
+        feed.ack_provider = "future-vendor"
+        async with feed_server(feed) as url:
+            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            try:
+                default = await manager.subscribe(EquityPriceSpec(symbol="aapl"))
+                await anext(default)
+                await default.close()
+                await eventually(lambda: bool(feed.operations("unsubscribe")))
+                feed.ack_gate = asyncio.Event()
+                cancelled = asyncio.create_task(
+                    manager.subscribe(EquityPriceSpec(symbol="aapl", provider="chainlink"))
+                )
+                await eventually(lambda: len(feed.operations("subscribe")) == 2)
+                cancelled.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await cancelled
+                feed.ack_gate.set()
+                await eventually(lambda: len(feed.operations("unsubscribe")) == 2)
+                pyth = await manager.subscribe(EquityPriceSpec(symbol="aapl", provider="pyth"))
+                await anext(pyth)
+                chainlink = await manager.subscribe(
+                    EquityPriceSpec(symbol="aapl", provider="chainlink")
+                )
+                await anext(chainlink)
+                reused_default = await manager.subscribe(EquityPriceSpec(symbol="aapl"))
+                await anext(reused_default)
+                assert len(feed.connections) == 3
+                for frames, provider in zip(
+                    feed.connection_frames, [None, "chainlink", "pyth"], strict=True
+                ):
+                    for frame in frames:
+                        for sub in frame.get("subscriptions", []):
+                            assert sub["filter"].get("provider") == provider
+                await feed.connections[1].close(4002, "reconnect requested pin")
+                snapshot = await asyncio.wait_for(anext(chainlink), 1)
+                assert snapshot.payload.source is KnownPriceSource.PYTH
+                assert len(feed.connections) == 4
+                assert feed.operations("subscribe")[-1]["subscriptions"] == [
+                    {
+                        "channel": "price.equity",
+                        "filter": {"symbol": "aapl", "provider": "chainlink"},
+                    }
+                ]
+                frame = price_frame("price.equity", "aapl", timestamp=TIMESTAMP + 100)
+                frame["seq"] = 100
+                await feed.connections[3].send(json.dumps(frame))
+                assert (await asyncio.wait_for(anext(chainlink), 1)).seq == 100
+            finally:
+                await manager.close()
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize(
