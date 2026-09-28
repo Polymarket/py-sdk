@@ -4,7 +4,12 @@ import asyncio
 
 from examples.lib.env import require_env
 from polymarket import AsyncSecureClient
-from polymarket.streams import CryptoPriceSpec, CryptoTwapPriceSpec, EquityPriceSpec
+from polymarket.streams import (
+    CryptoPriceSpec,
+    CryptoTwapPriceSpec,
+    EquityPriceSpec,
+    EquityTwapPriceSpec,
+)
 
 
 async def main() -> None:
@@ -19,6 +24,7 @@ async def main() -> None:
                 CryptoPriceSpec(symbols=["btcusd", "ethusd"]),
                 CryptoTwapPriceSpec(symbols=["btcusd"]),
                 EquityPriceSpec(symbol="aapl"),
+                EquityTwapPriceSpec(symbol="usdjpy"),
             ]
         ) as prices,
     ):

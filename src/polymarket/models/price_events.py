@@ -47,14 +47,14 @@ class RealtimePriceSnapshot(BaseModel):
 
 
 class RealtimeTwapUpdate(RealtimePricePoint):
-    """A symbol's fixed 60-second time-weighted average price in USD."""
+    """A symbol's fixed 60-second time-weighted average price in its quote currency."""
 
     symbol: str
     window_seconds: Literal[60] = 60
 
 
 class RealtimeTwapSnapshot(RealtimePriceSnapshot):
-    """Recent history of a symbol's fixed 60-second USD TWAP."""
+    """Recent history of a symbol's fixed 60-second TWAP in its quote currency."""
 
     window_seconds: Literal[60] = 60
 
@@ -120,10 +120,27 @@ class EquityPriceSnapshotEvent(_PriceEventMetadata):
     payload: RealtimePriceSnapshot
 
 
+class EquityTwapPriceUpdateEvent(_PriceEventMetadata):
+    """A 60-second TWAP update in the instrument's quote currency."""
+
+    topic: Literal["prices.equity.twap"] = "prices.equity.twap"
+    type: Literal["update"] = "update"
+    payload: RealtimeTwapUpdate
+
+
+class EquityTwapPriceSnapshotEvent(_PriceEventMetadata):
+    """Recent 60-second TWAPs in the quote currency on subscription or recovery."""
+
+    topic: Literal["prices.equity.twap"] = "prices.equity.twap"
+    type: Literal["subscribe"] = "subscribe"
+    payload: RealtimeTwapSnapshot
+
+
 CryptoPriceEvent = CryptoPriceUpdateEvent | CryptoPriceSnapshotEvent
 CryptoTwapPriceEvent = CryptoTwapPriceUpdateEvent | CryptoTwapPriceSnapshotEvent
 EquityPriceEvent = EquityPriceUpdateEvent | EquityPriceSnapshotEvent
-PriceEvent = CryptoPriceEvent | CryptoTwapPriceEvent | EquityPriceEvent
+EquityTwapPriceEvent = EquityTwapPriceUpdateEvent | EquityTwapPriceSnapshotEvent
+PriceEvent = CryptoPriceEvent | CryptoTwapPriceEvent | EquityPriceEvent | EquityTwapPriceEvent
 
 __all__ = [
     "CryptoPriceEvent",
@@ -135,6 +152,9 @@ __all__ = [
     "EquityPriceEvent",
     "EquityPriceSnapshotEvent",
     "EquityPriceUpdateEvent",
+    "EquityTwapPriceEvent",
+    "EquityTwapPriceSnapshotEvent",
+    "EquityTwapPriceUpdateEvent",
     "PriceEvent",
     "RealtimeErrorCode",
     "RealtimePricePoint",
