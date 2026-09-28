@@ -26,6 +26,21 @@ accepts future source strings without dropping their events.
 Source is constant on single-source channels and may change across reconnects
 on equity channels. Cached history starts fresh when the source changes.
 
+All four price specs accept an optional ``provider="chainlink"`` or
+``provider="pyth"`` preference. ``PriceProviderInput`` also accepts
+``KnownPriceSource.CHAINLINK`` and ``KnownPriceSource.PYTH``. Omit ``provider``
+to use the default source. A preference can be ignored or fall back to the
+available source, so inspect ``event.payload.source`` for the actual source.
+The requested preference is preserved across reconnects. Different preferences,
+including the default, use separate connections even for the same symbol.
+
+.. code-block:: python
+
+   spec = EquityPriceSpec(symbol="aapl", provider="chainlink")
+   async with await client.subscribe(spec) as prices:
+       async for event in prices:
+           print(event.payload.source)  # May differ from the requested provider.
+
 ``seq`` is scoped to one channel on one connection and resets on reconnect.
 Subscriptions exceeding 64 distinct filters can span multiple connections,
 whose sequence values may interleave. It is not a global event identifier.

@@ -23,7 +23,8 @@ async def main() -> None:
             [
                 CryptoPriceSpec(symbols=["btcusd", "ethusd"]),
                 CryptoTwapPriceSpec(symbols=["btcusd"]),
-                EquityPriceSpec(symbol="aapl"),
+                # A provider preference may fall back; payload.source identifies it.
+                EquityPriceSpec(symbol="aapl", provider="chainlink"),
                 EquityTwapPriceSpec(symbol="usdjpy"),
             ]
         ) as prices,

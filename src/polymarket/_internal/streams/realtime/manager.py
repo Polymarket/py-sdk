@@ -41,7 +41,7 @@ class RealtimeStreamManager:
             if session.has(key):
                 return session
         for session in self._sessions:
-            if session.size < session.key_target:
+            if session.provider == key.provider and session.size < session.key_target:
                 return session
         session = PriceSession(
             PriceConnection(
@@ -49,7 +49,8 @@ class RealtimeStreamManager:
                 credentials=self._credentials,
                 headers=self._headers,
                 logger=self._logger,
-            )
+            ),
+            provider=key.provider,
         )
         self._sessions.append(session)
         return session
