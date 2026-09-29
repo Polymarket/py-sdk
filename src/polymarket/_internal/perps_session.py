@@ -167,7 +167,7 @@ class PerpsSession:
     def __init__(
         self,
         *,
-        builder_attribution: PerpsBuilderAttribution | None = None,
+        builder_attribution: str | PerpsBuilderAttribution | None = None,
         include_builder_fills: bool = False,
         owner_signer: LocalAccount | None = None,
         chain_id: int,
@@ -177,7 +177,15 @@ class PerpsSession:
         logger: logging.Logger | None = None,
         on_close: Callable[[PerpsSession], None] | None = None,
     ) -> None:
-        self._builder_attribution = _builders.validate_attribution(builder_attribution)
+        if isinstance(builder_attribution, str):
+            _builders.validate_address("builder_attribution", builder_attribution)
+            self._builder_address: str | None = builder_attribution
+            self._builder_attribution: PerpsBuilderAttribution | None = None
+        else:
+            self._builder_attribution = _builders.validate_attribution(builder_attribution)
+            self._builder_address = (
+                self._builder_attribution.address if self._builder_attribution else None
+            )
         self._owner_signer = owner_signer
         self._include_builder_fills = include_builder_fills
         self._builder_consent_lock = asyncio.Lock()
@@ -210,17 +218,19 @@ class PerpsSession:
 
     @property
     def builder_attribution(self) -> PerpsBuilderAttribution | None:
-        """Experimental: confirmed builder terms applied to this session's new orders."""
+        """Experimental: builder terms resolved when opening the session or granting approval."""
         return self._builder_attribution
 
     async def approve_builder_fee(
         self,
         *,
-        builder_address: str,
-        max_fee_rate: Decimal | str,
+        builder_address: str | None = None,
+        max_fee_rate: Decimal | str | None = None,
     ) -> PerpsBuilderApproval:
         """Experimental: approve and adopt builder fees using the owner's signature.
 
+        With no arguments, approves the selected builder's current configured
+        fee. Approval is needed once and remains valid until revoked or replaced.
         Reads saved consent and increments its version, initially 1. After
         confirmation, refreshes the builder cap and adopts the lower of that
         cap and the confirmed maximum. If the refresh fails, saved consent has
@@ -228,6 +238,22 @@ class PerpsSession:
         A zero rate revokes consent without fetching the cap.
         """
         async with self._builder_consent_lock:
+            if builder_address is None:
+                builder_address = self._builder_address
+            if builder_address is None:
+                raise UserInputError(
+                    "A builder address is required when the session has no builder attribution"
+                )
+            _builders.validate_address("builder_address", builder_address)
+            if max_fee_rate is None:
+                status = await _builders.fetch_status(self._api, address=builder_address)
+                if not status.registered or not status.enabled or not status.admission_enabled:
+                    raise UserInputError(
+                        "Builder attribution is not active for this builder address"
+                    )
+                max_fee_rate = status.max_fee_rate
+                if max_fee_rate <= 0:
+                    raise UserInputError("The builder has no positive fee to approve")
             return await self._change_builder_consent(builder_address, max_fee_rate)
 
     async def revoke_builder_fee(self, builder_address: str | None = None) -> PerpsBuilderApproval:
@@ -238,8 +264,8 @@ class PerpsSession:
         Revocation remains available when the builder is inactive.
         """
         async with self._builder_consent_lock:
-            if builder_address is None and self._builder_attribution is not None:
-                builder_address = self._builder_attribution.address
+            if builder_address is None:
+                builder_address = self._builder_address
             if builder_address is None:
                 raise UserInputError(
                     "A builder address is required when the session has no active "
@@ -277,12 +303,14 @@ class PerpsSession:
         )
         if approval.max_fee_rate == 0:
             if (
-                self._builder_attribution is not None
-                and self._builder_attribution.address.lower() == approval.builder.lower()
+                self._builder_address is not None
+                and self._builder_address.lower() == approval.builder.lower()
             ):
                 self._builder_attribution = None
+                self._builder_address = None
         else:
             status = await _builders.fetch_status(self._api, address=approval.builder)
+            self._builder_address = approval.builder
             self._builder_attribution = PerpsBuilderAttribution(
                 address=approval.builder, fee_rate=min(status.max_fee_rate, approval.max_fee_rate)
             )
@@ -340,6 +368,11 @@ class PerpsSession:
 
     async def open(self) -> Self:
         """Connect and authenticate the session WebSocket."""
+        if self._builder_address is not None and self._builder_attribution is None:
+            status = await _builders.fetch_status(self._api, address=self._builder_address)
+            self._builder_attribution = PerpsBuilderAttribution(
+                address=self._builder_address, fee_rate=status.max_fee_rate
+            )
         await self._connect(emit_resync=False)
         return self
 

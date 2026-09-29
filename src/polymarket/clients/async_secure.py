@@ -245,7 +245,7 @@ from polymarket.models.perps import (
     PerpsTrade,
     PerpsWithdrawalId,
 )
-from polymarket.models.perps.builders import PerpsBuilderAttribution, PerpsBuilderStatus
+from polymarket.models.perps.builders import PerpsBuilderStatus
 from polymarket.models.price_events import (
     CryptoPriceEvent,
     CryptoTwapPriceEvent,
@@ -1315,15 +1315,17 @@ class AsyncSecureClient:
         ``credentials`` to validate and resume them without a new wallet
         signature.
 
-        Select a builder address to restore this trader's active approval.
-        The lower of the builder's fee cap and the approved maximum applies to
-        new orders, batches, and TP/SL exits. Missing or revoked approval fails
-        setup; setup never grants consent. Omit attribution to start without
-        a builder, then call ``session.approve_builder_fee(builder_address=...,
-        max_fee_rate=...)``. Confirmed approval or revocation updates that session.
+        Select a builder address for new orders, batches, and TP/SL exits.
+        Opening or resuming reads the configured fee without requiring active
+        consent. The server validates builder availability and approval when
+        it receives orders. Call
+        ``session.approve_builder_fee()`` once before the first attributed
+        order. It defaults to the selected builder's current configured fee.
+        Approval remains valid until revoked or replaced. Opening a session
+        never grants consent.
 
         Args:
-            builder_attribution: Optional builder address whose saved consent to restore.
+            builder_attribution: Optional builder address to use for new orders.
             include_builder_fills: Include this account's builder receipts in its event iterator.
             credentials: Existing delegated credentials to validate and resume.
             expires_in: Delegated credential lifetime for newly created credentials.
@@ -1338,17 +1340,8 @@ class AsyncSecureClient:
 
         if type(include_builder_fills) is not bool:
             raise UserInputError("include_builder_fills must be a bool")
-        status: PerpsBuilderStatus | None = None
         if builder_attribution is not None:
             _perps_builders.validate_address("builder_attribution", builder_attribution)
-            status = await _perps_builders.fetch_status(
-                self._ctx.perps, address=builder_attribution
-            )
-            if not status.registered or not status.enabled or not status.admission_enabled:
-                raise UserInputError(
-                    "Builder attribution is not active for this builder address: "
-                    f"{builder_attribution}"
-                )
         if credentials is not None:
             if expires_in is not None or label is not None:
                 raise UserInputError("expires_in and label cannot be combined with credentials")
@@ -1369,31 +1362,8 @@ class AsyncSecureClient:
                 ),
                 label=label,
             )
-        attribution: PerpsBuilderAttribution | None = None
-        if builder_attribution is not None and status is not None:
-            approvals = await _perps_builders.fetch_approvals(
-                self._ctx.perps,
-                builder=builder_attribution,
-                headers=_perps_credentials.credential_headers(resolved),
-            )
-            approval = next(
-                (
-                    grant
-                    for grant in approvals
-                    if grant.builder.lower() == builder_attribution.lower()
-                ),
-                None,
-            )
-            if approval is None or approval.max_fee_rate <= 0:
-                raise UserInputError(
-                    "Explicit builder fee approval is required for this builder address: "
-                    f"{builder_attribution}"
-                )
-            attribution = PerpsBuilderAttribution(
-                address=approval.builder, fee_rate=min(status.max_fee_rate, approval.max_fee_rate)
-            )
         session = PerpsSession(
-            builder_attribution=attribution,
+            builder_attribution=builder_attribution,
             include_builder_fills=include_builder_fills,
             owner_signer=self._ctx.signer,
             chain_id=self._ctx.environment_config.chain_id,

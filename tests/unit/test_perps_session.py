@@ -1025,6 +1025,7 @@ def test_builder_consent_serializes_versions_and_commits_only_confirmed_terms() 
             rest_url="https://perps.test",
             ws_url="ws://unused",
             owner_signer=signer,
+            builder_attribution=builder,
         )
         await session._api.close()
         session._api = AsyncTransport(
@@ -1034,9 +1035,7 @@ def test_builder_consent_serializes_versions_and_commits_only_confirmed_terms() 
             ),
         )
         try:
-            pending = asyncio.create_task(
-                session.approve_builder_fee(builder_address=builder, max_fee_rate="0.0003")
-            )
+            pending = asyncio.create_task(session.approve_builder_fee())
             await started.wait()
             queued_revoke = asyncio.create_task(session.revoke_builder_fee())
             await asyncio.sleep(0)
@@ -1045,7 +1044,7 @@ def test_builder_consent_serializes_versions_and_commits_only_confirmed_terms() 
             await pending
             await queued_revoke
             assert [(p["builder"], p["approval_version"], p["max_fee_rate"]) for p in posted] == [
-                (builder, 1, "0.0003"),
+                (builder, 1, "0.0002"),
                 (builder, 2, "0"),
             ]
             assert session.builder_attribution is None
@@ -1231,5 +1230,87 @@ def test_position_exits_keep_terms_captured_before_portfolio_read() -> None:
                     {"address": terms.address, "fee_rate": "0.0003"},
                     {"address": terms.address, "fee_rate": "0.0003"},
                 ]
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10))
+
+
+@pytest.mark.parametrize("state", ["inactive", "missing", "revoked"])
+def test_builder_rejection_comes_from_server_without_order_time_reads(state: str) -> None:
+    from polymarket.models.perps import PerpsOrderRequest, PerpsTpSlTrigger
+
+    async def run() -> None:
+        builder = "0x" + "ab" * 20
+        frames: list[dict[str, Any]] = []
+        reads: list[str] = []
+        error = "builder_not_enabled" if state == "inactive" else "builder_approval_required"
+
+        async def handler(ws: ServerConnection) -> None:
+            frames.extend(await _handshake(ws))
+            async for raw in ws:
+                frame = json.loads(raw)
+                if not _is_ping(frame):
+                    frames.append(frame)
+                    await ws.send(
+                        json.dumps({"id": frame["id"], "data": [{"status": "err", "error": error}]})
+                    )
+
+        def response(request: httpx.Request) -> httpx.Response:
+            reads.append(request.url.path)
+            assert len(reads) == 1 and request.url.path == "/v1/info/builder"
+            return httpx.Response(
+                200,
+                json={
+                    "address": builder,
+                    "registered": True,
+                    "enabled": state != "inactive",
+                    "admission_enabled": True,
+                    "max_fee_rate": "0.0003",
+                },
+            )
+
+        async with ws_server(handler) as url:
+            session = PerpsSession(
+                chain_id=137,
+                credentials=_CREDENTIALS,
+                builder_attribution=builder,
+                rest_url="https://perps.test",
+                ws_url=url,
+            )
+            await session._api.close()
+            session._api = AsyncTransport(
+                base_url="https://perps.test",
+                client=httpx.AsyncClient(
+                    transport=httpx.MockTransport(response), base_url="https://perps.test"
+                ),
+            )
+            async with await session.open():
+                assert reads == ["/v1/info/builder"]
+                with pytest.raises(RequestRejectedError, match=error):
+                    await session.place_order(
+                        instrument_id=1, side="BUY", quantity="1", time_in_force="ioc"
+                    )
+                acks = await session.post_orders(
+                    [
+                        PerpsOrderRequest(
+                            instrument_id=1, side="BUY", quantity="1", time_in_force="ioc"
+                        )
+                    ]
+                )
+                assert acks[0].status == "err" and acks[0].error == error
+                with pytest.raises(RequestRejectedError, match=error):
+                    await session.place_order(
+                        instrument_id=1,
+                        side="BUY",
+                        quantity="1",
+                        time_in_force="ioc",
+                        stop_loss=PerpsTpSlTrigger(trigger_price="90"),
+                    )
+                assert len(frames) == 5
+                assert reads == ["/v1/info/builder"]
+                for frame in frames[2:]:
+                    assert all(
+                        row["builder"] == {"address": builder, "fee_rate": "0.0003"}
+                        for row in frame["op"]["args"]
+                    )
 
     asyncio.run(asyncio.wait_for(run(), timeout=10))
