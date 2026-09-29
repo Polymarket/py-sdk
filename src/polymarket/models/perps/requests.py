@@ -1,5 +1,6 @@
 """Perps order request inputs."""
 
+import math
 import re
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
@@ -13,6 +14,31 @@ _CLIENT_ORDER_ID = re.compile(r"^[0-9a-f]{32}$")
 
 DecimalInput = Decimal | int | float | str
 """Decimal-valued input accepted for Perps prices and quantities."""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PerpsCancelRetryOptions:
+    """Bounds automatic retries for transient Perps cancellation rejections."""
+
+    max_attempts: int = 4
+    """Maximum attempts per order, including the initial request."""
+    max_elapsed_s: float = 2.0
+    """Maximum elapsed time before starting a retry, in seconds."""
+
+    def __post_init__(self) -> None:
+        if isinstance(self.max_attempts, bool) or not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
+            self.max_attempts, int
+        ):
+            raise UserInputError("max_attempts must be an int")
+        if self.max_attempts < 1:
+            raise UserInputError("max_attempts must be at least 1")
+        if isinstance(self.max_elapsed_s, bool) or not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
+            self.max_elapsed_s, (int, float)
+        ):
+            raise UserInputError("max_elapsed_s must be a number")
+        if not math.isfinite(self.max_elapsed_s) or self.max_elapsed_s <= 0:
+            raise UserInputError("max_elapsed_s must be finite and positive")
+        object.__setattr__(self, "max_elapsed_s", float(self.max_elapsed_s))
 
 
 def to_decimal_string(name: str, value: DecimalInput) -> str:
@@ -168,6 +194,7 @@ class PerpsPositionTpSlTrigger:
 
 __all__ = [
     "DecimalInput",
+    "PerpsCancelRetryOptions",
     "PerpsOrderRequest",
     "PerpsPositionTpSlTrigger",
     "PerpsTpSlTrigger",
