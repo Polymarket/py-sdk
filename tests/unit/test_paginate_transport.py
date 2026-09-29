@@ -31,6 +31,8 @@ from polymarket.clients._transport import AsyncTransport, SyncTransport
 from polymarket.clients.async_public import AsyncPublicClient
 from polymarket.clients.public import PublicClient
 from polymarket.errors import PaginationLimitError, UserInputError
+from polymarket.models import Comment
+from polymarket.pagination import Page
 
 
 def _items_handler(captured: list[httpx.Request], rows: list[list[int]]) -> httpx.MockTransport:
@@ -905,13 +907,18 @@ def test_list_comments_resumes_a_saved_offset_cursor_on_offset_pages() -> None:
         )
         paginator = client.list_comments(parent_entity_id="1", parent_entity_type="Event")
         pages: list[Page[Comment]] = []
+        for page in paginator.from_cursor(legacy):
+            pages.append(page)
+        # The boundary page is the last one served; following it is refused
+        # before any request.
         with pytest.raises(PaginationLimitError):
-            for page in paginator.from_cursor(legacy):
-                pages.append(page)
+            paginator.from_cursor(pages[-1].next_cursor).first_page()
 
     assert _offsets(captured) == [180, 200]
     assert all("after_cursor" not in _query(r) for r in captured)
     assert len(pages) == 2
+    assert pages[-1].has_more is True
+    assert pages[-1].limit_reached is True
     assert pages[0].next_cursor is not None
     assert decode_offset_cursor(
         pages[0].next_cursor,
@@ -1010,12 +1017,13 @@ def test_list_comments_keeps_unsupported_reads_on_offset_pages(
             parent_entity_type="Event",
             **kwargs,  # type: ignore[arg-type]
         )
-        with pytest.raises(PaginationLimitError):
-            for _ in paginator:
-                pass
+        pages = list(paginator)
 
     assert _offsets(captured) == list(range(0, 201, 20))
     assert _query(captured[0])[flag] == [value]
+    assert all("after_cursor" not in _query(r) for r in captured)
+    assert pages[-1].has_more is True
+    assert pages[-1].limit_reached is True
 
 
 @pytest.mark.parametrize(("page_size", "match"), [(101, "at most 100"), (0, "positive integer")])
