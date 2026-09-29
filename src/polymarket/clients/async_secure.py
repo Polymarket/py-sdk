@@ -1316,9 +1316,9 @@ class AsyncSecureClient:
         signature.
 
         Select a builder address to restore this trader's active approval.
-        Its approved maximum applies to new orders, batches, and TP/SL exits.
-        Missing or revoked approval fails setup; setup never grants consent
-        or substitutes the platform fee cap. Omit attribution to start without
+        The lower of the builder's fee cap and the approved maximum applies to
+        new orders, batches, and TP/SL exits. Missing or revoked approval fails
+        setup; setup never grants consent. Omit attribution to start without
         a builder, then call ``session.approve_builder_fee(builder_address=...,
         max_fee_rate=...)``. Confirmed approval or revocation updates that session.
 
@@ -1338,6 +1338,7 @@ class AsyncSecureClient:
 
         if type(include_builder_fills) is not bool:
             raise UserInputError("include_builder_fills must be a bool")
+        status: PerpsBuilderStatus | None = None
         if builder_attribution is not None:
             _perps_builders.validate_address("builder_attribution", builder_attribution)
             status = await _perps_builders.fetch_status(
@@ -1369,7 +1370,7 @@ class AsyncSecureClient:
                 label=label,
             )
         attribution: PerpsBuilderAttribution | None = None
-        if builder_attribution is not None:
+        if builder_attribution is not None and status is not None:
             approvals = await _perps_builders.fetch_approvals(
                 self._ctx.perps,
                 builder=builder_attribution,
@@ -1389,7 +1390,7 @@ class AsyncSecureClient:
                     f"{builder_attribution}"
                 )
             attribution = PerpsBuilderAttribution(
-                address=approval.builder, fee_rate=approval.max_fee_rate
+                address=approval.builder, fee_rate=min(status.max_fee_rate, approval.max_fee_rate)
             )
         session = PerpsSession(
             builder_attribution=attribution,

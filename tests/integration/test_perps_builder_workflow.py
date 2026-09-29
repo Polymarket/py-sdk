@@ -47,7 +47,9 @@ async def test_builder_consent_restoration(
                 credentials=session.credentials, builder_attribution=builder_address
             ) as restored:
                 assert restored.builder_attribution is not None
-                assert restored.builder_attribution.fee_rate == approval.max_fee_rate
+                assert restored.builder_attribution.fee_rate == min(
+                    status.max_fee_rate, approval.max_fee_rate
+                )
 
 
 @pytest.mark.metered

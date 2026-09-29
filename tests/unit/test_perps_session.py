@@ -972,8 +972,23 @@ def test_builder_consent_serializes_versions_and_commits_only_confirmed_terms() 
         grants: dict[str, dict[str, Any]] = {}
         posted: list[dict[str, Any]] = []
         reject = False
+        cap = "0.0002"
+        reject_status = False
 
         async def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/info/builder":
+                if reject_status:
+                    return httpx.Response(400, json={"error": "status unavailable"})
+                return httpx.Response(
+                    200,
+                    json={
+                        "address": request.url.params["address"],
+                        "registered": True,
+                        "enabled": True,
+                        "admission_enabled": True,
+                        "max_fee_rate": cap,
+                    },
+                )
             if request.method == "GET":
                 saved = grants.get(str(request.url.params["builder"]).lower())
                 return httpx.Response(200, json={"data": [saved] if saved else []})
@@ -1035,8 +1050,17 @@ def test_builder_consent_serializes_versions_and_commits_only_confirmed_terms() 
             ]
             assert session.builder_attribution is None
             await session.approve_builder_fee(builder_address=builder, max_fee_rate="0.0003")
+            terms = PerpsBuilderAttribution(address=builder, fee_rate=Decimal("0.0002"))
+            assert session.builder_attribution == terms
+            cap = "0.0005"
+            await session.approve_builder_fee(builder_address=builder, max_fee_rate="0.0003")
             terms = PerpsBuilderAttribution(address=builder, fee_rate=Decimal("0.0003"))
             assert session.builder_attribution == terms
+            reject_status = True
+            with pytest.raises(RequestRejectedError):
+                await session.approve_builder_fee(builder_address=builder, max_fee_rate="0.0001")
+            assert session.builder_attribution == terms
+            assert len(posted) == 5
             reject = True
             with pytest.raises(RequestRejectedError):
                 await session.approve_builder_fee(
@@ -1049,7 +1073,7 @@ def test_builder_consent_serializes_versions_and_commits_only_confirmed_terms() 
             await session.revoke_builder_fee(other_builder)
             assert session.builder_attribution == terms
             revoked = await session.revoke_builder_fee()
-            assert revoked.approval_version == 4 and session.builder_attribution is None
+            assert revoked.approval_version == 6 and session.builder_attribution is None
         finally:
             await session.close()
 

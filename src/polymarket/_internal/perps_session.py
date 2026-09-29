@@ -221,9 +221,11 @@ class PerpsSession:
     ) -> PerpsBuilderApproval:
         """Experimental: approve and adopt builder fees using the owner's signature.
 
-        Reads saved consent and increments its version, initially 1. Only a
-        confirmed approval changes this session's attribution. A zero rate
-        revokes consent for that builder. Failed submissions are not retried.
+        Reads saved consent and increments its version, initially 1. After
+        confirmation, refreshes the builder cap and adopts the lower of that
+        cap and the confirmed maximum. If the refresh fails, saved consent has
+        changed but session terms remain unchanged; the approval is not retried.
+        A zero rate revokes consent without fetching the cap.
         """
         async with self._builder_consent_lock:
             return await self._change_builder_consent(builder_address, max_fee_rate)
@@ -280,8 +282,9 @@ class PerpsSession:
             ):
                 self._builder_attribution = None
         else:
+            status = await _builders.fetch_status(self._api, address=approval.builder)
             self._builder_attribution = PerpsBuilderAttribution(
-                address=approval.builder, fee_rate=approval.max_fee_rate
+                address=approval.builder, fee_rate=min(status.max_fee_rate, approval.max_fee_rate)
             )
         return approval
 
