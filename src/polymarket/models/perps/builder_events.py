@@ -8,7 +8,6 @@ from pydantic import field_validator
 from polymarket.models.base import BaseModel
 from polymarket.models.perps._validators import _require_epoch_ms
 from polymarket.models.perps.builders import PerpsBuilderEarning
-from polymarket.models.perps.events import PerpsResyncEvent
 
 
 class PerpsBuilderFillEvent(BaseModel):
@@ -24,7 +23,3 @@ class PerpsBuilderFillEvent(BaseModel):
     @classmethod
     def _timestamp(cls, value: object) -> object:
         return _require_epoch_ms(value)
-
-
-PerpsBuilderFillsEvent = PerpsBuilderFillEvent | PerpsResyncEvent
-"""Experimental: live builder receipts or a signal to reconcile earnings history."""

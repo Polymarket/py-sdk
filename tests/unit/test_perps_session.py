@@ -955,9 +955,8 @@ def test_commands_fail_fast_after_close() -> None:
     asyncio.run(asyncio.wait_for(run(), timeout=10.0))
 
 
-# Builder tests use the existing local session fixture. HTTP failures are
-# controlled here to avoid changing real accounts' fee consent.
-def test_builder_approval_defaults_and_revoked_version() -> None:
+# Consent failures and races use controlled responses rather than mutating live accounts.
+def test_builder_consent_serializes_versions_and_commits_only_confirmed_terms() -> None:
     from eth_account import Account
     from eth_account.messages import encode_typed_data
 
@@ -967,38 +966,20 @@ def test_builder_approval_defaults_and_revoked_version() -> None:
     async def run() -> None:
         signer = Account.from_key("0x" + "23" * 32)
         builder = "0x" + "ab" * 20
-        requests: list[httpx.Request] = []
-        version = 7
+        other_builder = "0x" + "cd" * 20
+        started = asyncio.Event()
+        release = asyncio.Event()
+        grants: dict[str, dict[str, Any]] = {}
+        posted: list[dict[str, Any]] = []
+        reject = False
 
-        def handler(request: httpx.Request) -> httpx.Response:
-            requests.append(request)
-            assert request.headers["POLYMARKET-SECRET"] == _CREDENTIALS.secret
+        async def handler(request: httpx.Request) -> httpx.Response:
             if request.method == "GET":
-                return httpx.Response(
-                    200,
-                    json={
-                        "data": [
-                            {
-                                "trader": signer.address,
-                                "builder": builder,
-                                "max_fee_rate": "0.0005",
-                                "approval_version": 3,
-                                "timestamp": 1751400000000,
-                                "sequence": 0,
-                            },
-                            {
-                                "trader": signer.address,
-                                "builder": builder,
-                                "max_fee_rate": "0",
-                                "approval_version": version,
-                                "timestamp": 1751500000000,
-                                "sequence": 1,
-                            },
-                        ]
-                    },
-                )
+                saved = grants.get(str(request.url.params["builder"]).lower())
+                return httpx.Response(200, json={"data": [saved] if saved else []})
             body = json.loads(request.content)
             args = body["op"]["args"]
+            posted.append(args)
             typed = build_perps_op_typed_data(
                 chain_id=137,
                 op=[
@@ -1014,10 +995,14 @@ def test_builder_approval_defaults_and_revoked_version() -> None:
                 )
                 == signer.address
             )
-            return httpx.Response(
-                200,
-                json={**args, "trader": signer.address, "timestamp": 1751500000001, "sequence": 2},
-            )
+            if len(posted) == 1:
+                started.set()
+                await release.wait()
+            if reject:
+                return httpx.Response(400, json={"error": "rejected"})
+            approval = {**args, "trader": signer.address, "timestamp": 1751500000001, "sequence": 2}
+            grants[args["builder"].lower()] = approval
+            return httpx.Response(200, json=approval)
 
         session = PerpsSession(
             chain_id=137,
@@ -1025,114 +1010,123 @@ def test_builder_approval_defaults_and_revoked_version() -> None:
             rest_url="https://perps.test",
             ws_url="ws://unused",
             owner_signer=signer,
-            builder_attribution=PerpsBuilderAttribution(
-                address=builder, fee_rate=Decimal("0.0005")
-            ),
         )
         await session._api.close()
         session._api = AsyncTransport(
             base_url="https://perps.test",
-            header_resolver=session._resolve_auth_headers,
             client=httpx.AsyncClient(
                 transport=httpx.MockTransport(handler), base_url="https://perps.test"
             ),
         )
         try:
-            result = await session.approve_builder_fee()
-            assert result.approval_version == 8
-            assert result.max_fee_rate == Decimal("0.0005")
-            result = await session.approve_builder_fee(max_fee_rate="0", approval_version=9)
-            assert result.max_fee_rate == Decimal(0)
-            assert [r.method for r in requests] == ["GET", "POST", "POST"]
+            pending = asyncio.create_task(
+                session.approve_builder_fee(builder_address=builder, max_fee_rate="0.0003")
+            )
+            await started.wait()
+            queued_revoke = asyncio.create_task(session.revoke_builder_fee())
+            await asyncio.sleep(0)
+            assert session.builder_attribution is None and len(posted) == 1
+            release.set()
+            await pending
+            await queued_revoke
+            assert [(p["builder"], p["approval_version"], p["max_fee_rate"]) for p in posted] == [
+                (builder, 1, "0.0003"),
+                (builder, 2, "0"),
+            ]
+            assert session.builder_attribution is None
+            await session.approve_builder_fee(builder_address=builder, max_fee_rate="0.0003")
+            terms = PerpsBuilderAttribution(address=builder, fee_rate=Decimal("0.0003"))
+            assert session.builder_attribution == terms
+            reject = True
+            with pytest.raises(RequestRejectedError):
+                await session.approve_builder_fee(
+                    builder_address=other_builder, max_fee_rate="0.0004"
+                )
+            with pytest.raises(RequestRejectedError):
+                await session.revoke_builder_fee()
+            assert session.builder_attribution == terms
+            reject = False
+            await session.revoke_builder_fee(other_builder)
+            assert session.builder_attribution == terms
+            revoked = await session.revoke_builder_fee()
+            assert revoked.approval_version == 4 and session.builder_attribution is None
         finally:
             await session.close()
-        with pytest.raises(TransportError):
-            await session.approve_builder_fee()
 
-    asyncio.run(run())
+    asyncio.run(asyncio.wait_for(run(), timeout=10))
 
 
-def test_builder_session_defaults_and_order_opt_out_cover_tp_sl() -> None:
-    from polymarket.models.perps import PerpsBuilderAttribution, PerpsOrderRequest, PerpsTpSlTrigger
+def test_builder_fills_share_session_iterator_before_ack_and_after_reconnect() -> None:
+    from polymarket.models.perps import PerpsBuilderFillEvent
 
     async def run() -> None:
-        frames: list[dict[str, Any]] = []
+        disconnect = asyncio.Event()
+        subscriptions: list[list[str]] = []
 
         async def handler(ws: ServerConnection) -> None:
-            await _handshake(ws)
-            async for raw in ws:
-                frame = json.loads(raw)
+            while True:
+                frame = json.loads(await ws.recv())
                 if _is_ping(frame):
                     continue
-                frames.append(frame)
-                rows = frame["op"]["args"]
-                await ws.send(
-                    json.dumps(
-                        {
-                            "id": frame["id"],
-                            "data": [{"status": "ok", "oid": 77 + i} for i in range(len(rows))],
-                        }
-                    )
-                )
-                if rows[0].get("c"):
-                    await ws.send(json.dumps(_order_update(77, client_order_id=rows[0]["c"])))
+                if frame["req"] == "sub":
+                    subscriptions.append(frame["chs"])
+                    if len(subscriptions) == 1:
+                        for sequence in (1, 100):
+                            await ws.send(
+                                json.dumps(
+                                    {
+                                        "ch": "builderFills",
+                                        "ts": 1751500000000,
+                                        "sq": sequence,
+                                        "data": [],
+                                    }
+                                )
+                            )
+                    await ws.send(json.dumps({"id": frame["id"], "data": {"status": "ok"}}))
+                    if len(subscriptions) == 1:
+                        await disconnect.wait()
+                        await ws.close()
+                    else:
+                        await ws.send(
+                            json.dumps(
+                                {"ch": "builderFills", "ts": 1751500000000, "sq": 200, "data": []}
+                            )
+                        )
+                        await ws.wait_closed()
+                    return
+                await ws.send(json.dumps({"id": frame["id"], "data": {"status": "ok"}}))
 
-        terms = PerpsBuilderAttribution(address="0x" + "ab" * 20, fee_rate=Decimal("0.0005"))
         async with ws_server(handler) as url:
             session = PerpsSession(
                 chain_id=137,
                 credentials=_CREDENTIALS,
                 rest_url="http://127.0.0.1:9",
                 ws_url=url,
-                builder_attribution=terms,
+                include_builder_fills=True,
             )
             async with await session.open():
-                await session.place_order(
-                    instrument_id=1,
-                    side="BUY",
-                    quantity="10",
-                    time_in_force="ioc",
-                    take_profit=PerpsTpSlTrigger(trigger_price="200"),
+                initial = [await anext(session), await anext(session)]
+                assert [e.sequence for e in initial if isinstance(e, PerpsBuilderFillEvent)] == [
+                    1,
+                    100,
+                ]
+                disconnect.set()
+                recovered = [await anext(session), await anext(session)]
+                assert any(
+                    isinstance(e, PerpsResyncEvent) and e.reason == "reconnect" for e in recovered
                 )
-                assert all(
-                    row["builder"] == {"address": terms.address, "fee_rate": "0.0005"}
-                    for row in frames[0]["op"]["args"]
+                assert any(
+                    isinstance(e, PerpsBuilderFillEvent) and e.sequence == 200 for e in recovered
                 )
-                await session.post_orders(
-                    [
-                        PerpsOrderRequest(
-                            instrument_id=1, side="BUY", quantity="10", time_in_force="ioc"
-                        ),
-                        PerpsOrderRequest(
-                            instrument_id=1,
-                            side="BUY",
-                            quantity="10",
-                            time_in_force="ioc",
-                            builder_attribution=None,
-                        ),
-                    ]
-                )
-                assert "builder" in frames[1]["op"]["args"][0]
-                assert "builder" not in frames[1]["op"]["args"][1]
-                await session.place_order(
-                    instrument_id=1,
-                    side="BUY",
-                    quantity="10",
-                    time_in_force="ioc",
-                    take_profit=PerpsTpSlTrigger(trigger_price="200"),
-                    builder_attribution=None,
-                )
-                assert all("builder" not in row for row in frames[2]["op"]["args"])
+                assert subscriptions[0] == subscriptions[1] and "builderFills" in subscriptions[0]
 
-    asyncio.run(run())
+    asyncio.run(asyncio.wait_for(run(), timeout=15))
 
 
-def test_builder_stream_handles_pre_ack_frames_sparse_sequences_and_close() -> None:
-    from polymarket.models.perps import PerpsBuilderFillEvent
+def test_position_exits_keep_terms_captured_before_portfolio_read() -> None:
+    from polymarket.models.perps import PerpsBuilderAttribution, PerpsPositionTpSlTrigger
 
     async def run() -> None:
-        subscribed = asyncio.Event()
-        unsubscribed = asyncio.Event()
         frames: list[dict[str, Any]] = []
 
         async def handler(ws: ServerConnection) -> None:
@@ -1142,161 +1136,76 @@ def test_builder_stream_handles_pre_ack_frames_sparse_sequences_and_close() -> N
                 if _is_ping(frame):
                     continue
                 frames.append(frame)
-                if frame["req"] == "sub":
-                    await ws.send(
-                        json.dumps({"ch": "builderFills", "ts": 1751500000000, "sq": 1, "data": []})
+                await ws.send(
+                    json.dumps(
+                        {
+                            "id": frame["id"],
+                            "data": [{"status": "ok", "oid": 77}, {"status": "ok", "oid": 78}],
+                        }
                     )
-                    await ws.send(
-                        json.dumps(
-                            {"ch": "builderFills", "ts": 1751500000001, "sq": 100, "data": []}
-                        )
-                    )
-                    subscribed.set()
-                else:
-                    unsubscribed.set()
-                await ws.send(json.dumps({"id": frame["id"], "data": {"status": "ok"}}))
+                )
 
-        async with ws_server(handler) as url, _open_session(url) as session:
-            first = await session.subscribe_builder_fills()
-            await subscribed.wait()
-            second = await session.subscribe_builder_fills()
-            assert len(frames) == 1
-            one = await asyncio.wait_for(anext(first), 1)
-            two = await asyncio.wait_for(anext(first), 1)
-            assert isinstance(one, PerpsBuilderFillEvent) and one.sequence == 1
-            assert isinstance(two, PerpsBuilderFillEvent) and two.sequence == 100
-            await first.close()
-            assert not unsubscribed.is_set()
-            await second.close()
-            await asyncio.wait_for(unsubscribed.wait(), 1)
-            assert frames[-1]["req"] == "unsub"
+        terms = PerpsBuilderAttribution(address="0x" + "ab" * 20, fee_rate=Decimal("0.0003"))
+        async with ws_server(handler) as url:
+            session = PerpsSession(
+                chain_id=137,
+                credentials=_CREDENTIALS,
+                rest_url="https://perps.test",
+                ws_url=url,
+                builder_attribution=terms,
+            )
 
-    asyncio.run(run())
+            def portfolio_response(request: httpx.Request) -> httpx.Response:
+                # Consent can change while the position request is in flight.
+                session._builder_attribution = None
+                return httpx.Response(
+                    200,
+                    json={
+                        "positions": [
+                            {
+                                "instrument_id": 1,
+                                "symbol": "BTC",
+                                "size": "1",
+                                "entry_price": "100",
+                                "leverage": 1,
+                                "cross": True,
+                                "initial_margin": "0",
+                                "maintenance_margin": "0",
+                                "position_value": "100",
+                                "liquidation_price": "0",
+                                "unrealized_pnl": "0",
+                                "return_on_equity": "0",
+                                "cumulative_funding": "0",
+                            }
+                        ],
+                        "margin": {
+                            "total_account_value": "100",
+                            "total_initial_margin": "0",
+                            "total_maintenance_margin": "0",
+                            "total_position_value": "100",
+                        },
+                        "withdrawable": "0",
+                        "in_liquidation": False,
+                        "timestamp": 1751500000000,
+                    },
+                )
 
-
-def test_cancelled_builder_subscription_reconciles_server_before_retry() -> None:
-    async def run() -> None:
-        received_sub = asyncio.Event()
-        frames: list[str] = []
-
-        async def handler(ws: ServerConnection) -> None:
-            await _handshake(ws)
-            async for raw in ws:
-                frame = json.loads(raw)
-                if _is_ping(frame):
-                    continue
-                frames.append(frame["req"])
-                if len(frames) == 1:
-                    received_sub.set()
-                    # The server subscribed, but its acknowledgement is lost.
-                    continue
-                await ws.send(json.dumps({"id": frame["id"], "data": {"status": "ok"}}))
-
-        async with ws_server(handler) as url, _open_session(url) as session:
-            pending = asyncio.create_task(session.subscribe_builder_fills())
-            await received_sub.wait()
-            pending.cancel()
-            with pytest.raises(asyncio.CancelledError):
-                await pending
-            assert frames == ["sub", "unsub"]
-            handle = await session.subscribe_builder_fills()
-            await handle.close()
-            assert frames == ["sub", "unsub", "sub", "unsub"]
+            await session._api.close()
+            session._api = AsyncTransport(
+                base_url="https://perps.test",
+                client=httpx.AsyncClient(
+                    transport=httpx.MockTransport(portfolio_response), base_url="https://perps.test"
+                ),
+            )
+            async with await session.open():
+                await session.place_position_tp_sl(
+                    instrument_id=1,
+                    take_profit=PerpsPositionTpSlTrigger(trigger_price="200"),
+                    stop_loss=PerpsPositionTpSlTrigger(trigger_price="50"),
+                )
+                assert [row["builder"] for row in frames[0]["op"]["args"]] == [
+                    {"address": terms.address, "fee_rate": "0.0003"},
+                    {"address": terms.address, "fee_rate": "0.0003"},
+                ]
 
     asyncio.run(asyncio.wait_for(run(), timeout=10))
-
-
-@pytest.mark.parametrize("recovery_failure", [None, "disconnect", "timeout"])
-def test_builder_stream_resubscribes_after_reconnect(
-    recovery_failure: str | None, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    if recovery_failure == "timeout":
-        monkeypatch.setattr("polymarket._internal.perps_session._ACK_TIMEOUT_S", 0.1)
-
-    async def run() -> None:
-        disconnect = asyncio.Event()
-        connections = 0
-        subscriptions = 0
-
-        async def handler(ws: ServerConnection) -> None:
-            nonlocal connections, subscriptions
-            connections += 1
-            current = connections
-            await _handshake(ws)
-            async for raw in ws:
-                frame = json.loads(raw)
-                if _is_ping(frame):
-                    continue
-                if frame.get("chs") != ["builderFills"]:
-                    # A timeout can retry authentication on the still-open socket.
-                    await ws.send(json.dumps({"id": frame["id"], "data": {"status": "ok"}}))
-                    continue
-                if frame["req"] == "sub":
-                    subscriptions += 1
-                if subscriptions == 2 and recovery_failure is not None:
-                    if recovery_failure == "disconnect":
-                        await ws.close()
-                        return
-                    # Keep reading, but omit this recovery acknowledgement.
-                    continue
-                await ws.send(json.dumps({"id": frame["id"], "data": {"status": "ok"}}))
-                if frame["req"] == "sub":
-                    if current == 1:
-                        await disconnect.wait()
-                        await ws.close()
-                        return
-                    await ws.send(
-                        json.dumps(
-                            {"ch": "builderFills", "ts": 1751500000000, "sq": 100, "data": []}
-                        )
-                    )
-
-        async with ws_server(handler) as url, _open_session(url) as session:
-            handle = await session.subscribe_builder_fills()
-            disconnect.set()
-            events = [await anext(handle), await anext(handle)]
-            resync = next(e for e in events if isinstance(e, PerpsResyncEvent))
-            assert resync.reason == "reconnect"
-            receipt = next(e for e in events if not isinstance(e, PerpsResyncEvent))
-            assert receipt.type == "builder_fill" and receipt.sequence == 100
-            await handle.close()
-            assert connections == (3 if recovery_failure == "disconnect" else 2)
-            assert subscriptions == (2 if recovery_failure is None else 3)
-
-    asyncio.run(asyncio.wait_for(run(), timeout=15))
-
-
-def test_rejected_builder_resubscribe_does_not_block_reconnect() -> None:
-    async def run() -> None:
-        disconnect = asyncio.Event()
-        connections = 0
-
-        async def handler(ws: ServerConnection) -> None:
-            nonlocal connections
-            connections += 1
-            current = connections
-            await _handshake(ws)
-            async for raw in ws:
-                frame = json.loads(raw)
-                if _is_ping(frame):
-                    continue
-                if current == 2:
-                    await ws.send(
-                        json.dumps({"id": frame["id"], "data": {"status": "err", "error": "down"}})
-                    )
-                    continue
-                await ws.send(json.dumps({"id": frame["id"], "data": {"status": "ok"}}))
-                await disconnect.wait()
-                await ws.close()
-                return
-
-        async with ws_server(handler) as url, _open_session(url) as session:
-            handle = await session.subscribe_builder_fills()
-            disconnect.set()
-            event = await anext(session)
-            assert isinstance(event, PerpsResyncEvent) and event.reason == "reconnect"
-            with pytest.raises(RequestRejectedError, match="down"):
-                await anext(handle)
-            assert connections == 2
-
-    asyncio.run(asyncio.wait_for(run(), timeout=15))

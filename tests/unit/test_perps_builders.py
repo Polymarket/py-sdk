@@ -43,8 +43,8 @@ def test_builder_order_signed_payload_and_body_match() -> None:
             quantity="10",
             price="100.50",
             time_in_force="gtc",
-            builder_attribution=terms,
-        )
+        ),
+        terms,
     )
     assert row[10] == [BUILDER, "0.0005"]
     op = create_orders_op([row])

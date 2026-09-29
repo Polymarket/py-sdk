@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast
 
 from polymarket.errors import RequestRejectedError, UserInputError
-from polymarket.models.perps.builders import USE_SESSION_DEFAULT, PerpsBuilderAttribution
+from polymarket.models.perps.builders import PerpsBuilderAttribution
 from polymarket.models.perps.events import PerpsOrderEvent, PerpsSessionEvent
 from polymarket.models.perps.orders import PerpsOrder, PerpsPostOrderAck
 from polymarket.models.perps.requests import (
@@ -51,10 +51,7 @@ async def place_order(
     stop_loss: PerpsTpSlTrigger | None,
     expires_at: datetime | int | None,
 ) -> PerpsOrderPlacement:
-    builder_attribution = request.builder_attribution
-    if builder_attribution is USE_SESSION_DEFAULT:
-        builder_attribution = session.builder_attribution
-        request = replace(request, builder_attribution=builder_attribution)
+    builder_attribution = session.builder_attribution
     if request.client_order_id is None:
         request = replace(request, client_order_id=secrets.token_hex(16))
     client_order_id = request.client_order_id
@@ -63,14 +60,14 @@ async def place_order(
     if take_profit is None and stop_loss is None:
         _, order = await _place_orders_and_wait_for_update(
             session,
-            [to_raw_order(request)],
+            [to_raw_order(request, builder_attribution)],
             client_order_id=client_order_id,
             group=None,
             expires_at=expires_at,
         )
         return PerpsOrderPlacement(order=order)
 
-    rows: list[RawPerpsOrder] = [to_raw_order(request)]
+    rows: list[RawPerpsOrder] = [to_raw_order(request, builder_attribution)]
     exit_buy = request.side == "SELL"
     quantity_string = to_decimal_string("quantity", request.quantity)
     if take_profit is not None:
@@ -125,17 +122,11 @@ async def post_orders(
     *,
     expires_at: datetime | int | None,
 ) -> tuple[PerpsPostOrderAck, ...]:
+    builder_attribution = session.builder_attribution
     if not orders:
         raise UserInputError("orders must be non-empty")
     acks = await session._send_create_orders(  # pyright: ignore[reportPrivateUsage]
-        [
-            to_raw_order(
-                replace(order, builder_attribution=session.builder_attribution)
-                if order.builder_attribution is USE_SESSION_DEFAULT
-                else order
-            )
-            for order in orders
-        ],
+        [to_raw_order(order, builder_attribution) for order in orders],
         group=None,
         expires_at=expires_at,
     )
@@ -145,12 +136,12 @@ async def post_orders(
 async def place_position_tp_sl(
     session: PerpsSession,
     *,
-    builder_attribution: PerpsBuilderAttribution | None,
     instrument_id: int,
     take_profit: PerpsPositionTpSlTrigger | None,
     stop_loss: PerpsPositionTpSlTrigger | None,
     expires_at: datetime | int | None,
 ) -> PerpsPlacedTpSlOrders:
+    builder_attribution = session.builder_attribution
     if take_profit is None and stop_loss is None:
         raise UserInputError("Provide take_profit, stop_loss, or both")
     exit_buy = await _position_exit_buy(session, instrument_id)
@@ -245,7 +236,9 @@ def _expect_ok_ack(ack: PerpsPostOrderAck) -> PerpsOrderId:
     return cast(PerpsOrderId, ack.order_id)
 
 
-def to_raw_order(request: PerpsOrderRequest) -> RawPerpsOrder:
+def to_raw_order(
+    request: PerpsOrderRequest, builder_attribution: PerpsBuilderAttribution | None = None
+) -> RawPerpsOrder:
     row: RawPerpsOrder = [
         request.instrument_id,
         request.side == "BUY",
@@ -258,16 +251,8 @@ def to_raw_order(request: PerpsOrderRequest) -> RawPerpsOrder:
         None,
     ]
 
-    if isinstance(request.builder_attribution, PerpsBuilderAttribution):
-        row.extend(
-            [
-                None,
-                [
-                    request.builder_attribution.address,
-                    format(request.builder_attribution.fee_rate, "f"),
-                ],
-            ]
-        )
+    if builder_attribution is not None:
+        row.extend([None, [builder_attribution.address, format(builder_attribution.fee_rate, "f")]])
     return row
 
 

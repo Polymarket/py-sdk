@@ -16,7 +16,7 @@ from eth_account.signers.local import LocalAccount
 
 from polymarket._internal.actions.perps import account as _account
 from polymarket._internal.actions.perps import builders as _builders
-from polymarket._internal.actions.perps.paging import as_json_dict, to_epoch_ms
+from polymarket._internal.actions.perps.paging import to_epoch_ms
 from polymarket._internal.actions.perps.signing import (
     now_ms,
     random_perps_salt,
@@ -42,7 +42,6 @@ from polymarket._internal.actions.perps.trading import (
 from polymarket._internal.actions.perps.trading import (
     post_orders as post_perps_orders,
 )
-from polymarket._internal.streams.handle import AsyncSubscriptionHandle, SubscriptionHandle
 from polymarket._internal.streams.perps.heartbeat import PerpsWebSocketHeartbeat
 from polymarket._internal.streams.reconnect import ReconnectScheduler
 from polymarket._internal.ws.connection import AsyncWebSocketConnection
@@ -66,14 +65,11 @@ from polymarket.models.perps.account import (
     PerpsPnlPoint,
     PerpsPortfolio,
 )
-from polymarket.models.perps.builder_events import PerpsBuilderFillEvent, PerpsBuilderFillsEvent
 from polymarket.models.perps.builders import (
-    USE_SESSION_DEFAULT,
     PerpsBuilderApproval,
     PerpsBuilderAttribution,
     PerpsBuilderEarningsPaginator,
     PerpsBuilderEarningsSummary,
-    UseSessionDefault,
 )
 from polymarket.models.perps.credentials import PerpsCredentials
 from polymarket.models.perps.events import (
@@ -132,7 +128,7 @@ _SESSION_CHANNELS = (
     "tpsl",
 )
 
-_SERVER_RESYNC_CHANNELS = frozenset({"notifications"})
+_SERVER_RESYNC_CHANNELS = frozenset({"notifications", "builderFills"})
 
 
 class _EndSentinel:
@@ -163,12 +159,16 @@ class PerpsSession:
     The session multiplexes trading commands, private account updates, and
     account reads over one connection. Iterate over the session to receive
     :class:`~polymarket.models.perps.PerpsSessionEvent` updates.
+    With ``include_builder_fills``, the same iterator includes receipts earned
+    by the authenticated account. There is no initial receipt snapshot; after
+    resync, reconcile with ``list_builder_earnings`` and deduplicate by earning ID.
     """
 
     def __init__(
         self,
         *,
         builder_attribution: PerpsBuilderAttribution | None = None,
+        include_builder_fills: bool = False,
         owner_signer: LocalAccount | None = None,
         chain_id: int,
         credentials: PerpsCredentials,
@@ -179,11 +179,8 @@ class PerpsSession:
     ) -> None:
         self._builder_attribution = _builders.validate_attribution(builder_attribution)
         self._owner_signer = owner_signer
-        self._builder_handles: set[AsyncSubscriptionHandle[PerpsBuilderFillsEvent]] = set()
-        self._builder_lock = asyncio.Lock()
-        self._builder_subscribed: bool | None = False
-        self._builder_ready = False
-        self._builder_epoch = 0
+        self._include_builder_fills = include_builder_fills
+        self._builder_consent_lock = asyncio.Lock()
         self._chain_id = chain_id
         self._credentials = credentials
         self._ws_url = ws_url
@@ -211,134 +208,82 @@ class PerpsSession:
         self._end_error: BaseException | None = None
         self._dropped_events = 0
 
-    async def subscribe_builder_fills(self) -> SubscriptionHandle[PerpsBuilderFillsEvent]:
-        """Experimental: subscribe to receipts earned by this authenticated account.
-
-        Handles are independent and share the session socket. There is no initial
-        snapshot. On resync, reconcile with list_builder_earnings and deduplicate
-        by earning_id. Gaps between sequence numbers are not treated as missing frames.
-        The configured order builder does not change whose receipts are read.
-        Close each handle; closing the last handle unsubscribes the channel.
-        """
-        if self.closed or not self._builder_ready:
-            raise TransportError("Perps session is not connected")
-        handle: AsyncSubscriptionHandle[PerpsBuilderFillsEvent] = AsyncSubscriptionHandle(
-            queue_size=_QUEUE_SIZE
-        )
-        self._builder_handles.add(handle)
-        try:
-            await self._sync_builder_subscription()
-        except BaseException:
-            self._builder_handles.discard(handle)
-            handle._end(discard_pending=True)  # pyright: ignore[reportPrivateUsage]
-            if not self.closed and self._builder_ready:
-                # The server may have applied the subscription before cancellation
-                # or a lost acknowledgement. Reconcile the remaining consumers.
-                with contextlib.suppress(Exception):
-                    await self._sync_builder_subscription()
-            raise
-        handle._bind_close(self._close_builder_handle)  # pyright: ignore[reportPrivateUsage]
-        return handle
-
-    async def _close_builder_handle(
-        self, handle: AsyncSubscriptionHandle[PerpsBuilderFillsEvent]
-    ) -> None:
-        self._builder_handles.discard(handle)
-        if not self.closed and self._builder_ready:
-            await self._sync_builder_subscription()
-
-    async def _sync_builder_subscription(self) -> None:
-        async with self._builder_lock:
-            if self.closed or not self._builder_ready:
-                raise TransportError("Perps session is not connected")
-            subscribed = bool(self._builder_handles)
-            if subscribed == self._builder_subscribed:
-                return
-            epoch = self._builder_epoch
-            try:
-                await self._send_request(
-                    {
-                        "id": self._take_request_id(),
-                        "req": "sub" if subscribed else "unsub",
-                        "chs": ["builderFills"],
-                    },
-                    parse=_parse_session_ack,
-                    timeout_s=_ACK_TIMEOUT_S,
-                    timeout_message="Builder fills subscription timed out",
-                )
-            except BaseException:
-                self._builder_subscribed = None
-                raise
-            if self.closed or epoch != self._builder_epoch:
-                raise TransportError("Perps session connection changed")
-            self._builder_subscribed = subscribed
-
-    def _push_builder_event(self, event: PerpsBuilderFillsEvent) -> None:
-        for handle in tuple(self._builder_handles):
-            dropped = handle.dropped
-            handle._push(event)  # pyright: ignore[reportPrivateUsage]
-            if handle.dropped != dropped:
-                handle._push(PerpsResyncEvent(reason="server", channel="builderFills"))  # pyright: ignore[reportPrivateUsage]
-
     @property
     def builder_attribution(self) -> PerpsBuilderAttribution | None:
-        """Experimental: immutable defaults for this session's orders."""
+        """Experimental: confirmed builder terms applied to this session's new orders."""
         return self._builder_attribution
 
     async def approve_builder_fee(
         self,
         *,
-        builder: str | None = None,
-        max_fee_rate: Decimal | str | None = None,
-        approval_version: int | None = None,
+        builder_address: str,
+        max_fee_rate: Decimal | str,
     ) -> PerpsBuilderApproval:
-        """Experimental: approve session builder fees using the owner's signature.
+        """Experimental: approve and adopt builder fees using the owner's signature.
 
-        Omitted terms use session defaults. An omitted version is read from saved
-        consent and incremented, initially 1. Zero max_fee_rate revokes consent.
-        Conflicts and failed submissions are never automatically re-signed.
+        Reads saved consent and increments its version, initially 1. Only a
+        confirmed approval changes this session's attribution. A zero rate
+        revokes consent for that builder. Failed submissions are not retried.
         """
+        async with self._builder_consent_lock:
+            return await self._change_builder_consent(builder_address, max_fee_rate)
+
+    async def revoke_builder_fee(self, builder_address: str | None = None) -> PerpsBuilderApproval:
+        """Experimental: revoke consent and clear the matching session attribution.
+
+        The address defaults to the active session builder. Only confirmation
+        clears attribution; accepted orders retain their saved terms.
+        Revocation remains available when the builder is inactive.
+        """
+        async with self._builder_consent_lock:
+            if builder_address is None and self._builder_attribution is not None:
+                builder_address = self._builder_attribution.address
+            if builder_address is None:
+                raise UserInputError(
+                    "A builder address is required when the session has no active "
+                    "builder attribution"
+                )
+            return await self._change_builder_consent(builder_address, "0")
+
+    async def _change_builder_consent(
+        self, builder_address: str, max_fee_rate: Decimal | str
+    ) -> PerpsBuilderApproval:
         if self.closed:
             raise TransportError("Perps session is closed")
         if self._owner_signer is None:
             raise UserInputError("Builder approval requires a session opened by AsyncSecureClient")
-        defaults = self.builder_attribution
-        builder = builder if builder is not None else defaults.address if defaults else None
-        max_fee_rate = (
-            max_fee_rate if max_fee_rate is not None else defaults.fee_rate if defaults else None
-        )
-        if builder is None or max_fee_rate is None:
-            raise UserInputError(
-                "Provide builder and max_fee_rate or configure session attribution"
-            )
-        _builders.validate_address("builder", builder)
+        _builders.validate_address("builder_address", builder_address)
         rate = _builders.validate_fee_rate(max_fee_rate)
-        if approval_version is not None and (
-            isinstance(approval_version, bool)
-            or type(approval_version) is not int
-            or not 1 <= approval_version <= 2**53 - 1
-        ):
-            raise UserInputError("approval_version must be a positive safe integer")
-        if approval_version is None:
-            previous = max(
-                (
-                    a.approval_version
-                    for a in await self.fetch_builder_approvals(builder=builder)
-                    if a.builder.lower() == builder.lower()
-                ),
-                default=0,
-            )
-            approval_version = previous + 1
+        previous = max(
+            (
+                a.approval_version
+                for a in await self.fetch_builder_approvals(builder=builder_address)
+                if a.builder.lower() == builder_address.lower()
+            ),
+            default=0,
+        )
+        approval_version = previous + 1
         if approval_version > 2**53 - 1:
             raise UserInputError("approval_version exceeds the supported range")
-        return await _builders.approve_fee(
+        approval = await _builders.approve_fee(
             self._api,
             signer=self._owner_signer,
             chain_id=self._chain_id,
-            builder=builder,
+            builder=builder_address,
             max_fee_rate=rate,
             approval_version=approval_version,
         )
+        if approval.max_fee_rate == 0:
+            if (
+                self._builder_attribution is not None
+                and self._builder_attribution.address.lower() == approval.builder.lower()
+            ):
+                self._builder_attribution = None
+        else:
+            self._builder_attribution = PerpsBuilderAttribution(
+                address=approval.builder, fee_rate=approval.max_fee_rate
+            )
+        return approval
 
     async def fetch_builder_approvals(
         self, *, builder: str | None = None
@@ -400,10 +345,6 @@ class PerpsSession:
         if self._closed:
             return
         self._closed = True
-        self._builder_ready = False
-        for handle in tuple(self._builder_handles):
-            handle._end(discard_pending=True)  # pyright: ignore[reportPrivateUsage]
-        self._builder_handles.clear()
         await self._scheduler.aclose()
         self._reject_pending(TransportError("Perps session closed."))
         self._reject_event_waiters(TransportError("Perps session closed."))
@@ -448,9 +389,6 @@ class PerpsSession:
         post_only: bool = False,
         reduce_only: bool = False,
         client_order_id: str | None = None,
-        builder_attribution: (
-            PerpsBuilderAttribution | None | UseSessionDefault
-        ) = USE_SESSION_DEFAULT,
         take_profit: PerpsTpSlTrigger | None = None,
         stop_loss: PerpsTpSlTrigger | None = None,
         expires_at: datetime | int | None = None,
@@ -466,9 +404,6 @@ class PerpsSession:
         price: DecimalInput | None = None,
         reduce_only: bool = False,
         client_order_id: str | None = None,
-        builder_attribution: (
-            PerpsBuilderAttribution | None | UseSessionDefault
-        ) = USE_SESSION_DEFAULT,
         take_profit: PerpsTpSlTrigger | None = None,
         stop_loss: PerpsTpSlTrigger | None = None,
         expires_at: datetime | int | None = None,
@@ -484,9 +419,6 @@ class PerpsSession:
         post_only: bool = False,
         reduce_only: bool = False,
         client_order_id: str | None = None,
-        builder_attribution: (
-            PerpsBuilderAttribution | None | UseSessionDefault
-        ) = USE_SESSION_DEFAULT,
         take_profit: PerpsTpSlTrigger | None = None,
         stop_loss: PerpsTpSlTrigger | None = None,
         expires_at: datetime | int | None = None,
@@ -512,7 +444,6 @@ class PerpsSession:
                 post_only=post_only,
                 reduce_only=reduce_only,
                 client_order_id=client_order_id,
-                builder_attribution=builder_attribution,
             )
         else:
             if post_only:
@@ -525,7 +456,6 @@ class PerpsSession:
                 price=price,
                 reduce_only=reduce_only,
                 client_order_id=client_order_id,
-                builder_attribution=builder_attribution,
             )
         return await place_perps_order(
             self,
@@ -552,9 +482,6 @@ class PerpsSession:
         self,
         *,
         instrument_id: int,
-        builder_attribution: (
-            PerpsBuilderAttribution | None | UseSessionDefault
-        ) = USE_SESSION_DEFAULT,
         take_profit: PerpsPositionTpSlTrigger | None = None,
         stop_loss: PerpsPositionTpSlTrigger | None = None,
         expires_at: datetime | int | None = None,
@@ -568,9 +495,6 @@ class PerpsSession:
         return await place_perps_position_tp_sl(
             self,
             instrument_id=instrument_id,
-            builder_attribution=self.builder_attribution
-            if builder_attribution is USE_SESSION_DEFAULT
-            else _builders.validate_attribution(builder_attribution),
             take_profit=take_profit,
             stop_loss=stop_loss,
             expires_at=expires_at,
@@ -955,9 +879,6 @@ class PerpsSession:
         }
 
     async def _connect(self, *, emit_resync: bool) -> None:
-        self._builder_epoch += 1
-        self._builder_subscribed = False
-        self._builder_ready = False
         await self._connection.connect(
             url=self._ws_url,
             on_message=self._on_message,
@@ -965,24 +886,11 @@ class PerpsSession:
             on_error=self._on_socket_error,
         )
         await self._authenticate()
-        self._builder_ready = True
         await self._subscribe_channels()
         self._scheduler.reset()
         if emit_resync:
             self._sequences.clear()
             self._push(PerpsResyncEvent(reason="reconnect"))
-            await self._recover_builder_subscription()
-
-    async def _recover_builder_subscription(self) -> None:
-        try:
-            await self._sync_builder_subscription()
-        except RequestRejectedError as error:
-            handles = tuple(self._builder_handles)
-            self._builder_handles.clear()
-            for handle in handles:
-                handle._end(error)  # pyright: ignore[reportPrivateUsage]
-            return
-        self._push_builder_event(PerpsResyncEvent(reason="reconnect", channel="builderFills"))
 
     async def _authenticate(self) -> None:
         await self._send_request(
@@ -1007,7 +915,9 @@ class PerpsSession:
             {
                 "id": self._take_request_id(),
                 "req": "sub",
-                "chs": list(_SESSION_CHANNELS),
+                "chs": [*_SESSION_CHANNELS, "builderFills"]
+                if self._include_builder_fills
+                else list(_SESSION_CHANNELS),
             },
             parse=_parse_session_ack,
             timeout_s=_ACK_TIMEOUT_S,
@@ -1131,22 +1041,6 @@ class PerpsSession:
             return
         if self._handle_response(raw):
             return
-        frame = as_json_dict(raw)
-        if frame is not None and frame.get("ch") == "builderFills":
-            try:
-                event = PerpsBuilderFillEvent.parse_response(
-                    {
-                        "timestamp": frame.get("ts"),
-                        "sequence": frame.get("sq"),
-                        "payload": frame.get("data"),
-                    }
-                )
-            except Exception:
-                self._logger.debug("dropped malformed builder fills frame", exc_info=True)
-                self._push_builder_event(PerpsResyncEvent(reason="server", channel="builderFills"))
-                return
-            self._push_builder_event(event)
-            return
         try:
             event = parse_perps_session_event(raw)
         except Exception:
@@ -1191,9 +1085,6 @@ class PerpsSession:
             future.set_exception(error)
 
     def _on_socket_connection_lost(self, code: int, reason: str) -> None:
-        self._builder_ready = False
-        self._builder_epoch += 1
-        self._builder_subscribed = None
         self._reject_pending(TransportError("Perps session connection closed."))
         self._reject_event_waiters(TransportError("Perps session connection closed."))
         if self._closed:

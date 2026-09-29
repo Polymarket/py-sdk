@@ -1,5 +1,6 @@
 """Perps builder validation, reporting, and owner consent."""
 
+from collections.abc import Mapping
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -54,12 +55,17 @@ async def fetch_status(api: AsyncTransport, *, address: str) -> PerpsBuilderStat
 
 
 async def fetch_approvals(
-    api: AsyncTransport, *, builder: str | None = None
+    api: AsyncTransport,
+    *,
+    builder: str | None = None,
+    headers: Mapping[str, str] | None = None,
 ) -> tuple[PerpsBuilderApproval, ...]:
     if builder is not None:
         validate_address("builder", builder)
     data = as_json_dict(
-        await api.get_json("/v1/account/builder-approvals", params={"builder": builder})
+        await api.get_json(
+            "/v1/account/builder-approvals", params={"builder": builder}, headers=headers
+        )
     )
     if data is None:
         raise UnexpectedResponseError("Invalid builder approvals response")

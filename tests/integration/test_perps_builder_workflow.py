@@ -6,6 +6,7 @@ from datetime import timedelta
 import pytest
 
 from polymarket import AsyncPublicClient, AsyncSecureClient
+from polymarket.errors import UserInputError
 
 pytestmark = [pytest.mark.integration, pytest.mark.anyio]
 
@@ -17,6 +18,36 @@ async def test_builder_status(
     status = await public_client.fetch_perps_builder_status(address=address)
     assert status.address.lower() == address.lower()
     assert status.max_fee_rate >= 0
+
+
+@pytest.mark.metered
+async def test_builder_consent_restoration(
+    deposit_wallet_client: AsyncSecureClient, require_env: Callable[[str], str]
+) -> None:
+    # Live side effect: creates delegated credentials valid for five minutes.
+    # Existing consent is read only; no fees are approved and no orders are placed.
+    builder_address = require_env("POLYMARKET_PERPS_BUILDER_ADDRESS")
+    status = await deposit_wallet_client.fetch_perps_builder_status(address=builder_address)
+    if not status.registered or not status.enabled or not status.admission_enabled:
+        pytest.skip("Requires an available builder")
+    async with await deposit_wallet_client.open_perps_session(
+        expires_in=timedelta(minutes=5)
+    ) as session:
+        approvals = await session.fetch_builder_approvals(builder=builder_address)
+        approval = next(
+            (grant for grant in approvals if grant.builder.lower() == builder_address.lower()), None
+        )
+        if approval is None or approval.max_fee_rate <= 0:
+            with pytest.raises(UserInputError, match="Explicit builder fee approval is required"):
+                await deposit_wallet_client.open_perps_session(
+                    credentials=session.credentials, builder_attribution=builder_address
+                )
+        else:
+            async with await deposit_wallet_client.open_perps_session(
+                credentials=session.credentials, builder_attribution=builder_address
+            ) as restored:
+                assert restored.builder_attribution is not None
+                assert restored.builder_attribution.fee_rate == approval.max_fee_rate
 
 
 @pytest.mark.metered

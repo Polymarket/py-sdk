@@ -233,9 +233,8 @@ from polymarket.models.perps import (
     PerpsWithdrawalStatus,
     PerpsWithdrawalUpdate,
 )
-from polymarket.models.perps.builder_events import PerpsBuilderFillEvent, PerpsBuilderFillsEvent
+from polymarket.models.perps.builder_events import PerpsBuilderFillEvent
 from polymarket.models.perps.builders import (
-    USE_SESSION_DEFAULT,
     PerpsBuilderApproval,
     PerpsBuilderAttribution,
     PerpsBuilderEarning,
@@ -246,7 +245,6 @@ from polymarket.models.perps.builders import (
     PerpsBuilderEarningsSummary,
     PerpsBuilderStatus,
     PerpsLiquidityRole,
-    UseSessionDefault,
 )
 from polymarket.models.perps.results import (
     PerpsOrderPlacement,
@@ -286,8 +284,6 @@ from polymarket.models.types import (
 
 __all__ = [
     "PerpsBuilderAttribution",
-    "USE_SESSION_DEFAULT",
-    "UseSessionDefault",
     "PerpsBuilderStatus",
     "PerpsBuilderApproval",
     "PerpsLiquidityRole",
@@ -298,7 +294,6 @@ __all__ = [
     "PerpsBuilderEarningsPage",
     "PerpsBuilderEarningsPaginator",
     "PerpsBuilderFillEvent",
-    "PerpsBuilderFillsEvent",
     "Activity",
     "ActivityType",
     "ActivityTypeFilter",

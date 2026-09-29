@@ -13,14 +13,13 @@ from polymarket.models.perps import (
     PerpsBuilderEarningsPage,
     PerpsBuilderEarningsPaginator,
     PerpsBuilderEarningsSummary,
-    PerpsBuilderFillsEvent,
+    PerpsBuilderFillEvent,
     PerpsBuilderStatus,
     PerpsCancelOrderResult,
     PerpsOrderRequest,
     PerpsPostOrderAck,
 )
 from polymarket.perps import PerpsOrderPlacement, PerpsSession
-from polymarket.streams import SubscriptionHandle
 
 if TYPE_CHECKING:
     assert_type(
@@ -95,22 +94,31 @@ if TYPE_CHECKING:
         session: PerpsSession,
         terms: PerpsBuilderAttribution,
     ) -> None:
-        assert_type(await client.open_perps_session(builder_attribution=terms), PerpsSession)
+        assert_type(
+            await client.open_perps_session(builder_attribution=terms.address), PerpsSession
+        )
+        assert_type(await client.open_perps_session(include_builder_fills=True), PerpsSession)
         assert_type(
             await public.fetch_perps_builder_status(address=terms.address), PerpsBuilderStatus
         )
         assert_type(
             await client.fetch_perps_builder_status(address=terms.address), PerpsBuilderStatus
         )
-        assert_type(await session.approve_builder_fee(), PerpsBuilderApproval)
+        assert_type(
+            await session.approve_builder_fee(
+                builder_address=terms.address, max_fee_rate=terms.fee_rate
+            ),
+            PerpsBuilderApproval,
+        )
+        assert_type(await session.revoke_builder_fee(), PerpsBuilderApproval)
         assert_type(await session.fetch_builder_approvals(), tuple[PerpsBuilderApproval, ...])
         assert_type(session.list_builder_earnings(), PerpsBuilderEarningsPaginator)
         assert_type(await session.list_builder_earnings().first_page(), PerpsBuilderEarningsPage)
         async for page in session.list_builder_earnings():
             assert_type(page, PerpsBuilderEarningsPage)
         assert_type(await session.fetch_builder_earnings_summary(), PerpsBuilderEarningsSummary)
-        assert_type(
-            await session.subscribe_builder_fills(), SubscriptionHandle[PerpsBuilderFillsEvent]
-        )
+        async for event in session:
+            if event.type == "builder_fill":
+                assert_type(event, PerpsBuilderFillEvent)
 
     _builder_typing_check = _check_builder_typing

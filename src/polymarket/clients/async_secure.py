@@ -1298,7 +1298,8 @@ class AsyncSecureClient:
     async def open_perps_session(
         self,
         *,
-        builder_attribution: PerpsBuilderAttribution | None = None,
+        builder_attribution: str | None = None,
+        include_builder_fills: bool = False,
         credentials: PerpsCredentials | None = None,
         expires_in: "timedelta | None" = None,
         label: str | None = None,
@@ -1314,12 +1315,16 @@ class AsyncSecureClient:
         ``credentials`` to validate and resume them without a new wallet
         signature.
 
-        Attribution applies to new orders and their TP/SL exits. It does not
-        grant fee consent; call session.approve_builder_fee() separately. Supply
-        attribution again when resuming credentials.
+        Select a builder address to restore this trader's active approval.
+        Its approved maximum applies to new orders, batches, and TP/SL exits.
+        Missing or revoked approval fails setup; setup never grants consent
+        or substitutes the platform fee cap. Omit attribution to start without
+        a builder, then call ``session.approve_builder_fee(builder_address=...,
+        max_fee_rate=...)``. Confirmed approval or revocation updates that session.
 
         Args:
-            builder_attribution: Optional immutable order defaults.
+            builder_attribution: Optional builder address whose saved consent to restore.
+            include_builder_fills: Include this account's builder receipts in its event iterator.
             credentials: Existing delegated credentials to validate and resume.
             expires_in: Delegated credential lifetime for newly created credentials.
             label: Optional label for newly created credentials.
@@ -1331,7 +1336,18 @@ class AsyncSecureClient:
         """
         from polymarket._internal.perps_session import PerpsSession
 
-        _perps_builders.validate_attribution(builder_attribution)
+        if type(include_builder_fills) is not bool:
+            raise UserInputError("include_builder_fills must be a bool")
+        if builder_attribution is not None:
+            _perps_builders.validate_address("builder_attribution", builder_attribution)
+            status = await _perps_builders.fetch_status(
+                self._ctx.perps, address=builder_attribution
+            )
+            if not status.registered or not status.enabled or not status.admission_enabled:
+                raise UserInputError(
+                    "Builder attribution is not active for this builder address: "
+                    f"{builder_attribution}"
+                )
         if credentials is not None:
             if expires_in is not None or label is not None:
                 raise UserInputError("expires_in and label cannot be combined with credentials")
@@ -1352,8 +1368,32 @@ class AsyncSecureClient:
                 ),
                 label=label,
             )
+        attribution: PerpsBuilderAttribution | None = None
+        if builder_attribution is not None:
+            approvals = await _perps_builders.fetch_approvals(
+                self._ctx.perps,
+                builder=builder_attribution,
+                headers=_perps_credentials.credential_headers(resolved),
+            )
+            approval = next(
+                (
+                    grant
+                    for grant in approvals
+                    if grant.builder.lower() == builder_attribution.lower()
+                ),
+                None,
+            )
+            if approval is None or approval.max_fee_rate <= 0:
+                raise UserInputError(
+                    "Explicit builder fee approval is required for this builder address: "
+                    f"{builder_attribution}"
+                )
+            attribution = PerpsBuilderAttribution(
+                address=approval.builder, fee_rate=approval.max_fee_rate
+            )
         session = PerpsSession(
-            builder_attribution=builder_attribution,
+            builder_attribution=attribution,
+            include_builder_fills=include_builder_fills,
             owner_signer=self._ctx.signer,
             chain_id=self._ctx.environment_config.chain_id,
             credentials=resolved,
