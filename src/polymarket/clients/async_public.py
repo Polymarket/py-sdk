@@ -26,6 +26,7 @@ from polymarket._internal.actions.orders.estimate import (
     estimate_market_price as _estimate_market_price,
 )
 from polymarket._internal.actions.orders.types import MarketOrderType
+from polymarket._internal.actions.perps import builders as _perps_builders
 from polymarket._internal.actions.perps import public as _perps_actions
 from polymarket._internal.actions.relayer.approvals import get_trading_approvals_state
 from polymarket._internal.context import AsyncClientContext
@@ -114,6 +115,7 @@ from polymarket.models.perps import (
     PerpsTicker,
     PerpsTrade,
 )
+from polymarket.models.perps.builders import PerpsBuilderStatus
 from polymarket.models.rtds_events import (
     CommentsEvent,
     CryptoPricesChainlinkTwapEvent,
@@ -1542,6 +1544,10 @@ class AsyncPublicClient:
             )
 
         return AsyncPaginator(fetch=fetch)
+
+    async def fetch_perps_builder_status(self, *, address: str) -> PerpsBuilderStatus:
+        """Experimental: read builder registration, availability, and fee cap."""
+        return await _perps_builders.fetch_status(self._ctx.perps, address=address)
 
     async def fetch_perps_instruments(
         self,

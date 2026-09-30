@@ -8,10 +8,14 @@ import logging
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 from types import TracebackType
 from typing import Any, Literal, Self, cast, overload
 
+from eth_account.signers.local import LocalAccount
+
 from polymarket._internal.actions.perps import account as _account
+from polymarket._internal.actions.perps import builders as _builders
 from polymarket._internal.actions.perps.paging import to_epoch_ms
 from polymarket._internal.actions.perps.signing import (
     now_ms,
@@ -60,6 +64,12 @@ from polymarket.models.perps.account import (
     PerpsFundingPayment,
     PerpsPnlPoint,
     PerpsPortfolio,
+)
+from polymarket.models.perps.builders import (
+    PerpsBuilderApproval,
+    PerpsBuilderAttribution,
+    PerpsBuilderEarningsPaginator,
+    PerpsBuilderEarningsSummary,
 )
 from polymarket.models.perps.credentials import PerpsCredentials
 from polymarket.models.perps.events import (
@@ -118,7 +128,7 @@ _SESSION_CHANNELS = (
     "tpsl",
 )
 
-_SERVER_RESYNC_CHANNELS = frozenset({"notifications"})
+_SERVER_RESYNC_CHANNELS = frozenset({"notifications", "builderFills"})
 
 
 class _EndSentinel:
@@ -149,11 +159,17 @@ class PerpsSession:
     The session multiplexes trading commands, private account updates, and
     account reads over one connection. Iterate over the session to receive
     :class:`~polymarket.models.perps.PerpsSessionEvent` updates.
+    With ``include_builder_fills``, the same iterator includes receipts earned
+    by the authenticated account. There is no initial receipt snapshot; after
+    resync, reconcile with ``list_builder_earnings`` and deduplicate by earning ID.
     """
 
     def __init__(
         self,
         *,
+        builder_attribution: str | PerpsBuilderAttribution | None = None,
+        include_builder_fills: bool = False,
+        owner_signer: LocalAccount | None = None,
         chain_id: int,
         credentials: PerpsCredentials,
         rest_url: str,
@@ -161,6 +177,19 @@ class PerpsSession:
         logger: logging.Logger | None = None,
         on_close: Callable[[PerpsSession], None] | None = None,
     ) -> None:
+        if isinstance(builder_attribution, str):
+            _builders.validate_address("builder_attribution", builder_attribution)
+            self._builder_address: str | None = builder_attribution
+            self._builder_attribution: PerpsBuilderAttribution | None = None
+        else:
+            self._builder_attribution = _builders.validate_attribution(builder_attribution)
+            self._builder_address = (
+                self._builder_attribution.address if self._builder_attribution else None
+            )
+        self._owner_signer = owner_signer
+        self._include_builder_fills = include_builder_fills
+        self._builder_consent_lock = asyncio.Lock()
+        self._builder_subscription_task: asyncio.Task[None] | None = None
         self._chain_id = chain_id
         self._credentials = credentials
         self._ws_url = ws_url
@@ -189,6 +218,138 @@ class PerpsSession:
         self._dropped_events = 0
 
     @property
+    def builder_attribution(self) -> PerpsBuilderAttribution | None:
+        """Experimental: builder terms resolved when opening the session or granting approval."""
+        return self._builder_attribution
+
+    async def approve_builder_fee(
+        self,
+        *,
+        builder_address: str | None = None,
+        max_fee_rate: Decimal | str,
+    ) -> PerpsBuilderApproval:
+        """Experimental: approve and adopt builder fees using the owner's signature.
+
+        Requires an explicit maximum fee rate as a decimal fraction (``"0.0003"``
+        is 3 basis points). The address defaults to the selected session builder.
+        Approval is needed once and remains valid until revoked or replaced.
+        Reads saved consent and increments its version, initially 1. After
+        confirmation, refreshes the builder cap and adopts the lower of that
+        cap and the confirmed maximum. If the refresh fails, saved consent has
+        changed but session terms remain unchanged; the approval is not retried.
+        A zero effective fee disables attribution while retaining the builder
+        selection for a later approval.
+        A zero rate revokes consent without fetching the cap.
+        """
+        async with self._builder_consent_lock:
+            if builder_address is None:
+                builder_address = self._builder_address
+            if builder_address is None:
+                raise UserInputError(
+                    "A builder address is required when the session has no builder attribution"
+                )
+            _builders.validate_address("builder_address", builder_address)
+            return await self._change_builder_consent(builder_address, max_fee_rate)
+
+    async def revoke_builder_fee(self, builder_address: str | None = None) -> PerpsBuilderApproval:
+        """Experimental: revoke consent and clear the matching session attribution.
+
+        The address defaults to the active session builder. Only confirmation
+        clears attribution; accepted orders retain their saved terms.
+        Revocation remains available when the builder is inactive.
+        """
+        async with self._builder_consent_lock:
+            if builder_address is None:
+                builder_address = self._builder_address
+            if builder_address is None:
+                raise UserInputError(
+                    "A builder address is required when the session has no active "
+                    "builder attribution"
+                )
+            return await self._change_builder_consent(builder_address, "0")
+
+    async def _change_builder_consent(
+        self, builder_address: str, max_fee_rate: Decimal | str
+    ) -> PerpsBuilderApproval:
+        if self.closed:
+            raise TransportError("Perps session is closed")
+        if self._owner_signer is None:
+            raise UserInputError("Builder approval requires a session opened by AsyncSecureClient")
+        _builders.validate_address("builder_address", builder_address)
+        rate = _builders.validate_fee_rate(max_fee_rate)
+        previous = max(
+            (
+                a.approval_version
+                for a in await self.fetch_builder_approvals(builder=builder_address)
+                if a.builder.lower() == builder_address.lower()
+            ),
+            default=0,
+        )
+        approval_version = previous + 1
+        if approval_version > 2**53 - 1:
+            raise UserInputError("approval_version exceeds the supported range")
+        approval = await _builders.approve_fee(
+            self._api,
+            signer=self._owner_signer,
+            chain_id=self._chain_id,
+            builder=builder_address,
+            max_fee_rate=rate,
+            approval_version=approval_version,
+        )
+        if approval.max_fee_rate == 0:
+            if (
+                self._builder_address is not None
+                and self._builder_address.lower() == approval.builder.lower()
+            ):
+                self._builder_attribution = None
+                self._builder_address = None
+        else:
+            status = await _builders.fetch_status(self._api, address=approval.builder)
+            self._builder_address = approval.builder
+            fee_rate = min(status.max_fee_rate, approval.max_fee_rate)
+            self._builder_attribution = (
+                PerpsBuilderAttribution(address=approval.builder, fee_rate=fee_rate)
+                if fee_rate > 0
+                else None
+            )
+        return approval
+
+    async def fetch_builder_approvals(
+        self, *, builder: str | None = None
+    ) -> tuple[PerpsBuilderApproval, ...]:
+        """Experimental: read this trader's consent, including revoked versions."""
+        return await _builders.fetch_approvals(self._api, builder=builder)
+
+    def list_builder_earnings(
+        self,
+        *,
+        start: datetime | int | None = None,
+        end: datetime | int | None = None,
+        as_of_sequence: int | None = None,
+    ) -> PerpsBuilderEarningsPaginator:
+        """Experimental: paginate this builder account's receipts at a fixed snapshot.
+
+        Every fetched page retains its snapshot, including empty pages. Use the
+        snapshot's start, end, and as_of_sequence to reconcile a summary. Windows
+        are at most 90 days; omitted bounds default to a seven-day window.
+        """
+        return _builders.list_earnings(
+            self._api, start=start, end=end, as_of_sequence=as_of_sequence
+        )
+
+    async def fetch_builder_earnings_summary(
+        self,
+        *,
+        start: datetime | int | None = None,
+        end: datetime | int | None = None,
+        as_of_sequence: int | None = None,
+    ) -> PerpsBuilderEarningsSummary:
+        """Experimental: totals for this builder account; approval count is current."""
+        return await _builders.fetch_summary(
+            self._api, start=start, end=end, as_of_sequence=as_of_sequence
+        )
+
+    @property
     def credentials(self) -> PerpsCredentials:
         """Delegated credentials backing this session."""
         return self._credentials
@@ -205,6 +366,21 @@ class PerpsSession:
 
     async def open(self) -> Self:
         """Connect and authenticate the session WebSocket."""
+        if self._builder_address is not None and self._builder_attribution is None:
+            status = await _builders.fetch_status(self._api, address=self._builder_address)
+            approvals = await self.fetch_builder_approvals(builder=self._builder_address)
+            approval = next(
+                (a for a in approvals if a.builder.lower() == self._builder_address.lower()),
+                None,
+            )
+            if not status.registered or not status.enabled or not status.admission_enabled:
+                raise UserInputError("Builder attribution is not active for this builder address")
+            fee_rate = min(status.max_fee_rate, approval.max_fee_rate if approval else Decimal(0))
+            self._builder_attribution = (
+                PerpsBuilderAttribution(address=self._builder_address, fee_rate=fee_rate)
+                if fee_rate > 0
+                else None
+            )
         await self._connect(emit_resync=False)
         return self
 
@@ -214,6 +390,7 @@ class PerpsSession:
             return
         self._closed = True
         await self._scheduler.aclose()
+        await self._cancel_builder_subscription()
         self._reject_pending(TransportError("Perps session closed."))
         self._reject_event_waiters(TransportError("Perps session closed."))
         self._end()
@@ -747,6 +924,7 @@ class PerpsSession:
         }
 
     async def _connect(self, *, emit_resync: bool) -> None:
+        await self._cancel_builder_subscription()
         await self._connection.connect(
             url=self._ws_url,
             on_message=self._on_message,
@@ -759,6 +937,8 @@ class PerpsSession:
         if emit_resync:
             self._sequences.clear()
             self._push(PerpsResyncEvent(reason="reconnect"))
+        if self._include_builder_fills:
+            self._builder_subscription_task = asyncio.create_task(self._subscribe_builder_fills())
 
     async def _authenticate(self) -> None:
         await self._send_request(
@@ -789,6 +969,24 @@ class PerpsSession:
             timeout_s=_ACK_TIMEOUT_S,
             timeout_message="Perps session subscription timed out.",
         )
+
+    async def _subscribe_builder_fills(self) -> None:
+        try:
+            await self._send_request(
+                {"id": self._take_request_id(), "req": "sub", "chs": ["builderFills"]},
+                parse=_parse_session_ack,
+                timeout_s=_ACK_TIMEOUT_S,
+                timeout_message="Perps builder receipt subscription timed out.",
+            )
+        except (TransportError, RequestRejectedError) as error:
+            self._logger.warning("perps builder receipt subscription failed: %s", error)
+
+    async def _cancel_builder_subscription(self) -> None:
+        if self._builder_subscription_task is not None:
+            self._builder_subscription_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._builder_subscription_task
+            self._builder_subscription_task = None
 
     async def _send_create_orders(
         self,
