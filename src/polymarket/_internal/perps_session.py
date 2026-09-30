@@ -236,6 +236,8 @@ class PerpsSession:
         confirmation, refreshes the builder cap and adopts the lower of that
         cap and the confirmed maximum. If the refresh fails, saved consent has
         changed but session terms remain unchanged; the approval is not retried.
+        A zero effective fee disables attribution while retaining the builder
+        selection for a later approval.
         A zero rate revokes consent without fetching the cap.
         """
         async with self._builder_consent_lock:
@@ -312,8 +314,11 @@ class PerpsSession:
         else:
             status = await _builders.fetch_status(self._api, address=approval.builder)
             self._builder_address = approval.builder
-            self._builder_attribution = PerpsBuilderAttribution(
-                address=approval.builder, fee_rate=min(status.max_fee_rate, approval.max_fee_rate)
+            fee_rate = min(status.max_fee_rate, approval.max_fee_rate)
+            self._builder_attribution = (
+                PerpsBuilderAttribution(address=approval.builder, fee_rate=fee_rate)
+                if fee_rate > 0
+                else None
             )
         return approval
 
@@ -378,14 +383,11 @@ class PerpsSession:
             )
             if not status.registered or not status.enabled or not status.admission_enabled:
                 raise UserInputError("Builder attribution is not active for this builder address")
-            if approval is None or approval.max_fee_rate <= 0:
-                raise UserInputError(
-                    "Builder attribution requires saved positive fee approval; open a session "
-                    "without attribution and call approve_builder_fee(builder_address=...) first"
-                )
-            self._builder_attribution = PerpsBuilderAttribution(
-                address=self._builder_address,
-                fee_rate=min(status.max_fee_rate, approval.max_fee_rate),
+            fee_rate = min(status.max_fee_rate, approval.max_fee_rate if approval else Decimal(0))
+            self._builder_attribution = (
+                PerpsBuilderAttribution(address=self._builder_address, fee_rate=fee_rate)
+                if fee_rate > 0
+                else None
             )
         await self._connect(emit_resync=False)
         return self

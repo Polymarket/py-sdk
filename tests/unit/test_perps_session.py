@@ -1073,6 +1073,15 @@ def test_builder_consent_serializes_versions_and_commits_only_confirmed_terms() 
             assert session.builder_attribution == terms
             revoked = await session.revoke_builder_fee()
             assert revoked.approval_version == 6 and session.builder_attribution is None
+            reject_status = False
+            cap = "0"
+            await session.approve_builder_fee(builder_address=builder, max_fee_rate="0.0003")
+            assert session.builder_attribution is None
+            cap = "0.0002"
+            await session.approve_builder_fee()
+            assert session.builder_attribution == PerpsBuilderAttribution(
+                address=builder, fee_rate=Decimal("0.0002")
+            )
         finally:
             await session.close()
 
@@ -1236,15 +1245,19 @@ def test_position_exits_keep_terms_captured_before_portfolio_read() -> None:
 
 @pytest.mark.parametrize(
     "state",
-    ["approved", "lower_cap", "inactive", "missing", "revoked"],
+    ["approved", "lower_cap", "inactive", "missing", "revoked", "zero_cap"],
 )
 def test_builder_setup_restores_consent_without_writes(state: str) -> None:
+    from eth_account import Account
+
     from polymarket.models.perps import PerpsOrderRequest
 
     async def run() -> None:
         builder = "0x" + "ab" * 20
         reads: list[str] = []
-        cap = "0.0001" if state == "lower_cap" else "0.0003"
+        cap = "0" if state == "zero_cap" else "0.0001" if state == "lower_cap" else "0.0003"
+        disabled = state in ("missing", "revoked", "zero_cap")
+        posted: list[dict[str, Any]] = []
 
         async def handler(ws: ServerConnection) -> None:
             await _handshake(ws)
@@ -1252,15 +1265,32 @@ def test_builder_setup_restores_consent_without_writes(state: str) -> None:
                 frame = json.loads(raw)
                 if _is_ping(frame):
                     continue
-                assert frame["op"]["args"][0]["builder"] == {
-                    "address": builder,
-                    "fee_rate": str(min(Decimal(cap), Decimal("0.0002"))),
-                }
+                row = frame["op"]["args"][0]
+                if disabled:
+                    assert "builder" not in row
+                else:
+                    assert row["builder"] == {
+                        "address": builder,
+                        "fee_rate": str(min(Decimal(cap), Decimal("0.0002"))),
+                    }
                 await ws.send(
                     json.dumps({"id": frame["id"], "data": [{"status": "ok", "oid": 77}]})
                 )
 
         def response(request: httpx.Request) -> httpx.Response:
+            if request.method == "POST":
+                args = json.loads(request.content)["op"]["args"]
+                posted.append(args)
+                assert args["builder"] == builder
+                return httpx.Response(
+                    200,
+                    json={
+                        **args,
+                        "trader": "0x" + "12" * 20,
+                        "timestamp": 1751500000000,
+                        "sequence": 2,
+                    },
+                )
             assert request.method == "GET"
             reads.append(request.url.path)
             if request.url.path == "/v1/info/builder":
@@ -1302,6 +1332,7 @@ def test_builder_setup_restores_consent_without_writes(state: str) -> None:
                 chain_id=137,
                 credentials=_CREDENTIALS,
                 builder_attribution=builder,
+                owner_signer=Account.from_key("0x" + "23" * 32),
                 rest_url="https://perps.test",
                 ws_url=url,
             )
@@ -1314,21 +1345,26 @@ def test_builder_setup_restores_consent_without_writes(state: str) -> None:
                 ),
             )
             try:
-                if state in ("approved", "lower_cap"):
+                if state != "inactive":
                     await session.open()
-                    await session.post_orders(
-                        [
-                            PerpsOrderRequest(
-                                instrument_id=1, side="BUY", quantity="1", time_in_force="ioc"
-                            )
-                        ]
-                    )
+                    orders = [
+                        PerpsOrderRequest(
+                            instrument_id=1, side="BUY", quantity="1", time_in_force="ioc"
+                        )
+                    ]
+                    await session.post_orders(orders)
+                    assert reads == ["/v1/info/builder", "/v1/account/builder-approvals"]
+                    assert not posted
+                    if disabled:
+                        cap = "0.0001"
+                        await session.approve_builder_fee()
+                        disabled = False
+                        await session.post_orders(orders)
                 else:
                     with pytest.raises(UserInputError):
                         await session.open()
             finally:
                 await session.close()
-            assert reads == ["/v1/info/builder", "/v1/account/builder-approvals"]
 
     asyncio.run(asyncio.wait_for(run(), timeout=10))
 

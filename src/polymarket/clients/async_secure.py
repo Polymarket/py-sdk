@@ -1316,12 +1316,13 @@ class AsyncSecureClient:
         signature.
 
         Select a builder address for new orders, batches, and TP/SL exits.
-        Opening or resuming requires an active builder and saved positive fee
-        approval. New orders use the lower of the builder's configured cap and
-        your saved approval cap. To grant initial consent, open a session without
-        attribution and call ``session.approve_builder_fee(builder_address=...)``.
-        Approval remains valid until revoked or replaced. Opening a session only
-        reads existing consent; it never grants or changes it.
+        Opening or resuming requires an active builder. New orders use the lower
+        of the builder's configured cap and your saved approval cap. Missing or
+        revoked approval counts as zero: orders omit builder attribution while
+        the builder remains selected for ``session.approve_builder_fee()``.
+        A zero builder cap also disables attribution. Approval remains valid
+        until revoked or replaced. Opening a session only reads existing consent;
+        it never grants or changes it.
 
         Args:
             builder_attribution: Optional builder address to use for new orders.

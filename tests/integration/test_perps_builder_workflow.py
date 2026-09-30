@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from datetime import timedelta
+from decimal import Decimal
 
 import pytest
 
@@ -33,19 +34,19 @@ async def test_builder_consent_restoration(
         approval = next(
             (a for a in approvals if a.builder.lower() == builder_address.lower()), None
         )
-        if approval is None or approval.max_fee_rate <= 0:
-            pytest.skip("Builder restoration requires existing positive fee consent")
         status = await deposit_wallet_client.fetch_perps_builder_status(address=builder_address)
         if not status.registered or not status.enabled or not status.admission_enabled:
             pytest.skip("Builder restoration requires an active builder")
         async with await deposit_wallet_client.open_perps_session(
             credentials=session.credentials, builder_attribution=builder_address
         ) as restored:
-            assert restored.builder_attribution is not None
-            assert restored.builder_attribution.address.lower() == builder_address.lower()
-            assert restored.builder_attribution.fee_rate == min(
-                status.max_fee_rate, approval.max_fee_rate
-            )
+            fee_rate = min(status.max_fee_rate, approval.max_fee_rate if approval else Decimal(0))
+            if fee_rate > 0:
+                assert restored.builder_attribution is not None
+                assert restored.builder_attribution.address.lower() == builder_address.lower()
+                assert restored.builder_attribution.fee_rate == fee_rate
+            else:
+                assert restored.builder_attribution is None
             assert await restored.fetch_builder_approvals(builder=builder_address) == approvals
 
 
