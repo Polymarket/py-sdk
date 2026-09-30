@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any, Generic, Literal, TypeVar, cast
@@ -21,10 +22,19 @@ DecimalMode = Literal["decimal", "float"]
 
 @dataclass(frozen=True, slots=True)
 class Page(Generic[T]):
+    """A page of results, with separate continuation and depth-limit signals.
+
+    ``limit_reached`` means the supported pagination depth prevents checking
+    for another page. It does not prove that additional items exist.
+    ``has_more`` and ``next_cursor`` retain their usual values; automatic
+    iteration stops after yielding a page with ``limit_reached=True``.
+    """
+
     items: tuple[T, ...]
     has_more: bool
     next_cursor: str | None = None
     total_count: int | None = None
+    limit_reached: bool = False
 
     def _repr_html_(self) -> str:
         from polymarket._jupyter import card, safe_html_repr, truncate_mid
@@ -36,6 +46,8 @@ class Page(Generic[T]):
                 rows.append(("next_cursor", truncate_mid(self.next_cursor)))
             if self.total_count is not None:
                 rows.append(("total_count", str(self.total_count)))
+            if self.limit_reached:
+                rows.append(("limit_reached", "True (completeness unknown)"))
             title = f"Page  ·  {len(self.items)} item(s)  ·  has_more={self.has_more}"
             return card(title, rows=rows)
 
@@ -97,7 +109,7 @@ class Paginator(Generic[T]):
         while True:
             page = self._fetch(cursor)
             yield page
-            if not page.has_more:
+            if page.limit_reached or not page.has_more:
                 return
             if page.next_cursor is None:
                 raise UnexpectedResponseError(
@@ -106,9 +118,9 @@ class Paginator(Generic[T]):
             cursor = page.next_cursor
 
     def to_arrow(self, *, limit: LimitArg) -> Any:
-        items, truncated = _drain_paginator(self, limit)
+        items, truncated, limit_reached = _drain_paginator(self, limit)
         table = _frames_func("to_arrow")(tuple(items))
-        return _mark_arrow_truncated(table) if truncated else table
+        return _mark_arrow_truncated(table, limit_reached=limit_reached) if truncated else table
 
     def to_pandas(
         self,
@@ -117,10 +129,12 @@ class Paginator(Generic[T]):
         decimal: DecimalMode = "decimal",
         explode: Sequence[str] | None = None,
     ) -> Any:
-        items, truncated = _drain_paginator(self, limit)
+        items, truncated, limit_reached = _drain_paginator(self, limit)
         df = _frames_func("to_pandas")(tuple(items), decimal=decimal, explode=explode)
         if truncated:
             df.attrs["polymarket_truncated"] = True
+        if limit_reached:
+            df.attrs["polymarket_limit_reached"] = True
         return df
 
     def to_polars(
@@ -130,9 +144,11 @@ class Paginator(Generic[T]):
         explode: Sequence[str] | None = None,
     ) -> Any:
         # Polars has no stable per-frame metadata surface in supported versions.
-        # Keep truncation markers to pandas attrs and Arrow schema metadata.
-        items, _truncated = _drain_paginator(self, limit)
-        return _frames_func("to_polars")(tuple(items), explode=explode)
+        items, _truncated, limit_reached = _drain_paginator(self, limit)
+        df = _frames_func("to_polars")(tuple(items), explode=explode)
+        if limit_reached:
+            _warn_limit_reached()
+        return df
 
 
 class AsyncPaginator(Generic[T]):
@@ -171,7 +187,7 @@ class AsyncPaginator(Generic[T]):
         while True:
             page = await self._fetch(cursor)
             yield page
-            if not page.has_more:
+            if page.limit_reached or not page.has_more:
                 return
             if page.next_cursor is None:
                 raise UnexpectedResponseError(
@@ -185,9 +201,9 @@ class AsyncPaginator(Generic[T]):
                 yield item
 
     async def to_arrow(self, *, limit: LimitArg) -> Any:
-        items, truncated = await _drain_async_paginator(self, limit)
+        items, truncated, limit_reached = await _drain_async_paginator(self, limit)
         table = _frames_func("to_arrow")(tuple(items))
-        return _mark_arrow_truncated(table) if truncated else table
+        return _mark_arrow_truncated(table, limit_reached=limit_reached) if truncated else table
 
     async def to_pandas(
         self,
@@ -196,10 +212,12 @@ class AsyncPaginator(Generic[T]):
         decimal: DecimalMode = "decimal",
         explode: Sequence[str] | None = None,
     ) -> Any:
-        items, truncated = await _drain_async_paginator(self, limit)
+        items, truncated, limit_reached = await _drain_async_paginator(self, limit)
         df = _frames_func("to_pandas")(tuple(items), decimal=decimal, explode=explode)
         if truncated:
             df.attrs["polymarket_truncated"] = True
+        if limit_reached:
+            df.attrs["polymarket_limit_reached"] = True
         return df
 
     async def to_polars(
@@ -208,64 +226,74 @@ class AsyncPaginator(Generic[T]):
         limit: LimitArg,
         explode: Sequence[str] | None = None,
     ) -> Any:
-        items, _truncated = await _drain_async_paginator(self, limit)
-        return _frames_func("to_polars")(tuple(items), explode=explode)
+        items, _truncated, limit_reached = await _drain_async_paginator(self, limit)
+        df = _frames_func("to_polars")(tuple(items), explode=explode)
+        if limit_reached:
+            _warn_limit_reached()
+        return df
 
 
-def _mark_arrow_truncated(table: Any) -> Any:
+def _mark_arrow_truncated(table: Any, *, limit_reached: bool = False) -> Any:
     # Arrow has no df.attrs equivalent; stash the marker in schema metadata.
     existing: dict[bytes, bytes] = dict(table.schema.metadata or {})
     existing[b"polymarket_truncated"] = b"true"
+    if limit_reached:
+        existing[b"polymarket_limit_reached"] = b"true"
     return table.replace_schema_metadata(existing)
 
 
-def _drain_paginator(paginator: Paginator[T], limit: int | None) -> tuple[list[T], bool]:
-    if limit is None:
-        return list(paginator.iter_items()), False
-    if limit < 0:
+def _warn_limit_reached() -> None:
+    warnings.warn(
+        "Reached the supported pagination depth limit; completeness is unknown. "
+        "Polars cannot retain this marker; use page.limit_reached or pandas/Arrow metadata.",
+        stacklevel=3,
+    )
+
+
+def _drain_paginator(paginator: Paginator[T], limit: int | None) -> tuple[list[T], bool, bool]:
+    if limit is not None and limit < 0:
         from polymarket.errors import UserInputError
 
         raise UserInputError(f"limit must be >= 0 or None; got {limit}.")
     if limit == 0:
         # Skip the fetch entirely; with no observation we can't claim truncation.
-        return [], False
+        return [], False, False
     # A full page reports has_more=True as a heuristic, so when `limit` lands
     # exactly on a page boundary the next page is fetched to decide truncation:
     # a further item proves truncation, an empty page proves completeness.
     out: list[T] = []
     for page in paginator:
         for item in page.items:
-            if len(out) >= limit:
-                return out, True
+            if limit is not None and len(out) >= limit:
+                return out, True, page.limit_reached
             out.append(item)
+        if page.limit_reached:
+            return out, True, True
         if not page.has_more:
-            return out, False
-    return out, False
+            return out, False, False
+    return out, False, False
 
 
 async def _drain_async_paginator(
     paginator: AsyncPaginator[T], limit: int | None
-) -> tuple[list[T], bool]:
-    if limit is None:
-        out: list[T] = []
-        async for item in paginator.iter_items():
-            out.append(item)
-        return out, False
-    if limit < 0:
+) -> tuple[list[T], bool, bool]:
+    if limit is not None and limit < 0:
         from polymarket.errors import UserInputError
 
         raise UserInputError(f"limit must be >= 0 or None; got {limit}.")
     if limit == 0:
-        return [], False
+        return [], False, False
     out2: list[T] = []
     async for page in paginator:
         for item in page.items:
-            if len(out2) >= limit:
-                return out2, True
+            if limit is not None and len(out2) >= limit:
+                return out2, True, page.limit_reached
             out2.append(item)
+        if page.limit_reached:
+            return out2, True, True
         if not page.has_more:
-            return out2, False
-    return out2, False
+            return out2, False, False
+    return out2, False, False
 
 
 class _EmptyPaginator(Paginator[object]):

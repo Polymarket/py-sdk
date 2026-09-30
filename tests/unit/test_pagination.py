@@ -231,6 +231,35 @@ def test_compute_offset_page_more_when_full() -> None:
     ) == (10, 10)
 
 
+def test_compute_offset_page_uses_page_fill_over_item_count() -> None:
+    # When the server's limit bounds a subset of the rows (roots, not their
+    # replies), a page padded with extra rows is not a full page.
+    page = compute_offset_page(
+        service="gamma",
+        path="/comments",
+        base_params=None,
+        offset=0,
+        page_size=10,
+        items=tuple(range(15)),
+        page_fill=lambda items: 7,
+    )
+    assert page.items == tuple(range(15))
+    assert page.has_more is False
+    assert page.next_cursor is None
+
+    full = compute_offset_page(
+        service="gamma",
+        path="/comments",
+        base_params=None,
+        offset=0,
+        page_size=10,
+        items=tuple(range(15)),
+        page_fill=lambda items: 10,
+    )
+    assert full.has_more is True
+    assert full.next_cursor is not None
+
+
 def test_compute_offset_page_no_more_when_partial() -> None:
     page = compute_offset_page(
         service="data",
