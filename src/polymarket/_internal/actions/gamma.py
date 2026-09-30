@@ -229,6 +229,15 @@ def _check_parent_entity_type(value: CommentParentEntityType) -> None:
         raise UserInputError("parent_entity_type must be one of: Event, Series")
 
 
+# The orders the cursor-paginated comments listing accepts.
+_CURSOR_COMMENT_ORDERS: frozenset[str] = frozenset({"id", "createdAt"})
+
+
+def _check_comment_order(value: str | None) -> None:
+    if value is not None and value not in _CURSOR_COMMENT_ORDERS:
+        raise UserInputError("order must be one of: id, createdAt")
+
+
 def get_market_spec(
     *,
     id: str | None,
@@ -404,6 +413,7 @@ __all__ = [
     "Recurrence",
     "TagMatch",
     "TimestampFilter",
+    "comments_paginate_by_cursor",
     "get_comment_thread_spec",
     "get_event_spec",
     "get_event_tags_spec",
@@ -417,6 +427,7 @@ __all__ = [
     "get_sports_spec",
     "get_tag_spec",
     "list_comments_by_user_address_spec",
+    "list_comments_keyset_spec",
     "list_comments_spec",
     "list_events_spec",
     "list_markets_spec",
@@ -717,6 +728,59 @@ def list_comments_spec(
         page_fill=_count_root_comments,
         parse_items=Comment.parse_response_list,
         base_params=params,
+    )
+
+
+def comments_paginate_by_cursor(
+    *,
+    get_positions: bool | None,
+    holders_only: bool | None,
+    order: str | None,
+) -> bool:
+    # Holder filtering, positions and orders other than `id`/`createdAt` are
+    # served on offset pages only; every other read pages by server cursor.
+    return (
+        not get_positions
+        and not holders_only
+        and (order is None or order in _CURSOR_COMMENT_ORDERS)
+    )
+
+
+def list_comments_keyset_spec(
+    *,
+    parent_entity_id: str,
+    parent_entity_type: CommentParentEntityType,
+    ascending: bool | None = None,
+    order: str | None = None,
+) -> KeysetPaginatedSpec[Comment]:
+    require_nonempty("parent_entity_id", parent_entity_id)
+    _check_parent_entity_type(parent_entity_type)
+    _check_comment_order(order)
+
+    if order is None:
+        # Without `order` the offset listing serves newest first and ignores
+        # `ascending`, while the cursor listing defaults to oldest first. Both
+        # are pinned so the first page stays identical and the cursor binds
+        # the direction it was minted for.
+        order, ascending = "createdAt", False
+    elif ascending is None:
+        # With `order` both listings default to ascending.
+        ascending = True
+
+    params: dict[str, QueryParamValue] = {
+        "parent_entity_id": parent_entity_id,
+        "parent_entity_type": parent_entity_type,
+        "order": order,
+        "ascending": ascending,
+    }
+
+    return KeysetPaginatedSpec(
+        service="gamma",
+        path="/comments/keyset",
+        parse_page=_make_keyset_parser("comments", Comment.parse_response),
+        base_params=params,
+        # Matches the upstream per-request limit cap.
+        max_page_size=100,
     )
 
 
