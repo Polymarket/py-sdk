@@ -93,6 +93,27 @@ def normalize_market_position_context(
     if condition_id is None:
         raise UnexpectedResponseError(f"Missing condition ID for {context}")
 
+    if market.version == "v2" or (
+        market.version is None
+        and (
+            market.outcomes.yes.position_id is not None
+            or market.outcomes.no.position_id is not None
+        )
+    ):
+        yes_position_id = market.outcomes.yes.position_id
+        no_position_id = market.outcomes.no.position_id
+        if (yes_position_id is None) != (no_position_id is None):
+            raise UnexpectedResponseError(f"Incomplete market position IDs for {context}")
+        if yes_position_id is None or no_position_id is None:
+            raise UnexpectedResponseError(f"Missing market position IDs for {context}")
+        return MarketPositionContext(
+            protocol="v2",
+            market_id=market.id,
+            condition_id=condition_id,
+            position_erc1155_address=position_manager,
+            token_ids=(yes_position_id, no_position_id),
+        )
+
     yes_token_id = market.outcomes.yes.token_id
     no_token_id = market.outcomes.no.token_id
     if (yes_token_id is None) != (no_token_id is None):
@@ -111,18 +132,8 @@ def normalize_market_position_context(
             token_ids=(yes_token_id, no_token_id),
         )
 
-    yes_position_id = market.outcomes.yes.position_id
-    no_position_id = market.outcomes.no.position_id
-    if (yes_position_id is None) != (no_position_id is None):
-        raise UnexpectedResponseError(f"Incomplete market position IDs for {context}")
-    if yes_position_id is not None and no_position_id is not None:
-        return MarketPositionContext(
-            protocol="v2",
-            market_id=market.id,
-            condition_id=condition_id,
-            position_erc1155_address=position_manager,
-            token_ids=(yes_position_id, no_position_id),
-        )
+    if market.version == "v1":
+        raise UnexpectedResponseError(f"Missing market token IDs for {context}")
     raise UnexpectedResponseError(f"Missing tradeable outcome IDs for {context}")
 
 

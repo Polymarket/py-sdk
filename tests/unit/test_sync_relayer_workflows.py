@@ -515,6 +515,7 @@ def _stub_market(
     condition_id: str | None,
     *,
     neg_risk: bool | None = True,
+    version: str | None = None,
     yes_token_id: str | None = "101",
     no_token_id: str | None = "202",
     yes_position_id: str | None = None,
@@ -522,6 +523,7 @@ def _stub_market(
 ) -> SimpleNamespace:
     return SimpleNamespace(
         id="123",
+        version=version,
         condition_id=condition_id,
         state=SimpleNamespace(neg_risk=neg_risk),
         outcomes=SimpleNamespace(
@@ -581,6 +583,38 @@ def test_redeem_positions_routes_through_neg_risk_collateral_adapter() -> None:
     body = request_json(submit)
     inner = body["depositWalletParams"]["calls"][0]
     assert inner["target"].lower() == PRODUCTION_CONFIG.neg_risk_collateral_adapter.lower()
+
+
+@pytest.mark.parametrize("version", ("v2", None))
+@pytest.mark.parametrize("operation", ("split", "merge", "redeem"))
+def test_sync_market_position_routes_mixed_ids_to_v2(version: str | None, operation: str) -> None:
+    captured: list[httpx.Request] = []
+    condition_id = "0x01" + "99" * 30
+    market = _stub_market(
+        condition_id,
+        neg_risk=None,
+        version=version,
+        yes_position_id=_combo_position(condition_id, 0),
+        no_position_id=_combo_position(condition_id, 1),
+    )
+
+    with make_sync_deposit_client() as client:
+        client.list_markets = lambda **_: _stub_page((market,))  # type: ignore[method-assign]
+        install_sync_relayer_handler(client, _deposit_relayer_handler(captured))
+        install_sync_rpc_handler(client, _eth_call_result("uint256[]", [12, 34]))
+        if operation == "split":
+            client.split_position(condition_id=condition_id, amount=5)
+        elif operation == "merge":
+            client.merge_positions(condition_id=condition_id, amount="max")
+        else:
+            client.redeem_positions(market_id="123")
+
+    submit = [r for r in captured if urlparse(str(r.url)).path == "/submit"][0]
+    calls = request_json(submit)["depositWalletParams"]["calls"]
+    assert len(calls) == (2 if operation == "redeem" else 1)
+    assert all(
+        call["target"].lower() == PRODUCTION_CONFIG.protocol_v2_router.lower() for call in calls
+    )
 
 
 def test_sync_redeem_market_position_requires_two_v2_balances() -> None:

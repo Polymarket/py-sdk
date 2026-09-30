@@ -96,7 +96,8 @@ def test_redeem_positions_with_combo_position_id_uses_onchain_balance() -> None:
     assert body["metadata"] == f"Redeem position {position_id}"
 
 
-def test_split_market_position_routes_position_ids_to_v2_router() -> None:
+@pytest.mark.parametrize("version", ("v2", None))
+def test_split_market_position_routes_position_ids_to_v2_router(version: str | None) -> None:
     captured: list[httpx.Request] = []
     condition_id = "0x01" + "44" * 30
 
@@ -104,7 +105,7 @@ def test_split_market_position_routes_position_ids_to_v2_router() -> None:
         client = await make_deposit_client()
         _setup_relayer(client, captured, "tx-v2-split")
         client.list_markets = _async_list_markets_stub(  # type: ignore[method-assign]
-            [], (_stub_v2_market(condition_id),)
+            [], (_stub_v2_market(condition_id, version=version),)
         )
         try:
             await client.split_position(condition_id=condition_id, amount=5)
@@ -118,7 +119,8 @@ def test_split_market_position_routes_position_ids_to_v2_router() -> None:
     assert calls[0]["data"].startswith("0x" + keccak(b"split(bytes31,uint256)")[:4].hex())
 
 
-def test_merge_market_position_routes_position_ids_to_v2_router() -> None:
+@pytest.mark.parametrize("version", ("v2", None))
+def test_merge_market_position_routes_position_ids_to_v2_router(version: str | None) -> None:
     captured: list[httpx.Request] = []
     condition_id = "0x02" + "55" * 30
 
@@ -126,7 +128,7 @@ def test_merge_market_position_routes_position_ids_to_v2_router() -> None:
         client = await make_deposit_client()
         _setup_relayer(client, captured, "tx-v2-merge")
         client.list_markets = _async_list_markets_stub(  # type: ignore[method-assign]
-            [], (_stub_v2_market(condition_id),)
+            [], (_stub_v2_market(condition_id, version=version),)
         )
         install_rpc_handler(client, _eth_call_result("uint256[]", [100, 60]))
         try:
@@ -142,7 +144,8 @@ def test_merge_market_position_routes_position_ids_to_v2_router() -> None:
     assert calls[0]["data"][-64:] == f"{60:064x}"
 
 
-def test_redeem_market_position_emits_one_v2_call_per_nonzero_outcome() -> None:
+@pytest.mark.parametrize("version", ("v2", None))
+def test_redeem_market_position_emits_one_v2_call_per_nonzero_outcome(version: str | None) -> None:
     captured: list[httpx.Request] = []
     condition_id = "0x03" + "66" * 30
 
@@ -150,7 +153,7 @@ def test_redeem_market_position_emits_one_v2_call_per_nonzero_outcome() -> None:
         client = await make_deposit_client()
         _setup_relayer(client, captured, "tx-v2-redeem")
         client.list_markets = _async_list_markets_stub(  # type: ignore[method-assign]
-            [], (_stub_v2_market(condition_id),)
+            [], (_stub_v2_market(condition_id, version=version),)
         )
         install_rpc_handler(client, _eth_call_result("uint256[]", [12, 34]))
         try:
@@ -458,6 +461,7 @@ def _deposit_wallet_calls(body: dict[str, object]) -> list[dict[str, str]]:
 def _stub_market(condition_id: str | None):  # type: ignore[no-untyped-def]
     return SimpleNamespace(
         id="123",
+        version="v1",
         condition_id=condition_id,
         state=SimpleNamespace(neg_risk=True),
         outcomes=SimpleNamespace(
@@ -467,14 +471,15 @@ def _stub_market(condition_id: str | None):  # type: ignore[no-untyped-def]
     )
 
 
-def _stub_v2_market(condition_id: str):  # type: ignore[no-untyped-def]
+def _stub_v2_market(condition_id: str, *, version: str | None = None):  # type: ignore[no-untyped-def]
     return SimpleNamespace(
         id="123",
+        version=version,
         condition_id=condition_id,
         state=SimpleNamespace(neg_risk=None),
         outcomes=SimpleNamespace(
-            yes=SimpleNamespace(token_id=None, position_id=_combo_position(condition_id, 0)),
-            no=SimpleNamespace(token_id=None, position_id=_combo_position(condition_id, 1)),
+            yes=SimpleNamespace(token_id="101", position_id=_combo_position(condition_id, 0)),
+            no=SimpleNamespace(token_id="202", position_id=_combo_position(condition_id, 1)),
         ),
     )
 
