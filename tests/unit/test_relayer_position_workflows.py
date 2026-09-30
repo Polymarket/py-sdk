@@ -96,8 +96,7 @@ def test_redeem_positions_with_combo_position_id_uses_onchain_balance() -> None:
     assert body["metadata"] == f"Redeem position {position_id}"
 
 
-@pytest.mark.parametrize("version", ("v2", None))
-def test_split_market_position_routes_position_ids_to_v2_router(version: str | None) -> None:
+def test_split_market_position_routes_position_ids_to_v2_router() -> None:
     captured: list[httpx.Request] = []
     condition_id = "0x01" + "44" * 30
 
@@ -105,7 +104,7 @@ def test_split_market_position_routes_position_ids_to_v2_router(version: str | N
         client = await make_deposit_client()
         _setup_relayer(client, captured, "tx-v2-split")
         client.list_markets = _async_list_markets_stub(  # type: ignore[method-assign]
-            [], (_stub_v2_market(condition_id, version=version),)
+            [], (_stub_v2_market(condition_id),)
         )
         try:
             await client.split_position(condition_id=condition_id, amount=5)
@@ -119,8 +118,7 @@ def test_split_market_position_routes_position_ids_to_v2_router(version: str | N
     assert calls[0]["data"].startswith("0x" + keccak(b"split(bytes31,uint256)")[:4].hex())
 
 
-@pytest.mark.parametrize("version", ("v2", None))
-def test_merge_market_position_routes_position_ids_to_v2_router(version: str | None) -> None:
+def test_merge_market_position_routes_position_ids_to_v2_router() -> None:
     captured: list[httpx.Request] = []
     condition_id = "0x02" + "55" * 30
 
@@ -128,7 +126,7 @@ def test_merge_market_position_routes_position_ids_to_v2_router(version: str | N
         client = await make_deposit_client()
         _setup_relayer(client, captured, "tx-v2-merge")
         client.list_markets = _async_list_markets_stub(  # type: ignore[method-assign]
-            [], (_stub_v2_market(condition_id, version=version),)
+            [], (_stub_v2_market(condition_id),)
         )
         install_rpc_handler(client, _eth_call_result("uint256[]", [100, 60]))
         try:
@@ -144,8 +142,7 @@ def test_merge_market_position_routes_position_ids_to_v2_router(version: str | N
     assert calls[0]["data"][-64:] == f"{60:064x}"
 
 
-@pytest.mark.parametrize("version", ("v2", None))
-def test_redeem_market_position_emits_one_v2_call_per_nonzero_outcome(version: str | None) -> None:
+def test_redeem_market_position_emits_one_v2_call_per_nonzero_outcome() -> None:
     captured: list[httpx.Request] = []
     condition_id = "0x03" + "66" * 30
 
@@ -153,7 +150,7 @@ def test_redeem_market_position_emits_one_v2_call_per_nonzero_outcome(version: s
         client = await make_deposit_client()
         _setup_relayer(client, captured, "tx-v2-redeem")
         client.list_markets = _async_list_markets_stub(  # type: ignore[method-assign]
-            [], (_stub_v2_market(condition_id, version=version),)
+            [], (_stub_v2_market(condition_id),)
         )
         install_rpc_handler(client, _eth_call_result("uint256[]", [12, 34]))
         try:
@@ -169,6 +166,36 @@ def test_redeem_market_position_emits_one_v2_call_per_nonzero_outcome(version: s
     }
     selector = "0x" + keccak(b"redeem(bytes31,uint256,uint256)")[:4].hex()
     assert all(call["data"].startswith(selector) for call in calls)
+
+
+@pytest.mark.parametrize("operation", ("split", "merge", "redeem", "batch_merge"))
+def test_market_position_workflows_reject_missing_version_before_submission(operation: str) -> None:
+    captured: list[httpx.Request] = []
+    condition_id = "0x01" + "44" * 30
+
+    async def run() -> None:
+        client = await make_deposit_client()
+        _setup_relayer(client, captured, "tx-missing-version")
+        client.list_markets = _async_list_markets_stub(  # type: ignore[method-assign]
+            [], (_stub_v2_market(condition_id, version=None),)
+        )
+        try:
+            with pytest.raises(UnexpectedResponseError, match="Missing market version"):
+                if operation == "split":
+                    await client.split_position(condition_id=condition_id, amount=5)
+                elif operation == "merge":
+                    await client.merge_positions(condition_id=condition_id, amount="max")
+                elif operation == "redeem":
+                    await client.redeem_positions(condition_id=condition_id)
+                else:
+                    await client.merge_multiple_positions(
+                        positions=[{"condition_id": condition_id, "amount": 5}]
+                    )
+        finally:
+            await client.close()
+
+    asyncio.run(run())
+    assert not any(urlparse(str(request.url)).path == "/submit" for request in captured)
 
 
 @pytest.mark.parametrize("balances", ([12], [12, 34, 56]))
@@ -471,7 +498,7 @@ def _stub_market(condition_id: str | None):  # type: ignore[no-untyped-def]
     )
 
 
-def _stub_v2_market(condition_id: str, *, version: str | None = None):  # type: ignore[no-untyped-def]
+def _stub_v2_market(condition_id: str, *, version: str | None = "v2"):  # type: ignore[no-untyped-def]
     return SimpleNamespace(
         id="123",
         version=version,

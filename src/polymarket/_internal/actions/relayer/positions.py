@@ -93,13 +93,10 @@ def normalize_market_position_context(
     if condition_id is None:
         raise UnexpectedResponseError(f"Missing condition ID for {context}")
 
-    if market.version == "v2" or (
-        market.version is None
-        and (
-            market.outcomes.yes.position_id is not None
-            or market.outcomes.no.position_id is not None
-        )
-    ):
+    if market.version is None:
+        raise UnexpectedResponseError(f"Missing market version for {context}")
+
+    if market.version == "v2":
         yes_position_id = market.outcomes.yes.position_id
         no_position_id = market.outcomes.no.position_id
         if (yes_position_id is None) != (no_position_id is None):
@@ -132,9 +129,7 @@ def normalize_market_position_context(
             token_ids=(yes_token_id, no_token_id),
         )
 
-    if market.version == "v1":
-        raise UnexpectedResponseError(f"Missing market token IDs for {context}")
-    raise UnexpectedResponseError(f"Missing tradeable outcome IDs for {context}")
+    raise UnexpectedResponseError(f"Missing market token IDs for {context}")
 
 
 def expect_binary_positions(positions: Sequence[Position]) -> BinaryPositions:

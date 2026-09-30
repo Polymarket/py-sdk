@@ -57,7 +57,7 @@ def test_expect_binary_positions_returns_yes_no_tuple() -> None:
     ("yes_position_id", "no_position_id", "message"),
     [
         ("101", None, "Incomplete market position IDs"),
-        (None, None, "Missing tradeable outcome IDs"),
+        (None, None, "Missing market position IDs"),
     ],
 )
 def test_normalize_market_position_context_distinguishes_v2_id_failures(
@@ -67,7 +67,7 @@ def test_normalize_market_position_context_distinguishes_v2_id_failures(
 ) -> None:
     market = SimpleNamespace(
         id="1",
-        version=None,
+        version="v2",
         condition_id=_CONDITION_ID,
         state=SimpleNamespace(neg_risk=None),
         outcomes=SimpleNamespace(
@@ -93,9 +93,8 @@ def test_normalize_market_position_context_distinguishes_v2_id_failures(
     [
         ("v1", ("101", "202"), ("301", "302"), "ctf"),
         ("v2", ("101", "202"), ("301", "302"), "v2"),
-        (None, ("101", "202"), ("301", "302"), "v2"),
-        (None, ("101", "202"), (None, None), "ctf"),
-        (None, (None, None), ("301", "302"), "v2"),
+        ("v1", ("101", "202"), (None, None), "ctf"),
+        ("v2", (None, None), ("301", "302"), "v2"),
         ("v1", ("101", "202"), ("301", None), "ctf"),
         ("v2", ("101", None), ("301", "302"), "v2"),
     ],
@@ -141,7 +140,11 @@ def test_market_position_routing_uses_version_then_protocol_v2_position_ids(
         ("v1", ("101", None), ("301", "302"), "Incomplete market token IDs"),
         ("v2", ("101", "202"), (None, None), "Missing market position IDs"),
         ("v2", ("101", "202"), ("301", None), "Incomplete market position IDs"),
-        (None, ("101", "202"), ("301", None), "Incomplete market position IDs"),
+        (None, ("101", "202"), ("301", "302"), "Missing market version"),
+        (None, ("101", "202"), (None, None), "Missing market version"),
+        (None, (None, None), ("301", "302"), "Missing market version"),
+        (None, (None, None), (None, None), "Missing market version"),
+        (None, ("101", "202"), ("301", None), "Missing market version"),
     ],
 )
 def test_market_position_routing_rejects_missing_selected_protocol_ids(
