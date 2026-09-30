@@ -1091,7 +1091,7 @@ def test_builder_fills_share_session_iterator_before_ack_and_after_reconnect() -
                 frame = json.loads(await ws.recv())
                 if _is_ping(frame):
                     continue
-                if frame["req"] == "sub":
+                if frame["req"] == "sub" and frame["chs"] == ["builderFills"]:
                     subscriptions.append(frame["chs"])
                     if len(subscriptions) == 1:
                         for sequence in (1, 100):
@@ -1234,37 +1234,66 @@ def test_position_exits_keep_terms_captured_before_portfolio_read() -> None:
     asyncio.run(asyncio.wait_for(run(), timeout=10))
 
 
-@pytest.mark.parametrize("state", ["inactive", "missing", "revoked"])
-def test_builder_rejection_comes_from_server_without_order_time_reads(state: str) -> None:
-    from polymarket.models.perps import PerpsOrderRequest, PerpsTpSlTrigger
+@pytest.mark.parametrize(
+    "state",
+    ["approved", "lower_cap", "inactive", "missing", "revoked"],
+)
+def test_builder_setup_restores_consent_without_writes(state: str) -> None:
+    from polymarket.models.perps import PerpsOrderRequest
 
     async def run() -> None:
         builder = "0x" + "ab" * 20
-        frames: list[dict[str, Any]] = []
         reads: list[str] = []
-        error = "builder_not_enabled" if state == "inactive" else "builder_approval_required"
+        cap = "0.0001" if state == "lower_cap" else "0.0003"
 
         async def handler(ws: ServerConnection) -> None:
-            frames.extend(await _handshake(ws))
+            await _handshake(ws)
             async for raw in ws:
                 frame = json.loads(raw)
-                if not _is_ping(frame):
-                    frames.append(frame)
-                    await ws.send(
-                        json.dumps({"id": frame["id"], "data": [{"status": "err", "error": error}]})
-                    )
+                if _is_ping(frame):
+                    continue
+                assert frame["op"]["args"][0]["builder"] == {
+                    "address": builder,
+                    "fee_rate": str(min(Decimal(cap), Decimal("0.0002"))),
+                }
+                await ws.send(
+                    json.dumps({"id": frame["id"], "data": [{"status": "ok", "oid": 77}]})
+                )
 
         def response(request: httpx.Request) -> httpx.Response:
+            assert request.method == "GET"
             reads.append(request.url.path)
-            assert len(reads) == 1 and request.url.path == "/v1/info/builder"
+            if request.url.path == "/v1/info/builder":
+                assert request.url.params["address"] == builder
+                return httpx.Response(
+                    200,
+                    json={
+                        "address": builder,
+                        "registered": True,
+                        "enabled": state != "inactive",
+                        "admission_enabled": True,
+                        "max_fee_rate": cap,
+                    },
+                )
+            assert request.url.path == "/v1/account/builder-approvals"
+            assert request.url.params["builder"] == builder
+            assert request.headers["POLYMARKET-PROXY"] == _CREDENTIALS.proxy
+            assert request.headers["POLYMARKET-SECRET"] == _CREDENTIALS.secret
             return httpx.Response(
                 200,
                 json={
-                    "address": builder,
-                    "registered": True,
-                    "enabled": state != "inactive",
-                    "admission_enabled": True,
-                    "max_fee_rate": "0.0003",
+                    "data": []
+                    if state == "missing"
+                    else [
+                        {
+                            "trader": "0x" + "12" * 20,
+                            "builder": builder.upper().replace("0X", "0x"),
+                            "max_fee_rate": "0" if state == "revoked" else "0.0002",
+                            "approval_version": 1,
+                            "timestamp": 1751500000000,
+                            "sequence": 1,
+                        }
+                    ]
                 },
             )
 
@@ -1279,38 +1308,84 @@ def test_builder_rejection_comes_from_server_without_order_time_reads(state: str
             await session._api.close()
             session._api = AsyncTransport(
                 base_url="https://perps.test",
+                header_resolver=session._resolve_auth_headers,
                 client=httpx.AsyncClient(
                     transport=httpx.MockTransport(response), base_url="https://perps.test"
                 ),
             )
-            async with await session.open():
-                assert reads == ["/v1/info/builder"]
-                with pytest.raises(RequestRejectedError, match=error):
-                    await session.place_order(
-                        instrument_id=1, side="BUY", quantity="1", time_in_force="ioc"
+            try:
+                if state in ("approved", "lower_cap"):
+                    await session.open()
+                    await session.post_orders(
+                        [
+                            PerpsOrderRequest(
+                                instrument_id=1, side="BUY", quantity="1", time_in_force="ioc"
+                            )
+                        ]
                     )
-                acks = await session.post_orders(
-                    [
-                        PerpsOrderRequest(
-                            instrument_id=1, side="BUY", quantity="1", time_in_force="ioc"
+                else:
+                    with pytest.raises(UserInputError):
+                        await session.open()
+            finally:
+                await session.close()
+            assert reads == ["/v1/info/builder", "/v1/account/builder-approvals"]
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10))
+
+
+@pytest.mark.parametrize("acknowledgement", ["rejected", "missing"])
+def test_optional_builder_subscription_never_blocks_readiness(acknowledgement: str) -> None:
+    async def run() -> None:
+        subscriptions: list[list[str]] = []
+        receipt_requested = asyncio.Event()
+        disconnect = asyncio.Event()
+
+        async def handler(ws: ServerConnection) -> None:
+            frames = await _handshake(ws)
+            subscriptions.append(frames[1]["chs"])
+            assert "builderFills" not in frames[1]["chs"]
+            async for raw in ws:
+                frame = json.loads(raw)
+                if _is_ping(frame):
+                    continue
+                if frame.get("req") == "sub":
+                    assert frame["chs"] == ["builderFills"]
+                    if acknowledgement == "rejected":
+                        await ws.send(
+                            json.dumps(
+                                {
+                                    "id": frame["id"],
+                                    "data": {"status": "err", "error": "unavailable"},
+                                }
+                            )
                         )
-                    ]
-                )
-                assert acks[0].status == "err" and acks[0].error == error
-                with pytest.raises(RequestRejectedError, match=error):
-                    await session.place_order(
-                        instrument_id=1,
-                        side="BUY",
-                        quantity="1",
-                        time_in_force="ioc",
-                        stop_loss=PerpsTpSlTrigger(trigger_price="90"),
-                    )
-                assert len(frames) == 5
-                assert reads == ["/v1/info/builder"]
-                for frame in frames[2:]:
-                    assert all(
-                        row["builder"] == {"address": builder, "fee_rate": "0.0003"}
-                        for row in frame["op"]["args"]
-                    )
+                    receipt_requested.set()
+                    if len(subscriptions) == 1:
+                        await disconnect.wait()
+                        await ws.close()
+                        return
+                    continue
+                await ws.send(json.dumps({"id": frame["id"], "data": {"status": "ok"}}))
+
+        async with ws_server(handler) as url:
+            session = PerpsSession(
+                chain_id=137,
+                credentials=_CREDENTIALS,
+                rest_url="http://127.0.0.1:9",
+                ws_url=url,
+                include_builder_fills=True,
+            )
+            try:
+                await asyncio.wait_for(session.open(), timeout=1)
+                await receipt_requested.wait()
+                receipt_requested.clear()
+                disconnect.set()
+                event = await asyncio.wait_for(anext(session), timeout=5)
+                assert isinstance(event, PerpsResyncEvent) and event.reason == "reconnect"
+                await receipt_requested.wait()
+            finally:
+                await session.close()
+            assert not session._pending
+            assert session._builder_subscription_task is None
 
     asyncio.run(asyncio.wait_for(run(), timeout=10))

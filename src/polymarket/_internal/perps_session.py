@@ -189,6 +189,7 @@ class PerpsSession:
         self._owner_signer = owner_signer
         self._include_builder_fills = include_builder_fills
         self._builder_consent_lock = asyncio.Lock()
+        self._builder_subscription_task: asyncio.Task[None] | None = None
         self._chain_id = chain_id
         self._credentials = credentials
         self._ws_url = ws_url
@@ -370,8 +371,21 @@ class PerpsSession:
         """Connect and authenticate the session WebSocket."""
         if self._builder_address is not None and self._builder_attribution is None:
             status = await _builders.fetch_status(self._api, address=self._builder_address)
+            approvals = await self.fetch_builder_approvals(builder=self._builder_address)
+            approval = next(
+                (a for a in approvals if a.builder.lower() == self._builder_address.lower()),
+                None,
+            )
+            if not status.registered or not status.enabled or not status.admission_enabled:
+                raise UserInputError("Builder attribution is not active for this builder address")
+            if approval is None or approval.max_fee_rate <= 0:
+                raise UserInputError(
+                    "Builder attribution requires saved positive fee approval; open a session "
+                    "without attribution and call approve_builder_fee(builder_address=...) first"
+                )
             self._builder_attribution = PerpsBuilderAttribution(
-                address=self._builder_address, fee_rate=status.max_fee_rate
+                address=self._builder_address,
+                fee_rate=min(status.max_fee_rate, approval.max_fee_rate),
             )
         await self._connect(emit_resync=False)
         return self
@@ -382,6 +396,7 @@ class PerpsSession:
             return
         self._closed = True
         await self._scheduler.aclose()
+        await self._cancel_builder_subscription()
         self._reject_pending(TransportError("Perps session closed."))
         self._reject_event_waiters(TransportError("Perps session closed."))
         self._end()
@@ -915,6 +930,7 @@ class PerpsSession:
         }
 
     async def _connect(self, *, emit_resync: bool) -> None:
+        await self._cancel_builder_subscription()
         await self._connection.connect(
             url=self._ws_url,
             on_message=self._on_message,
@@ -927,6 +943,8 @@ class PerpsSession:
         if emit_resync:
             self._sequences.clear()
             self._push(PerpsResyncEvent(reason="reconnect"))
+        if self._include_builder_fills:
+            self._builder_subscription_task = asyncio.create_task(self._subscribe_builder_fills())
 
     async def _authenticate(self) -> None:
         await self._send_request(
@@ -951,14 +969,30 @@ class PerpsSession:
             {
                 "id": self._take_request_id(),
                 "req": "sub",
-                "chs": [*_SESSION_CHANNELS, "builderFills"]
-                if self._include_builder_fills
-                else list(_SESSION_CHANNELS),
+                "chs": list(_SESSION_CHANNELS),
             },
             parse=_parse_session_ack,
             timeout_s=_ACK_TIMEOUT_S,
             timeout_message="Perps session subscription timed out.",
         )
+
+    async def _subscribe_builder_fills(self) -> None:
+        try:
+            await self._send_request(
+                {"id": self._take_request_id(), "req": "sub", "chs": ["builderFills"]},
+                parse=_parse_session_ack,
+                timeout_s=_ACK_TIMEOUT_S,
+                timeout_message="Perps builder receipt subscription timed out.",
+            )
+        except (TransportError, RequestRejectedError) as error:
+            self._logger.warning("perps builder receipt subscription failed: %s", error)
+
+    async def _cancel_builder_subscription(self) -> None:
+        if self._builder_subscription_task is not None:
+            self._builder_subscription_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._builder_subscription_task
+            self._builder_subscription_task = None
 
     async def _send_create_orders(
         self,

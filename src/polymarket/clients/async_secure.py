@@ -1316,17 +1316,17 @@ class AsyncSecureClient:
         signature.
 
         Select a builder address for new orders, batches, and TP/SL exits.
-        Opening or resuming reads the configured fee without requiring active
-        consent. The server validates builder availability and approval when
-        it receives orders. Call
-        ``session.approve_builder_fee()`` once before the first attributed
-        order. It defaults to the selected builder's current configured fee.
-        Approval remains valid until revoked or replaced. Opening a session
-        never grants consent.
+        Opening or resuming requires an active builder and saved positive fee
+        approval. New orders use the lower of the builder's configured cap and
+        your saved approval cap. To grant initial consent, open a session without
+        attribution and call ``session.approve_builder_fee(builder_address=...)``.
+        Approval remains valid until revoked or replaced. Opening a session only
+        reads existing consent; it never grants or changes it.
 
         Args:
             builder_attribution: Optional builder address to use for new orders.
-            include_builder_fills: Include this account's builder receipts in its event iterator.
+            include_builder_fills: Request this account's builder receipts in its event iterator.
+                Receipt subscription is best-effort and never blocks session readiness.
             credentials: Existing delegated credentials to validate and resume.
             expires_in: Delegated credential lifetime for newly created credentials.
             label: Optional label for newly created credentials.

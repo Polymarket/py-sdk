@@ -26,19 +26,27 @@ async def test_builder_consent_restoration(
     # Live side effect: creates delegated credentials valid for five minutes.
     # Existing consent is read only; no fees are approved and no orders are placed.
     builder_address = require_env("POLYMARKET_PERPS_BUILDER_ADDRESS")
-    async with (
-        await deposit_wallet_client.open_perps_session(
-            expires_in=timedelta(minutes=5), builder_attribution=builder_address
-        ) as session,
-        await deposit_wallet_client.open_perps_session(
-            credentials=session.credentials, builder_attribution=builder_address
-        ) as restored,
-    ):
-        assert restored.builder_attribution is not None
-        assert restored.builder_attribution.address.lower() == builder_address.lower()
-        assert await restored.fetch_builder_approvals(builder=builder_address) == (
-            await session.fetch_builder_approvals(builder=builder_address)
+    async with await deposit_wallet_client.open_perps_session(
+        expires_in=timedelta(minutes=5)
+    ) as session:
+        approvals = await session.fetch_builder_approvals(builder=builder_address)
+        approval = next(
+            (a for a in approvals if a.builder.lower() == builder_address.lower()), None
         )
+        if approval is None or approval.max_fee_rate <= 0:
+            pytest.skip("Builder restoration requires existing positive fee consent")
+        status = await deposit_wallet_client.fetch_perps_builder_status(address=builder_address)
+        if not status.registered or not status.enabled or not status.admission_enabled:
+            pytest.skip("Builder restoration requires an active builder")
+        async with await deposit_wallet_client.open_perps_session(
+            credentials=session.credentials, builder_attribution=builder_address
+        ) as restored:
+            assert restored.builder_attribution is not None
+            assert restored.builder_attribution.address.lower() == builder_address.lower()
+            assert restored.builder_attribution.fee_rate == min(
+                status.max_fee_rate, approval.max_fee_rate
+            )
+            assert await restored.fetch_builder_approvals(builder=builder_address) == approvals
 
 
 @pytest.mark.metered
