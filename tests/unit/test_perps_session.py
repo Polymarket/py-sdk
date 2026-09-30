@@ -971,11 +971,13 @@ def test_builder_consent_serializes_versions_and_commits_only_confirmed_terms() 
         release = asyncio.Event()
         grants: dict[str, dict[str, Any]] = {}
         posted: list[dict[str, Any]] = []
+        requests: list[httpx.Request] = []
         reject = False
         cap = "0.0002"
         reject_status = False
 
         async def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
             if request.url.path == "/v1/info/builder":
                 if reject_status:
                     return httpx.Response(400, json={"error": "status unavailable"})
@@ -1035,7 +1037,7 @@ def test_builder_consent_serializes_versions_and_commits_only_confirmed_terms() 
             ),
         )
         try:
-            pending = asyncio.create_task(session.approve_builder_fee())
+            pending = asyncio.create_task(session.approve_builder_fee(max_fee_rate="0.0002"))
             await started.wait()
             queued_revoke = asyncio.create_task(session.revoke_builder_fee())
             await asyncio.sleep(0)
@@ -1051,7 +1053,11 @@ def test_builder_consent_serializes_versions_and_commits_only_confirmed_terms() 
             await session.approve_builder_fee(builder_address=builder, max_fee_rate="0.0003")
             terms = PerpsBuilderAttribution(address=builder, fee_rate=Decimal("0.0002"))
             assert session.builder_attribution == terms
-            cap = "0.0005"
+            cap = "0.001"
+            request_count = len(requests)
+            with pytest.raises(TypeError, match="max_fee_rate"):
+                await session.approve_builder_fee()  # type: ignore[call-arg]
+            assert len(requests) == request_count
             await session.approve_builder_fee(builder_address=builder, max_fee_rate="0.0003")
             terms = PerpsBuilderAttribution(address=builder, fee_rate=Decimal("0.0003"))
             assert session.builder_attribution == terms
@@ -1071,14 +1077,14 @@ def test_builder_consent_serializes_versions_and_commits_only_confirmed_terms() 
             reject = False
             await session.revoke_builder_fee(other_builder)
             assert session.builder_attribution == terms
-            revoked = await session.revoke_builder_fee()
+            revoked = await session.approve_builder_fee(max_fee_rate="0")
             assert revoked.approval_version == 6 and session.builder_attribution is None
             reject_status = False
             cap = "0"
             await session.approve_builder_fee(builder_address=builder, max_fee_rate="0.0003")
             assert session.builder_attribution is None
             cap = "0.0002"
-            await session.approve_builder_fee()
+            await session.approve_builder_fee(max_fee_rate="0.0002")
             assert session.builder_attribution == PerpsBuilderAttribution(
                 address=builder, fee_rate=Decimal("0.0002")
             )
@@ -1357,7 +1363,7 @@ def test_builder_setup_restores_consent_without_writes(state: str) -> None:
                     assert not posted
                     if disabled:
                         cap = "0.0001"
-                        await session.approve_builder_fee()
+                        await session.approve_builder_fee(max_fee_rate="0.0001")
                         disabled = False
                         await session.post_orders(orders)
                 else:

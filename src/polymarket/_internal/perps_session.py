@@ -226,12 +226,13 @@ class PerpsSession:
         self,
         *,
         builder_address: str | None = None,
-        max_fee_rate: Decimal | str | None = None,
+        max_fee_rate: Decimal | str,
     ) -> PerpsBuilderApproval:
         """Experimental: approve and adopt builder fees using the owner's signature.
 
-        With no arguments, approves the selected builder's current configured
-        fee. Approval is needed once and remains valid until revoked or replaced.
+        Requires an explicit maximum fee rate as a decimal fraction (``"0.0003"``
+        is 3 basis points). The address defaults to the selected session builder.
+        Approval is needed once and remains valid until revoked or replaced.
         Reads saved consent and increments its version, initially 1. After
         confirmation, refreshes the builder cap and adopts the lower of that
         cap and the confirmed maximum. If the refresh fails, saved consent has
@@ -248,15 +249,6 @@ class PerpsSession:
                     "A builder address is required when the session has no builder attribution"
                 )
             _builders.validate_address("builder_address", builder_address)
-            if max_fee_rate is None:
-                status = await _builders.fetch_status(self._api, address=builder_address)
-                if not status.registered or not status.enabled or not status.admission_enabled:
-                    raise UserInputError(
-                        "Builder attribution is not active for this builder address"
-                    )
-                max_fee_rate = status.max_fee_rate
-                if max_fee_rate <= 0:
-                    raise UserInputError("The builder has no positive fee to approve")
             return await self._change_builder_consent(builder_address, max_fee_rate)
 
     async def revoke_builder_fee(self, builder_address: str | None = None) -> PerpsBuilderApproval:

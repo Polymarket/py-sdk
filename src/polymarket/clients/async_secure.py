@@ -1319,7 +1319,8 @@ class AsyncSecureClient:
         Opening or resuming requires an active builder. New orders use the lower
         of the builder's configured cap and your saved approval cap. Missing or
         revoked approval counts as zero: orders omit builder attribution while
-        the builder remains selected for ``session.approve_builder_fee()``.
+        the builder remains selected for
+        ``session.approve_builder_fee(max_fee_rate="0.0003")`` (3 basis points).
         A zero builder cap also disables attribution. Approval remains valid
         until revoked or replaced. Opening a session only reads existing consent;
         it never grants or changes it.
