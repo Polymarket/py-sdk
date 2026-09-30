@@ -100,7 +100,7 @@ def test_normalize_market_position_context_distinguishes_v2_id_failures(
         ("v2", ("101", None), ("301", "302"), "v2"),
     ],
 )
-def test_market_position_routing_uses_version_then_native_ids(
+def test_market_position_routing_uses_version_then_protocol_v2_position_ids(
     version: str | None,
     token_ids: tuple[str | None, str | None],
     position_ids: tuple[str | None, str | None],
