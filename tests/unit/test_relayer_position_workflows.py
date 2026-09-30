@@ -168,6 +168,36 @@ def test_redeem_market_position_emits_one_v2_call_per_nonzero_outcome() -> None:
     assert all(call["data"].startswith(selector) for call in calls)
 
 
+@pytest.mark.parametrize("operation", ("split", "merge", "redeem", "batch_merge"))
+def test_market_position_workflows_reject_missing_version_before_submission(operation: str) -> None:
+    captured: list[httpx.Request] = []
+    condition_id = "0x01" + "44" * 30
+
+    async def run() -> None:
+        client = await make_deposit_client()
+        _setup_relayer(client, captured, "tx-missing-version")
+        client.list_markets = _async_list_markets_stub(  # type: ignore[method-assign]
+            [], (_stub_v2_market(condition_id, version=None),)
+        )
+        try:
+            with pytest.raises(UnexpectedResponseError, match="Missing market version"):
+                if operation == "split":
+                    await client.split_position(condition_id=condition_id, amount=5)
+                elif operation == "merge":
+                    await client.merge_positions(condition_id=condition_id, amount="max")
+                elif operation == "redeem":
+                    await client.redeem_positions(condition_id=condition_id)
+                else:
+                    await client.merge_multiple_positions(
+                        positions=[{"condition_id": condition_id, "amount": 5}]
+                    )
+        finally:
+            await client.close()
+
+    asyncio.run(run())
+    assert not any(urlparse(str(request.url)).path == "/submit" for request in captured)
+
+
 @pytest.mark.parametrize("balances", ([12], [12, 34, 56]))
 def test_redeem_market_position_requires_two_v2_balances(balances: list[int]) -> None:
     condition_id = "0x01" + "77" * 30
@@ -458,6 +488,7 @@ def _deposit_wallet_calls(body: dict[str, object]) -> list[dict[str, str]]:
 def _stub_market(condition_id: str | None):  # type: ignore[no-untyped-def]
     return SimpleNamespace(
         id="123",
+        version="v1",
         condition_id=condition_id,
         state=SimpleNamespace(neg_risk=True),
         outcomes=SimpleNamespace(
@@ -467,14 +498,15 @@ def _stub_market(condition_id: str | None):  # type: ignore[no-untyped-def]
     )
 
 
-def _stub_v2_market(condition_id: str):  # type: ignore[no-untyped-def]
+def _stub_v2_market(condition_id: str, *, version: str | None = "v2"):  # type: ignore[no-untyped-def]
     return SimpleNamespace(
         id="123",
+        version=version,
         condition_id=condition_id,
         state=SimpleNamespace(neg_risk=None),
         outcomes=SimpleNamespace(
-            yes=SimpleNamespace(token_id=None, position_id=_combo_position(condition_id, 0)),
-            no=SimpleNamespace(token_id=None, position_id=_combo_position(condition_id, 1)),
+            yes=SimpleNamespace(token_id="101", position_id=_combo_position(condition_id, 0)),
+            no=SimpleNamespace(token_id="202", position_id=_combo_position(condition_id, 1)),
         ),
     )
 

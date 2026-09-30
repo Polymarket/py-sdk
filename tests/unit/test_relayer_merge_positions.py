@@ -177,6 +177,7 @@ def _market(
 ) -> SimpleNamespace:
     return SimpleNamespace(
         id="123",
+        version="v1",
         condition_id=condition_id,
         state=SimpleNamespace(neg_risk=neg_risk),
         outcomes=SimpleNamespace(
