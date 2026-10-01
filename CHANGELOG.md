@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.13.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.12.0...polymarket-client-v0.13.0) (2026-10-01)
+
+
+### Features
+
+* **client:** read trading approvals from the approvals endpoint ([b0aa248](https://github.com/Polymarket/py-sdk/commit/b0aa248c6f6cd5b3849ef97101a99b8d00df00bd))
+* **streams:** add the price.equity.twap channel ([31863f4](https://github.com/Polymarket/py-sdk/commit/31863f4c8ef769cab8262d8ab8149af1eb2b958b))
+* **streams:** pin a provider on price specs ([b543c9d](https://github.com/Polymarket/py-sdk/commit/b543c9db0c896a3727619ea174db7971f03b5b6a))
+* **streams:** surface the source of realtime prices ([972a4c0](https://github.com/Polymarket/py-sdk/commit/972a4c0c6540ade8d518eb9bad42e228552973ac))
+
+
+### Bug Fixes
+
+* **client:** keep three-topic price subscriptions typed to their channels ([e6d7526](https://github.com/Polymarket/py-sdk/commit/e6d7526df4f6f68dd3450158f9988d453fd0a003))
+* **errors:** accept HTTP-date Retry-After values ([b49859d](https://github.com/Polymarket/py-sdk/commit/b49859d3e82c68b6eda117267afb021091fc1d9e))
+
 ## [0.12.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.11.0...polymarket-client-v0.12.0) (2026-09-30)
 
 
