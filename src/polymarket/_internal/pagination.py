@@ -4,7 +4,7 @@ import base64
 import binascii
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import TypeVar, cast
 
 from polymarket._internal.request import PageBasedPagePayload, QueryParamValue, Service
@@ -109,12 +109,17 @@ def compute_offset_page(
     offset: int,
     page_size: int,
     items: tuple[T, ...],
+    page_fill: Callable[[tuple[T, ...]], int] | None = None,
+    max_offset: int | None = None,
 ) -> Page[T]:
     # Requests ask for exactly page_size rows, so a full page means another
     # page may exist. This costs one extra empty-page request when the total
     # count is an exact multiple of page_size, but cannot silently drop the
-    # tail when a server caps or clamps the limit.
-    has_more = len(items) >= page_size
+    # tail when a server caps or clamps the limit. `page_fill` says how many
+    # rows the limit was applied to when that is not the item count (a page
+    # of comments carries their replies as extra rows).
+    filled = page_fill(items) if page_fill is not None else len(items)
+    has_more = filled >= page_size
     next_cursor = (
         encode_offset_cursor(
             service=service,
@@ -126,7 +131,12 @@ def compute_offset_page(
         if has_more
         else None
     )
-    return Page(items=items, has_more=has_more, next_cursor=next_cursor)
+    return Page(
+        items=items,
+        has_more=has_more,
+        next_cursor=next_cursor,
+        limit_reached=has_more and max_offset is not None and offset + page_size > max_offset,
+    )
 
 
 def encode_keyset_cursor(
@@ -194,6 +204,24 @@ def decode_keyset_cursor(
     if not isinstance(raw_server, str) or not raw_server:
         raise UserInputError("Invalid pagination cursor.")
     return raw_server
+
+
+def cursor_path(cursor: str) -> str:
+    # Reads only the endpoint path a cursor was minted for, so a listing served
+    # from two paginated routes can pick the decoder. Nothing else is trusted
+    # here; the chosen decoder validates the whole envelope.
+    try:
+        decoded = base64.b64decode(cursor, validate=True).decode("utf-8")
+        parsed = json.loads(decoded)
+    except (binascii.Error, ValueError, UnicodeDecodeError) as error:
+        raise UserInputError("Invalid pagination cursor.") from error
+
+    if not isinstance(parsed, dict):
+        raise UserInputError("Invalid pagination cursor.")
+    raw_path = cast(dict[str, object], parsed).get("p")
+    if not isinstance(raw_path, str) or not raw_path:
+        raise UserInputError("Invalid pagination cursor.")
+    return raw_path
 
 
 def compute_keyset_page(
@@ -323,6 +351,7 @@ __all__ = [
     "compute_keyset_page",
     "compute_offset_page",
     "compute_page_based_page",
+    "cursor_path",
     "decode_keyset_cursor",
     "decode_offset_cursor",
     "decode_page_cursor",

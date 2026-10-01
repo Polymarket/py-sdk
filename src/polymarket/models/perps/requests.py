@@ -42,6 +42,7 @@ class PerpsOrderRequest:
     ``gtc`` orders require a ``price`` and may set ``post_only``. ``ioc`` and
     ``fok`` orders may omit ``price`` for market-style execution and cannot be
     post-only. Set ``reduce_only`` to prevent the order from increasing exposure.
+    Builder attribution follows the session's active approved terms.
     """
 
     instrument_id: int

@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.12.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.11.0...polymarket-client-v0.12.0) (2026-09-30)
+
+
+### Features
+
+* **gamma:** add a cursor-paginated comments spec ([15deb48](https://github.com/Polymarket/py-sdk/commit/15deb48fa530ddd70887561b6fd96cdb4e343b5e))
+* **gamma:** page comments by server cursor past the offset cap ([a5d3d0d](https://github.com/Polymarket/py-sdk/commit/a5d3d0db1fff77d6fe27acebf335f3d02615d49d))
+* **gamma:** route comment reads through cursor pagination ([c8c615a](https://github.com/Polymarket/py-sdk/commit/c8c615a4c6921eae1c3a7cf505ac2ed07affcd55))
+* **perps:** add session-oriented builder codes ([#313](https://github.com/Polymarket/py-sdk/issues/313)) ([bbf6513](https://github.com/Polymarket/py-sdk/commit/bbf6513cfa6f1f0a5ff95de4dd5cd00a7de2f5a0))
+
+
+### Bug Fixes
+
+* **client:** honor market version in position routing ([#322](https://github.com/Polymarket/py-sdk/issues/322)) ([674c5b3](https://github.com/Polymarket/py-sdk/commit/674c5b384fe256cf819993157d3126d93c940fde))
+* **gamma:** clarify the comments pagination hard stop ([b7b11c3](https://github.com/Polymarket/py-sdk/commit/b7b11c3c8a1d75eb885e46b697dbf8da2432317e))
+* **gamma:** preserve sport name on SportsMetadata ([29b5390](https://github.com/Polymarket/py-sdk/commit/29b5390b319baa70d5a96c2235c7b8dd8c23f564))
+* **gamma:** stop comment pagination at the upstream offset cap ([4d547a4](https://github.com/Polymarket/py-sdk/commit/4d547a42f1bc769429c8393cd603753bf637c30f))
+* **models:** accept account trades without a transaction hash ([a03c685](https://github.com/Polymarket/py-sdk/commit/a03c685190ba2afa252400acd0fcd2941922d416))
+* **models:** accept account trades without a transaction hash ([714710c](https://github.com/Polymarket/py-sdk/commit/714710ca42afa250e1b2e548a63e95c5343d2a07))
+* **models:** accept the REDEEMABLE_LOST and MERGEABLE position filters ([#311](https://github.com/Polymarket/py-sdk/issues/311)) ([0e00e28](https://github.com/Polymarket/py-sdk/commit/0e00e28365f57ab8fa7c5a7f3f320e77bb36e356))
+* **pagination:** preserve depth-limit signals when iteration stops ([29d162e](https://github.com/Polymarket/py-sdk/commit/29d162e0fccb9cf8708e1315172ae92a1772a9f3))
+
 ## [0.11.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.10.0...polymarket-client-v0.11.0) (2026-09-21)
 
 ### Features

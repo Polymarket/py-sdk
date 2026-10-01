@@ -8,6 +8,7 @@ from polymarket._internal.request import (
     PageBasedSpec,
 )
 from polymarket.errors import UnexpectedResponseError, UserInputError
+from polymarket.models import Comment
 
 
 def _minimal_market_payload(**overrides: object) -> dict[str, object]:
@@ -245,11 +246,11 @@ def test_list_comments_spec_builds_base_params() -> None:
 
 
 def test_list_comments_by_user_address_spec_builds_path_from_address() -> None:
-    spec = gamma_actions.list_comments_by_user_address_spec(address="0xUSER", order="DESC")
+    spec = gamma_actions.list_comments_by_user_address_spec(address="0xUSER", order="createdAt")
 
     assert isinstance(spec, OffsetPaginatedSpec)
     assert spec.path == "/comments/user_address/0xUSER"
-    assert spec.base_params == {"order": "DESC"}
+    assert spec.base_params == {"order": "createdAt"}
 
 
 def test_list_comments_by_user_address_spec_rejects_empty_address() -> None:
@@ -389,3 +390,150 @@ def test_offset_specs_cap_page_size_at_server_limit(spec: object, expected_max: 
     # misbehaving.
     assert isinstance(spec, OffsetPaginatedSpec)
     assert spec.max_page_size == expected_max
+
+
+@pytest.mark.parametrize(
+    ("spec", "expected_max_offset"),
+    [
+        (gamma_actions.list_series_spec(), None),
+        (gamma_actions.list_tags_spec(), None),
+        (gamma_actions.list_teams_spec(), None),
+        (
+            gamma_actions.list_comments_spec(parent_entity_id="1", parent_entity_type="Event"),
+            200,
+        ),
+        (gamma_actions.list_comments_by_user_address_spec(address="0x" + "a" * 40), 200),
+    ],
+    ids=["series", "tags", "teams", "comments", "comments-by-user-address"],
+)
+def test_offset_specs_cap_offset_at_server_limit(
+    spec: object, expected_max_offset: int | None
+) -> None:
+    # Only the comments listings reject deep offsets upstream; the cap here
+    # must match so the SDK fails before the request rather than after it.
+    assert isinstance(spec, OffsetPaginatedSpec)
+    assert spec.max_offset == expected_max_offset
+
+
+def test_list_comments_spec_counts_only_root_comments_as_page_fill() -> None:
+    # A comments page holds `limit` top-level comments plus their replies, so
+    # replies must not make a short page of roots look full.
+    spec = gamma_actions.list_comments_spec(parent_entity_id="1", parent_entity_type="Event")
+    assert spec.page_fill is not None
+
+    root = Comment.parse_response({"id": "1", "body": "root"})
+    reply = Comment.parse_response({"id": "2", "body": "reply", "parentCommentID": "1"})
+
+    assert spec.page_fill((root, reply, reply)) == 1
+    assert spec.page_fill((root, root)) == 2
+    assert spec.page_fill(()) == 0
+
+
+def test_list_comments_by_user_address_spec_counts_every_row_as_page_fill() -> None:
+    # The by-address listing is flat: authored replies are rows of their own.
+    spec = gamma_actions.list_comments_by_user_address_spec(address="0x" + "a" * 40)
+    assert spec.page_fill is None
+
+
+_KEYSET_DEFAULTS = {
+    "parent_entity_id": "123",
+    "parent_entity_type": "Event",
+    "order": "createdAt",
+    "ascending": False,
+}
+
+
+def test_list_comments_keyset_spec_pins_newest_first_by_default() -> None:
+    spec = gamma_actions.list_comments_keyset_spec(
+        parent_entity_id="123", parent_entity_type="Event"
+    )
+
+    assert isinstance(spec, KeysetPaginatedSpec)
+    assert spec.path == "/comments/keyset"
+    assert spec.cursor_param == "after_cursor"
+    assert spec.max_page_size == 100
+    assert spec.base_params == _KEYSET_DEFAULTS
+
+
+def test_list_comments_keyset_spec_ignores_ascending_without_order() -> None:
+    # The offset listing ignores `ascending` unless `order` is given; the
+    # cursor listing keeps that behaviour so the two stay interchangeable.
+    spec = gamma_actions.list_comments_keyset_spec(
+        parent_entity_id="123", parent_entity_type="Event", ascending=True
+    )
+
+    assert spec.base_params == _KEYSET_DEFAULTS
+
+
+@pytest.mark.parametrize(
+    ("order", "ascending", "expected_ascending"),
+    [("createdAt", None, True), ("id", None, True), ("id", False, False), ("id", True, True)],
+)
+def test_list_comments_keyset_spec_defaults_to_ascending_with_an_order(
+    order: str, ascending: bool | None, expected_ascending: bool
+) -> None:
+    spec = gamma_actions.list_comments_keyset_spec(
+        parent_entity_id="123", parent_entity_type="Event", order=order, ascending=ascending
+    )
+
+    assert spec.base_params is not None
+    assert spec.base_params["order"] == order
+    assert spec.base_params["ascending"] is expected_ascending
+
+
+def test_list_comments_keyset_spec_rejects_unsupported_order() -> None:
+    with pytest.raises(UserInputError, match="order must be one of: id, createdAt"):
+        gamma_actions.list_comments_keyset_spec(
+            parent_entity_id="123", parent_entity_type="Event", order="reactionCount"
+        )
+
+
+def test_list_comments_keyset_spec_validates_parent() -> None:
+    with pytest.raises(UserInputError, match="parent_entity_id is required"):
+        gamma_actions.list_comments_keyset_spec(parent_entity_id="", parent_entity_type="Event")
+    with pytest.raises(UserInputError, match="parent_entity_type must be one of"):
+        gamma_actions.list_comments_keyset_spec(
+            parent_entity_id="123",
+            parent_entity_type="Other",  # type: ignore[arg-type]
+        )
+
+
+def test_list_comments_keyset_spec_parses_envelope_and_terminal_pages() -> None:
+    spec = gamma_actions.list_comments_keyset_spec(
+        parent_entity_id="123", parent_entity_type="Event"
+    )
+
+    page = spec.parse_page(
+        {"$schema": "x", "comments": [{"id": "1", "body": "root"}], "next_cursor": "tok"}
+    )
+    assert len(page.items) == 1
+    assert isinstance(page.items[0], Comment)
+    assert page.server_next_cursor == "tok"
+
+    assert spec.parse_page({"comments": []}).server_next_cursor is None
+    assert spec.parse_page({"comments": [], "next_cursor": None}).server_next_cursor is None
+
+
+@pytest.mark.parametrize(
+    ("get_positions", "holders_only", "order", "expected"),
+    [
+        (None, None, None, True),
+        (False, False, "createdAt", True),
+        (None, None, "id", True),
+        (True, None, None, False),
+        (None, True, None, False),
+        (None, None, "reactionCount", False),
+        (None, None, "", False),
+        (None, None, " createdAt ", False),
+        (None, None, "createdAt,id", False),
+    ],
+)
+def test_comments_paginate_by_cursor_selects_supported_reads_only(
+    get_positions: bool | None, holders_only: bool | None, order: str | None, expected: bool
+) -> None:
+    assert (
+        gamma_actions.comments_paginate_by_cursor(
+            get_positions=get_positions, holders_only=holders_only, order=order
+        )
+        is expected
+    )

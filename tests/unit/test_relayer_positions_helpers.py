@@ -57,7 +57,7 @@ def test_expect_binary_positions_returns_yes_no_tuple() -> None:
     ("yes_position_id", "no_position_id", "message"),
     [
         ("101", None, "Incomplete market position IDs"),
-        (None, None, "Missing tradeable outcome IDs"),
+        (None, None, "Missing market position IDs"),
     ],
 )
 def test_normalize_market_position_context_distinguishes_v2_id_failures(
@@ -67,11 +67,100 @@ def test_normalize_market_position_context_distinguishes_v2_id_failures(
 ) -> None:
     market = SimpleNamespace(
         id="1",
+        version="v2",
         condition_id=_CONDITION_ID,
         state=SimpleNamespace(neg_risk=None),
         outcomes=SimpleNamespace(
             yes=SimpleNamespace(token_id=None, position_id=yes_position_id),
             no=SimpleNamespace(token_id=None, position_id=no_position_id),
+        ),
+    )
+
+    with pytest.raises(UnexpectedResponseError, match=message):
+        normalize_market_position_context(
+            market,  # type: ignore[arg-type]
+            context="test market",
+            collateral_adapter=_ADDRESS,
+            neg_risk_collateral_adapter=_ADDRESS,
+            conditional_tokens=_ADDRESS,
+            neg_risk_adapter=_ADDRESS,
+            position_manager=_ADDRESS,
+        )
+
+
+@pytest.mark.parametrize(
+    ("version", "token_ids", "position_ids", "protocol"),
+    [
+        ("v1", ("101", "202"), ("301", "302"), "ctf"),
+        ("v2", ("101", "202"), ("301", "302"), "v2"),
+        ("v1", ("101", "202"), (None, None), "ctf"),
+        ("v2", (None, None), ("301", "302"), "v2"),
+        ("v1", ("101", "202"), ("301", None), "ctf"),
+        ("v2", ("101", None), ("301", "302"), "v2"),
+    ],
+)
+def test_market_position_routing_uses_version_then_protocol_v2_position_ids(
+    version: str | None,
+    token_ids: tuple[str | None, str | None],
+    position_ids: tuple[str | None, str | None],
+    protocol: str,
+) -> None:
+    market = SimpleNamespace(
+        id="1",
+        version=version,
+        condition_id=_CONDITION_ID,
+        state=SimpleNamespace(neg_risk=False if protocol == "ctf" else None),
+        outcomes=SimpleNamespace(
+            yes=SimpleNamespace(token_id=token_ids[0], position_id=position_ids[0]),
+            no=SimpleNamespace(token_id=token_ids[1], position_id=position_ids[1]),
+        ),
+    )
+    position_manager = EvmAddress("0x0000000000000000000000000000000000000002")
+
+    context = normalize_market_position_context(
+        market,  # type: ignore[arg-type]
+        context="test market",
+        collateral_adapter=_ADDRESS,
+        neg_risk_collateral_adapter=_ADDRESS,
+        conditional_tokens=_ADDRESS,
+        neg_risk_adapter=_ADDRESS,
+        position_manager=position_manager,
+    )
+
+    assert context.protocol == protocol
+    assert context.token_ids == (position_ids if protocol == "v2" else token_ids)
+    assert context.position_erc1155_address == (position_manager if protocol == "v2" else _ADDRESS)
+    assert context.adapter_address == (None if protocol == "v2" else _ADDRESS)
+
+
+@pytest.mark.parametrize(
+    ("version", "token_ids", "position_ids", "message"),
+    [
+        ("v1", (None, None), ("301", "302"), "Missing market token IDs"),
+        ("v1", ("101", None), ("301", "302"), "Incomplete market token IDs"),
+        ("v2", ("101", "202"), (None, None), "Missing market position IDs"),
+        ("v2", ("101", "202"), ("301", None), "Incomplete market position IDs"),
+        (None, ("101", "202"), ("301", "302"), "Missing market version"),
+        (None, ("101", "202"), (None, None), "Missing market version"),
+        (None, (None, None), ("301", "302"), "Missing market version"),
+        (None, (None, None), (None, None), "Missing market version"),
+        (None, ("101", "202"), ("301", None), "Missing market version"),
+    ],
+)
+def test_market_position_routing_rejects_missing_selected_protocol_ids(
+    version: str | None,
+    token_ids: tuple[str | None, str | None],
+    position_ids: tuple[str | None, str | None],
+    message: str,
+) -> None:
+    market = SimpleNamespace(
+        id="1",
+        version=version,
+        condition_id=_CONDITION_ID,
+        state=SimpleNamespace(neg_risk=False),
+        outcomes=SimpleNamespace(
+            yes=SimpleNamespace(token_id=token_ids[0], position_id=position_ids[0]),
+            no=SimpleNamespace(token_id=token_ids[1], position_id=position_ids[1]),
         ),
     )
 

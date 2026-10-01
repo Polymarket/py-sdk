@@ -69,6 +69,7 @@ from polymarket._internal.actions.orders.typed_data import (
     build_order_typed_data,
 )
 from polymarket._internal.actions.orders.types import OrderDraft
+from polymarket._internal.actions.perps import builders as _perps_builders
 from polymarket._internal.actions.perps import credentials as _perps_credentials
 from polymarket._internal.actions.perps import funds as _perps_funds
 from polymarket._internal.actions.perps import public as _perps_actions
@@ -119,6 +120,7 @@ from polymarket._internal.context import AsyncSecureClientContext
 from polymarket._internal.dispatch import (
     async_dispatch,
     async_paginate_keyset,
+    async_paginate_keyset_or_resume_offset,
     async_paginate_offset,
     async_paginate_page_based,
 )
@@ -245,6 +247,7 @@ from polymarket.models.perps import (
     PerpsTrade,
     PerpsWithdrawalId,
 )
+from polymarket.models.perps.builders import PerpsBuilderStatus
 from polymarket.models.price_events import (
     CryptoPriceEvent,
     CryptoTwapPriceEvent,
@@ -1297,6 +1300,8 @@ class AsyncSecureClient:
     async def open_perps_session(
         self,
         *,
+        builder_attribution: str | None = None,
+        include_builder_fills: bool = False,
         credentials: PerpsCredentials | None = None,
         expires_in: "timedelta | None" = None,
         label: str | None = None,
@@ -1312,7 +1317,20 @@ class AsyncSecureClient:
         ``credentials`` to validate and resume them without a new wallet
         signature.
 
+        Select a builder address for new orders, batches, and TP/SL exits.
+        Opening or resuming requires an active builder. New orders use the lower
+        of the builder's configured cap and your saved approval cap. Missing or
+        revoked approval counts as zero: orders omit builder attribution while
+        the builder remains selected for
+        ``session.approve_builder_fee(max_fee_rate="0.0003")`` (3 basis points).
+        A zero builder cap also disables attribution. Approval remains valid
+        until revoked or replaced. Opening a session only reads existing consent;
+        it never grants or changes it.
+
         Args:
+            builder_attribution: Optional builder address to use for new orders.
+            include_builder_fills: Request this account's builder receipts in its event iterator.
+                Receipt subscription is best-effort and never blocks session readiness.
             credentials: Existing delegated credentials to validate and resume.
             expires_in: Delegated credential lifetime for newly created credentials.
             label: Optional label for newly created credentials.
@@ -1324,6 +1342,10 @@ class AsyncSecureClient:
         """
         from polymarket._internal.perps_session import PerpsSession
 
+        if type(include_builder_fills) is not bool:
+            raise UserInputError("include_builder_fills must be a bool")
+        if builder_attribution is not None:
+            _perps_builders.validate_address("builder_attribution", builder_attribution)
         if credentials is not None:
             if expires_in is not None or label is not None:
                 raise UserInputError("expires_in and label cannot be combined with credentials")
@@ -1345,6 +1367,9 @@ class AsyncSecureClient:
                 label=label,
             )
         session = PerpsSession(
+            builder_attribution=builder_attribution,
+            include_builder_fills=include_builder_fills,
+            owner_signer=self._ctx.signer,
             chain_id=self._ctx.environment_config.chain_id,
             credentials=resolved,
             rest_url=self._ctx.environment_config.perps_url,
@@ -2070,7 +2095,28 @@ class AsyncSecureClient:
         order: str | None = None,
         page_size: int = 20,
     ) -> AsyncPaginator[Comment]:
-        """List comments for a market or event.
+        """List comments for an event or series.
+
+        Without ``order``, pages are newest first and ``ascending`` is ignored.
+        With ``order`` (``id`` or ``createdAt``), pages are ascending unless
+        ``ascending`` is ``False``.
+
+        Reads without ``holders_only`` or ``get_positions`` and with one of
+        those orders page through the whole thread. Their cursors continue that
+        exact query and are rejected for a different parent, order or
+        direction.
+
+        Reads with ``holders_only``, ``get_positions`` or another order serve
+        pages up to offset 200. Automatic iteration yields the final accessible
+        full page with ``limit_reached=True`` and stops normally. Its
+        ``has_more`` stays True: completeness is unknown, not proof that more
+        comments exist. Explicitly following its cursor raises
+        ``PaginationLimitError`` before any request is sent. Cursors saved from
+        earlier versions keep working with the same arguments.
+
+        ``page_size`` counts top-level comments; replies ride along in the same
+        page. A thread ending exactly on a page boundary may return one final
+        empty page.
 
         Returns:
             An async paginator over matching comments.
@@ -2083,7 +2129,21 @@ class AsyncSecureClient:
             holders_only=holders_only,
             order=order,
         )
-        return async_paginate_offset(self._ctx, spec, page_size=page_size)
+        if not _gamma_actions.comments_paginate_by_cursor(
+            get_positions=get_positions, holders_only=holders_only, order=order
+        ):
+            return async_paginate_offset(self._ctx, spec, page_size=page_size)
+        return async_paginate_keyset_or_resume_offset(
+            self._ctx,
+            keyset_spec=_gamma_actions.list_comments_keyset_spec(
+                parent_entity_id=parent_entity_id,
+                parent_entity_type=parent_entity_type,
+                ascending=ascending,
+                order=order,
+            ),
+            offset_spec=spec,
+            page_size=page_size,
+        )
 
     def list_comments_by_user_address(
         self,
@@ -2094,6 +2154,15 @@ class AsyncSecureClient:
         page_size: int = 20,
     ) -> AsyncPaginator[Comment]:
         """List comments authored by a user address.
+
+        Pages starting past offset 200 are not served. Automatic iteration
+        yields the final accessible full page with ``limit_reached=True`` and
+        stops normally. Its ``has_more`` stays True: completeness is unknown,
+        not proof that more comments exist. Explicitly following its cursor
+        raises ``PaginationLimitError`` before any request is sent.
+
+        This is a hard stop for this listing: there are no range filters to
+        retrieve the remaining comments.
 
         Returns:
             An async paginator over matching comments.
@@ -3720,6 +3789,10 @@ class AsyncSecureClient:
         return _rewards_actions.parse_reward_percentages(
             await self._ctx.secure_clob.get_json(path, params=params)
         )
+
+    async def fetch_perps_builder_status(self, *, address: str) -> PerpsBuilderStatus:
+        """Experimental: read builder registration, availability, and fee cap."""
+        return await _perps_builders.fetch_status(self._ctx.perps, address=address)
 
     async def fetch_perps_instruments(
         self,

@@ -26,12 +26,14 @@ from polymarket._internal.actions.orders.estimate import (
     estimate_market_price as _estimate_market_price,
 )
 from polymarket._internal.actions.orders.types import MarketOrderType
+from polymarket._internal.actions.perps import builders as _perps_builders
 from polymarket._internal.actions.perps import public as _perps_actions
 from polymarket._internal.actions.relayer.approvals import build_get_trading_approvals_state_spec
 from polymarket._internal.context import AsyncClientContext
 from polymarket._internal.dispatch import (
     async_dispatch,
     async_paginate_keyset,
+    async_paginate_keyset_or_resume_offset,
     async_paginate_offset,
     async_paginate_page_based,
 )
@@ -113,6 +115,7 @@ from polymarket.models.perps import (
     PerpsTicker,
     PerpsTrade,
 )
+from polymarket.models.perps.builders import PerpsBuilderStatus
 from polymarket.models.rtds_events import (
     CommentsEvent,
     CryptoPricesChainlinkTwapEvent,
@@ -1273,7 +1276,28 @@ class AsyncPublicClient:
         order: str | None = None,
         page_size: int = 20,
     ) -> AsyncPaginator[Comment]:
-        """List comments for a market or event.
+        """List comments for an event or series.
+
+        Without ``order``, pages are newest first and ``ascending`` is ignored.
+        With ``order`` (``id`` or ``createdAt``), pages are ascending unless
+        ``ascending`` is ``False``.
+
+        Reads without ``holders_only`` or ``get_positions`` and with one of
+        those orders page through the whole thread. Their cursors continue that
+        exact query and are rejected for a different parent, order or
+        direction.
+
+        Reads with ``holders_only``, ``get_positions`` or another order serve
+        pages up to offset 200. Automatic iteration yields the final accessible
+        full page with ``limit_reached=True`` and stops normally. Its
+        ``has_more`` stays True: completeness is unknown, not proof that more
+        comments exist. Explicitly following its cursor raises
+        ``PaginationLimitError`` before any request is sent. Cursors saved from
+        earlier versions keep working with the same arguments.
+
+        ``page_size`` counts top-level comments; replies ride along in the same
+        page. A thread ending exactly on a page boundary may return one final
+        empty page.
 
         Returns:
             An async paginator over matching comments.
@@ -1286,7 +1310,21 @@ class AsyncPublicClient:
             holders_only=holders_only,
             order=order,
         )
-        return async_paginate_offset(self._ctx, spec, page_size=page_size)
+        if not _gamma_actions.comments_paginate_by_cursor(
+            get_positions=get_positions, holders_only=holders_only, order=order
+        ):
+            return async_paginate_offset(self._ctx, spec, page_size=page_size)
+        return async_paginate_keyset_or_resume_offset(
+            self._ctx,
+            keyset_spec=_gamma_actions.list_comments_keyset_spec(
+                parent_entity_id=parent_entity_id,
+                parent_entity_type=parent_entity_type,
+                ascending=ascending,
+                order=order,
+            ),
+            offset_spec=spec,
+            page_size=page_size,
+        )
 
     def list_comments_by_user_address(
         self,
@@ -1297,6 +1335,15 @@ class AsyncPublicClient:
         page_size: int = 20,
     ) -> AsyncPaginator[Comment]:
         """List comments authored by a user address.
+
+        Pages starting past offset 200 are not served. Automatic iteration
+        yields the final accessible full page with ``limit_reached=True`` and
+        stops normally. Its ``has_more`` stays True: completeness is unknown,
+        not proof that more comments exist. Explicitly following its cursor
+        raises ``PaginationLimitError`` before any request is sent.
+
+        This is a hard stop for this listing: there are no range filters to
+        retrieve the remaining comments.
 
         Returns:
             An async paginator over matching comments.
@@ -1542,6 +1589,10 @@ class AsyncPublicClient:
             )
 
         return AsyncPaginator(fetch=fetch)
+
+    async def fetch_perps_builder_status(self, *, address: str) -> PerpsBuilderStatus:
+        """Experimental: read builder registration, availability, and fee cap."""
+        return await _perps_builders.fetch_status(self._ctx.perps, address=address)
 
     async def fetch_perps_instruments(
         self,

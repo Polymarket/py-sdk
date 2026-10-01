@@ -7,6 +7,7 @@ import pytest
 from polymarket._internal.pagination import (
     compute_keyset_page,
     compute_offset_page,
+    cursor_path,
     decode_keyset_cursor,
     decode_offset_cursor,
     decode_page_cursor,
@@ -229,6 +230,35 @@ def test_compute_offset_page_more_when_full() -> None:
         expected_path="/positions",
         expected_base_params=None,
     ) == (10, 10)
+
+
+def test_compute_offset_page_uses_page_fill_over_item_count() -> None:
+    # When the server's limit bounds a subset of the rows (roots, not their
+    # replies), a page padded with extra rows is not a full page.
+    page = compute_offset_page(
+        service="gamma",
+        path="/comments",
+        base_params=None,
+        offset=0,
+        page_size=10,
+        items=tuple(range(15)),
+        page_fill=lambda items: 7,
+    )
+    assert page.items == tuple(range(15))
+    assert page.has_more is False
+    assert page.next_cursor is None
+
+    full = compute_offset_page(
+        service="gamma",
+        path="/comments",
+        base_params=None,
+        offset=0,
+        page_size=10,
+        items=tuple(range(15)),
+        page_fill=lambda items: 10,
+    )
+    assert full.has_more is True
+    assert full.next_cursor is not None
 
 
 def test_compute_offset_page_no_more_when_partial() -> None:
@@ -613,3 +643,33 @@ def test_page_decode_rejects_query_mismatch() -> None:
             expected_path="/public-search",
             expected_base_params={"q": "y"},
         )
+
+
+def test_cursor_path_reads_the_endpoint_of_either_cursor_shape() -> None:
+    offset = encode_offset_cursor(
+        service="gamma", path="/comments", base_params=None, offset=0, page_size=20
+    )
+    keyset = encode_keyset_cursor(
+        service="gamma",
+        path="/comments/keyset",
+        base_params={"parent_entity_id": "1"},
+        server_cursor="tok",
+    )
+
+    assert cursor_path(offset) == "/comments"
+    assert cursor_path(keyset) == "/comments/keyset"
+
+
+@pytest.mark.parametrize(
+    "cursor",
+    [
+        "not-a-cursor",
+        "",
+        base64.b64encode(b"[]").decode(),
+        base64.b64encode(b'{"v":1}').decode(),
+        base64.b64encode(b'{"p":""}').decode(),
+    ],
+)
+def test_cursor_path_rejects_cursors_without_a_readable_path(cursor: str) -> None:
+    with pytest.raises(UserInputError, match="Invalid pagination cursor"):
+        cursor_path(cursor)

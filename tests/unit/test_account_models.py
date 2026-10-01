@@ -108,6 +108,7 @@ def test_account_model_annotations_are_canonical() -> None:
             "size": Decimal,
             "status": TradeStatus,
             "fee_rate_bps": Decimal,
+            "transaction_hash": str | None,
             "matched_at": datetime,
             "updated_at": datetime,
         },
@@ -140,6 +141,7 @@ def test_account_model_signatures_use_canonical_annotations() -> None:
             "size": Decimal,
             "status": TradeStatus,
             "fee_rate_bps": Decimal,
+            "transaction_hash": str | None,
             "match_time": datetime,
             "last_update": datetime,
         },
@@ -191,6 +193,31 @@ def test_clob_trade_normalizes_prefixed_statuses(status: TradeStatus) -> None:
 def test_clob_trade_rejects_unknown_status() -> None:
     with pytest.raises(UnexpectedResponseError):
         ClobTrade.parse_response(_clob_trade_payload(status="TRADE_STATUS_UNKNOWN"))
+
+
+@pytest.mark.parametrize("status", ["FAILED", "MATCHED_NOT_BROADCASTED"])
+def test_clob_trade_accepts_missing_transaction_hash(status: TradeStatus) -> None:
+    payload = _clob_trade_payload(status=status)
+    payload.pop("transaction_hash")
+
+    trade = ClobTrade.parse_response(payload)
+
+    assert trade.status == status
+    assert trade.transaction_hash is None
+
+
+def test_clob_trade_normalizes_empty_transaction_hash_to_none() -> None:
+    trade = ClobTrade.parse_response(_clob_trade_payload(transaction_hash=""))
+
+    assert trade.transaction_hash is None
+
+
+@pytest.mark.parametrize("status", ["MINED", "FAILED"])
+def test_clob_trade_preserves_transaction_hash(status: TradeStatus) -> None:
+    trade = ClobTrade.parse_response(_clob_trade_payload(status=status))
+
+    assert trade.status == status
+    assert trade.transaction_hash == "0xTX"
 
 
 @pytest.mark.parametrize("created_at", [None, ""])
