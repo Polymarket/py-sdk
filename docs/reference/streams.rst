@@ -16,6 +16,16 @@ Prices are exact ``Decimal`` values and timestamps are timezone-aware UTC
 of price points in ``payload.data``. Live events have ``type="update"`` and
 ``payload.value``. A shared subscription begins with the current local history.
 
+Every price update and history payload has a required ``source`` identifying
+the source of its prices. History reports one source for the whole batch,
+including empty history; individual history points do not carry it.
+``KnownPriceSource`` includes ``PYTH``, ``CHAINLINK`` and ``MASSIVE``; being a
+known source does not imply availability on a channel. ``PriceSource`` also
+accepts future source strings without dropping their events.
+
+Source is constant on single-source channels and may change across reconnects
+on equity channels. Cached history starts fresh when the source changes.
+
 ``seq`` is scoped to one channel on one connection and resets on reconnect.
 Subscriptions exceeding 64 distinct filters can span multiple connections,
 whose sequence values may interleave. It is not a global event identifier.

@@ -106,7 +106,8 @@ def parse_price_event(message: object) -> PriceEvent | None:
             return None
         payload = _object(frame["payload"])
         symbol = payload["symbol"]
-        if not isinstance(symbol, str):
+        source = payload["source"]
+        if not isinstance(symbol, str) or not isinstance(source, str):
             return None
         # Shared keys always expose their canonical spelling.
         symbol = symbol.lower()
@@ -129,9 +130,9 @@ def parse_price_event(message: object) -> PriceEvent | None:
                     timestamp=timestamp,
                     seq=seq,
                     dropped=dropped,
-                    payload=RealtimeTwapSnapshot(symbol=symbol, data=points),
+                    payload=RealtimeTwapSnapshot(symbol=symbol, source=source, data=points),
                 )
-            history = RealtimePriceSnapshot(symbol=symbol, data=points)
+            history = RealtimePriceSnapshot(symbol=symbol, source=source, data=points)
             if topic == "prices.crypto":
                 return CryptoPriceSnapshotEvent(
                     timestamp=timestamp, seq=seq, dropped=dropped, payload=history
@@ -151,7 +152,7 @@ def parse_price_event(message: object) -> PriceEvent | None:
                 seq=seq,
                 dropped=dropped,
                 payload=RealtimeTwapUpdate(
-                    symbol=symbol, timestamp=point.timestamp, value=point.value
+                    symbol=symbol, source=source, timestamp=point.timestamp, value=point.value
                 ),
             )
         received_at = (
@@ -164,6 +165,7 @@ def parse_price_event(message: object) -> PriceEvent | None:
             return None
         update = RealtimePriceUpdate(
             symbol=symbol,
+            source=source,
             timestamp=point.timestamp,
             value=point.value,
             received_at=received_at,
@@ -181,7 +183,13 @@ def parse_price_event(message: object) -> PriceEvent | None:
 def refresh_snapshot(previous: PriceEvent | None, event: PriceEvent) -> PriceEvent | None:
     if event.type == "subscribe":
         return event
-    history = previous.payload.data if previous is not None and previous.type == "subscribe" else ()
+    history = (
+        previous.payload.data
+        if previous is not None
+        and previous.type == "subscribe"
+        and previous.payload.source == event.payload.source
+        else ()
+    )
     timestamp = event.payload.timestamp
     if history and history[-1].timestamp > timestamp:
         return previous
@@ -198,9 +206,13 @@ def refresh_snapshot(previous: PriceEvent | None, event: PriceEvent) -> PriceEve
             timestamp=event.timestamp,
             seq=event.seq,
             dropped=event.dropped,
-            payload=RealtimeTwapSnapshot(symbol=event.payload.symbol, data=points),
+            payload=RealtimeTwapSnapshot(
+                symbol=event.payload.symbol, source=event.payload.source, data=points
+            ),
         )
-    payload = RealtimePriceSnapshot(symbol=event.payload.symbol, data=points)
+    payload = RealtimePriceSnapshot(
+        symbol=event.payload.symbol, source=event.payload.source, data=points
+    )
     if event.topic == "prices.crypto":
         return CryptoPriceSnapshotEvent(
             timestamp=event.timestamp, seq=event.seq, dropped=event.dropped, payload=payload

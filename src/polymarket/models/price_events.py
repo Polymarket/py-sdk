@@ -3,9 +3,31 @@
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Literal
+from typing import Literal, TypeAlias
+
+from pydantic import field_validator
 
 from polymarket.models.base import BaseModel
+
+
+class KnownPriceSource(StrEnum):
+    """Known price sources; additional sources are preserved as plain strings."""
+
+    PYTH = "pyth"
+    CHAINLINK = "chainlink"
+    MASSIVE = "massive"
+
+
+PriceSource: TypeAlias = KnownPriceSource | str
+
+
+def _parse_price_source(value: object) -> PriceSource:
+    if not isinstance(value, str):
+        raise ValueError("Price source must be a string")
+    try:
+        return KnownPriceSource(value)
+    except ValueError:
+        return value
 
 
 class RealtimeErrorCode(StrEnum):
@@ -35,22 +57,34 @@ class RealtimePriceUpdate(RealtimePricePoint):
     """
 
     symbol: str
+    source: PriceSource
+    """Source that supplied this price."""
     received_at: datetime | None = None
     is_carried_forward: bool | None = None
+
+    _parse_source = field_validator("source", mode="before")(_parse_price_source)
 
 
 class RealtimePriceSnapshot(BaseModel):
     """A symbol's recent prices in its quote currency, in chronological order."""
 
     symbol: str
+    source: PriceSource
+    """Source for this history, including when ``data`` is empty."""
     data: tuple[RealtimePricePoint, ...]
+
+    _parse_source = field_validator("source", mode="before")(_parse_price_source)
 
 
 class RealtimeTwapUpdate(RealtimePricePoint):
     """A symbol's fixed 60-second time-weighted average price in its quote currency."""
 
     symbol: str
+    source: PriceSource
+    """Source that supplied this TWAP."""
     window_seconds: Literal[60] = 60
+
+    _parse_source = field_validator("source", mode="before")(_parse_price_source)
 
 
 class RealtimeTwapSnapshot(RealtimePriceSnapshot):
@@ -155,7 +189,9 @@ __all__ = [
     "EquityTwapPriceEvent",
     "EquityTwapPriceSnapshotEvent",
     "EquityTwapPriceUpdateEvent",
+    "KnownPriceSource",
     "PriceEvent",
+    "PriceSource",
     "RealtimeErrorCode",
     "RealtimePricePoint",
     "RealtimePriceSnapshot",

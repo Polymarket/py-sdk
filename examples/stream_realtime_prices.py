@@ -31,9 +31,9 @@ async def main() -> None:
         count = 0
         async for event in prices:
             if event.type == "subscribe":
-                print(event.topic, event.payload.symbol, event.payload.data)
+                print(event.topic, event.payload.symbol, event.payload.source, event.payload.data)
             else:
-                print(event.topic, event.payload.symbol, event.payload.value)
+                print(event.topic, event.payload.symbol, event.payload.source, event.payload.value)
             count += 1
             if count == 20:
                 break
