@@ -20,7 +20,9 @@ from polymarket.streams import (
     EquityPriceSpec,
     EquityTwapPriceEvent,
     EquityTwapPriceSpec,
+    KnownPriceSource,
     PriceEvent,
+    PriceProviderInput,
     PriceSource,
     SubscriptionHandle,
 )
@@ -31,7 +33,9 @@ def check_price_source_typing(event: PriceEvent) -> None:
 
 
 async def check_authenticated_price_typing(client: AsyncSecureClient) -> None:
-    equity_twap = EquityTwapPriceSpec(symbol="usdjpy")
+    provider: PriceProviderInput = KnownPriceSource.CHAINLINK
+    equity_twap = EquityTwapPriceSpec(symbol="usdjpy", provider=provider)
+    assert_type(equity_twap.provider, PriceProviderInput | None)
     assert_type(await client.subscribe(equity_twap), SubscriptionHandle[EquityTwapPriceEvent])
     assert_type(await client.subscribe([equity_twap]), SubscriptionHandle[EquityTwapPriceEvent])
     assert_type(
@@ -47,15 +51,16 @@ async def check_authenticated_price_typing(client: AsyncSecureClient) -> None:
         SubscriptionHandle[EquityPriceEvent | EquityTwapPriceEvent],
     )
     assert_type(
-        await client.subscribe(CryptoPriceSpec(symbols=["btcusd"])),
+        await client.subscribe(CryptoPriceSpec(symbols=["btcusd"], provider="pyth")),
         SubscriptionHandle[CryptoPriceEvent],
     )
     assert_type(
-        await client.subscribe([CryptoTwapPriceSpec(symbols=["btcusd"])]),
+        await client.subscribe([CryptoTwapPriceSpec(symbols=["btcusd"], provider=provider)]),
         SubscriptionHandle[CryptoTwapPriceEvent],
     )
     assert_type(
-        await client.subscribe(EquityPriceSpec(symbol="aapl")), SubscriptionHandle[EquityPriceEvent]
+        await client.subscribe(EquityPriceSpec(symbol="aapl", provider=KnownPriceSource.PYTH)),
+        SubscriptionHandle[EquityPriceEvent],
     )
     stream = await client.subscribe(
         [CryptoPriceSpec(symbols=["btcusd"]), EquityPriceSpec(symbol="aapl")]

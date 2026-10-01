@@ -20,7 +20,12 @@ from polymarket.models.price_events import (
     RealtimeTwapSnapshot,
     RealtimeTwapUpdate,
 )
-from polymarket.streams._specs import EquityPriceSpec, EquityTwapPriceSpec, PriceSpec
+from polymarket.streams._specs import (
+    EquityPriceSpec,
+    EquityTwapPriceSpec,
+    PriceProviderInput,
+    PriceSpec,
+)
 
 PriceTopic = Literal["prices.crypto", "prices.crypto.twap", "prices.equity", "prices.equity.twap"]
 CHANNEL_TOPICS: dict[str, PriceTopic] = {
@@ -35,19 +40,22 @@ CHANNEL_TOPICS: dict[str, PriceTopic] = {
 class PriceKey:
     topic: PriceTopic
     symbol: str
+    provider: PriceProviderInput | None = None
 
 
 def subscriptions_for(spec: PriceSpec) -> tuple[PriceKey, ...]:
     symbols = (
         (spec.symbol,) if isinstance(spec, EquityPriceSpec | EquityTwapPriceSpec) else spec.symbols
     )
-    return tuple(dict.fromkeys(PriceKey(spec.topic, symbol) for symbol in symbols))
+    return tuple(dict.fromkeys(PriceKey(spec.topic, symbol, spec.provider) for symbol in symbols))
 
 
 def build_wire_subscription(key: PriceKey) -> dict[str, object]:
     price_filter: dict[str, object] = {"symbol": key.symbol}
     if key.topic in ("prices.crypto.twap", "prices.equity.twap"):
         price_filter["window_seconds"] = 60
+    if key.provider is not None:
+        price_filter["provider"] = key.provider
     return {"channel": key.topic.replace("prices.", "price.", 1), "filter": price_filter}
 
 

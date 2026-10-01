@@ -13,6 +13,7 @@ from polymarket._internal.streams.realtime.protocol import (
 from polymarket._internal.streams.realtime.socket import Operation, PriceConnection
 from polymarket.errors import ConnectionLostError, RequestRejectedError, TransportError
 from polymarket.models.price_events import PriceEvent
+from polymarket.streams._specs import PriceProviderInput
 
 ACCEPTANCE_TIMEOUT_S = 30.0
 IDLE_TIMEOUT_S = 1.0
@@ -47,8 +48,13 @@ class PriceSession:
     changes. Listener registration/removal is synchronous within the event loop.
     """
 
-    def __init__(self, connection: PriceConnection) -> None:
+    def __init__(
+        self, connection: PriceConnection, *, provider: PriceProviderInput | None = None
+    ) -> None:
         self._connection = connection
+        # Frames carry the actual source, not the requested provider. Keep this
+        # group for the session's lifetime, including idle reuse and reconnects.
+        self._provider: PriceProviderInput | None = provider
         self._keys: dict[PriceKey, _KeyState] = {}
         self._ops: deque[tuple[Operation, list[_KeyState]]] = deque()
         self._wake = asyncio.Event()
@@ -61,6 +67,10 @@ class PriceSession:
         self._key_target = 64
         self._last_drop = float("-inf")
         self.closed = False
+
+    @property
+    def provider(self) -> PriceProviderInput | None:
+        return self._provider
 
     @property
     def size(self) -> int:
@@ -76,6 +86,8 @@ class PriceSession:
     def add(self, key: PriceKey, listener: PriceListener) -> Awaitable[None]:
         if self.closed:
             raise TransportError("Realtime session is closed")
+        if key.provider != self._provider:
+            raise RuntimeError("Realtime session cannot mix requested providers")
         if self._idle is not None:
             self._idle.cancel()
             self._idle = None
@@ -149,7 +161,7 @@ class PriceSession:
         self._wake.set()
 
     def _event(self, event: PriceEvent) -> None:
-        state = self._keys.get(PriceKey(event.topic, event.payload.symbol))
+        state = self._keys.get(PriceKey(event.topic, event.payload.symbol, self._provider))
         if state is None:
             return
         state.snapshot = refresh_snapshot(state.snapshot, event)
