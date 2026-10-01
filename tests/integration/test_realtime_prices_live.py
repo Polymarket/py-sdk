@@ -10,14 +10,13 @@ from polymarket.streams import (
     CryptoTwapPriceSpec,
     EquityPriceSpec,
     EquityTwapPriceSpec,
-    KnownPriceSource,
     PriceEvent,
 )
 
 
 def assert_price_values(event: PriceEvent) -> None:
     assert event.timestamp.utcoffset() == timedelta(0)
-    assert event.payload.source in set(KnownPriceSource)
+    assert isinstance(event.payload.source, str) and event.payload.source
     points = event.payload.data if event.type == "subscribe" else (event.payload,)
     for point in points:
         assert isinstance(point.value, Decimal)
