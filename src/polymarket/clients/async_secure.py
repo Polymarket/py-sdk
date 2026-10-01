@@ -252,6 +252,7 @@ from polymarket.models.price_events import (
     CryptoPriceEvent,
     CryptoTwapPriceEvent,
     EquityPriceEvent,
+    EquityTwapPriceEvent,
     PriceEvent,
 )
 from polymarket.models.rtds_events import (
@@ -288,6 +289,7 @@ from polymarket.streams._specs import (
     CryptoTwapPriceSpec,
     EquityPriceSpec,
     EquityPricesSpec,  # pyright: ignore[reportDeprecated]
+    EquityTwapPriceSpec,
     MarketSpec,
     PerpsSpec,
     PriceSpec,
@@ -1064,6 +1066,10 @@ class AsyncSecureClient:
     ) -> SubscriptionHandle[EquityPriceEvent]: ...
     @overload
     async def subscribe(
+        self, specs: EquityTwapPriceSpec | Sequence[EquityTwapPriceSpec], /
+    ) -> SubscriptionHandle[EquityTwapPriceEvent]: ...
+    @overload
+    async def subscribe(
         self, specs: Sequence[CryptoPriceSpec | CryptoTwapPriceSpec], /
     ) -> SubscriptionHandle[CryptoPriceEvent | CryptoTwapPriceEvent]: ...
     @overload
@@ -1074,6 +1080,34 @@ class AsyncSecureClient:
     async def subscribe(
         self, specs: Sequence[CryptoTwapPriceSpec | EquityPriceSpec], /
     ) -> SubscriptionHandle[CryptoTwapPriceEvent | EquityPriceEvent]: ...
+    @overload
+    async def subscribe(
+        self, specs: Sequence[CryptoPriceSpec | EquityTwapPriceSpec], /
+    ) -> SubscriptionHandle[CryptoPriceEvent | EquityTwapPriceEvent]: ...
+    @overload
+    async def subscribe(
+        self, specs: Sequence[CryptoTwapPriceSpec | EquityTwapPriceSpec], /
+    ) -> SubscriptionHandle[CryptoTwapPriceEvent | EquityTwapPriceEvent]: ...
+    @overload
+    async def subscribe(
+        self, specs: Sequence[EquityPriceSpec | EquityTwapPriceSpec], /
+    ) -> SubscriptionHandle[EquityPriceEvent | EquityTwapPriceEvent]: ...
+    @overload
+    async def subscribe(
+        self, specs: Sequence[CryptoPriceSpec | CryptoTwapPriceSpec | EquityPriceSpec], /
+    ) -> SubscriptionHandle[CryptoPriceEvent | CryptoTwapPriceEvent | EquityPriceEvent]: ...
+    @overload
+    async def subscribe(
+        self, specs: Sequence[CryptoPriceSpec | CryptoTwapPriceSpec | EquityTwapPriceSpec], /
+    ) -> SubscriptionHandle[CryptoPriceEvent | CryptoTwapPriceEvent | EquityTwapPriceEvent]: ...
+    @overload
+    async def subscribe(
+        self, specs: Sequence[CryptoPriceSpec | EquityPriceSpec | EquityTwapPriceSpec], /
+    ) -> SubscriptionHandle[CryptoPriceEvent | EquityPriceEvent | EquityTwapPriceEvent]: ...
+    @overload
+    async def subscribe(
+        self, specs: Sequence[CryptoTwapPriceSpec | EquityPriceSpec | EquityTwapPriceSpec], /
+    ) -> SubscriptionHandle[CryptoTwapPriceEvent | EquityPriceEvent | EquityTwapPriceEvent]: ...
     @overload
     async def subscribe(self, specs: Sequence[PriceSpec], /) -> SubscriptionHandle[PriceEvent]: ...
     @overload
@@ -1156,11 +1190,12 @@ class AsyncSecureClient:
         receive events through one merged handle. Authenticated user stream specs
         are supported only by secure clients.
 
-        ``CryptoPriceSpec``, ``CryptoTwapPriceSpec`` and ``EquityPriceSpec`` wait
-        for server acceptance and deliver recent history followed by live prices.
-        Crypto prices and crypto TWAPs are quoted in USD. Equity and forex prices
-        use the instrument's quote currency. Crypto symbols use canonical lowercase
-        pairs such as ``btcusd``; TWAPs have a fixed 60-second window.
+        ``CryptoPriceSpec``, ``CryptoTwapPriceSpec``, ``EquityPriceSpec`` and
+        ``EquityTwapPriceSpec`` wait for server acceptance and deliver recent history
+        followed by live prices. Crypto prices and crypto TWAPs are quoted in USD.
+        Equity and forex prices and TWAPs use the instrument's quote currency.
+        Crypto symbols use canonical lowercase pairs such as ``btcusd``;
+        TWAPs have a fixed 60-second window.
         Prices are ``Decimal`` values and timestamps are timezone-aware.
         Shared subscriptions reuse connections.
         Sequence numbers are local to a channel on a connection, reset after

@@ -30,7 +30,9 @@ from polymarket.streams import (
     CryptoPriceSpec,
     CryptoTwapPriceSpec,
     EquityPriceSpec,
+    EquityTwapPriceSpec,
     MarketSpec,
+    PriceSpec,
 )
 
 CREDS = ApiKeyCreds(key="test-key", secret="test-secret", passphrase="test-pass")
@@ -52,7 +54,7 @@ def price_frame(
     payload: dict[str, Any] = (
         {"symbol": symbol, "data": [point]} if snapshot else {"symbol": symbol, **point}
     )
-    if channel == "price.crypto.twap":
+    if channel in ("price.crypto.twap", "price.equity.twap"):
         payload["window_seconds"] = 60
     return {
         "v": 1,
@@ -77,6 +79,7 @@ class Feed:
         self.ignore_subscriptions = 0
         self.ignore_unsubscriptions = 0
         self.auth_close_code: int | None = None
+        self.unsubscribed = asyncio.Event()
 
     async def handler(self, ws: ServerConnection) -> None:
         self.connections.append(ws)
@@ -123,6 +126,8 @@ class Feed:
                         if op == "subscribed" and symbol in self.reject_symbols:
                             ack.update(op="error", code="bad_filter")
                         await ws.send(json.dumps(ack))
+                        if op == "unsubscribed":
+                            self.unsubscribed.set()
                         if ack["op"] == "subscribed":
                             await ws.send(json.dumps(price_frame(channel, symbol, snapshot=True)))
         except ConnectionClosed:
@@ -154,7 +159,9 @@ def fast_protocol(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(session_module, "reconnect_delay", delay)
 
 
-@pytest.mark.parametrize("channel", ["price.crypto", "price.crypto.twap", "price.equity"])
+@pytest.mark.parametrize(
+    "channel", ["price.crypto", "price.crypto.twap", "price.equity", "price.equity.twap"]
+)
 @pytest.mark.parametrize("snapshot", [False, True])
 def test_price_frames_preserve_exact_values_and_public_types(channel: str, snapshot: bool) -> None:
     frame = price_frame(channel, snapshot=snapshot)
@@ -168,11 +175,126 @@ def test_price_frames_preserve_exact_values_and_public_types(channel: str, snaps
     point = event.payload.data[0] if event.type == "subscribe" else event.payload
     assert point.value == Decimal(EXACT)
     assert point.timestamp.tzinfo is UTC
-    if event.topic == "prices.crypto.twap":
+    if event.topic == "prices.crypto.twap" or event.topic == "prices.equity.twap":
         assert event.payload.window_seconds == 60
     if event.topic == "prices.equity" and event.type == "update":
         assert event.payload.received_at == datetime(1970, 1, 1, tzinfo=UTC)
         assert event.payload.is_carried_forward is False
+
+
+@pytest.mark.parametrize("channel", ["price.crypto.twap", "price.equity.twap"])
+@pytest.mark.parametrize("empty", [False, True])
+def test_twap_snapshot_and_refreshed_history_preserve_topic_and_window(
+    channel: str, empty: bool
+) -> None:
+    frame = price_frame(channel, snapshot=True)
+    if empty:
+        frame["payload"]["data"] = []
+    snapshot = parse_price_event(frame)
+    assert snapshot is not None and snapshot.type == "subscribe"
+    assert snapshot.topic == "prices.crypto.twap" or snapshot.topic == "prices.equity.twap"
+    assert snapshot.topic == channel.replace("price.", "prices.", 1)
+    assert snapshot.payload.window_seconds == 60
+    assert len(snapshot.payload.data) == (0 if empty else 1)
+    update = parse_price_event(price_frame(channel, timestamp=TIMESTAMP + 1))
+    assert update is not None
+    history = refresh_snapshot(snapshot, update)
+    assert history is not None and history.type == "subscribe"
+    assert history.topic == "prices.crypto.twap" or history.topic == "prices.equity.twap"
+    assert history.topic == snapshot.topic
+    assert history.payload.window_seconds == 60
+    assert len(history.payload.data) == (1 if empty else 2)
+
+
+@pytest.mark.parametrize("channel", ["price.crypto.twap", "price.equity.twap"])
+@pytest.mark.parametrize("snapshot", [False, True])
+@pytest.mark.parametrize("window", [30, "60", True, None])
+def test_twap_frames_reject_unsupported_windows(
+    channel: str, snapshot: bool, window: object
+) -> None:
+    frame = price_frame(channel, snapshot=snapshot)
+    frame["payload"]["window_seconds"] = window
+    assert parse_price_event(frame) is None
+
+
+@pytest.mark.parametrize("symbol", ["", " ", "x" * 65, "bad symbol", None, 12])
+def test_equity_twap_symbol_is_validated(symbol: Any) -> None:
+    with pytest.raises(UserInputError, match="symbol"):
+        EquityTwapPriceSpec(symbol=symbol)
+
+
+def test_secure_client_equity_twap_subscribe_and_unsubscribe_requests() -> None:
+    spec = EquityTwapPriceSpec(symbol=" USDJPY ")
+    subscription = {
+        "channel": "price.equity.twap",
+        "filter": {"symbol": "usdjpy", "window_seconds": 60},
+    }
+
+    async def run() -> None:
+        feed = Feed()
+        async with feed_server(feed) as url:
+            environment = create_environment(
+                name="test", config=replace(PRODUCTION_CONFIG, realtime_ws_url=url)
+            )
+            client = await AsyncSecureClient._create(
+                private_key=PRIVATE_KEY,
+                wallet=WALLET,
+                credentials=CREDS,
+                environment=environment,
+                validate_credentials=False,
+            )
+            async with client:
+                stream = await client.subscribe(spec)
+                snapshot = await anext(stream)
+                assert snapshot.topic == "prices.equity.twap" and snapshot.type == "subscribe"
+                assert snapshot.payload.symbol == "usdjpy"
+                assert snapshot.payload.window_seconds == 60
+                assert feed.operations("subscribe")[0]["subscriptions"] == [subscription]
+                await feed.connections[0].send(
+                    json.dumps(price_frame("price.equity.twap", snapshot.payload.symbol))
+                )
+                update = await anext(stream)
+                assert update.topic == "prices.equity.twap" and update.type == "update"
+                assert update.payload.window_seconds == 60
+                await stream.close()
+                await feed.unsubscribed.wait()
+                assert feed.operations("unsubscribe")[0]["subscriptions"] == [subscription]
+
+    asyncio.run(asyncio.wait_for(run(), 5))
+
+
+def test_equity_twap_late_joiner_gets_current_history() -> None:
+    async def run() -> None:
+        feed = Feed()
+        async with feed_server(feed) as url:
+            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            try:
+                spec = EquityTwapPriceSpec(symbol="usdjpy")
+                first = await manager.subscribe(spec)
+                await anext(first)
+                await feed.connections[0].send(
+                    json.dumps(
+                        price_frame(
+                            "price.equity.twap",
+                            "USDJPY",
+                            timestamp=TIMESTAMP + 1,
+                        )
+                    )
+                )
+                update = await anext(first)
+                joined = await manager.subscribe(spec)
+                history = await anext(joined)
+                assert history.type == "subscribe" and update.type == "update"
+                assert history.topic == "prices.equity.twap"
+                assert history.payload.symbol == "usdjpy"
+                assert history.payload.window_seconds == 60
+                assert len(history.payload.data) == 2
+                assert history.payload.data[-1].timestamp == update.payload.timestamp
+                assert len(feed.operations("subscribe")) == 1
+            finally:
+                await manager.close()
+
+    asyncio.run(asyncio.wait_for(run(), 5))
 
 
 @pytest.mark.parametrize(
@@ -701,26 +823,47 @@ def test_ack_timeout_reconnects_without_losing_existing_listener(
     asyncio.run(asyncio.wait_for(run(), 5))
 
 
-def test_reconnect_joiners_wait_for_fresh_acceptance() -> None:
+@pytest.mark.parametrize(
+    ("spec", "subscription"),
+    [
+        (
+            CryptoPriceSpec(symbols=["btcusd"]),
+            {"channel": "price.crypto", "filter": {"symbol": "btcusd"}},
+        ),
+        (
+            EquityTwapPriceSpec(symbol="usdjpy"),
+            {"channel": "price.equity.twap", "filter": {"symbol": "usdjpy", "window_seconds": 60}},
+        ),
+    ],
+)
+def test_reconnect_joiners_wait_for_fresh_acceptance(
+    spec: PriceSpec, subscription: dict[str, Any]
+) -> None:
     async def run() -> None:
         feed = Feed()
         async with feed_server(feed) as url:
             manager = RealtimeStreamManager(url=url, credentials=CREDS)
             try:
-                first = await manager.subscribe(CryptoPriceSpec(symbols=["btcusd"]))
+                first = await manager.subscribe(spec)
                 await anext(first)
                 feed.ack_gate = asyncio.Event()
                 await feed.connections[0].close(4002, "recover")
                 await eventually(lambda: len(feed.connections) == 2)
-                joining = asyncio.create_task(
-                    manager.subscribe(CryptoPriceSpec(symbols=["btcusd"]))
-                )
+                joining = asyncio.create_task(manager.subscribe(spec))
                 await asyncio.sleep(0.03)
                 assert not joining.done()
                 feed.ack_gate.set()
                 second = await joining
-                assert (await anext(first)).type == "subscribe"
-                assert (await anext(second)).type == "subscribe"
+                for stream in (first, second):
+                    history = await anext(stream)
+                    assert history.type == "subscribe" and history.topic == spec.topic
+                    if history.topic == "prices.equity.twap":
+                        assert history.payload.window_seconds == 60
+                    assert len(history.payload.data) == 1
+                subscriptions = feed.operations("subscribe")
+                assert len(subscriptions) == 2
+                assert subscriptions[0]["subscriptions"] == subscriptions[1]["subscriptions"]
+                assert subscriptions[1]["subscriptions"] == [subscription]
             finally:
                 if feed.ack_gate is not None:
                     feed.ack_gate.set()

@@ -18,12 +18,29 @@ from polymarket.streams import (
     CryptoTwapPriceSpec,
     EquityPriceEvent,
     EquityPriceSpec,
+    EquityTwapPriceEvent,
+    EquityTwapPriceSpec,
     PriceEvent,
     SubscriptionHandle,
 )
 
 
 async def check_authenticated_price_typing(client: AsyncSecureClient) -> None:
+    equity_twap = EquityTwapPriceSpec(symbol="usdjpy")
+    assert_type(await client.subscribe(equity_twap), SubscriptionHandle[EquityTwapPriceEvent])
+    assert_type(await client.subscribe([equity_twap]), SubscriptionHandle[EquityTwapPriceEvent])
+    assert_type(
+        await client.subscribe([CryptoPriceSpec(symbols=["btcusd"]), equity_twap]),
+        SubscriptionHandle[CryptoPriceEvent | EquityTwapPriceEvent],
+    )
+    assert_type(
+        await client.subscribe([CryptoTwapPriceSpec(symbols=["btcusd"]), equity_twap]),
+        SubscriptionHandle[CryptoTwapPriceEvent | EquityTwapPriceEvent],
+    )
+    assert_type(
+        await client.subscribe([EquityPriceSpec(symbol="aapl"), equity_twap]),
+        SubscriptionHandle[EquityPriceEvent | EquityTwapPriceEvent],
+    )
     assert_type(
         await client.subscribe(CryptoPriceSpec(symbols=["btcusd"])),
         SubscriptionHandle[CryptoPriceEvent],
@@ -58,12 +75,47 @@ async def check_authenticated_price_typing(client: AsyncSecureClient) -> None:
         ),
         SubscriptionHandle[CryptoTwapPriceEvent | EquityPriceEvent],
     )
+    # Three-topic calls resolve to their own overloads, so widening ``PriceEvent``
+    # with a new channel never changes what an existing subscription yields.
     assert_type(
         await client.subscribe(
             [
                 CryptoPriceSpec(symbols=["btcusd"]),
                 CryptoTwapPriceSpec(symbols=["btcusd"]),
                 EquityPriceSpec(symbol="aapl"),
+            ]
+        ),
+        SubscriptionHandle[CryptoPriceEvent | CryptoTwapPriceEvent | EquityPriceEvent],
+    )
+    assert_type(
+        await client.subscribe(
+            [
+                CryptoPriceSpec(symbols=["btcusd"]),
+                CryptoTwapPriceSpec(symbols=["btcusd"]),
+                equity_twap,
+            ]
+        ),
+        SubscriptionHandle[CryptoPriceEvent | CryptoTwapPriceEvent | EquityTwapPriceEvent],
+    )
+    assert_type(
+        await client.subscribe(
+            [CryptoPriceSpec(symbols=["btcusd"]), EquityPriceSpec(symbol="aapl"), equity_twap]
+        ),
+        SubscriptionHandle[CryptoPriceEvent | EquityPriceEvent | EquityTwapPriceEvent],
+    )
+    assert_type(
+        await client.subscribe(
+            [CryptoTwapPriceSpec(symbols=["btcusd"]), EquityPriceSpec(symbol="aapl"), equity_twap]
+        ),
+        SubscriptionHandle[CryptoTwapPriceEvent | EquityPriceEvent | EquityTwapPriceEvent],
+    )
+    assert_type(
+        await client.subscribe(
+            [
+                CryptoPriceSpec(symbols=["btcusd"]),
+                CryptoTwapPriceSpec(symbols=["btcusd"]),
+                EquityPriceSpec(symbol="aapl"),
+                equity_twap,
             ]
         ),
         SubscriptionHandle[PriceEvent],
