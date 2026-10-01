@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import cast
 
-from eth_utils.address import to_checksum_address
+from eth_utils.address import is_hex_address, to_checksum_address
 
 from polymarket._internal.actions.relayer.calls import (
     MAX_UINT256,
@@ -14,9 +14,13 @@ from polymarket._internal.actions.relayer.calls import (
     erc1155_is_approved_for_all_call,
     erc1155_set_approval_for_all_call,
 )
+from polymarket._internal.data_envelope import parse_data_envelope
+from polymarket._internal.data_params import build_data_params
 from polymarket._internal.environment import EnvironmentConfig
 from polymarket._internal.eoa.rpc import JsonRpcClient, SyncJsonRpcClient
-from polymarket.errors import UserInputError
+from polymarket._internal.request import RequestSpec
+from polymarket._internal.retry import DATA_READ_RETRY
+from polymarket.errors import UnexpectedResponseError, UserInputError
 from polymarket.models.trading import (
     Erc20TradingApproval,
     Erc1155TradingApproval,
@@ -24,6 +28,114 @@ from polymarket.models.trading import (
     TradingApprovalsState,
 )
 from polymarket.types import EvmAddress
+
+
+def build_get_trading_approvals_state_spec(
+    *, wallet: str, config: EnvironmentConfig
+) -> RequestSpec[TradingApprovalsState]:
+    wallet_address = _normalize_wallet(wallet)
+    return RequestSpec(
+        service="data",
+        method="GET",
+        path="/v2/approvals",
+        params=build_data_params({"user": wallet_address}),
+        parse=lambda payload: parse_data_envelope(
+            payload,
+            lambda data: _parse_indexed_trading_approvals(
+                data, wallet=wallet_address, config=config
+            ),
+        ),
+        retry=DATA_READ_RETRY,
+    )
+
+
+def _parse_indexed_trading_approvals(
+    payload: object, *, wallet: EvmAddress, config: EnvironmentConfig
+) -> TradingApprovalsState:
+    if not isinstance(payload, dict):
+        raise UnexpectedResponseError("Trading approvals must be an object")
+    data = cast(dict[str, object], payload)
+    owner = data.get("address")
+    if not isinstance(owner, str) or owner.lower() != wallet.lower():
+        raise UnexpectedResponseError("Trading approvals owner does not match the requested wallet")
+    chain_id = data.get("chain_id")
+    if type(chain_id) is not int or chain_id != config.chain_id:
+        raise UnexpectedResponseError("Trading approvals chain does not match the environment")
+    contracts = data.get("contracts")
+    if not isinstance(contracts, list):
+        raise UnexpectedResponseError("Trading approvals are missing the contract catalog")
+
+    erc20, erc1155 = _required_trading_approvals(config)
+    required_pairs = {
+        *((a.token_address.lower(), a.spender.lower()) for a in erc20),
+        *((a.token_address.lower(), a.operator.lower()) for a in erc1155),
+    }
+
+    # Only the rows for required pairs are validated. The catalog grows
+    # independently of SDK releases, so unrelated rows must never fail a read.
+    indexed: dict[tuple[str, str], tuple[str, bool, int | None]] = {}
+    for raw in cast(list[object], contracts):
+        if not isinstance(raw, dict):
+            raise UnexpectedResponseError("Trading approval must be an object")
+        row = cast(dict[str, object], raw)
+        token, spender = row.get("token"), row.get("spender")
+        if not isinstance(token, str) or not isinstance(spender, str):
+            continue
+        pair = (token.lower(), spender.lower())
+        if pair not in required_pairs:
+            continue
+        if not is_hex_address(token) or not is_hex_address(spender):
+            raise UnexpectedResponseError("Trading approval has an invalid token or spender")
+        standard = row.get("standard")
+        approved = row.get("approved")
+        if standard not in ("ERC20", "ERC1155") or not isinstance(approved, bool):
+            raise UnexpectedResponseError(
+                "Trading approval has an invalid standard or approved flag"
+            )
+        amount = _parse_approval_amount(row.get("amount")) if standard == "ERC20" else None
+        if pair in indexed:
+            raise UnexpectedResponseError(
+                "Trading approvals contain a duplicate token/spender pair"
+            )
+        indexed[pair] = (cast(str, standard), approved, amount)
+
+    missing_erc20: list[Erc20TradingApproval] = []
+    missing_erc1155: list[Erc1155TradingApproval] = []
+    for approval in erc20:
+        row = indexed.get((approval.token_address.lower(), approval.spender.lower()))
+        if row is None or row[0] != "ERC20" or row[2] is None:
+            raise UnexpectedResponseError("Trading approvals are missing a required ERC20 pair")
+        # Persistent rows report "max" even when unapproved; exact rows may
+        # report approved for a positive allowance below the SDK requirement.
+        if not row[1] or row[2] < approval.amount:
+            missing_erc20.append(approval)
+    for approval in erc1155:
+        row = indexed.get((approval.token_address.lower(), approval.operator.lower()))
+        if row is None or row[0] != "ERC1155":
+            raise UnexpectedResponseError("Trading approvals are missing a required ERC1155 pair")
+        if not row[1]:
+            missing_erc1155.append(approval)
+    missing = MissingTradingApprovals(erc20=tuple(missing_erc20), erc1155=tuple(missing_erc1155))
+    return TradingApprovalsState(
+        missing=missing, is_fully_approved=not missing.erc20 and not missing.erc1155
+    )
+
+
+def _parse_approval_amount(value: object) -> int:
+    if value == "max":
+        return MAX_UINT256
+    if (
+        not isinstance(value, str)
+        or not value.isascii()
+        or not value.isdecimal()
+        or len(value) > 78
+        or (len(value) > 1 and value[0] == "0")
+    ):
+        raise UnexpectedResponseError("Trading approval amount must be a uint256 decimal or max")
+    amount = int(value)
+    if amount > MAX_UINT256:
+        raise UnexpectedResponseError("Trading approval amount exceeds uint256")
+    return amount
 
 
 async def get_trading_approvals_state(
@@ -220,6 +332,7 @@ def _required_trading_approvals(
 
 
 __all__ = [
+    "build_get_trading_approvals_state_spec",
     "build_missing_trading_approval_calls",
     "get_trading_approvals_state",
     "get_trading_approvals_state_sync",
