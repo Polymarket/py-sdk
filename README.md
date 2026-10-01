@@ -72,6 +72,35 @@ handle = client.merge_multiple_positions(
 outcome = handle.wait()
 ```
 
+Neg-risk event operations (protocol v2):
+
+```python
+# client is an authenticated SecureClient. Wait for trading approvals before
+# submitting these operations; approval transactions are never added implicitly.
+client.setup_trading_approvals()
+
+# Use the onchain neg-risk event ID (0x-prefixed bytes29, or bytes32 with
+# three trailing zero bytes), not the numeric event ID returned by get_event().
+client.horizontal_split(event_id=event_id, amount=1_000_000).wait()
+client.horizontal_merge(event_id=event_id, amount=1_000_000).wait()
+# Requires an existing NO balance for condition 0.
+client.convert(event_id=event_id, condition_index=0, amount=1_000_000).wait()
+```
+
+`horizontal_split` spends pUSD to mint YES for every condition, including the
+synthetic Other condition. `horizontal_merge` burns equal YES amounts across
+that complete set for pUSD. `convert` burns NO for one condition to mint YES for
+every other condition. Condition indexes start at zero, and Other has index equal
+to the event arity. Amounts are explicit positive integers in six-decimal base
+units (`1_000_000` represents one token); these methods do not accept `"max"`.
+
+Splitting requires pUSD approval for Router; merging and conversion require
+PositionManager approval for Router. `setup_trading_approvals()` covers both.
+The same methods are available on `AsyncSecureClient` with `await` and support
+EOA and gasless wallets. For custom batches, use `router_convert_call`,
+`router_horizontal_split_call`, and `router_horizontal_merge_call` from
+`polymarket.calls` with `execute()`.
+
 ## API Compatibility
 
 The SDK follows semantic versioning. Although minor releases on the 0.x line
