@@ -1432,3 +1432,107 @@ def test_optional_builder_subscription_never_blocks_readiness(acknowledgement: s
             assert session._builder_subscription_task is None
 
     asyncio.run(asyncio.wait_for(run(), timeout=10))
+
+
+@pytest.mark.parametrize("identifiers", [[1, -1], [1, True], [1, 1.5]])
+def test_cancel_validates_entire_batch_before_signing(
+    monkeypatch: pytest.MonkeyPatch,
+    identifiers: list[Any],
+) -> None:
+    def unexpected_sign(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("invalid batch reached signing")
+
+    async def run() -> None:
+        from polymarket._internal import perps_session
+
+        monkeypatch.setattr(perps_session, "sign_perps_op_with_key", unexpected_sign)
+
+        async def handler(ws: ServerConnection) -> None:
+            await _handshake(ws)
+            await ws.wait_closed()
+
+        async with ws_server(handler) as url, _open_session(url) as session:
+            with pytest.raises(UserInputError):
+                await session.cancel_orders(order_ids=identifiers)
+            assert not session._pending
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10))
+
+
+@pytest.mark.parametrize("later_failure", [False, True])
+def test_cancel_lost_response_never_replays_uncertain_command(
+    monkeypatch: pytest.MonkeyPatch,
+    later_failure: bool,
+) -> None:
+    from polymarket import PerpsCancelRetryError
+    from polymarket._internal import perps_session
+
+    monkeypatch.setattr(perps_session, "_ACK_TIMEOUT_S", 0.05)
+    commands: list[dict[str, Any]] = []
+
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        async for raw in ws:
+            message = json.loads(raw)
+            if _is_ping(message):
+                continue
+            commands.append(message)
+            if later_failure and len(commands) == 1:
+                await ws.send(
+                    json.dumps(
+                        {
+                            "id": message["id"],
+                            "data": [
+                                {"status": "ok", "oid": 1},
+                                {"status": "err", "oid": 2, "error": "order_in_flight"},
+                            ],
+                        }
+                    )
+                )
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            if later_failure:
+                with pytest.raises(PerpsCancelRetryError) as caught:
+                    await session.cancel_orders(order_ids=[1, 2], expires_at=4_000_000_000_000)
+                assert caught.value.pending_indexes == (1,)
+                assert caught.value.results[0].status == "ok"
+                assert caught.value.results[1].status == "err"
+                assert isinstance(caught.value.__cause__, TransportError)
+            else:
+                with pytest.raises(TransportError):
+                    await session.cancel_order(order_id=2, expires_at=4_000_000_000_000)
+            assert not session._pending
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10))
+    assert [command["op"]["args"] for command in commands] == (
+        [[1, 2], [2]] if later_failure else [[2]]
+    )
+    assert all(command["exp"] == 4_000_000_000_000 for command in commands)
+
+
+def test_cancelling_cancel_task_removes_pending_request_without_retry() -> None:
+    commands: list[dict[str, Any]] = []
+
+    async def run() -> None:
+        received = asyncio.Event()
+
+        async def handler(ws: ServerConnection) -> None:
+            await _handshake(ws)
+            async for raw in ws:
+                message = json.loads(raw)
+                if _is_ping(message):
+                    continue
+                commands.append(message)
+                received.set()
+
+        async with ws_server(handler) as url, _open_session(url) as session:
+            task = asyncio.create_task(session.cancel_order(order_id=1))
+            await received.wait()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            assert not session._pending
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10))
+    assert len(commands) == 1

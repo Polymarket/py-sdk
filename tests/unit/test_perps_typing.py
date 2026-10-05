@@ -8,8 +8,6 @@ from typing import TYPE_CHECKING, Any, assert_type
 
 from polymarket import AsyncPublicClient, AsyncSecureClient
 from polymarket.models.perps import (
-    PerpsCancelOrderErrorCode,
-    PerpsCancelOrderRejection,
     PerpsBuilderApproval,
     PerpsBuilderAttribution,
     PerpsBuilderEarningsPage,
@@ -17,6 +15,8 @@ from polymarket.models.perps import (
     PerpsBuilderEarningsSummary,
     PerpsBuilderFillEvent,
     PerpsBuilderStatus,
+    PerpsCancelOrderErrorCode,
+    PerpsCancelOrderRejection,
     PerpsCancelOrderResult,
     PerpsCancelOrderSuccess,
     PerpsCancelRetryOptions,
@@ -77,7 +77,7 @@ if TYPE_CHECKING:
         result = await session.cancel_order(order_id=1)
         if result.status == "err":
             assert_type(result, PerpsCancelOrderRejection)
-            assert_type(result.error, PerpsCancelOrderErrorCode)
+            assert_type(result.error, PerpsCancelOrderErrorCode | str)
         else:
             assert_type(result, PerpsCancelOrderSuccess)
         assert_type(

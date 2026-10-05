@@ -301,6 +301,8 @@ def cancel_orders_op(order_ids: Sequence[int]) -> list[Any]:
     for order_id in order_ids:
         if isinstance(order_id, bool) or not isinstance(order_id, int):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise UserInputError("order_ids must contain ints")
+        if order_id < 0:
+            raise UserInputError("order_ids must be non-negative")
         ids.append(order_id)
     if not ids:
         raise UserInputError("order_ids must be non-empty")

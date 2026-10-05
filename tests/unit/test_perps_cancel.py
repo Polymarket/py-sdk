@@ -74,9 +74,10 @@ def _no_delay(attempt: int, *, base_s: float, max_s: float) -> float:
     return 0.0
 
 
-def test_cancel_rejections_require_a_known_error_code() -> None:
-    with pytest.raises(UnexpectedResponseError):
-        perps_session._parse_cancel_results([{"status": "err", "error": "new"}])
+def test_cancel_rejections_preserve_unknown_error_codes() -> None:
+    [result] = perps_session._parse_cancel_results([{"status": "err", "error": "new"}])
+    assert isinstance(result, PerpsCancelOrderRejection)
+    assert result.error == "new"
 
 
 def test_cancel_results_require_a_list_response() -> None:
@@ -154,8 +155,8 @@ def test_attempt_limit_returns_the_latest_in_flight_result(
             monkeypatch,
             session,
             [
-                [{"status": "err", "error": "order_in_flight"}],
-                [{"status": "err", "error": "order_in_flight"}],
+                [{"status": "err", "oid": 1, "error": "order_in_flight"}],
+                [{"status": "err", "oid": 1, "error": "order_in_flight"}],
                 [{"status": "err", "oid": 1, "error": "order_in_flight"}],
             ],
         )
@@ -294,3 +295,101 @@ def test_cancel_response_cardinality_must_match_request(
 def test_retry_options_reject_invalid_bounds(options: dict[str, object]) -> None:
     with pytest.raises(UserInputError):
         PerpsCancelRetryOptions(**options)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        [{"status": "ok", "oid": 2}, {"status": "err", "oid": 1, "error": "order_in_flight"}],
+        [{"status": "ok", "oid": 1}, {"status": "err", "oid": 99, "error": "order_in_flight"}],
+    ],
+)
+def test_mismatched_response_identity_is_not_retried(
+    monkeypatch: pytest.MonkeyPatch,
+    response: list[dict[str, object]],
+) -> None:
+    async def run() -> None:
+        session = _session()
+        commands = _stub_cancel_responses(monkeypatch, session, [response])
+        try:
+            with pytest.raises(UnexpectedResponseError, match="identifier"):
+                await session.cancel_orders(order_ids=[1, 2])
+            assert len(commands) == 1
+        finally:
+            await session.close()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("order_ids", [[1], [1, 2]])
+def test_request_rejection_does_not_retry(
+    monkeypatch: pytest.MonkeyPatch,
+    order_ids: list[int],
+) -> None:
+    from polymarket.errors import RequestRejectedError
+
+    async def run() -> None:
+        session = _session()
+        commands = _stub_cancel_responses(
+            monkeypatch,
+            session,
+            [
+                [{"status": "err", "error": "order_in_flight"}],
+            ],
+        )
+        try:
+            with pytest.raises(RequestRejectedError, match="order_in_flight"):
+                await session.cancel_orders(order_ids=order_ids)
+            assert len(commands) == 1
+        finally:
+            await session.close()
+
+    asyncio.run(run())
+
+
+def test_later_failure_retains_confirmed_results(monkeypatch: pytest.MonkeyPatch) -> None:
+    from polymarket import PerpsCancelRetryError
+
+    monkeypatch.setattr(perps_session, "jittered_backoff", _no_delay)
+
+    async def run() -> None:
+        session = _session()
+        commands = _stub_cancel_responses(
+            monkeypatch,
+            session,
+            [
+                [
+                    {"status": "ok", "oid": 1},
+                    {"status": "err", "oid": 2, "error": "order_in_flight"},
+                ],
+                [{"status": "ok", "oid": 99}],
+            ],
+        )
+        try:
+            with pytest.raises(PerpsCancelRetryError) as caught:
+                await session.cancel_orders(order_ids=[1, 2])
+            assert isinstance(caught.value.__cause__, UnexpectedResponseError)
+            assert caught.value.results[0].status == "ok"
+            assert caught.value.results[1].status == "err"
+            assert caught.value.pending_indexes == (1,)
+            assert commands == [["cancelOrders", [1, 2]], ["cancelOrders", [2]]]
+        finally:
+            await session.close()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"status": "err", "oid": 1, "error": ""},
+        {"status": "err", "oid": 1, "error": 12},
+        {"status": "ok", "oid": True},
+        {"status": "ok", "oid": -1},
+        {"status": "ok", "oid": "1"},
+        {"status": "ok", "coid": "invalid"},
+    ],
+)
+def test_malformed_cancel_result_rejected(entry: dict[str, object]) -> None:
+    with pytest.raises(UnexpectedResponseError):
+        perps_session._parse_cancel_results([entry])

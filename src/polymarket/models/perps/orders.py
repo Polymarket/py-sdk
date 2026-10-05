@@ -223,17 +223,31 @@ class PerpsCancelOrderSuccess(BaseModel):
     """A successfully cancelled Perps order."""
 
     status: Literal["ok"]
-    order_id: PerpsOrderId | None = Field(default=None, validation_alias="oid")
-    client_order_id: str | None = Field(default=None, validation_alias="coid")
+    order_id: PerpsOrderId | None = Field(default=None, validation_alias="oid", strict=True, ge=0)
+    client_order_id: str | None = Field(
+        default=None, validation_alias="coid", pattern=r"^[0-9a-f]{32}$"
+    )
 
 
 class PerpsCancelOrderRejection(BaseModel):
     """A rejected Perps order cancellation."""
 
     status: Literal["err"]
-    error: PerpsCancelOrderErrorCode
-    order_id: PerpsOrderId | None = Field(default=None, validation_alias="oid")
-    client_order_id: str | None = Field(default=None, validation_alias="coid")
+    error: PerpsCancelOrderErrorCode | str
+    order_id: PerpsOrderId | None = Field(default=None, validation_alias="oid", strict=True, ge=0)
+    client_order_id: str | None = Field(
+        default=None, validation_alias="coid", pattern=r"^[0-9a-f]{32}$"
+    )
+
+    @field_validator("error", mode="before")
+    @classmethod
+    def _parse_error(cls, value: object) -> PerpsCancelOrderErrorCode | str:
+        if not isinstance(value, str) or not value:
+            raise ValueError("expected a non-empty cancellation rejection code")
+        try:
+            return PerpsCancelOrderErrorCode(value)
+        except ValueError:
+            return value
 
 
 PerpsCancelOrderResult: TypeAlias = Annotated[

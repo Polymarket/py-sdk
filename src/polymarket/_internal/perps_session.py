@@ -12,9 +12,8 @@ from decimal import Decimal
 from types import TracebackType
 from typing import Any, Literal, Self, TypeVar, cast, overload
 
-from pydantic import TypeAdapter, ValidationError
-
 from eth_account.signers.local import LocalAccount
+from pydantic import TypeAdapter, ValidationError
 
 from polymarket._internal.actions.perps import account as _account
 from polymarket._internal.actions.perps import builders as _builders
@@ -51,6 +50,7 @@ from polymarket._internal.ws.connection import AsyncWebSocketConnection
 from polymarket.clients._transport import AsyncTransport
 from polymarket.errors import (
     AutoCancelDailyLimitError,
+    PerpsCancelRetryError,
     RequestRejectedError,
     TransportError,
     UnexpectedResponseError,
@@ -588,6 +588,13 @@ class PerpsSession:
         Provide exactly one identifier. Only ``order_in_flight`` rejections are
         retried. Pass ``retry=False`` to make one attempt. If the retry budget
         is exhausted, the final ``order_in_flight`` result is returned.
+
+        Defaults allow four attempts and two seconds before starting a retry;
+        ``expires_at`` also stops further retries. These bounds do not interrupt
+        an in-flight command. Unknown rejection codes are returned as strings.
+        Request-wide failures raise. A later failure raises
+        :class:`~polymarket.errors.PerpsCancelRetryError` with earlier results
+        and the original cause. Reconcile pending orders before resubmitting.
         """
         if (order_id is None) == (client_order_id is None):
             raise UserInputError("Provide exactly one of order_id or client_order_id")
@@ -634,6 +641,15 @@ class PerpsSession:
         ``client_order_ids``. Only results rejected with ``order_in_flight``
         are retried; terminal results retain their original position. Pass
         ``retry=False`` to make one attempt.
+
+        Defaults allow four attempts and two seconds before starting a retry;
+        ``expires_at`` also stops further retries. Request-wide failures raise.
+        A later failure raises :class:`~polymarket.errors.PerpsCancelRetryError`
+        with the previous results and original request positions in the failed
+        attempt. Those positions have an uncertain outcome: reconcile their
+        orders before submitting another cancellation. Cancelling the task
+        raises ``asyncio.CancelledError`` and stops retries, but cannot undo an
+        already submitted command.
         """
         if (order_ids is None) == (client_order_ids is None):
             raise UserInputError("Provide exactly one of order_ids or client_order_ids")
@@ -696,16 +712,40 @@ class PerpsSession:
                 if _remaining_cancel_retry_s(retry_deadline, expires_at_ms=expires_at_ms) <= 0:
                     break
 
-            attempt_results = await self._send_signed_command(
-                build_op([identifier for _, identifier in pending]),
-                parse=_parse_cancel_results,
-                timeout_message="Perps cancel order response timed out.",
-                expires_at=expires_at_ms,
-            )
-            if len(attempt_results) != len(pending):
-                raise UnexpectedResponseError(
-                    "Perps cancel response did not include one result per requested order."
+            try:
+                attempt_results = await self._send_signed_command(
+                    build_op([identifier for _, identifier in pending]),
+                    parse=_parse_cancel_results,
+                    timeout_message="Perps cancel order response timed out.",
+                    expires_at=expires_at_ms,
                 )
+                if (
+                    len(attempt_results) == 1
+                    and isinstance(attempt_results[0], PerpsCancelOrderRejection)
+                    and attempt_results[0].order_id is None
+                    and attempt_results[0].client_order_id is None
+                ):
+                    raise RequestRejectedError(attempt_results[0].error, status=200)
+                if len(attempt_results) != len(pending):
+                    raise UnexpectedResponseError(
+                        "Perps cancel response did not include one result per requested order."
+                    )
+                for (_, identifier), result in zip(pending, attempt_results, strict=True):
+                    received_id = (
+                        result.order_id if isinstance(identifier, int) else result.client_order_id
+                    )
+                    if received_id is not None and received_id != identifier:
+                        raise UnexpectedResponseError(
+                            "Perps cancel response identifier did not match the requested order."
+                        )
+            except Exception as error:
+                if attempts == 0:
+                    raise
+                raise PerpsCancelRetryError(
+                    "Perps cancellation retry failed.",
+                    results=tuple(cast(PerpsCancelOrderResult, result) for result in final_results),
+                    pending_indexes=tuple(index for index, _ in pending),
+                ) from error
 
             attempts += 1
             retryable: list[tuple[int, _CancelIdentifier]] = []
