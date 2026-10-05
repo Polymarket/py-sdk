@@ -217,7 +217,11 @@ def test_auth_rejection_surfaces_request_rejected_error() -> None:
     asyncio.run(asyncio.wait_for(run(), timeout=10.0))
 
 
-def test_place_order_signs_command_and_returns_order_update() -> None:
+@pytest.mark.parametrize("status", ["open", "instrument_settled", "insufficient_margin_at_fill"])
+@pytest.mark.parametrize("update_before_ack", [True, False])
+def test_place_order_signs_command_and_returns_order_update(
+    status: str, update_before_ack: bool
+) -> None:
     commands: list[dict[str, Any]] = []
 
     async def handler(ws: ServerConnection) -> None:
@@ -228,16 +232,16 @@ def test_place_order_signs_command_and_returns_order_update() -> None:
                 continue
             commands.append(message)
             client_order_id = message["op"]["args"][0]["c"]
-            await ws.send(
-                json.dumps(
-                    _order_update(
-                        77,
-                        client_order_id=client_order_id,
-                        reduce_only=True,
-                    )
-                )
+            update = _order_update(
+                77,
+                client_order_id=client_order_id,
+                reduce_only=True,
             )
-            await ws.send(json.dumps({"id": message["id"], "data": [{"status": "ok", "oid": 77}]}))
+            update["data"]["status"] = status
+            ack = {"id": message["id"], "data": [{"status": "ok", "oid": 77}]}
+            frames = [update, ack] if update_before_ack else [ack, update]
+            for frame in frames:
+                await ws.send(json.dumps(frame))
 
     async def run() -> None:
         async with ws_server(handler) as url, _open_session(url) as session:
@@ -252,9 +256,12 @@ def test_place_order_signs_command_and_returns_order_update() -> None:
             assert placement.order.id == 77
             assert placement.order.client_order_id == commands[0]["op"]["args"][0]["c"]
             assert placement.order.reduce_only is True
-            assert placement.order.status == "open"
+            assert placement.order.status == status
             assert placement.tp_sl is None
             assert session._event_waiters == []
+            event = await asyncio.wait_for(session.__anext__(), timeout=5.0)
+            assert isinstance(event, PerpsOrderEvent)
+            assert event.payload == placement.order
 
     asyncio.run(asyncio.wait_for(run(), timeout=10.0))
     command = commands[0]
