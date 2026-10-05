@@ -814,9 +814,31 @@ def test_update_leverages_request_rejection_raises() -> None:
             {"status": "err", "instrument_id": 2, "error": "invalid_leverage"},
             {"status": "ok", "instrument_id": 1, "leverage": 5, "cross": False},
         ],
+        *[
+            [
+                {"status": "ok", "instrument_id": 1, "leverage": 5, "cross": False, **fields},
+                {"status": "ok", "instrument_id": 2, "leverage": 5, "cross": False},
+            ]
+            for fields in (
+                {"instrument_id": True, "leverage": -5, "cross": "false"},
+                {"instrument_id": True},
+                {"instrument_id": "1"},
+                {"leverage": True},
+                {"leverage": "5"},
+                {"leverage": 0},
+                {"leverage": -5},
+                {"leverage": 2**32},
+                {"cross": "false"},
+                {"cross": 0},
+            )
+        ],
+        [
+            {"status": "err", "instrument_id": True, "error": "invalid_leverage"},
+            {"status": "ok", "instrument_id": 2, "leverage": 5, "cross": False},
+        ],
     ],
 )
-def test_update_leverages_rejects_incomplete_or_misordered_results(response: object) -> None:
+def test_update_leverages_rejects_malformed_or_misordered_results(response: object) -> None:
     commands: list[dict[str, Any]] = []
 
     async def handler(ws: ServerConnection) -> None:

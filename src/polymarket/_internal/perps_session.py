@@ -1325,7 +1325,15 @@ def _parse_batch_leverage_results(
         wire = cast("dict[str, Any]", entry) if isinstance(entry, dict) else None
         if wire is None:
             raise ValueError("invalid Perps batch leverage result")
+        instrument_id = wire.get("instrument_id")
+        if type(instrument_id) is not int or not 0 <= instrument_id <= 2**32 - 1:
+            raise ValueError("invalid Perps batch leverage instrument id")
         if wire.get("status") == "ok":
+            leverage = wire.get("leverage")
+            if type(leverage) is not int or not 1 <= leverage <= 2**32 - 1:
+                raise ValueError("invalid Perps batch leverage value")
+            if not isinstance(wire.get("cross"), bool):
+                raise ValueError("invalid Perps batch leverage margin mode")
             results.append(PerpsUpdateLeverageResult.parse_response(wire))
         elif wire.get("status") == "err":
             results.append(PerpsLeverageUpdateRejection.parse_response(wire))
