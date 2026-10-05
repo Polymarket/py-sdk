@@ -280,6 +280,89 @@ def test_place_order_signs_command_and_returns_order_update() -> None:
     assert command["sig"].startswith("0x") and len(command["sig"]) == 132
 
 
+@pytest.mark.parametrize("with_exits", [False, True])
+def test_gtd_placement_keeps_order_and_command_expiry_separate(with_exits: bool) -> None:
+    from polymarket.models.perps.requests import PerpsTpSlTrigger
+
+    commands: list[dict[str, Any]] = []
+    expiry = datetime.now(UTC) + timedelta(minutes=5)
+    deadline = datetime.now(UTC) + timedelta(seconds=30)
+
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        async for raw in ws:
+            message = json.loads(raw)
+            if _is_ping(message):
+                continue
+            commands.append(message)
+            update = _order_update(77, client_order_id=message["op"]["args"][0]["c"])
+            update["data"]["tif"] = "gtd"
+            await ws.send(json.dumps(update))
+            acks = [
+                {"status": "ok", "oid": 77 + index} for index in range(len(message["op"]["args"]))
+            ]
+            await ws.send(json.dumps({"id": message["id"], "data": acks}))
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            placement = await session.place_order(
+                instrument_id=1,
+                side="BUY",
+                price="0.5",
+                quantity="10",
+                time_in_force="gtd",
+                gtd_expiry=expiry,
+                expires_at=deadline,
+                stop_loss=PerpsTpSlTrigger(trigger_price="0.4") if with_exits else None,
+            )
+            assert placement.order.time_in_force == "gtd"
+            assert commands[0]["exp"] == int(deadline.timestamp() * 1000)
+            assert commands[0]["op"]["args"][0]["gtd_expiry"] == int(expiry.timestamp() * 1000)
+            if with_exits:
+                assert placement.tp_sl is not None
+                assert placement.tp_sl.stop_loss is not None
+                assert "gtd_expiry" not in commands[0]["op"]["args"][1]
+                assert "tif" not in commands[0]["op"]["args"][1]
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+
+
+def test_gtd_batch_revalidates_expiry_before_sending(monkeypatch: pytest.MonkeyPatch) -> None:
+    from polymarket.models.perps.requests import PerpsOrderRequest
+
+    commands: list[dict[str, Any]] = []
+    expiry = 1_893_456_000_123
+    monkeypatch.setattr(
+        "polymarket.models.perps.requests.time.time_ns", lambda: (expiry - 1) * 1_000_000
+    )
+    valid = PerpsOrderRequest(
+        instrument_id=1, side="BUY", price="1", quantity="1", time_in_force="gtc"
+    )
+    delayed = PerpsOrderRequest(
+        instrument_id=1, side="BUY", price="1", quantity="1", time_in_force="gtd", gtd_expiry=expiry
+    )
+    monkeypatch.setattr("polymarket.models.perps.requests.time.time_ns", lambda: expiry * 1_000_000)
+
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        async for raw in ws:
+            message = json.loads(raw)
+            if _is_ping(message):
+                continue
+            commands.append(message)
+            await ws.send(json.dumps({"id": message["id"], "data": [{"status": "ok", "oid": 1}]}))
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            with pytest.raises(UserInputError, match="strictly in the future"):
+                await session.post_orders([valid, delayed])
+            await session.post_orders([valid])
+            assert len(commands) == 1
+            assert len(commands[0]["op"]["args"]) == 1
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+
+
 def test_place_order_update_timeout_starts_after_ack(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
