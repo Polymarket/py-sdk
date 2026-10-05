@@ -22,6 +22,16 @@ from polymarket.models.perps import (
 from polymarket.perps import PerpsOrderPlacement, PerpsSession
 
 if TYPE_CHECKING:
+
+    async def _check_registration_typing(
+        public: AsyncPublicClient, secure: AsyncSecureClient
+    ) -> None:
+        address = "0x1111111111111111111111111111111111111111"
+        assert_type(await public.fetch_perps_registration(address=address), bool)
+        assert_type(await secure.fetch_perps_registration(address=address), bool)
+
+    _registration_typing_check = _check_registration_typing
+
     assert_type(
         PerpsOrderRequest(
             instrument_id=1,

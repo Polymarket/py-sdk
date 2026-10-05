@@ -1594,6 +1594,16 @@ class AsyncPublicClient:
         """Experimental: read builder registration, availability, and fee cap."""
         return await _perps_builders.fetch_status(self._ctx.perps, address=address)
 
+    async def fetch_perps_registration(self, *, address: str) -> bool:
+        """Fetch whether an address has a Perps account without authentication.
+
+        Registration is permanent. A false result may be cached for up to ten seconds.
+
+        Experimental: This API may change in a breaking way in any release,
+        including patch releases.
+        """
+        return await _perps_actions.fetch_registration(self._ctx.perps, address=address)
+
     async def fetch_perps_instruments(
         self,
         *,

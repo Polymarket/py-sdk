@@ -13,7 +13,7 @@ import pytest
 
 from polymarket._internal.actions.perps import public as perps_public
 from polymarket.clients._transport import AsyncTransport
-from polymarket.errors import UserInputError
+from polymarket.errors import UnexpectedResponseError, UserInputError
 
 _BASE_URL = "https://perps.test"
 
@@ -31,6 +31,61 @@ def _query(request: httpx.Request) -> dict[str, str]:
 
 def _cursor(state: dict[str, Any]) -> str:
     return base64.b64encode(json.dumps(state, separators=(",", ":")).encode()).decode()
+
+
+@pytest.mark.parametrize("registered", [True, False])
+def test_fetch_registration_returns_boolean_without_auth(registered: bool) -> None:
+    address = "0x1111111111111111111111111111111111111111"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/v1/info/registered"
+        assert _query(request) == {"address": address}
+        assert "polymarket-proxy" not in request.headers
+        assert "polymarket-secret" not in request.headers
+        return httpx.Response(200, json={"registered": registered})
+
+    async def run() -> None:
+        transport = _transport(handler)
+        try:
+            assert await perps_public.fetch_registration(transport, address=address) is registered
+        finally:
+            await transport.close()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "payload", [{}, None, True, {"registered": None}, {"registered": 0}, {"registered": "false"}]
+)
+def test_fetch_registration_rejects_malformed_response(payload: object) -> None:
+    async def run() -> None:
+        transport = _transport(lambda _: httpx.Response(200, json=payload))
+        try:
+            with pytest.raises(UnexpectedResponseError):
+                await perps_public.fetch_registration(
+                    transport, address="0x1111111111111111111111111111111111111111"
+                )
+        finally:
+            await transport.close()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("address", ["not-an-address", "0x1234", "0x" + "1" * 42])
+def test_fetch_registration_validates_before_dispatch(address: str) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        pytest.fail(f"Invalid address reached transport: {request.url}")
+
+    async def run() -> None:
+        transport = _transport(handler)
+        try:
+            with pytest.raises(UserInputError, match="address"):
+                await perps_public.fetch_registration(transport, address=address)
+        finally:
+            await transport.close()
+
+    asyncio.run(run())
 
 
 def test_list_candles_steps_forward_by_interval() -> None:
