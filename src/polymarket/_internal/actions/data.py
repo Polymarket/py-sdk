@@ -179,6 +179,7 @@ def list_positions_spec(
     condition_id: str | Sequence[str] | None = None,
     status: PositionStatusFilter | None = None,
     event_id: int | Sequence[int] | None = None,
+    title: str | None = None,
     filter_type: PositionFilterType | None = None,
     filter_amount: float | None = None,
     include_archived: bool | None = None,
@@ -211,6 +212,13 @@ def list_positions_spec(
     if status == "CLOSED" and include_archived:
         raise UserInputError("include_archived is invalid with CLOSED")
     _check_nonnegative_amount("filter_amount", filter_amount)
+    if title is not None:
+        if type(title) is not str:
+            raise UserInputError("title must be a string")
+        if not title.strip():
+            title = None
+        elif len(title) > 200:
+            raise UserInputError("title must contain at most 200 characters")
     return KeysetPaginatedSpec(
         service="data",
         path="/v2/positions",
@@ -220,6 +228,7 @@ def list_positions_spec(
                 "condition_id": condition_id,
                 "status": status,
                 "event_id": event_id,
+                "title": title,
                 "filter_type": filter_type,
                 "filter_amount": filter_amount,
                 "include_archived": include_archived,
