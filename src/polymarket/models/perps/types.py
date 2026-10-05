@@ -24,7 +24,7 @@ PerpsNotificationType: TypeAlias = Literal[
     "position_liquidated",
 ]
 PerpsSide: TypeAlias = Literal["long", "short"]
-PerpsTimeInForce: TypeAlias = Literal["gtc", "ioc", "fok"]
+PerpsTimeInForce: TypeAlias = Literal["gtc", "ioc", "fok", "gtd"]
 PerpsTpSlKind: TypeAlias = Literal["tp", "sl"]
 PerpsTpSlScope: TypeAlias = Literal["order", "position"]
 PerpsDepositStatus: TypeAlias = Literal["pending", "confirmed", "removed"]

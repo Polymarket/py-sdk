@@ -429,6 +429,23 @@ class PerpsSession:
         instrument_id: int,
         side: OrderSide,
         quantity: DecimalInput,
+        time_in_force: Literal["gtd"],
+        price: DecimalInput,
+        gtd_expiry: datetime | int,
+        post_only: bool = False,
+        reduce_only: bool = False,
+        client_order_id: str | None = None,
+        take_profit: PerpsTpSlTrigger | None = None,
+        stop_loss: PerpsTpSlTrigger | None = None,
+        expires_at: datetime | int | None = None,
+    ) -> PerpsOrderPlacement: ...
+    @overload
+    async def place_order(
+        self,
+        *,
+        instrument_id: int,
+        side: OrderSide,
+        quantity: DecimalInput,
         time_in_force: Literal["gtc"],
         price: DecimalInput,
         post_only: bool = False,
@@ -460,6 +477,7 @@ class PerpsSession:
         side: OrderSide,
         quantity: DecimalInput,
         time_in_force: PerpsTimeInForce,
+        gtd_expiry: datetime | int | None = None,
         price: DecimalInput | None = None,
         post_only: bool = False,
         reduce_only: bool = False,
@@ -470,16 +488,32 @@ class PerpsSession:
     ) -> PerpsOrderPlacement:
         """Place one order and resolve with its first orders update.
 
-        ``gtc`` orders require ``price`` and may set ``post_only``; ``ioc`` and
+        ``gtc`` and ``gtd`` orders require ``price`` and may set ``post_only``; ``ioc`` and
         ``fok`` orders may omit ``price`` for market-style execution. Set
         ``reduce_only`` to prevent the order from increasing exposure. Pass
         ``take_profit`` and/or ``stop_loss`` to place reduce-only trigger orders
         together with the entry order. ``expires_at`` is an optional command
         expiration timestamp, accepted as ``datetime`` or epoch milliseconds.
+        ``gtd_expiry`` controls the GTD order lifetime instead: an aware datetime
+        or Unix-ms int, strictly future and at most 18446744073709 ms.
         When ``client_order_id`` is omitted, the session generates one for
         reliable private-order update correlation.
         """
-        if time_in_force == "gtc":
+        if time_in_force != "gtd" and gtd_expiry is not None:
+            raise UserInputError("gtd_expiry is only supported for gtd orders")
+        if time_in_force == "gtd":
+            request = PerpsOrderRequest(
+                instrument_id=instrument_id,
+                side=side,
+                quantity=quantity,
+                time_in_force=time_in_force,
+                price=cast(DecimalInput, price),
+                gtd_expiry=cast(datetime | int, gtd_expiry),
+                post_only=post_only,
+                reduce_only=reduce_only,
+                client_order_id=client_order_id,
+            )
+        elif time_in_force == "gtc":
             request = PerpsOrderRequest(
                 instrument_id=instrument_id,
                 side=side,
@@ -492,7 +526,7 @@ class PerpsSession:
             )
         else:
             if post_only:
-                raise UserInputError("post_only is only supported for gtc orders")
+                raise UserInputError("post_only is only supported for gtc or gtd orders")
             request = PerpsOrderRequest(
                 instrument_id=instrument_id,
                 side=side,

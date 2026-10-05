@@ -25,6 +25,7 @@ from polymarket.models.perps.requests import (
     to_decimal_string,
     to_position_tp_sl_quantity,
     validate_client_order_id,
+    validate_gtd_expiry,
 )
 from polymarket.models.perps.results import (
     PerpsOrderPlacement,
@@ -41,7 +42,7 @@ _ORDER_PLACEMENT_UPDATE_TIMEOUT_S = 2.0
 
 RawPerpsOrder = list[Any]
 """Positional order row: [iid, buy, price?, qty, tif?, post_only, reduce_only?,
-client_order_id?, trigger?]. ``None`` holes are compacted before signing."""
+client_order_id?, trigger?, gtd_expiry?, builder?]. ``None`` holes are compacted before signing."""
 
 
 async def place_order(
@@ -244,6 +245,7 @@ def _expect_ok_ack(ack: PerpsPostOrderAck) -> PerpsOrderId:
 def to_raw_order(
     request: PerpsOrderRequest, builder_attribution: PerpsBuilderAttribution | None = None
 ) -> RawPerpsOrder:
+    expiry_ms = validate_gtd_expiry(request.time_in_force, request.gtd_expiry)
     row: RawPerpsOrder = [
         request.instrument_id,
         request.side == "BUY",
@@ -256,8 +258,10 @@ def to_raw_order(
         None,
     ]
 
+    if expiry_ms is not None or builder_attribution is not None:
+        row.append(expiry_ms)
     if builder_attribution is not None:
-        row.extend([None, [builder_attribution.address, format(builder_attribution.fee_rate, "f")]])
+        row.append([builder_attribution.address, format(builder_attribution.fee_rate, "f")])
     return row
 
 
@@ -403,6 +407,8 @@ def _to_order_body(row: RawPerpsOrder) -> dict[str, Any]:
         body["c"] = row[7]
     if row[8] is not None:
         body["tr"] = _to_trigger_body(row[8])
+    if len(row) > 9 and row[9] is not None:
+        body["gtd_expiry"] = row[9]
     if len(row) > 10 and row[10] is not None:
         body["builder"] = {"address": row[10][0], "fee_rate": row[10][1]}
     return body

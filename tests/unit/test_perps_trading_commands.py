@@ -1,5 +1,6 @@
 """Perps trading command construction tests."""
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, cast
 
@@ -29,6 +30,68 @@ from polymarket.models.perps.requests import (
 _CREATE_ORDER_DATA_HASH = "0x817207b7b8b31044a8f27e43c16e24d9fd5e11d3f106feb962f104f3ef28d52a"
 
 
+@pytest.mark.parametrize(
+    "expiry", [1_893_456_000_123, datetime(2030, 1, 1, 0, 0, 0, 123000, tzinfo=UTC)]
+)
+def test_gtd_expiry_signing_and_builder_position(expiry: int | datetime) -> None:
+    from polymarket.models.perps.builders import PerpsBuilderAttribution
+
+    request = PerpsOrderRequest(
+        instrument_id=1,
+        side="BUY",
+        price="100.50",
+        quantity="10",
+        time_in_force="gtd",
+        gtd_expiry=expiry,
+        post_only=True,
+    )
+    builder = PerpsBuilderAttribution(
+        address="0x1111111111111111111111111111111111111111", fee_rate=Decimal("0.0005")
+    )
+    row = to_raw_order(request, builder)
+    assert row[7:10] == [None, None, 1_893_456_000_123]
+    assert row[10] == [builder.address, "0.0005"]
+    op = create_orders_op([row])
+    assert to_command_body_op(op)["args"][0]["gtd_expiry"] == 1_893_456_000_123
+    compact = [
+        "createOrders",
+        [[1, True, "100.50", "10", "gtd", True, 1_893_456_000_123, [builder.address, "0.0005"]]],
+    ]
+    assert build_perps_op_typed_data(
+        chain_id=31_337, op=op, salt=1, timestamp_ms=1_739_491_200_000
+    ) == build_perps_op_typed_data(
+        chain_id=31_337, op=compact, salt=1, timestamp_ms=1_739_491_200_000
+    )
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {},
+        {"gtd_expiry": 1},
+        {"gtd_expiry": True},
+        {"gtd_expiry": 1.5},
+        {"gtd_expiry": 18_446_744_073_710},
+        {"gtd_expiry": datetime(2030, 1, 1)},
+        {"gtd_expiry": 1_893_456_000_123, "price": None},
+        {"gtd_expiry": 1_893_456_000_123, "time_in_force": "gtc"},
+        {"gtd_expiry": 1_893_456_000_123, "time_in_force": "ioc"},
+        {"gtd_expiry": 1_893_456_000_123, "time_in_force": "fok"},
+    ],
+)
+def test_invalid_gtd_request_is_rejected(overrides: dict[str, Any]) -> None:
+    params: dict[str, Any] = {
+        "instrument_id": 1,
+        "side": "BUY",
+        "price": "100",
+        "quantity": "1",
+        "time_in_force": "gtd",
+        **overrides,
+    }
+    with pytest.raises(UserInputError):
+        PerpsOrderRequest(**params)
+
+
 def test_create_orders_hash_matches_typescript_suite() -> None:
     request = PerpsOrderRequest(
         instrument_id=1,
@@ -46,6 +109,18 @@ def test_create_orders_hash_matches_typescript_suite() -> None:
         "type": "createOrders",
         "args": [{"iid": 1, "buy": True, "po": False, "qty": "10", "tif": "gtc", "p": "100.50"}],
     }
+
+
+def test_gtd_accepts_the_largest_representable_millisecond() -> None:
+    request = PerpsOrderRequest(
+        instrument_id=1,
+        side="BUY",
+        price="1",
+        quantity="1",
+        time_in_force="gtd",
+        gtd_expiry=18_446_744_073_709,
+    )
+    assert to_raw_order(request)[9] == 18_446_744_073_709
 
 
 def test_market_style_order_omits_price_from_body() -> None:
