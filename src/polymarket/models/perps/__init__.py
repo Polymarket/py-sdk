@@ -90,6 +90,7 @@ from polymarket.models.perps.notifications import (
     PerpsNotificationsPaginator,
     PerpsPositionChangeNotification,
     PerpsPositionClosedNotification,
+    PerpsPositionDeleveragedNotification,
     PerpsPositionLiquidatedNotification,
 )
 from polymarket.models.perps.orders import (
@@ -211,6 +212,7 @@ __all__ = [
     "PerpsPosition",
     "PerpsPositionChangeNotification",
     "PerpsPositionClosedNotification",
+    "PerpsPositionDeleveragedNotification",
     "PerpsPositionLiquidatedNotification",
     "PerpsPositionTpSlTrigger",
     "PerpsPostOrderAck",

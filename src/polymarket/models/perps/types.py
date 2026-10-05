@@ -22,6 +22,7 @@ PerpsNotificationType: TypeAlias = Literal[
     "limit_order_canceled",
     "liquidation_warning",
     "position_liquidated",
+    "position_deleveraged",
 ]
 PerpsSide: TypeAlias = Literal["long", "short"]
 PerpsTimeInForce: TypeAlias = Literal["gtc", "ioc", "fok"]

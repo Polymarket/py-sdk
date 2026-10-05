@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from decimal import Decimal
 from types import CoroutineType
 from typing import TYPE_CHECKING, Any, assert_type
 
@@ -17,6 +18,7 @@ from polymarket.models.perps import (
     PerpsBuilderStatus,
     PerpsCancelOrderResult,
     PerpsOrderRequest,
+    PerpsPositionDeleveragedNotification,
     PerpsPostOrderAck,
 )
 from polymarket.perps import PerpsOrderPlacement, PerpsSession
@@ -44,6 +46,16 @@ if TYPE_CHECKING:
     )
 
     async def _check_session_typing(session: PerpsSession) -> None:
+        page = await session.list_notifications().first_page()
+        for entry in page.items:
+            if entry.notification.type == "position_deleveraged":
+                assert_type(entry.notification, PerpsPositionDeleveragedNotification)
+                assert_type(entry.notification.pnl, Decimal)
+        async for event in session:
+            if event.type == "notification" and event.payload.type == "position_deleveraged":
+                assert_type(event.payload, PerpsPositionDeleveragedNotification)
+                assert_type(event.payload.price, Decimal)
+
         assert_type(
             await session.place_order(
                 instrument_id=1,
