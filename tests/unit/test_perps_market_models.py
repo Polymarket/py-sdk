@@ -17,6 +17,7 @@ from polymarket.models.perps.market import (
     PerpsFeeTier,
     PerpsFundingRate,
     PerpsInstrument,
+    PerpsInstrumentSettlement,
     PerpsRiskTier,
     PerpsStatistic,
     PerpsTicker,
@@ -32,6 +33,10 @@ _TIMESTAMP = datetime(2025, 7, 2, 23, 46, 40, tzinfo=UTC)
     ("model", "fields"),
     [
         (PerpsRiskTier, {"lower_bound": Decimal}),
+        (
+            PerpsInstrumentSettlement,
+            {"sequence": int, "timestamp": datetime, "price": Decimal, "insurance_debit": Decimal},
+        ),
         (
             PerpsInstrument,
             {
@@ -285,3 +290,81 @@ def test_optional_timestamp_preserves_strict_epoch_ms_input(value: object) -> No
                 "timestamp": value,
             }
         )
+
+
+def test_instrument_settlement_preserves_identity_and_precision() -> None:
+    instrument_payload = {
+        "instrument_id": 1,
+        "category": "crypto",
+        "symbol": "BTC-PERP",
+        "base_asset": "BTC",
+        "quote_asset": "USD",
+        "funding_interval": "1h",
+        "quantity_decimals": 4,
+        "price_decimals": 2,
+        "price_bounds": "0.1",
+        "liquidation_fee": "0.01",
+        "max_order_count": 200,
+        "min_notional": "1",
+        "max_market_notional": "100000",
+        "max_limit_notional": "1000000",
+        "max_leverage": 10,
+        "isolated_only": True,
+        "risk_tiers": [{"lower_bound": "0", "max_leverage": 10}],
+    }
+    for metadata in ({}, {"close_only": False}):
+        legacy = PerpsInstrument.model_validate({**instrument_payload, **metadata})
+        assert legacy.close_only is False
+        assert legacy.settlement is None
+        assert legacy.display_symbol is None
+    retired = PerpsInstrument.model_validate(
+        {
+            **instrument_payload,
+            "close_only": True,
+            "display_symbol": "BTC-USD",
+            "settlement": {
+                "sequence": 2**64 - 1,
+                "timestamp": _EPOCH_MS + 1,
+                "price": "9007199254740993.00000001",
+                "insurance_debit": "0.000000000000000001",
+            },
+        }
+    )
+    assert retired.symbol == "BTC-PERP"
+    assert retired.id == 1
+    assert retired.close_only is True
+    assert retired.display_symbol == "BTC-USD"
+    assert retired.settlement is not None
+    assert retired.settlement.sequence == 2**64 - 1
+    assert retired.settlement.timestamp == _TIMESTAMP.replace(microsecond=1000)
+    assert retired.settlement.price == Decimal("9007199254740993.00000001")
+    assert retired.settlement.insurance_debit == Decimal("0.000000000000000001")
+
+
+@pytest.mark.parametrize("metadata", [{}, {"settlement": False}, {"settlement": True}])
+def test_trade_settlement_flags_across_wire_shapes(metadata: dict[str, bool]) -> None:
+    expanded = PerpsTrade.model_validate(
+        {
+            "trade_id": 3,
+            "instrument_id": 1,
+            "side": "long",
+            "price": "123.000000000000000001",
+            "quantity": "2",
+            "timestamp": _EPOCH_MS,
+            **metadata,
+        }
+    )
+    compact = PerpsTrade.model_validate(
+        {
+            "tid": 3,
+            "iid": 1,
+            "side": "long",
+            "p": "123.000000000000000001",
+            "qty": "2",
+            "ts": _EPOCH_MS,
+            **metadata,
+        }
+    )
+    assert expanded == compact
+    assert expanded.settlement is metadata.get("settlement", False)
+    assert expanded.price == Decimal("123.000000000000000001")

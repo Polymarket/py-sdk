@@ -119,6 +119,8 @@ class PerpsFill(BaseModel):
         validation_alias=AliasChoices("previous_entry_price", "pep")
     )
     pnl: Decimal
+    settlement: bool = False
+    """Whether this fill closes a position at instrument settlement; false on older responses."""
     liquidation: bool = Field(validation_alias=AliasChoices("liquidation", "liq"))
     timestamp: datetime = Field(validation_alias=AliasChoices("timestamp", "ts"))
     hash: str | None = None

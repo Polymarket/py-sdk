@@ -235,3 +235,11 @@ def test_fill_decimal_fields_reject_bool(field: str) -> None:
 def test_fill_timestamp_remains_strict_epoch_milliseconds(value: object) -> None:
     with pytest.raises(UnexpectedResponseError):
         PerpsFill.parse_response(_compact_fill(ts=value))
+
+
+@pytest.mark.parametrize("metadata", [{}, {"settlement": False}, {"settlement": True}])
+def test_fill_settlement_flags_across_wire_shapes(metadata: dict[str, bool]) -> None:
+    compact = PerpsFill.parse_response(_compact_fill(**metadata))
+    expanded = PerpsFill.parse_response(_expanded_fill(**metadata))
+    assert compact.settlement is metadata.get("settlement", False)
+    assert expanded.settlement is compact.settlement
