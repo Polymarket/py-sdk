@@ -3,7 +3,7 @@
 import inspect
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import get_type_hints
+from typing import Any, get_type_hints
 
 import pytest
 
@@ -248,3 +248,33 @@ def test_fill_decimal_fields_reject_bool(field: str) -> None:
 def test_fill_timestamp_remains_strict_epoch_milliseconds(value: object) -> None:
     with pytest.raises(UnexpectedResponseError):
         PerpsFill.parse_response(_compact_fill(ts=value))
+
+
+@pytest.mark.parametrize("wire_builder", [_compact_order, _expanded_order])
+@pytest.mark.parametrize("active", [False, True])
+def test_trailing_order_metadata_preserves_precision_and_state(
+    wire_builder: Any, active: bool
+) -> None:
+    order = PerpsOrder.model_validate(
+        wire_builder(
+            tpsl={
+                "kind": "sl",
+                "scope": "position",
+                "trp": "0",
+                "trail_bps": 200,
+                "act": "105.0000000000000000000000001",
+                "trail_anchor": "0",
+                "trail_active": active,
+            }
+        )
+    )
+    assert order.tp_sl is not None
+    assert order.tp_sl.trailing_bps == 200
+    assert order.tp_sl.activation_price == Decimal("105.0000000000000000000000001")
+    assert order.tp_sl.trailing_anchor == Decimal("0")
+    assert order.tp_sl.trailing_active is active
+    historical = PerpsTpSlOrderFields.model_validate(
+        {"kind": "sl", "scope": "position", "trp": "100", "trail_bps": 200}
+    )
+    assert historical.trailing_active is None
+    assert historical.trailing_anchor is None

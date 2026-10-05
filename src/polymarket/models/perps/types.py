@@ -37,7 +37,9 @@ PerpsStreamCandleInterval: TypeAlias = Literal["1m", "5m", "15m", "1h", "4h", "1
 PerpsPnlInterval: TypeAlias = Literal["1h", "4h", "1d", "1w"]
 PerpsSortDirection: TypeAlias = Literal["desc", "asc"]
 PerpsBookDepth: TypeAlias = Literal[10, 100, 500, 1000]
-PerpsTpSlLifecycleStatus: TypeAlias = Literal["untriggered", "armed", "cancelled", "expired"]
+PerpsTpSlLifecycleStatus: TypeAlias = Literal[
+    "untriggered", "armed", "activated", "cancelled", "expired"
+]
 
 PerpsOrderStatus: TypeAlias = Literal[
     "accepted",
