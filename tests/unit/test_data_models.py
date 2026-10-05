@@ -104,6 +104,26 @@ def test_position_sentinels_and_numbers() -> None:
             Position.parse_response(payload)
 
 
+@pytest.mark.parametrize(
+    "first_entry,expected",
+    [
+        ({"first_entry_at": 1_690_000_000}, datetime(2023, 7, 22, 4, 26, 40, tzinfo=UTC)),
+        ({"first_entry_at": 0}, None),
+        ({}, None),
+    ],
+)
+def test_position_first_acquisition_timestamp(
+    first_entry: dict[str, int], expected: datetime | None
+) -> None:
+    payload = position_payload(last_event_at=1_700_000_000)
+    payload.pop("first_entry_at", None)
+    position = Position.parse_response({**payload, **first_entry})
+
+    assert position.first_entry_at == expected
+    assert position.last_event_at == datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC)
+    assert Position.model_validate(position.model_dump()) == position
+
+
 def test_nullable_pnl_and_unranked_standing() -> None:
     payload = sample("user-pnl")
     payload["points"][0]["fees_paid"] = None
