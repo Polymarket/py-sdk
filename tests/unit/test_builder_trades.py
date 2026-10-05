@@ -1,5 +1,6 @@
 # pyright: reportPrivateUsage=false
 import asyncio
+import dataclasses
 import inspect
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -9,7 +10,7 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import pytest
 
-from polymarket import ApiKeyCreds, AsyncPublicClient, AsyncSecureClient, PublicClient
+from polymarket import ApiKeyCreds, AsyncPublicClient, AsyncSecureClient, PublicClient, SecureClient
 from polymarket._internal.actions._cursor import END_CURSOR
 from polymarket._internal.actions.builders import (
     build_list_builder_trades_request,
@@ -176,12 +177,27 @@ class TestBuildListBuilderTradesRequest:
         with pytest.raises(UserInputError, match="builder_code"):
             build_list_builder_trades_request(builder_code=42)  # type: ignore[arg-type]
 
-    def test_token_id_renamed_to_asset_id_on_wire(self) -> None:
+    def test_asset_id_lands_on_wire(self) -> None:
+        _, params = build_list_builder_trades_request(
+            builder_code=_VALID_BUILDER_CODE, asset_id="9876"
+        )
+        assert params["asset_id"] == "9876"
+        assert "token_id" not in params
+
+    def test_token_id_compatibility_alias_lands_as_asset_id_on_wire(self) -> None:
         _, params = build_list_builder_trades_request(
             builder_code=_VALID_BUILDER_CODE, token_id="9876"
         )
         assert params["asset_id"] == "9876"
         assert "token_id" not in params
+
+    def test_asset_id_and_token_id_are_mutually_exclusive(self) -> None:
+        with pytest.raises(UserInputError, match="mutually exclusive"):
+            build_list_builder_trades_request(
+                builder_code=_VALID_BUILDER_CODE,
+                asset_id="9876",
+                token_id="6789",
+            )
 
     def test_optional_filters_land_in_params(self) -> None:
         _, params = build_list_builder_trades_request(
@@ -285,7 +301,7 @@ class TestPublicClientListBuilderTrades:
             )
 
             page = client.list_builder_trades(
-                builder_code=_VALID_BUILDER_CODE, market="0xmarket", token_id="42"
+                builder_code=_VALID_BUILDER_CODE, market="0xmarket", asset_id="42"
             ).first_page()
 
         assert len(captured) == 1
@@ -339,7 +355,7 @@ class TestAsyncPublicClientListBuilderTrades:
                 )
                 ids: list[str] = []
                 async for trade in client.list_builder_trades(
-                    builder_code=_VALID_BUILDER_CODE
+                    builder_code=_VALID_BUILDER_CODE, asset_id="42"
                 ).iter_items():
                     ids.append(trade.id)
                 return ids
@@ -348,9 +364,41 @@ class TestAsyncPublicClientListBuilderTrades:
         assert ids == ["trade-1", "trade-2"]
         assert len(captured) == 2
         first_qs = parse_qs(urlparse(str(captured[0].url)).query)
+        assert first_qs["asset_id"] == ["42"]
         assert "next_cursor" not in first_qs
         second_qs = parse_qs(urlparse(str(captured[1].url)).query)
+        assert second_qs["asset_id"] == ["42"]
         assert second_qs["next_cursor"] == ["page-2"]
+
+
+class TestSecureClientListBuilderTrades:
+    def test_token_id_compatibility_alias_hits_clob_transport(self) -> None:
+        captured: list[httpx.Request] = []
+        handler = _capture(
+            captured,
+            {"data": [_WIRE_TRADE], "next_cursor": END_CURSOR, "count": 1, "limit": 50},
+        )
+        with SecureClient._create(
+            private_key=_PRIVATE_KEY,
+            wallet=_SIGNER,
+            credentials=_FAKE_CREDS,
+            validate_credentials=False,
+        ) as client:
+            client._ctx = dataclasses.replace(
+                client._ctx,
+                clob=SyncTransport(
+                    base_url=PRODUCTION_CONFIG.clob_url,
+                    client=httpx.Client(base_url=PRODUCTION_CONFIG.clob_url, transport=handler),
+                ),
+            )
+            page = client.list_builder_trades(
+                builder_code=_VALID_BUILDER_CODE, token_id="42"
+            ).first_page()
+
+        assert page.items[0].id == "trade-1"
+        qs = parse_qs(urlparse(str(captured[0].url)).query)
+        assert qs["asset_id"] == ["42"]
+        assert "token_id" not in qs
 
 
 class TestAsyncSecureClientListBuilderTrades:
@@ -373,8 +421,6 @@ class TestAsyncSecureClientListBuilderTrades:
                 validate_credentials=False,
             )
             try:
-                import dataclasses
-
                 client._ctx = dataclasses.replace(
                     client._ctx,
                     clob=AsyncTransport(
@@ -386,7 +432,7 @@ class TestAsyncSecureClientListBuilderTrades:
                     ),
                 )
                 page = await client.list_builder_trades(
-                    builder_code=_VALID_BUILDER_CODE
+                    builder_code=_VALID_BUILDER_CODE, asset_id="42"
                 ).first_page()
                 return page.items[0]
             finally:
@@ -394,5 +440,7 @@ class TestAsyncSecureClientListBuilderTrades:
 
         trade = asyncio.run(run())
         assert trade.id == "trade-1"
+        qs = parse_qs(urlparse(str(captured[0].url)).query)
+        assert qs["asset_id"] == ["42"]
         # The builder trades endpoint is public — no L2 auth headers needed.
         assert "POLY_SIGNATURE" not in captured[0].headers

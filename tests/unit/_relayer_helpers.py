@@ -44,6 +44,22 @@ async def make_deposit_client() -> AsyncSecureClient:
     )
 
 
+async def make_session_client() -> AsyncSecureClient:
+    from eth_account import Account
+
+    from polymarket._internal.wallet import derive_uups_deposit_wallet_address
+
+    owner = Account.from_key(PK_DEPLOY_WALLET)
+    wallet = derive_uups_deposit_wallet_address(owner.address, PRODUCTION_CONFIG.wallet_derivation)
+    return await AsyncSecureClient._create(
+        private_key=PK_PROXY_WALLET,
+        wallet=wallet,
+        credentials=FAKE_CREDS,
+        api_key=BUILDER_AUTH,
+        validate_credentials=False,
+    )
+
+
 async def make_proxy_client() -> AsyncSecureClient:
     from eth_account import Account
 
@@ -399,6 +415,22 @@ def make_sync_deposit_client() -> SecureClient:
     )
 
 
+def make_sync_session_client() -> SecureClient:
+    from eth_account import Account
+
+    from polymarket._internal.wallet import derive_uups_deposit_wallet_address
+
+    owner = Account.from_key(PK_DEPLOY_WALLET)
+    wallet = derive_uups_deposit_wallet_address(owner.address, PRODUCTION_CONFIG.wallet_derivation)
+    return SecureClient._create(
+        private_key=PK_PROXY_WALLET,
+        wallet=wallet,
+        credentials=FAKE_CREDS,
+        api_key=BUILDER_AUTH,
+        validate_credentials=False,
+    )
+
+
 def make_sync_proxy_client() -> SecureClient:
     from eth_account import Account
 
@@ -538,10 +570,12 @@ __all__ = [
     "make_proxy_client",
     "make_rpc_handler",
     "make_safe_client",
+    "make_session_client",
     "make_sync_deposit_client",
     "make_sync_eoa_client",
     "make_sync_proxy_client",
     "make_sync_safe_client",
+    "make_sync_session_client",
     "request_json",
     "trading_approval_rpc_handler",
 ]

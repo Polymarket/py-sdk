@@ -10,7 +10,7 @@ from polymarket._internal.actions.orders.cache import (
 )
 from polymarket._internal.environment import EnvironmentConfig, get_environment_config
 from polymarket._internal.eoa.rpc import JsonRpcClient, SyncJsonRpcClient
-from polymarket._internal.wallet import WalletType
+from polymarket._internal.wallet import SignerType, WalletType
 from polymarket.auth import ApiKey
 from polymarket.clients._transport import AsyncTransport, SyncTransport
 from polymarket.environments import Environment
@@ -40,8 +40,10 @@ class SyncSecureClientContext(SyncClientContext):
     secure_clob: SyncTransport
     wallet: EvmAddress
     wallet_type: WalletType
+    signer_type: SignerType
     relayer: SyncTransport
     combos: SyncTransport
+    builder_gateway: SyncTransport
     api_key: ApiKey | None
     rpc: SyncJsonRpcClient
     order_metadata: SyncOrderMetadataCache
@@ -70,8 +72,10 @@ class AsyncSecureClientContext(AsyncClientContext):
     secure_clob: AsyncTransport
     wallet: EvmAddress
     wallet_type: WalletType
+    signer_type: SignerType
     relayer: AsyncTransport
     combos: AsyncTransport
+    builder_gateway: AsyncTransport
     api_key: ApiKey | None
     rpc: JsonRpcClient
     order_metadata: AsyncOrderMetadataCache

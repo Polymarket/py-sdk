@@ -7,13 +7,15 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
+from data_v2_samples import position_payload
+
 from polymarket._jupyter import card, safe_html_repr, truncate_mid
 from polymarket.auth import BuilderApiKey, RelayerApiKey
 from polymarket.models import OrderBook
 from polymarket.models.clob.account import ClobTrade, OpenOrder
 from polymarket.models.clob.api_key import ApiKeyCreds
 from polymarket.models.clob.order_response import AcceptedOrder, RejectedOrder
-from polymarket.models.clob.price_history import PriceHistoryPoint
+from polymarket.models.data import PriceHistoryPoint
 from polymarket.models.data.activity import TradeActivity, UnknownActivity
 from polymarket.models.data.portfolio import Position
 from polymarket.models.gamma import Event, Market
@@ -71,18 +73,18 @@ def _make_book(**overrides: object) -> OrderBook:
 
 def _make_position(**overrides: object) -> Position:
     payload: dict[str, object] = {
-        "conditionId": _CONDITION_ID,
-        "proxyWallet": "0x" + "ab" * 20,
-        "asset": "TOKEN-YES",
-        "size": "100",
-        "avgPrice": "0.55",
-        "curPrice": "0.60",
-        "cashPnl": "5.00",
+        "condition_id": _CONDITION_ID,
+        "proxy_wallet": "0x" + "ab" * 20,
+        "token_id": "TOKEN-YES",
+        "current_size": "100",
+        "avg_price": "0.55",
+        "current_price": "0.60",
+        "total_pnl": "5.00",
         "outcome": "Yes",
         "title": "Will X happen?",
     }
     payload.update(overrides)
-    return Position.model_validate(payload)
+    return Position.model_validate(position_payload(**payload))
 
 
 _OPEN_ORDER_PAYLOAD: dict[str, Any] = {
@@ -254,7 +256,9 @@ def test_clob_trade_repr_html_contains_price_and_side() -> None:
 
 
 def test_price_history_point_repr_html_formats_timestamp() -> None:
-    pt = PriceHistoryPoint(t=1700000000, p=0.62)
+    pt = PriceHistoryPoint.parse_response(
+        {"timestamp": 1700000000, "price": 0.62, "resolution_seconds": 60}
+    )
     html = pt._repr_html_()
     assert "PriceHistoryPoint" in html
     assert "0.62" in html
@@ -289,21 +293,21 @@ def test_trade_activity_repr_html_uses_variant_class_name() -> None:
     activity = TradeActivity.model_validate(
         {
             "type": "TRADE",
-            "proxyWallet": "0x" + "ab" * 20,
+            "proxy_wallet": "0x" + "ab" * 20,
             "timestamp": 1700000000,
-            "transactionHash": "0xTX1234567890",
-            "conditionId": _CONDITION_ID,
-            "asset": "TOKEN-1",
+            "transaction_hash": "0xTX1234567890",
+            "condition_id": _CONDITION_ID,
+            "token_id": "TOKEN-1",
             "side": "BUY",
             "size": "5",
-            "amount": "2.5",
+            "usdc_size": "2.5",
             "price": "0.5",
             "outcome": "Yes",
-            "outcomeIndex": 0,
+            "outcome_index": 0,
             "title": "Some Market",
             "slug": "some-market",
             "icon": "i.png",
-            "eventSlug": "evt",
+            "event_slug": "evt",
         }
     )
     html = activity._repr_html_()
@@ -442,7 +446,9 @@ def test_repr_html_methods_render_pure_html_strings() -> None:
         _make_position()._repr_html_(),
         OpenOrder.model_validate(_OPEN_ORDER_PAYLOAD)._repr_html_(),
         ClobTrade.model_validate(_CLOB_TRADE_PAYLOAD)._repr_html_(),
-        PriceHistoryPoint(t=1, p=0.5)._repr_html_(),
+        PriceHistoryPoint.parse_response(
+            {"timestamp": 1, "price": 0.5, "resolution_seconds": 60}
+        )._repr_html_(),
     ]
     assert all(isinstance(s, str) and s for s in rendered)
 

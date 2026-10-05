@@ -37,6 +37,14 @@ def _require_epoch_ms(value: object) -> object:
     return parsed
 
 
+def _require_builder_fee_rate(value: Decimal) -> Decimal:
+    if not value.is_finite() or value.is_signed():
+        raise ValueError("fee_rate must be a non-negative finite decimal")
+    if int(value.as_tuple().exponent) < -28:
+        raise ValueError("fee_rate must have at most 28 decimal places")
+    return value
+
+
 # The API reports an unarmed auto-cancel schedule as a `0` deadline.
 def _parse_auto_cancel_deadline(value: object) -> object:
     if isinstance(value, int) and not isinstance(value, bool) and value == 0:
@@ -55,5 +63,6 @@ __all__ = [
     "_parse_auto_cancel_deadline",
     "_parse_epoch_ms",
     "_parse_tx_hash",
+    "_require_builder_fee_rate",
     "_require_epoch_ms",
 ]

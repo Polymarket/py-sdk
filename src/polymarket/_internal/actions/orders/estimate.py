@@ -3,13 +3,13 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from polymarket._internal.actions import clob as _clob_actions
+from polymarket._internal.actions.exchange_asset import resolve_asset_id
 from polymarket._internal.actions.orders._numeric import coerce_positive_decimal
 from polymarket._internal.actions.orders.types import MarketOrderType
 from polymarket._internal.context import AsyncClientContext, SyncClientContext
-from polymarket._internal.validation import require_nonempty
 from polymarket.errors import InsufficientLiquidityError, UnexpectedResponseError, UserInputError
 from polymarket.models.clob.order_book import OrderBook, OrderBookLevel
-from polymarket.models.types import OrderSide, TokenId
+from polymarket.models.types import ClobAssetId, OrderSide
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,13 +21,14 @@ class ResolvedMarketPrice:
 
 def _validate_estimate_inputs(
     *,
-    token_id: str,
+    asset_id: str | None,
+    token_id: str | None,
     side: OrderSide,
     amount: Decimal | int | float | str | None,
     shares: Decimal | int | float | str | None,
     order_type: MarketOrderType,
-) -> tuple[TokenId, Decimal]:
-    validated_token = TokenId(require_nonempty("token_id", token_id))
+) -> tuple[ClobAssetId, Decimal]:
+    validated_asset = resolve_asset_id(asset_id=asset_id, token_id=token_id)
     if side == "BUY":
         if amount is None:
             raise UserInputError("amount is required for BUY estimates.")
@@ -44,20 +45,26 @@ def _validate_estimate_inputs(
         raise UserInputError(f"side must be 'BUY' or 'SELL', got {side!r}.")
     if order_type not in ("FAK", "FOK"):
         raise UserInputError(f"order_type must be 'FAK' or 'FOK', got {order_type!r}.")
-    return validated_token, notional
+    return validated_asset, notional
 
 
 async def estimate_market_price(
     ctx: AsyncClientContext,
     *,
-    token_id: str,
+    asset_id: str | None = None,
+    token_id: str | None = None,
     side: OrderSide,
     amount: Decimal | int | float | str | None = None,
     shares: Decimal | int | float | str | None = None,
     order_type: MarketOrderType = "FOK",
 ) -> Decimal:
     validated_token, notional = _validate_estimate_inputs(
-        token_id=token_id, side=side, amount=amount, shares=shares, order_type=order_type
+        asset_id=asset_id,
+        token_id=token_id,
+        side=side,
+        amount=amount,
+        shares=shares,
+        order_type=order_type,
     )
     return await resolve_estimated_market_price(
         ctx,
@@ -71,14 +78,20 @@ async def estimate_market_price(
 def estimate_market_price_sync(
     ctx: SyncClientContext,
     *,
-    token_id: str,
+    asset_id: str | None = None,
+    token_id: str | None = None,
     side: OrderSide,
     amount: Decimal | int | float | str | None = None,
     shares: Decimal | int | float | str | None = None,
     order_type: MarketOrderType = "FOK",
 ) -> Decimal:
     validated_token, notional = _validate_estimate_inputs(
-        token_id=token_id, side=side, amount=amount, shares=shares, order_type=order_type
+        asset_id=asset_id,
+        token_id=token_id,
+        side=side,
+        amount=amount,
+        shares=shares,
+        order_type=order_type,
     )
     return resolve_estimated_market_price_sync(
         ctx,
@@ -92,7 +105,7 @@ def estimate_market_price_sync(
 async def resolve_estimated_market_price(
     ctx: AsyncClientContext,
     *,
-    token_id: TokenId,
+    token_id: ClobAssetId,
     side: OrderSide,
     notional: Decimal,
     order_type: MarketOrderType,
@@ -111,7 +124,7 @@ async def resolve_estimated_market_price(
 async def resolve_market_price_context(
     ctx: AsyncClientContext,
     *,
-    token_id: TokenId,
+    token_id: ClobAssetId,
     side: OrderSide,
     notional: Decimal,
     order_type: MarketOrderType,
@@ -126,7 +139,7 @@ async def resolve_market_price_context(
 def resolve_estimated_market_price_sync(
     ctx: SyncClientContext,
     *,
-    token_id: TokenId,
+    token_id: ClobAssetId,
     side: OrderSide,
     notional: Decimal,
     order_type: MarketOrderType,
@@ -143,7 +156,7 @@ def resolve_estimated_market_price_sync(
 def resolve_market_price_context_sync(
     ctx: SyncClientContext,
     *,
-    token_id: TokenId,
+    token_id: ClobAssetId,
     side: OrderSide,
     notional: Decimal,
     order_type: MarketOrderType,
@@ -158,14 +171,14 @@ def resolve_market_price_context_sync(
 def _resolve_market_price_context(
     book: OrderBook,
     *,
-    token_id: TokenId,
+    token_id: ClobAssetId,
     side: OrderSide,
     notional: Decimal,
     order_type: MarketOrderType,
 ) -> ResolvedMarketPrice:
-    if book.token_id != token_id:
+    if book.asset_id != token_id:
         raise UnexpectedResponseError(
-            f"Order book returned token {book.token_id} for requested token {token_id}."
+            f"Order book returned asset {book.asset_id} for requested asset {token_id}."
         )
     if side == "BUY":
         price = _calculate_buy_market_price(book.asks, notional, order_type)

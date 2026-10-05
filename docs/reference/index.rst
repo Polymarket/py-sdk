@@ -10,3 +10,4 @@ and its docstrings.
    clients
    models
    values
+   streams

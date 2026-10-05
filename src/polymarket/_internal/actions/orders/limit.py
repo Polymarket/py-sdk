@@ -2,9 +2,10 @@ import time
 from dataclasses import dataclass
 from decimal import Decimal
 
+from polymarket._internal.actions.exchange_asset import resolve_asset_id
 from polymarket._internal.actions.orders._numeric import coerce_positive_decimal
 from polymarket._internal.actions.orders.context import (
-    resolve_exchange_address,
+    resolve_order_exchange_address,
     resolve_rounding_config,
     validate_price_on_tick_grid,
 )
@@ -17,9 +18,9 @@ from polymarket._internal.actions.orders.math import (
 )
 from polymarket._internal.actions.orders.types import OrderDraft
 from polymarket._internal.context import AsyncSecureClientContext, SyncSecureClientContext
-from polymarket._internal.validation import require_nonempty, validate_builder_code
+from polymarket._internal.validation import validate_builder_code
 from polymarket.errors import UserInputError
-from polymarket.models.types import OrderSide, TokenId
+from polymarket.models.types import ClobAssetId, OrderSide
 from polymarket.types import EvmAddress, HexString
 
 _MIN_EXPIRATION_BUFFER_S = 180
@@ -27,7 +28,7 @@ _MIN_EXPIRATION_BUFFER_S = 180
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class PrepareLimitOrderParams:
-    token_id: TokenId
+    asset_id: ClobAssetId
     price: Decimal
     size: Decimal
     side: OrderSide
@@ -35,10 +36,17 @@ class PrepareLimitOrderParams:
     expiration: int | None = None
     builder_code: HexString | None = None
 
+    @property
+    def token_id(self) -> ClobAssetId:
+        """Deprecated alias for :attr:`asset_id`."""
+
+        return self.asset_id
+
 
 def validate_limit_order_params(
     *,
-    token_id: str,
+    asset_id: str | None = None,
+    token_id: str | None = None,
     price: Decimal | int | float | str,
     size: Decimal | int | float | str,
     side: OrderSide,
@@ -46,7 +54,7 @@ def validate_limit_order_params(
     expiration: int | None = None,
     builder_code: str | None = None,
 ) -> PrepareLimitOrderParams:
-    validated_token = TokenId(require_nonempty("token_id", token_id))
+    validated_asset = resolve_asset_id(asset_id=asset_id, token_id=token_id)
     validated_price = coerce_positive_decimal("price", price)
     validated_size = coerce_positive_decimal("size", size)
     if side not in ("BUY", "SELL"):
@@ -65,7 +73,7 @@ def validate_limit_order_params(
             )
     validated_builder = validate_builder_code(builder_code) if builder_code is not None else None
     return PrepareLimitOrderParams(
-        token_id=validated_token,
+        asset_id=validated_asset,
         price=validated_price,
         size=validated_size,
         side=side,
@@ -78,11 +86,11 @@ def validate_limit_order_params(
 async def prepare_limit_order_draft(
     ctx: AsyncSecureClientContext, params: PrepareLimitOrderParams
 ) -> OrderDraft:
-    metadata = await ctx.order_metadata.resolve_market(ctx, token_id=params.token_id)
+    metadata = await ctx.order_metadata.resolve_market(ctx, token_id=params.asset_id)
     try:
         price = validate_price_on_tick_grid(params.price, metadata.tick_size, "price")
     except UserInputError:
-        metadata = await ctx.order_metadata.fetch_current_market(ctx, token_id=params.token_id)
+        metadata = await ctx.order_metadata.fetch_current_market(ctx, token_id=params.asset_id)
         price = validate_price_on_tick_grid(params.price, metadata.tick_size, "price")
     return _build_limit_order_draft(ctx, params, price=price, metadata=metadata)
 
@@ -90,11 +98,11 @@ async def prepare_limit_order_draft(
 def prepare_limit_order_draft_sync(
     ctx: SyncSecureClientContext, params: PrepareLimitOrderParams
 ) -> OrderDraft:
-    metadata = ctx.order_metadata.resolve_market(ctx, token_id=params.token_id)
+    metadata = ctx.order_metadata.resolve_market(ctx, token_id=params.asset_id)
     try:
         price = validate_price_on_tick_grid(params.price, metadata.tick_size, "price")
     except UserInputError:
-        metadata = ctx.order_metadata.fetch_current_market(ctx, token_id=params.token_id)
+        metadata = ctx.order_metadata.fetch_current_market(ctx, token_id=params.asset_id)
         price = validate_price_on_tick_grid(params.price, metadata.tick_size, "price")
     return _build_limit_order_draft(ctx, params, price=price, metadata=metadata)
 
@@ -114,7 +122,9 @@ def _build_limit_order_draft(
     )
     return OrderDraft(
         chain_id=ctx.environment_config.chain_id,
-        exchange_address=resolve_exchange_address(ctx.environment_config, metadata.neg_risk),
+        exchange_address=resolve_order_exchange_address(
+            ctx.environment_config, asset_id=params.asset_id, neg_risk=metadata.neg_risk
+        ),
         expiration=params.expiration if params.expiration is not None else 0,
         funder_address=ctx.wallet,
         offered_amount=offered,
@@ -122,7 +132,7 @@ def _build_limit_order_draft(
         side=params.side,
         signer=EvmAddress(ctx.signer.address),
         requested_amount=requested,
-        token_id=params.token_id,
+        asset_id=params.asset_id,
         builder_code=params.builder_code,
     )
 

@@ -196,6 +196,7 @@ def test_parse_order_response_maps_known_error_messages() -> None:
         ("invalid nonce", "invalid_nonce"),
         ("invalid expiration", "invalid_expiration"),
         ("invalid post-only order: order crosses book", "post_only_would_cross"),
+        ("post-only mode: only post-only orders and cancels are allowed", "post_only_mode"),
     ]
     for msg, expected in cases:
         raw: dict[str, object] = {
@@ -262,6 +263,22 @@ def test_parse_order_responses_parses_each_entry() -> None:
     assert isinstance(parsed[0], AcceptedOrder)
     assert isinstance(parsed[1], RejectedOrder)
     assert parsed[1].code == "invalid_nonce"
+
+
+def test_parse_order_responses_maps_batch_post_only_rejections() -> None:
+    rejection: dict[str, object] = {
+        "errorMsg": "post-only mode: only post-only orders and cancels are allowed",
+        "orderID": "",
+        "takingAmount": "",
+        "makingAmount": "",
+        "status": "",
+        "success": True,
+    }
+    parsed = parse_order_responses([rejection, dict(rejection)])
+    assert len(parsed) == 2
+    for entry in parsed:
+        assert isinstance(entry, RejectedOrder)
+        assert entry.code == "post_only_mode"
 
 
 def test_parse_order_responses_rejects_non_list() -> None:

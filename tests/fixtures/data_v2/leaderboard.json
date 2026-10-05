@@ -1,0 +1,22 @@
+[
+  {
+    "rank": 1,
+    "user_id": "0x31e5d54aded22aa7cd80dbe9e33102abe2504879",
+    "pnl": 966725.5781960003,
+    "volume": 1491184.383039,
+    "user_name": "Noprajsk",
+    "profile_image": "",
+    "x_username": "",
+    "verified": false
+  },
+  {
+    "rank": 2,
+    "user_id": "0xf0318c32136c2db7fec88b84869aee6a1106c80c",
+    "pnl": 454273.13724022976,
+    "volume": 74566.884519,
+    "user_name": "BreakTheBank",
+    "profile_image": "",
+    "x_username": "",
+    "verified": false
+  }
+]

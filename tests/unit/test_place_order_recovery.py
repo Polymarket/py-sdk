@@ -24,6 +24,9 @@ _PRIVATE_KEY = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 _CREDS = ApiKeyCreds(key="k", passphrase="p", secret="dGVzdA==")
 _STANDARD_EXCHANGE = PRODUCTION_CONFIG.standard_exchange
 _CONDITION_ID = "0x5c19f205507ce03ff5f3be08a8090a5969ea6870cc07b902a4ca2e61dfe48fdd"
+_ASSET_ID = str((1 << 40) + 8_501_497)
+_V2_CONDITION_ID = "0x01" + "00" * 30
+_V2_ASSET_ID = str(int(_V2_CONDITION_ID + "00", 16))
 
 
 def _builder_auth() -> Any:
@@ -86,12 +89,19 @@ def _accepted_order_payload() -> dict[str, Any]:
 
 
 _LIMIT_PUBLIC_ROUTES: dict[str, Any] = {
-    "/markets-by-token/8501497": {"condition_id": _CONDITION_ID},
+    f"/markets-by-token/{_ASSET_ID}": {"condition_id": _CONDITION_ID},
     f"/clob-markets/{_CONDITION_ID}": {
         "fd": {"r": 0, "e": 0},
         "mts": 0.01,
         "nr": False,
-        "t": [{"t": "8501497", "o": "Yes"}],
+        "t": [{"t": _ASSET_ID, "o": "Yes"}],
+    },
+    f"/markets-by-token/{_V2_ASSET_ID}": {"condition_id": _V2_CONDITION_ID},
+    f"/clob-markets/{_V2_CONDITION_ID}": {
+        "fd": {"r": 0, "e": 0},
+        "mts": 0.01,
+        "nr": False,
+        "t": [{"t": _V2_ASSET_ID, "o": "Yes"}],
     },
 }
 
@@ -108,7 +118,7 @@ def _public_handler(captured: list[httpx.Request]) -> httpx.MockTransport:
 
 
 async def _make_signed_buy_order(client: AsyncSecureClient) -> Any:
-    return await client.create_limit_order(token_id="8501497", price="0.5", size="10", side="BUY")
+    return await client.create_limit_order(asset_id=_ASSET_ID, price="0.5", size="10", side="BUY")
 
 
 def test_is_balance_or_allowance_rejection_matches_ts_signal() -> None:
@@ -146,7 +156,7 @@ def test_place_limit_order_first_post_success_no_recovery_calls() -> None:
         try:
             _install_clob(client, _public_handler(public_captured))
             _install_secure_clob(client, httpx.MockTransport(secure_handler))
-            await client.place_limit_order(token_id="8501497", price="0.5", size="10", side="BUY")
+            await client.place_limit_order(asset_id=_ASSET_ID, price="0.5", size="10", side="BUY")
         finally:
             await client.close()
 
@@ -179,7 +189,7 @@ def test_place_limit_order_skips_approve_when_allowance_already_sufficient() -> 
             _install_secure_clob(client, httpx.MockTransport(secure_handler))
             with pytest.raises(RequestRejectedError, match="allowance is not enough"):
                 await client.place_limit_order(
-                    token_id="8501497", price="0.5", size="10", side="BUY"
+                    asset_id=_ASSET_ID, price="0.5", size="10", side="BUY"
                 )
         finally:
             await client.close()
@@ -208,7 +218,7 @@ def test_place_limit_order_does_not_recover_on_non_allowance_400() -> None:
             _install_secure_clob(client, httpx.MockTransport(secure_handler))
             with pytest.raises(RequestRejectedError, match="invalid signature"):
                 await client.place_limit_order(
-                    token_id="8501497", price="0.5", size="10", side="BUY"
+                    asset_id=_ASSET_ID, price="0.5", size="10", side="BUY"
                 )
         finally:
             await client.close()
@@ -291,7 +301,7 @@ def test_place_limit_order_recovers_buy_with_approve_max_then_retries() -> None:
             _install_secure_clob(client, httpx.MockTransport(secure_handler))
             _install_relayer(client, httpx.MockTransport(relayer_handler))
             return await client.place_limit_order(
-                token_id="8501497", price="0.5", size="10", side="BUY"
+                asset_id=_ASSET_ID, price="0.5", size="10", side="BUY"
             )
         finally:
             await client.close()
@@ -318,7 +328,30 @@ def test_place_limit_order_recovers_buy_with_approve_max_then_retries() -> None:
     assert inner["target"].lower() == PRODUCTION_CONFIG.collateral_token.lower()
 
 
-def test_place_limit_order_recovers_sell_with_erc1155_approve_for_all_then_retries() -> None:
+@pytest.mark.parametrize(
+    ("asset_id", "expected_asset_type", "expected_spender", "expected_token_address"),
+    [
+        (
+            _ASSET_ID,
+            "CONDITIONAL",
+            PRODUCTION_CONFIG.standard_exchange,
+            PRODUCTION_CONFIG.conditional_tokens,
+        ),
+        (
+            _V2_ASSET_ID,
+            "CONDITIONAL-V2",
+            PRODUCTION_CONFIG.exchange_v3,
+            PRODUCTION_CONFIG.position_manager,
+        ),
+    ],
+    ids=("ctf", "v2"),
+)
+def test_place_limit_order_recovers_sell_with_erc1155_approve_for_all_then_retries(
+    asset_id: str,
+    expected_asset_type: str,
+    expected_spender: str,
+    expected_token_address: str,
+) -> None:
     import json as _json
 
     public_captured: list[httpx.Request] = []
@@ -339,7 +372,7 @@ def test_place_limit_order_recovers_sell_with_erc1155_approve_for_all_then_retri
         if path == "/balance-allowance":
             return httpx.Response(
                 200,
-                json={"balance": "0", "allowances": {_STANDARD_EXCHANGE: "0"}},
+                json={"balance": "0", "allowances": {expected_spender: "0"}},
                 request=request,
             )
         if path == "/balance-allowance/update":
@@ -389,7 +422,7 @@ def test_place_limit_order_recovers_sell_with_erc1155_approve_for_all_then_retri
             _install_secure_clob(client, httpx.MockTransport(secure_handler))
             _install_relayer(client, httpx.MockTransport(relayer_handler))
             return await client.place_limit_order(
-                token_id="8501497", price="0.5", size="10", side="SELL"
+                asset_id=asset_id, price="0.5", size="10", side="SELL"
             )
         finally:
             await client.close()
@@ -400,23 +433,30 @@ def test_place_limit_order_recovers_sell_with_erc1155_approve_for_all_then_retri
     secure_paths = [urlparse(str(r.url)).path for r in secure_captured]
     assert secure_paths.count("/order") == 2
 
-    # The pre-approve allowance fetch must query the CONDITIONAL asset path with the token_id.
-    pre_approve_check = next(
-        r for r in secure_captured if urlparse(str(r.url)).path == "/balance-allowance"
-    )
     from urllib.parse import parse_qs
 
-    qs = parse_qs(urlparse(str(pre_approve_check.url)).query)
-    assert qs["asset_type"] == ["CONDITIONAL"]
-    assert qs["token_id"] == ["8501497"]
+    # The pre-approve lookup and both post-approval refresh calls must use the
+    # protocol-specific asset type with the same CLOB asset ID.
+    allowance_requests = [
+        request
+        for request in secure_captured
+        if urlparse(str(request.url)).path in {"/balance-allowance", "/balance-allowance/update"}
+    ]
+    assert len(allowance_requests) == 3
+    for request in allowance_requests:
+        qs = parse_qs(urlparse(str(request.url)).query)
+        assert qs["asset_type"] == [expected_asset_type]
+        assert qs["token_id"] == [asset_id]
 
-    # Approve was sent: setApprovalForAll on the conditional_tokens contract.
+    # Approve was sent: setApprovalForAll on the protocol's ERC-1155 contract
+    # with its matching exchange as operator.
     approve_submit = next(r for r in relayer_captured if urlparse(str(r.url)).path == "/submit")
     body = _json.loads(approve_submit.content.decode("utf-8"))
     inner = body["depositWalletParams"]["calls"][0]
     set_approval_selector = "0xa22cb465"  # setApprovalForAll(address,bool)
-    assert inner["target"].lower() == PRODUCTION_CONFIG.conditional_tokens.lower()
+    assert inner["target"].lower() == expected_token_address.lower()
     assert inner["data"].startswith(set_approval_selector)
+    assert expected_spender.lower().removeprefix("0x") in inner["data"].lower()
 
 
 def test_place_limit_order_retry_failure_surfaces_directly() -> None:
@@ -491,7 +531,7 @@ def test_place_limit_order_retry_failure_surfaces_directly() -> None:
             _install_relayer(client, httpx.MockTransport(relayer_handler))
             with pytest.raises(RequestRejectedError, match="second-attempt rejection"):
                 await client.place_limit_order(
-                    token_id="8501497", price="0.5", size="10", side="BUY"
+                    asset_id=_ASSET_ID, price="0.5", size="10", side="BUY"
                 )
         finally:
             await client.close()

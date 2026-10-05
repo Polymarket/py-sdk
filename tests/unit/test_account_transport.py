@@ -419,14 +419,17 @@ def test_secure_client_defaults_wallet_to_current_deposit_wallet() -> None:
     assert asyncio.run(run()) == expected
 
 
-def test_secure_client_rejects_unrelated_wallet_address() -> None:
-    async def run() -> None:
-        await AsyncSecureClient._create(
+def test_secure_client_accepts_unrelated_wallet_as_session_key_wallet() -> None:
+    async def run() -> str:
+        client = await AsyncSecureClient._create(
             private_key=PRIVATE_KEY,
             wallet="0x0000000000000000000000000000000000000002",
             credentials=FAKE_CREDS,
             validate_credentials=False,
         )
+        try:
+            return client.wallet_type
+        finally:
+            await client.close()
 
-    with pytest.raises(UserInputError, match="does not match the signer"):
-        asyncio.run(run())
+    assert asyncio.run(run()) == "DEPOSIT_WALLET"

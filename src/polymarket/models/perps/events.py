@@ -12,6 +12,7 @@ from polymarket.models.perps._validators import (
     _require_epoch_ms,  # pyright: ignore[reportPrivateUsage]
 )
 from polymarket.models.perps.account import PerpsBalance, PerpsFundingPayment, PerpsPortfolio
+from polymarket.models.perps.builder_events import PerpsBuilderFillEvent
 from polymarket.models.perps.funds import PerpsDepositUpdate, PerpsWithdrawalUpdate
 from polymarket.models.perps.market import (
     PerpsBbo,
@@ -38,6 +39,7 @@ _SESSION_CHANNEL_TYPES: dict[str, str] = {
     "portfolio": "portfolio",
     "orders": "order",
     "fills": "fill",
+    "builderFills": "builder_fill",
     "funding": "funding",
     "deposits": "deposit",
     "withdrawals": "withdrawal",
@@ -255,6 +257,7 @@ class PerpsResyncEvent(BaseModel):
 
 PerpsSessionEvent = (
     PerpsBalanceEvent
+    | PerpsBuilderFillEvent
     | PerpsPortfolioEvent
     | PerpsOrderEvent
     | PerpsFillEvent
@@ -268,6 +271,7 @@ PerpsSessionEvent = (
 
 _SessionUpdateEvent = Annotated[
     PerpsBalanceEvent
+    | PerpsBuilderFillEvent
     | PerpsPortfolioEvent
     | PerpsOrderEvent
     | PerpsFillEvent

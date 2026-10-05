@@ -85,6 +85,10 @@ class JsonRpcClient:
         result = await self._call("eth_chainId", [])
         return _hex_to_int(result, "eth_chainId")
 
+    async def eth_get_latest_block_timestamp(self) -> int:
+        result = await self._call("eth_getBlockByNumber", ["latest", False])
+        return _parse_block_timestamp(result)
+
     async def eth_call(self, *, to: str, data: str, block: str = "latest") -> str:
         result = await self._call("eth_call", [{"to": to, "data": data}, block])
         return _parse_eth_call_result(result)
@@ -195,6 +199,10 @@ class SyncJsonRpcClient:
     def eth_chain_id(self) -> int:
         result = self._call("eth_chainId", [])
         return _hex_to_int(result, "eth_chainId")
+
+    def eth_get_latest_block_timestamp(self) -> int:
+        result = self._call("eth_getBlockByNumber", ["latest", False])
+        return _parse_block_timestamp(result)
 
     def eth_call(self, *, to: str, data: str, block: str = "latest") -> str:
         result = self._call("eth_call", [{"to": to, "data": data}, block])
@@ -318,6 +326,13 @@ def _parse_eth_call_result(result: Any) -> str:
     if not isinstance(result, str) or not _is_rpc_hex_string(result):
         raise UnexpectedResponseError("eth_call did not return a hex string")
     return result
+
+
+def _parse_block_timestamp(result: Any) -> int:
+    if not isinstance(result, dict):
+        raise UnexpectedResponseError("eth_getBlockByNumber did not return an object")
+    block = cast(dict[str, Any], result)
+    return _hex_to_int(block.get("timestamp"), "eth_getBlockByNumber timestamp")
 
 
 def _is_rpc_hex_string(value: str) -> bool:

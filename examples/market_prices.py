@@ -2,12 +2,13 @@
 
     uv run python -m examples.market_prices
 
-No credentials required. Discovers a token id from a live market, then queries
+No credentials required. Discovers an asset ID from a live market, then queries
 its prices and book.
 """
 
 from __future__ import annotations
 
+from examples.lib.markets import market_yes_asset_id
 from examples.lib.tables import print_values_table
 from polymarket import PublicClient
 
@@ -18,20 +19,20 @@ def main() -> None:
         if not items:
             raise SystemExit("No live markets found.")
         market = items[0]
-        token_id = market.outcomes.yes.token_id
-        if token_id is None:
-            raise SystemExit("Discovered market has no tradable YES token; try again.")
+        asset_id = market_yes_asset_id(market)
+        if asset_id is None:
+            raise SystemExit("Discovered market has no tradable YES asset; try again.")
 
-        order_book = client.get_order_book(token_id=token_id)
-        buy_price = client.get_price(token_id=token_id, side="BUY")
-        midpoint = client.get_midpoint(token_id=token_id)
-        spread = client.get_spread(token_id=token_id)
-        last_trade = client.get_last_trade_price(token_id=token_id)
+        order_book = client.get_order_book(asset_id=asset_id)
+        buy_price = client.get_price(asset_id=asset_id, side="BUY")
+        midpoint = client.get_midpoint(asset_id=asset_id)
+        spread = client.get_spread(asset_id=asset_id)
+        last_trade = client.get_last_trade_price(asset_id=asset_id)
 
         print_values_table(
             {
                 "market": market.question or market.slug or market.id,
-                "tokenId": token_id,
+                "assetId": asset_id,
                 "bids": len(order_book.bids),
                 "asks": len(order_book.asks),
                 "buyPrice": buy_price,

@@ -18,6 +18,7 @@ OrderResponseErrorCode: TypeAlias = Literal[
     "invalid_nonce",
     "invalid_expiration",
     "post_only_would_cross",
+    "post_only_mode",
     "fok_not_filled",
     "fak_not_filled",
     "unknown",
@@ -36,6 +37,7 @@ _ERROR_MSG_TO_CODE: dict[str, OrderResponseErrorCode] = {
     "invalid nonce": "invalid_nonce",
     "invalid expiration": "invalid_expiration",
     "invalid post-only order: order crosses book": "post_only_would_cross",
+    "post-only mode: only post-only orders and cancels are allowed": "post_only_mode",
     _FOK_NOT_FILLED_MSG: "fok_not_filled",
     _FAK_NOT_FILLED_MSG: "fak_not_filled",
 }
