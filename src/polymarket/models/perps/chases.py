@@ -32,7 +32,7 @@ class PerpsChaseAccepted(BaseModel):
 class PerpsChase(BaseModel):
     """A running chase with zero bounds meaning unset.
 
-    The reference price is zero before its first resting child.
+    The reference price is zero until a child first rests or fills.
     """
 
     chase_id: PerpsChaseId = Field(validation_alias="chid", gt=0, le=2**53 - 1, strict=True)
