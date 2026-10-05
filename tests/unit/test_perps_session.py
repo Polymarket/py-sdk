@@ -20,6 +20,7 @@ from polymarket.errors import (
     AutoCancelDailyLimitError,
     RequestRejectedError,
     TransportError,
+    UnexpectedResponseError,
     UserInputError,
 )
 from polymarket.errors import TimeoutError as SDKTimeoutError
@@ -32,6 +33,104 @@ from polymarket.models.perps.events import (
 )
 
 Handler = Callable[[ServerConnection], Awaitable[None]]
+
+
+def _internal_transfer(transfer_id: int, timestamp: int) -> dict[str, Any]:
+    return {
+        "transfer_id": transfer_id,
+        "type": "transfer",
+        "asset": "pUSD",
+        "amount": "1.23000000000000000001",
+        "direction": "out",
+        "counterparty": "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
+        "label": "rebalance-001",
+        "created_timestamp": timestamp,
+    }
+
+
+def test_internal_transfer_history_resumes_submillisecond_overlap() -> None:
+    captured: list[httpx.Request] = []
+    responses = [
+        {"data": [_internal_transfer(4, 1002), _internal_transfer(3, 1001)], "more": True},
+        {
+            "data": [
+                _internal_transfer(4, 1002),
+                _internal_transfer(3, 1001),
+                _internal_transfer(2, 1000),
+            ],
+            "more": True,
+        },
+        {
+            "data": [
+                _internal_transfer(3, 1001),
+                _internal_transfer(2, 1000),
+                _internal_transfer(1, 999),
+            ],
+            "more": False,
+        },
+    ]
+
+    def rest(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json=responses.pop(0))
+
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        await ws.wait_closed()
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            await session._api.close()
+            session._api = AsyncTransport(
+                base_url="https://perps.test",
+                client=httpx.AsyncClient(
+                    base_url="https://perps.test", transport=httpx.MockTransport(rest)
+                ),
+            )
+            pages = session.list_internal_transfers(start=0, end=2000)
+            assert captured == []
+            first = await pages.first_page()
+            assert [row.transfer_id for row in first.items] == [4, 3]
+            assert first.items[0].amount == Decimal("1.23000000000000000001")
+            assert first.items[0].created_at == datetime.fromtimestamp(1.002, tz=UTC)
+            assert first.items[0].label == "rebalance-001"
+            assert first.next_cursor is not None
+            resumed = session.list_internal_transfers(cursor=first.next_cursor)
+            assert [row.transfer_id async for page in resumed for row in page.items] == [2, 1]
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10))
+    assert [dict(request.url.params) for request in captured] == [
+        {"start_timestamp": "0", "end_timestamp": "2000"},
+        {"start_timestamp": "0", "end_timestamp": "1002"},
+        {"start_timestamp": "0", "end_timestamp": "1001"},
+    ]
+
+
+@pytest.mark.parametrize("rows", [[], [_internal_transfer(1, 1000)]])
+def test_internal_transfer_history_refuses_unsafe_progress(rows: list[dict[str, Any]]) -> None:
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        await ws.wait_closed()
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            await session._api.close()
+            session._api = AsyncTransport(
+                base_url="https://perps.test",
+                client=httpx.AsyncClient(
+                    base_url="https://perps.test",
+                    transport=httpx.MockTransport(
+                        lambda _: httpx.Response(200, json={"data": rows, "more": True})
+                    ),
+                ),
+            )
+            pages = session.list_internal_transfers(start=0, end=1001)
+            with pytest.raises(UnexpectedResponseError):
+                async for _ in pages:
+                    pass
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10))
+
 
 _PROXY_PRIVATE_KEY = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 _PROXY_ADDRESS = "0x14791697260E4c9A71f18484C9f997B308e59325"

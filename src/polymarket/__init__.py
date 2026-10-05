@@ -89,6 +89,11 @@ from polymarket.models import (
     PerpsFundingPayment,
     PerpsFundingRate,
     PerpsInstrument,
+    PerpsInternalTransfer,
+    PerpsInternalTransferDirection,
+    PerpsInternalTransferId,
+    PerpsInternalTransferType,
+    PerpsKnownInternalTransferType,
     PerpsOrder,
     PerpsOrderPlacement,
     PerpsOrderRequest,
@@ -292,6 +297,11 @@ from polymarket.types import EvmAddress, HexString, TransactionHash
 from polymarket.version import __version__
 
 __all__ = [
+    "PerpsInternalTransfer",
+    "PerpsInternalTransferId",
+    "PerpsInternalTransferDirection",
+    "PerpsInternalTransferType",
+    "PerpsKnownInternalTransferType",
     "PerpsBuilderAttribution",
     "PerpsBuilderStatus",
     "PerpsBuilderApproval",

@@ -198,7 +198,12 @@ from polymarket.models.perps import (
     PerpsInstrument,
     PerpsInstrumentCategory,
     PerpsInstrumentId,
+    PerpsInternalTransfer,
+    PerpsInternalTransferDirection,
+    PerpsInternalTransferId,
+    PerpsInternalTransferType,
     PerpsKlineInterval,
+    PerpsKnownInternalTransferType,
     PerpsKnownWithdrawalStatus,
     PerpsMarginSummary,
     PerpsOrder,
@@ -283,6 +288,11 @@ from polymarket.models.types import (
 )
 
 __all__ = [
+    "PerpsInternalTransfer",
+    "PerpsInternalTransferId",
+    "PerpsInternalTransferDirection",
+    "PerpsInternalTransferType",
+    "PerpsKnownInternalTransferType",
     "PerpsBuilderAttribution",
     "PerpsBuilderStatus",
     "PerpsBuilderApproval",

@@ -59,6 +59,7 @@ from polymarket.models.perps.events import (
 from polymarket.models.perps.funds import (
     PerpsDeposit,
     PerpsDepositUpdate,
+    PerpsInternalTransfer,
     PerpsWithdrawal,
     PerpsWithdrawalUpdate,
 )
@@ -113,7 +114,11 @@ from polymarket.models.perps.types import (
     PerpsFundingPaymentId,
     PerpsInstrumentCategory,
     PerpsInstrumentId,
+    PerpsInternalTransferDirection,
+    PerpsInternalTransferId,
+    PerpsInternalTransferType,
     PerpsKlineInterval,
+    PerpsKnownInternalTransferType,
     PerpsKnownWithdrawalStatus,
     PerpsMarginType,
     PerpsNotificationId,
@@ -135,6 +140,11 @@ from polymarket.models.perps.types import (
 )
 
 __all__ = [
+    "PerpsInternalTransfer",
+    "PerpsInternalTransferId",
+    "PerpsInternalTransferDirection",
+    "PerpsInternalTransferType",
+    "PerpsKnownInternalTransferType",
     "PerpsBuilderAttribution",
     "PerpsBuilderStatus",
     "PerpsBuilderApproval",
