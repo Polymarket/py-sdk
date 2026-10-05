@@ -1161,7 +1161,32 @@ def test_builder_fills_share_session_iterator_before_ack_and_after_reconnect() -
     asyncio.run(asyncio.wait_for(run(), timeout=15))
 
 
-def test_position_exits_keep_terms_captured_before_portfolio_read() -> None:
+@pytest.mark.parametrize(
+    ("size", "take_profit_quantity", "stop_loss_quantity", "quantities"),
+    [
+        ("1", None, None, ["0", "0"]),
+        (
+            "-1",
+            Decimal("0.1234567890123456789012345678"),
+            None,
+            ["0.1234567890123456789012345678", "0"],
+        ),
+        ("1", "0.25", "0.75", ["0.25", "0.75"]),
+        ("1", Decimal("1E-8"), "0.7500", ["0.00000001", "0.7500"]),
+        (
+            "-1",
+            "0.0000000000000000000000000001",
+            "79228162514264337593543950335",
+            ["0.0000000000000000000000000001", "79228162514264337593543950335"],
+        ),
+    ],
+)
+def test_position_exits_keep_terms_captured_before_portfolio_read(
+    size: str,
+    take_profit_quantity: Decimal | str | None,
+    stop_loss_quantity: str | None,
+    quantities: list[str],
+) -> None:
     from polymarket.models.perps import PerpsBuilderAttribution, PerpsPositionTpSlTrigger
 
     async def run() -> None:
@@ -1203,7 +1228,7 @@ def test_position_exits_keep_terms_captured_before_portfolio_read() -> None:
                             {
                                 "instrument_id": 1,
                                 "symbol": "BTC",
-                                "size": "1",
+                                "size": size,
                                 "entry_price": "100",
                                 "leverage": 1,
                                 "cross": True,
@@ -1238,9 +1263,18 @@ def test_position_exits_keep_terms_captured_before_portfolio_read() -> None:
             async with await session.open():
                 await session.place_position_tp_sl(
                     instrument_id=1,
-                    take_profit=PerpsPositionTpSlTrigger(trigger_price="200"),
-                    stop_loss=PerpsPositionTpSlTrigger(trigger_price="50"),
+                    take_profit=PerpsPositionTpSlTrigger(
+                        trigger_price="200", quantity=take_profit_quantity
+                    ),
+                    stop_loss=PerpsPositionTpSlTrigger(
+                        trigger_price="50", quantity=stop_loss_quantity
+                    ),
                 )
+                assert frames[0]["op"]["grp"] == "position"
+                assert [row["qty"] for row in frames[0]["op"]["args"]] == quantities
+                assert all(row["buy"] == size.startswith("-") for row in frames[0]["op"]["args"])
+                assert all(row["ro"] is True for row in frames[0]["op"]["args"])
+                assert all(row["tr"]["market"] is True for row in frames[0]["op"]["args"])
                 assert [row["builder"] for row in frames[0]["op"]["args"]] == [
                     {"address": terms.address, "fee_rate": "0.0003"},
                     {"address": terms.address, "fee_rate": "0.0003"},

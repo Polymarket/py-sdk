@@ -132,6 +132,36 @@ def test_position_tp_sl_uses_zero_quantity() -> None:
     assert body["args"][0]["qty"] == "0"
 
 
+@pytest.mark.parametrize(
+    "quantity",
+    [
+        "0",
+        "-0",
+        "0.000",
+        "-1",
+        "NaN",
+        "Infinity",
+        "bad",
+        "",
+        "0x1",
+        "1e-8",
+        "0.00000000000000000000000000001",
+        "79228162514264337593543950336",
+        "7.9228162514264337593543950336",
+        Decimal("1E-29"),
+        Decimal("1E+999999999"),
+        0,
+        -1,
+        True,
+        float("nan"),
+        float("inf"),
+    ],
+)
+def test_position_tp_sl_rejects_nonpositive_or_invalid_quantity(quantity: Any) -> None:
+    with pytest.raises(UserInputError, match="quantity"):
+        PerpsPositionTpSlTrigger(trigger_price="100", quantity=quantity)
+
+
 def test_cancel_and_leverage_ops() -> None:
     assert to_command_body_op(cancel_orders_op([11, 22])) == {
         "type": "cancelOrders",

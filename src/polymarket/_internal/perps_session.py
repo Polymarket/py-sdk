@@ -536,6 +536,9 @@ class PerpsSession:
         The exit side is inferred from the open position; a flat position
         raises :class:`~polymarket.errors.UserInputError`. Provide
         ``take_profit``, ``stop_loss``, or both.
+        Each trigger may set a positive ``quantity`` for a partial close; omit it
+        to close the full position at trigger time. A partial fill leaves the
+        other trigger armed while a same-side position remains.
         """
         return await place_perps_position_tp_sl(
             self,
