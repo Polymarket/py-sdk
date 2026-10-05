@@ -155,6 +155,26 @@ def _coerce_timestamp_filter(value: TimestampFilter | None) -> str | None:
     return value.isoformat()
 
 
+# The service keeps market ``volume`` and ``liquidity`` as text columns (a leftover
+# of the original ingestion writing ``toFixed(2)`` strings) next to numeric twins
+# holding the same value, and orders by the raw column, so ``order="volume"`` sorts
+# lexicographically. Callers mean the number: each token is sent as its numeric
+# twin. The service already does this itself for ``liquidity``, so that entry is
+# idempotent with upstream and only ``volume`` is load-bearing today. Every other
+# token is forwarded untouched; unknown names are still rejected by the service.
+_MARKET_ORDER_ALIASES: dict[str, str] = {
+    "volume": "volumeNum",
+    "liquidity": "liquidityNum",
+}
+
+
+def _normalize_market_order(order: str | None) -> str | None:
+    if order is None:
+        return None
+    tokens = [token.strip() for token in order.split(",")]
+    return ",".join(_MARKET_ORDER_ALIASES.get(token, token) for token in tokens)
+
+
 def _add_optional_seq(
     params: dict[str, QueryParamValue],
     key: str,
@@ -207,6 +227,15 @@ def _check_tag_match(value: TagMatch | None) -> None:
 def _check_parent_entity_type(value: CommentParentEntityType) -> None:
     if value not in {"Event", "Series"}:
         raise UserInputError("parent_entity_type must be one of: Event, Series")
+
+
+# The orders the cursor-paginated comments listing accepts.
+_CURSOR_COMMENT_ORDERS: frozenset[str] = frozenset({"id", "createdAt"})
+
+
+def _check_comment_order(value: str | None) -> None:
+    if value is not None and value not in _CURSOR_COMMENT_ORDERS:
+        raise UserInputError("order must be one of: id, createdAt")
 
 
 def get_market_spec(
@@ -384,6 +413,7 @@ __all__ = [
     "Recurrence",
     "TagMatch",
     "TimestampFilter",
+    "comments_paginate_by_cursor",
     "get_comment_thread_spec",
     "get_event_spec",
     "get_event_tags_spec",
@@ -397,6 +427,7 @@ __all__ = [
     "get_sports_spec",
     "get_tag_spec",
     "list_comments_by_user_address_spec",
+    "list_comments_keyset_spec",
     "list_comments_spec",
     "list_events_spec",
     "list_markets_spec",
@@ -550,7 +581,7 @@ def list_markets_spec(
     _add_optional(params, "liquidity_num_min", liquidity_num_min)
     _add_optional(params, "locale", locale)
     _add_optional_seq(params, "market_maker_address", market_maker_addresses)
-    _add_optional(params, "order", order)
+    _add_optional(params, "order", _normalize_market_order(order))
     _add_optional_seq(params, "position_ids", position_ids)
     _add_optional_seq(params, "question_ids", question_ids)
     _add_optional(params, "related_tags", related_tags)
@@ -657,6 +688,16 @@ def list_teams_spec(
     )
 
 
+# The upstream offset cap for the comments listings; deeper pages are rejected.
+_MAX_COMMENTS_OFFSET = 200
+
+
+def _count_root_comments(items: tuple[Comment, ...]) -> int:
+    # A comments page holds `limit` top-level comments plus their replies, so
+    # the limit was applied to the roots, not to every row.
+    return sum(1 for comment in items if comment.parent_comment_id is None)
+
+
 def list_comments_spec(
     *,
     parent_entity_id: str,
@@ -683,8 +724,63 @@ def list_comments_spec(
         path="/comments",
         # Matches the upstream per-request limit cap.
         max_page_size=100,
+        max_offset=_MAX_COMMENTS_OFFSET,
+        page_fill=_count_root_comments,
         parse_items=Comment.parse_response_list,
         base_params=params,
+    )
+
+
+def comments_paginate_by_cursor(
+    *,
+    get_positions: bool | None,
+    holders_only: bool | None,
+    order: str | None,
+) -> bool:
+    # Holder filtering, positions and orders other than `id`/`createdAt` are
+    # served on offset pages only; every other read pages by server cursor.
+    return (
+        not get_positions
+        and not holders_only
+        and (order is None or order in _CURSOR_COMMENT_ORDERS)
+    )
+
+
+def list_comments_keyset_spec(
+    *,
+    parent_entity_id: str,
+    parent_entity_type: CommentParentEntityType,
+    ascending: bool | None = None,
+    order: str | None = None,
+) -> KeysetPaginatedSpec[Comment]:
+    require_nonempty("parent_entity_id", parent_entity_id)
+    _check_parent_entity_type(parent_entity_type)
+    _check_comment_order(order)
+
+    if order is None:
+        # Without `order` the offset listing serves newest first and ignores
+        # `ascending`, while the cursor listing defaults to oldest first. Both
+        # are pinned so the first page stays identical and the cursor binds
+        # the direction it was minted for.
+        order, ascending = "createdAt", False
+    elif ascending is None:
+        # With `order` both listings default to ascending.
+        ascending = True
+
+    params: dict[str, QueryParamValue] = {
+        "parent_entity_id": parent_entity_id,
+        "parent_entity_type": parent_entity_type,
+        "order": order,
+        "ascending": ascending,
+    }
+
+    return KeysetPaginatedSpec(
+        service="gamma",
+        path="/comments/keyset",
+        parse_page=_make_keyset_parser("comments", Comment.parse_response),
+        base_params=params,
+        # Matches the upstream per-request limit cap.
+        max_page_size=100,
     )
 
 
@@ -705,6 +801,7 @@ def list_comments_by_user_address_spec(
         path=path,
         # Matches the upstream per-request limit cap.
         max_page_size=100,
+        max_offset=_MAX_COMMENTS_OFFSET,
         parse_items=Comment.parse_response_list,
         base_params=params or None,
     )

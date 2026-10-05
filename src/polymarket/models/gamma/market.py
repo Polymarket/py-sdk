@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any, cast
+from typing import Any, Literal, TypeAlias, cast
 
 from pydantic import AliasChoices, Field, field_validator, model_validator
 
@@ -22,7 +22,7 @@ from polymarket.models.gamma.common import (
 )
 from polymarket.models.types import (
     ClobRewardId,
-    CtfConditionId,
+    ConditionId,
     EventId,
     MarketId,
     PositionId,
@@ -30,10 +30,22 @@ from polymarket.models.types import (
     ResolutionRequestId,
     TagId,
     TokenId,
-    validate_ctf_condition_id,
-    validate_optional_ctf_condition_id,
+    validate_condition_id_response,
+    validate_optional_condition_id_response,
 )
 from polymarket.types import EvmAddress
+
+ComboKnownStatus: TypeAlias = Literal["pending", "enabled", "disabled"]
+# The Combo status set can grow between SDK releases, so unknown values flow
+# through as plain strings instead of failing validation.
+ComboStatus: TypeAlias = ComboKnownStatus | str
+
+
+class ProtocolVersion(StrEnum):
+    """Known market protocol versions."""
+
+    V1 = "v1"
+    V2 = "v2"
 
 
 class UmaResolutionStatus(StrEnum):
@@ -52,6 +64,10 @@ class MarketState(BaseModel):
     active: bool | None = None
     closed: bool | None = None
     archived: bool | None = None
+    combo_status: ComboStatus | None = Field(
+        default=None,
+        validation_alias="comboStatus",
+    )
     accepting_orders: bool | None = Field(
         default=None,
         validation_alias="acceptingOrders",
@@ -90,6 +106,12 @@ class MarketOutcome(BaseModel):
     token_id: TokenId | None = Field(
         default=None,
         validation_alias="tokenId",
+        description="CTF token ID for this outcome, when available.",
+    )
+    position_id: PositionId | None = Field(
+        default=None,
+        validation_alias="positionId",
+        description="Polymarket V2 position ID for this outcome, when available.",
     )
     price: Decimal | None = None
 
@@ -281,7 +303,7 @@ class ClobReward(BaseModel):
     """Reward configuration attached to a market condition."""
 
     id: ClobRewardId
-    condition_id: CtfConditionId = Field(validation_alias="conditionId")
+    condition_id: ConditionId = Field(validation_alias="conditionId")
     asset_address: str = Field(validation_alias="assetAddress")
     rewards_amount: Decimal = Field(validation_alias="rewardsAmount")
     rewards_daily_rate: Decimal = Field(validation_alias="rewardsDailyRate")
@@ -298,8 +320,8 @@ class ClobReward(BaseModel):
 
     @field_validator("condition_id", mode="before")
     @classmethod
-    def _validate_condition_id(cls, value: object) -> CtfConditionId:
-        return validate_ctf_condition_id(value)
+    def _validate_condition_id(cls, value: object) -> ConditionId:
+        return validate_condition_id_response(value)
 
 
 class MarketRewards(BaseModel):
@@ -376,8 +398,9 @@ class Market(BaseModel):
     """A Polymarket market."""
 
     id: MarketId
+    version: ProtocolVersion | None = None
     slug: str | None = None
-    condition_id: CtfConditionId | None = Field(
+    condition_id: ConditionId | None = Field(
         default=None,
         validation_alias=AliasChoices("conditionId", "condition"),
     )
@@ -400,6 +423,8 @@ class Market(BaseModel):
     position_ids: tuple[PositionId, ...] = Field(
         default=(),
         validation_alias="positionIds",
+        deprecated="Use the position_id on each outcome instead.",
+        description="Deprecated market-level Polymarket V2 position IDs.",
     )
 
     def _repr_html_(self) -> str:
@@ -456,6 +481,7 @@ class Market(BaseModel):
 
         return {
             "id": data.get("id"),
+            "version": data.get("version"),
             "slug": data.get("slug"),
             "condition_id": empty_string_to_none(data.get("conditionId")),
             "question": data.get("question"),
@@ -468,6 +494,7 @@ class Market(BaseModel):
                 "active": data.get("active"),
                 "closed": data.get("closed"),
                 "archived": data.get("archived"),
+                "combo_status": data.get("comboStatus"),
                 "accepting_orders": data.get("acceptingOrders"),
                 "enable_order_book": data.get("enableOrderBook"),
                 "neg_risk": data.get("negRisk"),
@@ -479,11 +506,13 @@ class Market(BaseModel):
                 "yes": {
                     "label": outcomes[0],
                     "token_id": token_ids[0] if len(token_ids) > 0 else None,
+                    "position_id": position_ids[0] if len(position_ids) > 0 else None,
                     "price": outcome_prices[0] if len(outcome_prices) > 0 else None,
                 },
                 "no": {
                     "label": outcomes[1],
                     "token_id": token_ids[1] if len(token_ids) > 1 else None,
+                    "position_id": position_ids[1] if len(position_ids) > 1 else None,
                     "price": outcome_prices[1] if len(outcome_prices) > 1 else None,
                 },
             },
@@ -559,12 +588,14 @@ class Market(BaseModel):
 
     @field_validator("condition_id", mode="before")
     @classmethod
-    def _validate_condition_id(cls, value: object) -> CtfConditionId | None:
-        return validate_optional_ctf_condition_id(value)
+    def _validate_condition_id(cls, value: object) -> ConditionId | None:
+        return validate_optional_condition_id_response(value)
 
 
 __all__ = [
     "ClobReward",
+    "ComboKnownStatus",
+    "ComboStatus",
     "FeeSchedule",
     "Market",
     "MarketEvent",
@@ -578,5 +609,6 @@ __all__ = [
     "MarketState",
     "MarketTag",
     "MarketTrading",
+    "ProtocolVersion",
     "UmaResolutionStatus",
 ]

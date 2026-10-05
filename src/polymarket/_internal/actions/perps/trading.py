@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast
 
 from polymarket.errors import RequestRejectedError, UserInputError
+from polymarket.models.perps.builders import PerpsBuilderAttribution
 from polymarket.models.perps.events import PerpsOrderEvent, PerpsSessionEvent
 from polymarket.models.perps.orders import PerpsOrder, PerpsPostOrderAck
 from polymarket.models.perps.requests import (
@@ -51,6 +52,7 @@ async def place_order(
     stop_loss: PerpsTpSlTrigger | None,
     expires_at: datetime | int | None,
 ) -> PerpsOrderPlacement:
+    builder_attribution = session.builder_attribution
     if request.client_order_id is None:
         request = replace(request, client_order_id=secrets.token_hex(16))
     client_order_id = request.client_order_id
@@ -59,14 +61,14 @@ async def place_order(
     if take_profit is None and stop_loss is None:
         _, order = await _place_orders_and_wait_for_update(
             session,
-            [to_raw_order(request)],
+            [to_raw_order(request, builder_attribution)],
             client_order_id=client_order_id,
             group=None,
             expires_at=expires_at,
         )
         return PerpsOrderPlacement(order=order)
 
-    rows: list[RawPerpsOrder] = [to_raw_order(request)]
+    rows: list[RawPerpsOrder] = [to_raw_order(request, builder_attribution)]
     exit_buy = request.side == "SELL"
     quantity_string = to_decimal_string("quantity", request.quantity)
     if take_profit is not None:
@@ -76,6 +78,7 @@ async def place_order(
                 instrument_id=request.instrument_id,
                 kind="tp",
                 quantity=quantity_string,
+                builder_attribution=builder_attribution,
                 trigger=take_profit,
             )
         )
@@ -86,6 +89,7 @@ async def place_order(
                 instrument_id=request.instrument_id,
                 kind="sl",
                 quantity=quantity_string,
+                builder_attribution=builder_attribution,
                 trigger=stop_loss,
             )
         )
@@ -119,10 +123,11 @@ async def post_orders(
     *,
     expires_at: datetime | int | None,
 ) -> tuple[PerpsPostOrderAck, ...]:
+    builder_attribution = session.builder_attribution
     if not orders:
         raise UserInputError("orders must be non-empty")
     acks = await session._send_create_orders(  # pyright: ignore[reportPrivateUsage]
-        [to_raw_order(order) for order in orders],
+        [to_raw_order(order, builder_attribution) for order in orders],
         group=None,
         expires_at=expires_at,
     )
@@ -137,6 +142,7 @@ async def place_position_tp_sl(
     stop_loss: PerpsPositionTpSlTrigger | None,
     expires_at: datetime | int | None,
 ) -> PerpsPlacedTpSlOrders:
+    builder_attribution = session.builder_attribution
     if take_profit is None and stop_loss is None:
         raise UserInputError("Provide take_profit, stop_loss, or both")
     exit_buy = await _position_exit_buy(session, instrument_id)
@@ -148,6 +154,7 @@ async def place_position_tp_sl(
                 instrument_id=instrument_id,
                 kind="tp",
                 quantity="0",
+                builder_attribution=builder_attribution,
                 trigger=take_profit,
             )
         )
@@ -158,6 +165,7 @@ async def place_position_tp_sl(
                 instrument_id=instrument_id,
                 kind="sl",
                 quantity="0",
+                builder_attribution=builder_attribution,
                 trigger=stop_loss,
             )
         )
@@ -229,8 +237,10 @@ def _expect_ok_ack(ack: PerpsPostOrderAck) -> PerpsOrderId:
     return cast(PerpsOrderId, ack.order_id)
 
 
-def to_raw_order(request: PerpsOrderRequest) -> RawPerpsOrder:
-    return [
+def to_raw_order(
+    request: PerpsOrderRequest, builder_attribution: PerpsBuilderAttribution | None = None
+) -> RawPerpsOrder:
+    row: RawPerpsOrder = [
         request.instrument_id,
         request.side == "BUY",
         None if request.price is None else to_decimal_string("price", request.price),
@@ -242,6 +252,10 @@ def to_raw_order(request: PerpsOrderRequest) -> RawPerpsOrder:
         None,
     ]
 
+    if builder_attribution is not None:
+        row.extend([None, [builder_attribution.address, format(builder_attribution.fee_rate, "f")]])
+    return row
+
 
 def to_raw_tp_sl_order(
     *,
@@ -250,9 +264,10 @@ def to_raw_tp_sl_order(
     kind: PerpsTpSlKind,
     quantity: str,
     trigger: PerpsTpSlTrigger | PerpsPositionTpSlTrigger,
+    builder_attribution: PerpsBuilderAttribution | None = None,
 ) -> RawPerpsOrder:
     limit_price = getattr(trigger, "limit_price", None)
-    return [
+    row: RawPerpsOrder = [
         instrument_id,
         buy,
         None if limit_price is None else to_decimal_string("limit_price", limit_price),
@@ -267,6 +282,10 @@ def to_raw_tp_sl_order(
             kind,
         ],
     ]
+
+    if builder_attribution is not None:
+        row.extend([None, [builder_attribution.address, format(builder_attribution.fee_rate, "f")]])
+    return row
 
 
 def create_orders_op(
@@ -408,6 +427,8 @@ def _to_order_body(row: RawPerpsOrder) -> dict[str, Any]:
         body["c"] = row[7]
     if row[8] is not None:
         body["tr"] = _to_trigger_body(row[8])
+    if len(row) > 10 and row[10] is not None:
+        body["builder"] = {"address": row[10][0], "fee_rate": row[10][1]}
     return body
 
 

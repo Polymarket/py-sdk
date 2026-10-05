@@ -13,6 +13,7 @@ from polymarket.models.gamma import (
     Event,
     EventPartner,
     Market,
+    ProtocolVersion,
     PublicProfile,
     Reaction,
     RelatedTag,
@@ -21,6 +22,7 @@ from polymarket.models.gamma import (
     SportsMetadata,
     Tag,
     TagReference,
+    TeamOrdering,
     UmaResolutionStatus,
 )
 
@@ -50,7 +52,35 @@ def test_market_parses_minimal_payload() -> None:
     assert market.outcomes.no.label == "No"
     assert market.outcomes.no.token_id == "TOKEN-NO"
     assert market.outcomes.no.price == Decimal("0.4")
-    assert market.position_ids == ("POSITION-YES", "POSITION-NO")
+    with pytest.warns(DeprecationWarning, match="position_id on each outcome"):
+        assert market.position_ids == ("POSITION-YES", "POSITION-NO")
+
+
+@pytest.mark.parametrize(
+    ("raw_version", "expected"),
+    [
+        ("v1", ProtocolVersion.V1),
+        ("v2", ProtocolVersion.V2),
+    ],
+)
+def test_market_parses_known_protocol_versions(
+    raw_version: str,
+    expected: ProtocolVersion,
+) -> None:
+    market = Market.parse_response(_minimal_market_payload(version=raw_version))
+
+    assert market.version is expected
+
+
+def test_market_rejects_unknown_protocol_version() -> None:
+    with pytest.raises(UnexpectedResponseError):
+        Market.parse_response(_minimal_market_payload(version="v3"))
+
+
+def test_market_accepts_null_protocol_version() -> None:
+    market = Market.parse_response(_minimal_market_payload(version=None))
+
+    assert market.version is None
 
 
 def test_market_normalizes_groups_from_flat_payload() -> None:
@@ -66,6 +96,7 @@ def test_market_normalizes_groups_from_flat_payload() -> None:
         active=True,
         closed=False,
         archived=False,
+        comboStatus="enabled",
         acceptingOrders=True,
         enableOrderBook=True,
         negRisk=False,
@@ -111,6 +142,7 @@ def test_market_normalizes_groups_from_flat_payload() -> None:
     assert market.condition_id == _CONDITION_ID
     assert market.group_item_title == "Rain tomorrow"
     assert market.state.active is True
+    assert market.state.combo_status == "enabled"
     assert market.state.start_date == datetime(2026, 5, 1, tzinfo=UTC)
     assert market.state.end_date == datetime(2026, 6, 1, tzinfo=UTC)
     assert market.metrics.volume == Decimal("100")
@@ -161,9 +193,16 @@ def test_market_treats_empty_condition_id_as_none() -> None:
     assert market.condition_id is None
 
 
-def test_market_rejects_malformed_condition_id() -> None:
-    with pytest.raises(UnexpectedResponseError, match="Market response"):
-        Market.parse_response(_minimal_market_payload(conditionId="0x1234"))
+def test_market_passes_unknown_combo_status_through_as_string() -> None:
+    market = Market.parse_response(_minimal_market_payload(comboStatus="not-a-status-yet"))
+
+    assert market.state.combo_status == "not-a-status-yet"
+
+
+def test_market_accepts_protocol_neutral_hex_condition_id_response() -> None:
+    market = Market.parse_response(_minimal_market_payload(conditionId="0x1234"))
+
+    assert market.condition_id == "0x1234"
 
 
 def test_market_treats_empty_resolved_by_as_none() -> None:
@@ -243,6 +282,23 @@ def test_event_parses_minimal_payload() -> None:
     assert event.partners == ()
 
 
+def test_event_parses_protocol_version_shared_by_its_markets() -> None:
+    event = Event.parse_response(_minimal_event_payload(version="v2"))
+
+    assert event.version is ProtocolVersion.V2
+
+
+def test_event_accepts_null_protocol_version() -> None:
+    event = Event.parse_response(_minimal_event_payload(version=None))
+
+    assert event.version is None
+
+
+def test_event_rejects_unknown_protocol_version() -> None:
+    with pytest.raises(UnexpectedResponseError):
+        Event.parse_response(_minimal_event_payload(version="v3"))
+
+
 def test_event_normalizes_groups_from_flat_payload() -> None:
     payload = _minimal_event_payload(
         ticker="TICK",
@@ -288,7 +344,17 @@ def test_event_normalizes_groups_from_flat_payload() -> None:
         gameId=999,
         homeTeamName="Home",
         awayTeamName="Away",
-        teams=[],
+        teams=[{"id": 114315, "name": "Paris Saint-Germain FC", "ordering": "home"}],
+        sport={
+            "id": 11,
+            "sport": "fl1",
+            "name": "Ligue 1",
+            "image": "https://example.test/league.png",
+            "resolution": "https://example.test/results",
+            "ordering": "home",
+            "tags": "1,2",
+            "series": "3",
+        },
         bestLines=[],
         markets=[],
         externalPartners=[
@@ -343,6 +409,10 @@ def test_event_normalizes_groups_from_flat_payload() -> None:
     assert event.estimation.estimated_value == Decimal("123.45")
     assert event.sports.series_slug == "sport-series"
     assert event.sports.game_id == 999
+    assert event.sports.teams[0].ordering is TeamOrdering.HOME
+    assert event.sports.sport is not None
+    assert event.sports.sport.sport == "fl1"
+    assert event.sports.sport.name == "Ligue 1"
     assert len(event.partners) == 1
     assert event.partners[0].external_id == "EXT-7"
     assert event.partners[0].partner is not None
@@ -645,6 +715,7 @@ def test_sports_metadata_requires_all_string_fields() -> None:
         {
             "id": 1,
             "sport": "Basketball",
+            "name": "National Basketball Association",
             "image": "https://example.test/b.png",
             "resolution": "live",
             "ordering": "manual",
@@ -656,7 +727,27 @@ def test_sports_metadata_requires_all_string_fields() -> None:
 
     assert meta.id == 1
     assert meta.sport == "Basketball"
+    assert meta.name == "National Basketball Association"
     assert meta.created_at == datetime(2026, 1, 1, tzinfo=UTC)
+
+
+@pytest.mark.parametrize("optional_fields", [{}, {"name": None}])
+def test_sports_metadata_accepts_missing_or_null_name(optional_fields: dict[str, object]) -> None:
+    meta = SportsMetadata.parse_response(
+        {
+            "id": 1,
+            "sport": "nba",
+            "image": "https://example.test/b.png",
+            "resolution": "live",
+            "ordering": "away",
+            "tags": "1,2",
+            "series": "3",
+            **optional_fields,
+        }
+    )
+
+    assert meta.sport == "nba"
+    assert meta.name is None
 
 
 def test_sports_market_types_parses_market_types() -> None:

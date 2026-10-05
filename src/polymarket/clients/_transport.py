@@ -3,9 +3,11 @@ from __future__ import annotations
 import json as _json
 import logging
 import math
+import re
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any, TypeAlias
 
 import httpx
@@ -63,6 +65,7 @@ class SyncTransport:
         self._logger = logger
         self._header_resolver = header_resolver
         self._on_rate_limit_update = on_rate_limit_update
+        self._base_url = base_url
 
     def get_json(
         self,
@@ -150,7 +153,7 @@ class SyncTransport:
         try:
             response = self._client.request(
                 method,
-                path,
+                self._base_url if path == "" else path,
                 params=_clean_params(params),
                 content=content,
                 headers=merged_headers or None,
@@ -189,6 +192,7 @@ class AsyncTransport:
         self._logger = logger
         self._header_resolver = header_resolver
         self._on_rate_limit_update = on_rate_limit_update
+        self._base_url = base_url
 
     async def get_json(
         self,
@@ -287,7 +291,7 @@ class AsyncTransport:
         try:
             response = await self._client.request(
                 method,
-                path,
+                self._base_url if path == "" else path,
                 params=_clean_params(params),
                 content=content,
                 headers=merged_headers or None,
@@ -412,14 +416,98 @@ def _raise_for_response_status(response: httpx.Response) -> None:
     )
 
 
+_HTTP_DATE_MONTHS = (
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+)
+_HTTP_DATE_MONTH = "(?P<month>" + "|".join(_HTTP_DATE_MONTHS) + ")"
+_HTTP_DATE_TIME = r"(?P<hour>\d{2}):(?P<minute>\d{2}):(?P<second>\d{2})"
+# RFC 9110 section 5.6.7: recipients accept IMF-fixdate and the two obsolete
+# forms. The fields are read as UTC here so the three forms behave alike.
+_HTTP_DATE_PATTERNS = (
+    re.compile(
+        r"^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), (?P<day>\d{2}) "
+        + _HTTP_DATE_MONTH
+        + r" (?P<year>\d{4}) "
+        + _HTTP_DATE_TIME
+        + r" GMT$"
+    ),
+    re.compile(
+        r"^(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), (?P<day>\d{2})-"
+        + _HTTP_DATE_MONTH
+        + r"-(?P<year>\d{2}) "
+        + _HTTP_DATE_TIME
+        + r" GMT$"
+    ),
+    re.compile(
+        r"^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) "
+        + _HTTP_DATE_MONTH
+        + r" (?P<day> \d|\d{2}) "
+        + _HTTP_DATE_TIME
+        + r" (?P<year>\d{4})$"
+    ),
+)
+_FIFTY_YEARS_S = 50 * 365.25 * 24 * 60 * 60
+
+
+def _parse_http_date(value: str, now: float) -> float | None:
+    """Return the epoch seconds of an RFC 9110 HTTP-date, or None when malformed.
+
+    A two-digit year more than fifty years in the future is read as the most
+    recent past year with those digits.
+    """
+    for pattern in _HTTP_DATE_PATTERNS:
+        match = pattern.match(value)
+        if match is not None:
+            break
+    else:
+        return None
+    groups = match.groupdict()
+    month = _HTTP_DATE_MONTHS.index(groups["month"]) + 1
+    day, hour, minute, second = (int(groups[name]) for name in ("day", "hour", "minute", "second"))
+    year_digits = groups["year"]
+    year = int(year_digits)
+    try:
+        if len(year_digits) == 2:
+            year += datetime.fromtimestamp(now, UTC).year // 100 * 100
+            deadline = datetime(year, month, day, hour, minute, second, tzinfo=UTC)
+            if deadline.timestamp() - now > _FIFTY_YEARS_S:
+                year -= 100
+        return datetime(year, month, day, hour, minute, second, tzinfo=UTC).timestamp()
+    except (ValueError, OverflowError):
+        return None
+
+
+def _parse_retry_after_header(header: str, now: float) -> float | None:
+    try:
+        seconds = float(header.strip())
+    except ValueError:
+        seconds = None
+    if seconds is not None:
+        return seconds if math.isfinite(seconds) and seconds >= 0 else None
+    # RFC 9110 section 10.2.3 also allows an HTTP-date. Report whole seconds
+    # from now, never rounding a future deadline down, and clamp past dates.
+    deadline = _parse_http_date(header.strip(), now)
+    if deadline is None:
+        return None
+    return float(max(0, math.ceil(deadline - now)))
+
+
 def _extract_retry_after(response: httpx.Response) -> float | None:
     header = response.headers.get("retry-after")
     if header is not None:
-        try:
-            seconds = float(header.strip())
-        except ValueError:
-            seconds = None
-        if seconds is not None and math.isfinite(seconds) and seconds >= 0:
+        seconds = _parse_retry_after_header(header, time.time())
+        if seconds is not None:
             return seconds
 
     if "application/json" in response.headers.get("content-type", "").lower():

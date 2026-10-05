@@ -15,7 +15,6 @@ from polymarket.models.perps.notifications import (
 from polymarket.models.perps.orders import (
     PerpsBatchLeverageResult,
     PerpsLeverageUpdateRejection,
-    PerpsLeverageUpdateSuccess,
 )
 from polymarket.models.perps.requests import PerpsLeverageUpdate
 from polymarket.models.perps.results import (
@@ -29,7 +28,6 @@ __all__ = [
     "PerpsBatchLeverageResult",
     "PerpsLeverageUpdate",
     "PerpsLeverageUpdateRejection",
-    "PerpsLeverageUpdateSuccess",
     "PerpsNotificationsPage",
     "PerpsNotificationsPaginator",
     "PerpsOrderPlacement",

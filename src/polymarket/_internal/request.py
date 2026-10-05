@@ -2,6 +2,8 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Generic, Literal, TypeVar
 
+from polymarket._internal.retry import RateLimitRetry
+
 Service = Literal["gamma", "data", "rfq"]
 Method = Literal["GET"]
 
@@ -18,6 +20,7 @@ class RequestSpec(Generic[T]):
     path: str
     parse: Callable[[object], T]
     params: Mapping[str, QueryParamValue | None] | None = None
+    retry: RateLimitRetry | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +30,17 @@ class OffsetPaginatedSpec(Generic[T]):
     `max_page_size` must match the endpoint's server-side limit cap. Without
     it, a page size above the cap makes the server clamp or reject the request
     and pagination silently skips or drops rows.
+
+    `max_offset` must match the endpoint's server-side offset cap when the
+    server rejects requests past it. Following a cursor beyond the cap raises
+    `PaginationLimitError` before the request instead of surfacing the
+    rejection after a wasted round trip.
+
+    `page_fill` reports how many rows the request's `limit` was applied to on
+    a page. It defaults to the item count, which is right when the response is
+    one row per item. An endpoint that expands each counted row (a comment
+    with its replies) returns the count of rows the limit bounded, so a page
+    padded with expansions is not mistaken for a full one.
     """
 
     service: Service
@@ -34,6 +48,8 @@ class OffsetPaginatedSpec(Generic[T]):
     parse_items: Callable[[object], tuple[T, ...]]
     base_params: Mapping[str, QueryParamValue] | None = None
     max_page_size: int | None = None
+    max_offset: int | None = None
+    page_fill: Callable[[tuple[T, ...]], int] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +67,7 @@ class KeysetPaginatedSpec(Generic[T]):
     base_params: Mapping[str, QueryParamValue] | None = None
     cursor_param: str = "after_cursor"
     max_page_size: int | None = None
+    retry: RateLimitRetry | None = None
 
 
 @dataclass(frozen=True, slots=True)

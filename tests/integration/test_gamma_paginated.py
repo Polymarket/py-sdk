@@ -251,3 +251,53 @@ def test_search_cursor_advances_to_next_page() -> None:
         page_one_ids = {event.id for event in bundle_one.events}
         page_two_ids = {event.id for event in bundle_two.events}
         assert page_one_ids != page_two_ids or not bundle_one.events
+
+
+def _root_created_at(page_items: tuple[Comment, ...]) -> list[float]:
+    return [
+        comment.created_at.timestamp()
+        for comment in page_items
+        if comment.parent_comment_id is None and comment.created_at is not None
+    ]
+
+
+@pytest.mark.integration
+def test_list_comments_continues_a_long_thread_by_server_cursor() -> None:
+    # A long-running thread; each page carries `page_size` top-level comments
+    # plus their replies, so assertions are on the top-level comments only.
+    with PublicClient() as client:
+        paginator = client.list_comments(
+            parent_entity_id="45915", parent_entity_type="Event", page_size=5
+        )
+        first = paginator.first_page()
+        second = paginator.from_cursor(first.next_cursor).first_page()
+
+        assert first.has_more is True
+        assert first.next_cursor and first.next_cursor != second.next_cursor
+        assert all(isinstance(comment, Comment) for comment in (*first.items, *second.items))
+
+        first_roots = {c.id for c in first.items if c.parent_comment_id is None}
+        second_roots = {c.id for c in second.items if c.parent_comment_id is None}
+        assert len(first_roots) == 5
+        assert first_roots.isdisjoint(second_roots)
+
+        created_at = _root_created_at(first.items) + _root_created_at(second.items)
+        assert created_at == sorted(created_at, reverse=True)
+
+
+@pytest.mark.integration
+def test_async_list_comments_continues_a_long_thread_by_server_cursor() -> None:
+    async def run() -> None:
+        async with AsyncPublicClient() as client:
+            paginator = client.list_comments(
+                parent_entity_id="45915", parent_entity_type="Event", page_size=5
+            )
+            first = await paginator.first_page()
+            second = await paginator.from_cursor(first.next_cursor).first_page()
+
+            first_roots = {c.id for c in first.items if c.parent_comment_id is None}
+            second_roots = {c.id for c in second.items if c.parent_comment_id is None}
+            assert first.has_more is True
+            assert first_roots.isdisjoint(second_roots)
+
+    asyncio.run(run())

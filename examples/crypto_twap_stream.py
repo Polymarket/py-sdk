@@ -8,7 +8,7 @@ No credentials required. Stop the stream with Ctrl-C.
 import asyncio
 
 from polymarket import AsyncPublicClient
-from polymarket.streams import CryptoPricesChainlinkTwapSpec
+from polymarket.streams import CryptoPricesChainlinkTwapSpec  # pyright: ignore[reportDeprecated]
 
 
 async def main() -> None:
@@ -16,11 +16,11 @@ async def main() -> None:
     try:
         async with await client.subscribe(
             [
-                CryptoPricesChainlinkTwapSpec(
+                CryptoPricesChainlinkTwapSpec(  # pyright: ignore[reportDeprecated]
                     window_seconds=30,
                     symbols=["btc/usd", "eth/usd"],
                 ),
-                CryptoPricesChainlinkTwapSpec(
+                CryptoPricesChainlinkTwapSpec(  # pyright: ignore[reportDeprecated]
                     window_seconds=60,
                     symbols=["btc/usd", "eth/usd"],
                 ),

@@ -1,0 +1,34 @@
+[
+  {
+    "win_rank": 1,
+    "kind": "market",
+    "user_id": "0x0f6f76ced62a911bccef92f50faaff143854d977",
+    "pnl": 605166.254269,
+    "initial_value": 342438.9272675703,
+    "final_value": 947605.1815365703,
+    "resolved_at": 1788815151,
+    "condition_id": "0xc49afbcf2abadda0a5e5cb65de7e9d32c694d0252657f9cf524f892f78bd12c6",
+    "position_id": "89987438275800490253644049803519421014246079685963440379193646937260636183942",
+    "event_id": 906946,
+    "event_slug": "sea-udi-laz-2026-09-07",
+    "event_title": "Udinese Calcio vs. SS Lazio",
+    "user_name": "totoro3miyazaki",
+    "profile_image": ""
+  },
+  {
+    "win_rank": 2,
+    "kind": "market",
+    "user_id": "0x31e5d54aded22aa7cd80dbe9e33102abe2504879",
+    "pnl": 441600.333974,
+    "initial_value": 338410.5747567699,
+    "final_value": 780010.90873077,
+    "resolved_at": 1788833296,
+    "condition_id": "0xc340bd1a00f838b4d6e01ef78737525e28611b010755af341b95cc909a6909a1",
+    "position_id": "64250917139939360825140876006288355225510390739618522408087890757626102720007",
+    "event_id": 975445,
+    "event_slug": "atp-khachan-tien-2026-09-07",
+    "event_title": "US Open ATP: Karen Khachanov vs Learner Tien",
+    "user_name": "Noprajsk",
+    "profile_image": ""
+  }
+]

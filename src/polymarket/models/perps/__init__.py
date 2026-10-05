@@ -18,6 +18,19 @@ from polymarket.models.perps.account import (
     PerpsPosition,
     PerpsProxyKey,
 )
+from polymarket.models.perps.builder_events import PerpsBuilderFillEvent
+from polymarket.models.perps.builders import (
+    PerpsBuilderApproval,
+    PerpsBuilderAttribution,
+    PerpsBuilderEarning,
+    PerpsBuilderEarningsAsset,
+    PerpsBuilderEarningsPage,
+    PerpsBuilderEarningsPaginator,
+    PerpsBuilderEarningsSnapshot,
+    PerpsBuilderEarningsSummary,
+    PerpsBuilderStatus,
+    PerpsLiquidityRole,
+)
 from polymarket.models.perps.credentials import PerpsCredentials
 from polymarket.models.perps.events import (
     PerpsBalanceEvent,
@@ -84,7 +97,6 @@ from polymarket.models.perps.orders import (
     PerpsCancelOrderResult,
     PerpsFill,
     PerpsLeverageUpdateRejection,
-    PerpsLeverageUpdateSuccess,
     PerpsOrder,
     PerpsPostOrderAck,
     PerpsTpSlOrderFields,
@@ -126,6 +138,17 @@ from polymarket.models.perps.types import (
 )
 
 __all__ = [
+    "PerpsBuilderAttribution",
+    "PerpsBuilderStatus",
+    "PerpsBuilderApproval",
+    "PerpsLiquidityRole",
+    "PerpsBuilderEarning",
+    "PerpsBuilderEarningsSnapshot",
+    "PerpsBuilderEarningsAsset",
+    "PerpsBuilderEarningsSummary",
+    "PerpsBuilderEarningsPage",
+    "PerpsBuilderEarningsPaginator",
+    "PerpsBuilderFillEvent",
     "PerpsAccountConfig",
     "PerpsAccountStats",
     "PerpsAutoCancelStatus",
@@ -168,7 +191,6 @@ __all__ = [
     "PerpsKlineInterval",
     "PerpsLeverageUpdate",
     "PerpsLeverageUpdateRejection",
-    "PerpsLeverageUpdateSuccess",
     "PerpsKnownWithdrawalStatus",
     "PerpsLimitOrderCanceledNotification",
     "PerpsLiquidationWarningNotification",

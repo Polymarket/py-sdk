@@ -163,7 +163,7 @@ def test_authenticated_flow(require_env):
     assert builder_api_key
 ```
 
-The SDK does not load `.env` files at runtime. The integration test fixture loads `.env` only for tests that request credentials, and existing environment variables take precedence over local `.env` values.
+The SDK does not load `.env` files at runtime. Integration fixtures load `.env` for test configuration and credentials, and existing environment variables take precedence over local `.env` values.
 
 Tests that place orders, spend funds, or mutate live state must also use `@pytest.mark.metered`. Metered tests are skipped unless `POLYMARKET_RUN_METERED_TESTS=1` is set:
 

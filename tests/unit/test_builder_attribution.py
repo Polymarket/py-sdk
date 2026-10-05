@@ -41,7 +41,7 @@ def _draft(builder_code: HexString | None) -> OrderDraft:
         side="BUY",
         signer=_DUMMY_ADDRESS,
         requested_amount=2_000_000,
-        token_id=TokenId("token-1"),
+        asset_id=TokenId("token-1"),
         builder_code=builder_code,
     )
 
