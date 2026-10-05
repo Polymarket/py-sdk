@@ -16,6 +16,8 @@ from polymarket.models.perps import (
     PerpsBuilderFillEvent,
     PerpsBuilderStatus,
     PerpsCancelOrderResult,
+    PerpsChase,
+    PerpsChaseAccepted,
     PerpsOrderRequest,
     PerpsPostOrderAck,
 )
@@ -122,3 +124,13 @@ if TYPE_CHECKING:
                 assert_type(event, PerpsBuilderFillEvent)
 
     _builder_typing_check = _check_builder_typing
+
+if TYPE_CHECKING:
+
+    async def _check_chase_typing(session: PerpsSession) -> None:
+        accepted = await session.create_chase(instrument_id=1, side="BUY", quantity="1")
+        assert_type(accepted, PerpsChaseAccepted)
+        assert_type(await session.fetch_chases(), tuple[PerpsChase, ...])
+        assert_type(await session.cancel_chase(chase_id=accepted.chase_id), None)
+
+    _chase_typing_check = _check_chase_typing

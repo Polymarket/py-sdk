@@ -16,6 +16,7 @@ from eth_account.signers.local import LocalAccount
 
 from polymarket._internal.actions.perps import account as _account
 from polymarket._internal.actions.perps import builders as _builders
+from polymarket._internal.actions.perps import chases as _chases
 from polymarket._internal.actions.perps.paging import to_epoch_ms
 from polymarket._internal.actions.perps.signing import (
     now_ms,
@@ -71,6 +72,7 @@ from polymarket.models.perps.builders import (
     PerpsBuilderEarningsPaginator,
     PerpsBuilderEarningsSummary,
 )
+from polymarket.models.perps.chases import PerpsChase, PerpsChaseAccepted
 from polymarket.models.perps.credentials import PerpsCredentials
 from polymarket.models.perps.events import (
     PerpsResyncEvent,
@@ -648,6 +650,71 @@ class PerpsSession:
             },
         )
         PerpsCancelAllOrdersResponse.parse_response(response)
+
+    async def create_chase(
+        self,
+        *,
+        instrument_id: int,
+        side: OrderSide,
+        quantity: DecimalInput,
+        limit_price: DecimalInput | None = None,
+        max_distance: DecimalInput | None = None,
+        max_distance_bps: int | None = None,
+        post_only: bool = True,
+        reduce_only: bool = False,
+        client_order_id: str | None = None,
+        expires_at: datetime | int | None = None,
+    ) -> PerpsChaseAccepted:
+        """Start a chase at the best price on its own side of the book.
+
+        Post-only defaults to true. Zero or omitted price/distance bounds are
+        unset; basis-point distance is 1..1000 or omitted, and cannot combine
+        with positive absolute distance. Market/account checks remain authoritative.
+        Retain client_order_id to reconcile an uncertain submission with active
+        chases and order history before creating again. No automatic retry occurs.
+        expires_at is a command deadline, not the chase lifetime.
+        """
+        op, body = _chases.build_create_chase_op(
+            instrument_id=instrument_id,
+            side=side,
+            quantity=quantity,
+            limit_price=limit_price,
+            max_distance=max_distance,
+            max_distance_bps=max_distance_bps,
+            post_only=post_only,
+            reduce_only=reduce_only,
+            client_order_id=client_order_id,
+        )
+        _chases.validate_chase_deadline(expires_at)
+        response = await self._api.post_json(
+            "/v1/trade/chases",
+            json={**self._create_signed_command(op, expires_at=expires_at), "op": body},
+        )
+        _chases.check_chase_response(response)
+        return PerpsChaseAccepted.parse_response(response)
+
+    async def fetch_chases(self) -> tuple[PerpsChase, ...]:
+        """Fetch running chases in ascending identity order without pagination.
+
+        Ended chases are absent. Closing this session does not cancel the chases.
+        """
+        return PerpsChase.parse_response_list(await self._api.get_json("/v1/account/chases"))
+
+    async def cancel_chase(
+        self, *, chase_id: int, expires_at: datetime | int | None = None
+    ) -> None:
+        """End a chase and cancel its resting child; completed fills remain.
+
+        Cancelling or modifying the locked child directly is rejected. Cancellation
+        of an unknown, ended or foreign chase is rejected. No automatic retry occurs.
+        """
+        op, body = _chases.build_cancel_chase_op(chase_id)
+        _chases.validate_chase_deadline(expires_at)
+        response = await self._api.delete_json(
+            "/v1/trade/chases",
+            json={**self._create_signed_command(op, expires_at=expires_at), "op": body},
+        )
+        _chases.check_chase_response(response)
 
     async def arm_auto_cancel(
         self,
