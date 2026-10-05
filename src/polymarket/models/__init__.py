@@ -246,6 +246,17 @@ from polymarket.models.perps.builders import (
     PerpsBuilderStatus,
     PerpsLiquidityRole,
 )
+from polymarket.models.perps.position_snapshots import (
+    PerpsPositionSnapshot,
+    PerpsPositionSnapshotCandle,
+    PerpsPositionSnapshotChart,
+    PerpsPositionSnapshotFailure,
+    PerpsPositionSnapshotFill,
+    PerpsPositionSnapshotMarker,
+    PerpsPositionSnapshotResult,
+    PerpsPositionSnapshots,
+    PerpsPositionSnapshotSuccess,
+)
 from polymarket.models.perps.results import (
     PerpsOrderPlacement,
     PerpsPlacedTpSlOrder,
@@ -283,6 +294,15 @@ from polymarket.models.types import (
 )
 
 __all__ = [
+    "PerpsPositionSnapshotFill",
+    "PerpsPositionSnapshotCandle",
+    "PerpsPositionSnapshotMarker",
+    "PerpsPositionSnapshotChart",
+    "PerpsPositionSnapshot",
+    "PerpsPositionSnapshotSuccess",
+    "PerpsPositionSnapshotFailure",
+    "PerpsPositionSnapshotResult",
+    "PerpsPositionSnapshots",
     "PerpsBuilderAttribution",
     "PerpsBuilderStatus",
     "PerpsBuilderApproval",

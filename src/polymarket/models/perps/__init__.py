@@ -100,6 +100,17 @@ from polymarket.models.perps.orders import (
     PerpsTpSlOrderFields,
     PerpsUpdateLeverageResult,
 )
+from polymarket.models.perps.position_snapshots import (
+    PerpsPositionSnapshot,
+    PerpsPositionSnapshotCandle,
+    PerpsPositionSnapshotChart,
+    PerpsPositionSnapshotFailure,
+    PerpsPositionSnapshotFill,
+    PerpsPositionSnapshotMarker,
+    PerpsPositionSnapshotResult,
+    PerpsPositionSnapshots,
+    PerpsPositionSnapshotSuccess,
+)
 from polymarket.models.perps.requests import (
     PerpsOrderRequest,
     PerpsPositionTpSlTrigger,
@@ -135,6 +146,15 @@ from polymarket.models.perps.types import (
 )
 
 __all__ = [
+    "PerpsPositionSnapshotFill",
+    "PerpsPositionSnapshotCandle",
+    "PerpsPositionSnapshotMarker",
+    "PerpsPositionSnapshotChart",
+    "PerpsPositionSnapshot",
+    "PerpsPositionSnapshotSuccess",
+    "PerpsPositionSnapshotFailure",
+    "PerpsPositionSnapshotResult",
+    "PerpsPositionSnapshots",
     "PerpsBuilderAttribution",
     "PerpsBuilderStatus",
     "PerpsBuilderApproval",

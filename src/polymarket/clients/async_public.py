@@ -27,6 +27,7 @@ from polymarket._internal.actions.orders.estimate import (
 )
 from polymarket._internal.actions.orders.types import MarketOrderType
 from polymarket._internal.actions.perps import builders as _perps_builders
+from polymarket._internal.actions.perps import position_snapshots as _position_snapshots
 from polymarket._internal.actions.perps import public as _perps_actions
 from polymarket._internal.actions.relayer.approvals import build_get_trading_approvals_state_spec
 from polymarket._internal.context import AsyncClientContext
@@ -116,6 +117,10 @@ from polymarket.models.perps import (
     PerpsTrade,
 )
 from polymarket.models.perps.builders import PerpsBuilderStatus
+from polymarket.models.perps.position_snapshots import (
+    PerpsPositionSnapshotFill,
+    PerpsPositionSnapshots,
+)
 from polymarket.models.rtds_events import (
     CommentsEvent,
     CryptoPricesChainlinkTwapEvent,
@@ -1589,6 +1594,26 @@ class AsyncPublicClient:
             )
 
         return AsyncPaginator(fetch=fetch)
+
+    async def fetch_perps_position_snapshots(
+        self,
+        *,
+        address: str,
+        active_instrument_ids: Sequence[int] = (),
+        history_fills: Sequence[PerpsPositionSnapshotFill] = (),
+    ) -> PerpsPositionSnapshots:
+        """Fetch ordered snapshots anonymously, including on secure clients.
+
+        Use session.fetch_position_snapshots for owner-only leverage and PnL
+        percentage. No pagination or automatic retries of item statuses.
+        Experimental: may change in breaking ways, including patch releases.
+        """
+        return await _position_snapshots.fetch_position_snapshots(
+            self._ctx.perps,
+            address=address,
+            active_instrument_ids=active_instrument_ids,
+            history_fills=history_fills,
+        )
 
     async def fetch_perps_builder_status(self, *, address: str) -> PerpsBuilderStatus:
         """Experimental: read builder registration, availability, and fee cap."""

@@ -16,6 +16,7 @@ from eth_account.signers.local import LocalAccount
 
 from polymarket._internal.actions.perps import account as _account
 from polymarket._internal.actions.perps import builders as _builders
+from polymarket._internal.actions.perps import position_snapshots as _position_snapshots
 from polymarket._internal.actions.perps.paging import to_epoch_ms
 from polymarket._internal.actions.perps.signing import (
     now_ms,
@@ -90,6 +91,10 @@ from polymarket.models.perps.orders import (
     PerpsOrder,
     PerpsPostOrderAck,
     PerpsUpdateLeverageResult,
+)
+from polymarket.models.perps.position_snapshots import (
+    PerpsPositionSnapshotFill,
+    PerpsPositionSnapshots,
 )
 from polymarket.models.perps.requests import (
     DecimalInput,
@@ -746,6 +751,24 @@ class PerpsSession:
     async def fetch_balances(self) -> tuple[PerpsBalance, ...]:
         """Fetch current Perps balances for the session account."""
         return await _account.fetch_balances(self._api)
+
+    async def fetch_position_snapshots(
+        self,
+        *,
+        active_instrument_ids: Sequence[int] = (),
+        history_fills: Sequence[PerpsPositionSnapshotFill] = (),
+    ) -> PerpsPositionSnapshots:
+        """Fetch snapshots for this session's authenticated account.
+
+        Owner-only leverage and PnL percentage remain None when historical
+        values are unavailable. No pagination or retries of item statuses.
+        Experimental: may change in breaking ways, including patch releases.
+        """
+        return await _position_snapshots.fetch_own_position_snapshots(
+            self._api,
+            active_instrument_ids=active_instrument_ids,
+            history_fills=history_fills,
+        )
 
     async def fetch_portfolio(self) -> PerpsPortfolio:
         """Fetch the current Perps portfolio for the session account."""

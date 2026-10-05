@@ -228,6 +228,17 @@ from polymarket.models.perps.builders import (
     PerpsBuilderStatus,
     PerpsLiquidityRole,
 )
+from polymarket.models.perps.position_snapshots import (
+    PerpsPositionSnapshot,
+    PerpsPositionSnapshotCandle,
+    PerpsPositionSnapshotChart,
+    PerpsPositionSnapshotFailure,
+    PerpsPositionSnapshotFill,
+    PerpsPositionSnapshotMarker,
+    PerpsPositionSnapshotResult,
+    PerpsPositionSnapshots,
+    PerpsPositionSnapshotSuccess,
+)
 from polymarket.pagination import AsyncPaginator, Page, Paginator
 from polymarket.rate_limit import RateLimitUpdate, RateLimitUpdateListener
 from polymarket.rfq import (
@@ -292,6 +303,15 @@ from polymarket.types import EvmAddress, HexString, TransactionHash
 from polymarket.version import __version__
 
 __all__ = [
+    "PerpsPositionSnapshotFill",
+    "PerpsPositionSnapshotCandle",
+    "PerpsPositionSnapshotMarker",
+    "PerpsPositionSnapshotChart",
+    "PerpsPositionSnapshot",
+    "PerpsPositionSnapshotSuccess",
+    "PerpsPositionSnapshotFailure",
+    "PerpsPositionSnapshotResult",
+    "PerpsPositionSnapshots",
     "PerpsBuilderAttribution",
     "PerpsBuilderStatus",
     "PerpsBuilderApproval",
