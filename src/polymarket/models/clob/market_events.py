@@ -9,6 +9,7 @@ from polymarket.models.clob._validators import (
     _coerce_decimalish,  # pyright: ignore[reportPrivateUsage]
     _coerce_optional_decimalish,  # pyright: ignore[reportPrivateUsage]
     _parse_epoch_ms_timestamp,  # pyright: ignore[reportPrivateUsage]
+    _parse_epoch_or_iso_timestamp,  # pyright: ignore[reportPrivateUsage]
 )
 from polymarket.models.clob.order_book import OrderBookLevel
 from polymarket.models.types import (
@@ -258,10 +259,17 @@ class NewMarketPayload(BaseModel):
     def _parse_optional_decimal(cls, value: object) -> object:
         return _coerce_optional_decimalish(value)
 
-    @field_validator("timestamp", "game_start_time", mode="before")
+    @field_validator("timestamp", mode="before")
     @classmethod
     def _parse_timestamp(cls, value: object) -> object:
         return _parse_epoch_ms_timestamp(value)
+
+    # The stream sends the start time as a datetime string, the same encoding
+    # the market notification uses for this field, not as epoch milliseconds.
+    @field_validator("game_start_time", mode="before")
+    @classmethod
+    def _parse_game_start_time(cls, value: object) -> object:
+        return _parse_epoch_or_iso_timestamp(value)
 
 
 class MarketResolvedPayload(BaseModel):
