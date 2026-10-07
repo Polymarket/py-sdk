@@ -20,6 +20,7 @@ from polymarket._internal.actions import combo_rfq as _combo_rfq_actions
 from polymarket._internal.actions import combos as _combos_actions
 from polymarket._internal.actions import data as _data_actions
 from polymarket._internal.actions import gamma as _gamma_actions
+from polymarket._internal.actions import order_heartbeats as _order_heartbeat_actions
 from polymarket._internal.actions import rewards as _rewards_actions
 from polymarket._internal.actions import rfq as _rfq_actions
 from polymarket._internal.actions import session_keys as _session_key_actions
@@ -163,6 +164,7 @@ from polymarket.models import (
 )
 from polymarket.models.clob import BuilderApiKeyInfo, BuilderTrade
 from polymarket.models.clob.cancel import CancelOrdersResponse
+from polymarket.models.clob.order_heartbeats import LegacyOrderHeartbeat, OrderHeartbeat
 from polymarket.models.clob.order_response import AcceptedOrder, OrderResponse
 from polymarket.models.clob.orders import MarketOrderType, SignedOrder
 from polymarket.models.clob.relayer import RelayerTransactionType
@@ -1783,6 +1785,36 @@ class SecureClient:
             amount=amount,
             shares=shares,
             order_type=order_type,
+        )
+
+    def send_order_heartbeat(self, *, heartbeat_id: str = "") -> OrderHeartbeat:
+        """Send an authenticated order heartbeat and retain the returned ID.
+
+        Start with an empty ID, serialize sends, and send every five seconds.
+        Missing the ten-second deadline triggers cancellation of this API key's
+        orders. No timer or retry is started; this is separate from WebSocket keepalive.
+
+        Raises:
+            OrderHeartbeatMismatchError: Retry explicitly with the error's
+                heartbeat_id. Rejected sends do not refresh the deadline.
+        """
+        path, body = _order_heartbeat_actions.build_send_order_heartbeat_request(
+            heartbeat_id=heartbeat_id
+        )
+        return _order_heartbeat_actions.parse_order_heartbeat(
+            self._ctx.secure_clob.post_json(path, json=body)
+        )
+
+    def send_legacy_order_heartbeat(self) -> LegacyOrderHeartbeat:
+        """Send an authenticated legacy heartbeat without ID tracking.
+
+        Shares this API key's registration with send_order_heartbeat and resets
+        its expected ID to empty. Send every five seconds to avoid timeout
+        cancellation. No timer or retry is started.
+        """
+        path = _order_heartbeat_actions.build_send_legacy_order_heartbeat_request()
+        return _order_heartbeat_actions.parse_legacy_order_heartbeat(
+            self._ctx.secure_clob.post_json(path)
         )
 
     def list_current_rewards(self, *, sponsored: bool | None = None) -> Paginator[CurrentReward]:

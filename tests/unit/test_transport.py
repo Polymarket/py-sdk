@@ -701,3 +701,29 @@ def test_async_close_does_not_close_injected_client() -> None:
         await injected.aclose()
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("path,expected", [("/v1/heartbeats", True), ("/other-route", False)])
+def test_order_heartbeat_rejection_preserves_id_without_retry(path: str, expected: bool) -> None:
+    from polymarket.errors import OrderHeartbeatMismatchError
+
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(
+            400,
+            json={"error_msg": "Invalid Heartbeat ID", "heartbeat_id": "expected-id"},
+            request=request,
+        )
+
+    transport = SyncTransport(
+        base_url="https://clob.test",
+        client=httpx.Client(base_url="https://clob.test", transport=httpx.MockTransport(handler)),
+    )
+    with pytest.raises(RequestRejectedError) as error:
+        transport.post_json(path, json={"heartbeat_id": "stale-id"})
+    assert isinstance(error.value, OrderHeartbeatMismatchError) is expected
+    if isinstance(error.value, OrderHeartbeatMismatchError):
+        assert error.value.heartbeat_id == "expected-id"
+    assert len(calls) == 1

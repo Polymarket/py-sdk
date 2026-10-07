@@ -442,3 +442,41 @@ def test_async_secure_list_user_earnings_for_day_rejects_bad_date() -> None:
 
     with pytest.raises(UserInputError):
         asyncio.run(run())
+
+
+def test_async_order_heartbeat_rotation_and_explicit_mismatch_recovery() -> None:
+    from polymarket import OrderHeartbeatMismatchError
+
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        if len(captured) == 2:
+            return httpx.Response(
+                400,
+                json={"error_msg": "Invalid Heartbeat ID", "heartbeat_id": "expected-id"},
+                request=request,
+            )
+        return httpx.Response(200, json={"heartbeat_id": "next-id"}, request=request)
+
+    async def run() -> None:
+        client = await _make_secure_client()
+        try:
+            _install_secure_clob(client, httpx.MockTransport(handler))
+            assert (await client.send_order_heartbeat()).heartbeat_id == "next-id"
+            with pytest.raises(OrderHeartbeatMismatchError) as error:
+                await client.send_order_heartbeat(heartbeat_id="stale-id")
+            assert len(captured) == 2
+            assert (
+                await client.send_order_heartbeat(heartbeat_id=error.value.heartbeat_id)
+            ).heartbeat_id == "next-id"
+        finally:
+            await client.close()
+
+    asyncio.run(run())
+    assert [request.content for request in captured] == [
+        b'{"heartbeat_id":""}',
+        b'{"heartbeat_id":"stale-id"}',
+        b'{"heartbeat_id":"expected-id"}',
+    ]
+    assert all(request.headers.get("POLY_SIGNATURE") for request in captured)
