@@ -1,5 +1,60 @@
 # Changelog
 
+## [0.13.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.12.0...polymarket-client-v0.13.0) (2026-10-07)
+
+
+### Features
+
+* **client:** read trading approvals from the approvals endpoint ([b0aa248](https://github.com/Polymarket/py-sdk/commit/b0aa248c6f6cd5b3849ef97101a99b8d00df00bd))
+* **data:** add resolution settlement estimates ([#327](https://github.com/Polymarket/py-sdk/issues/327)) ([6a4e65e](https://github.com/Polymarket/py-sdk/commit/6a4e65e3f5975c83bfb4c22eaf6c4ef304862915))
+* **data:** expose position first acquisition time ([#326](https://github.com/Polymarket/py-sdk/issues/326)) ([fc1e3e0](https://github.com/Polymarket/py-sdk/commit/fc1e3e0d26be6bfafc557651a850444776d6d115))
+* **perps:** add authenticated chase lifecycle ([f1e1225](https://github.com/Polymarket/py-sdk/commit/f1e12256c3f882e192942b211c3d270dac3b52ae))
+* **perps:** add authenticated TWAP lifecycle ([a7ea8fa](https://github.com/Polymarket/py-sdk/commit/a7ea8fa290e3478da772832f6193dd7336445df5))
+* **perps:** add batch leverage updates ([59fcfb3](https://github.com/Polymarket/py-sdk/commit/59fcfb3546e88bcb3b5ed3f8a240c6ba71f89776))
+* **perps:** add internal transfer history ([2a558df](https://github.com/Polymarket/py-sdk/commit/2a558dfd8fc193b04e5516e4669032d64f7a155d))
+* **perps:** add position snapshot queries ([ed8d04c](https://github.com/Polymarket/py-sdk/commit/ed8d04cade617d2f4c6f90ebe1842249eaf5c59b))
+* **perps:** add public and owner position snapshots ([42576a1](https://github.com/Polymarket/py-sdk/commit/42576a1cb152a0b81a54e5e396b6ee84346a4294))
+* **perps:** add public registration lookup ([83e2a2d](https://github.com/Polymarket/py-sdk/commit/83e2a2d37ac7d5a5d4d3d9b5e5b1dedeb4467c26))
+* **perps:** add public registration lookup ([5b6b8ba](https://github.com/Polymarket/py-sdk/commit/5b6b8ba3e0727ccbdeaa2b19a5b4576e44a5bc95))
+* **perps:** expose auto-deleveraging notifications ([8c73c1f](https://github.com/Polymarket/py-sdk/commit/8c73c1f55f12d014e35d3de4f8cb382221f53ef6))
+* **perps:** expose instrument settlement metadata ([e0b6f1b](https://github.com/Polymarket/py-sdk/commit/e0b6f1bd95965285ed85a4fa98c32577b1013e4d))
+* **perps:** expose instrument settlement metadata ([8d5451a](https://github.com/Polymarket/py-sdk/commit/8d5451a8e10e24fe430d5780db34880f4f4e19ae))
+* **perps:** retry transient order cancellations ([ee8e0a2](https://github.com/Polymarket/py-sdk/commit/ee8e0a2fea186755bf3ea754ff56a5daee022b68))
+* **perps:** support auto-deleveraging notifications ([eb59ce0](https://github.com/Polymarket/py-sdk/commit/eb59ce0ec446f9a45fd86e0b541e9a88dd66747e))
+* **perps:** support chase order lifecycle ([e4454a0](https://github.com/Polymarket/py-sdk/commit/e4454a072cbd306ac7978e238c4c39dadc833e13))
+* **perps:** support good-till-date orders ([418f192](https://github.com/Polymarket/py-sdk/commit/418f192e1ed9a84123b4ed3f251a9ae812468721))
+* **perps:** support good-till-date orders ([ed03bfc](https://github.com/Polymarket/py-sdk/commit/ed03bfc59d9bb2ab5ea1bd3146c05d7524f59e6f))
+* **perps:** support internal collateral transfers and history ([28aae5c](https://github.com/Polymarket/py-sdk/commit/28aae5ccc7e4fbcae2d52ecefe2834550b119ddb))
+* **perps:** support partial position tp/sl exits ([900edc7](https://github.com/Polymarket/py-sdk/commit/900edc728937d666f1b98dd945362dffa6a7b5bc))
+* **perps:** support partial position TP/SL exits ([9079081](https://github.com/Polymarket/py-sdk/commit/907908111f4a25fbf7a7fa302c6d18b620837c12))
+* **perps:** support trailing stop losses and activation ([017b976](https://github.com/Polymarket/py-sdk/commit/017b976dd5c4893738b4c1e39b8ba254c27b2a82))
+* **perps:** support trailing stop losses and activation events ([f5c0bd2](https://github.com/Polymarket/py-sdk/commit/f5c0bd275671f7b2da8922d59edb4d381c5bd528))
+* **perps:** support TWAP execution lifecycle ([7225af3](https://github.com/Polymarket/py-sdk/commit/7225af3f82e5d1154a22a45c1f302279723faf51))
+* **portfolio:** filter positions by title ([#328](https://github.com/Polymarket/py-sdk/issues/328)) ([2ee4cde](https://github.com/Polymarket/py-sdk/commit/2ee4cde7f37478ce5666795bb94a6d8506253ecf))
+* **portfolio:** support price sorting for positions ([#330](https://github.com/Polymarket/py-sdk/issues/330)) ([6a38f0e](https://github.com/Polymarket/py-sdk/commit/6a38f0e7f5ba28ddea1dc936d25a9be01883bc34))
+* **streams:** add the price.equity.twap channel ([31863f4](https://github.com/Polymarket/py-sdk/commit/31863f4c8ef769cab8262d8ab8149af1eb2b958b))
+* **streams:** pin a provider on price specs ([b543c9d](https://github.com/Polymarket/py-sdk/commit/b543c9db0c896a3727619ea174db7971f03b5b6a))
+* **streams:** surface the source of realtime prices ([972a4c0](https://github.com/Polymarket/py-sdk/commit/972a4c0c6540ade8d518eb9bad42e228552973ac))
+
+
+### Bug Fixes
+
+* **client:** keep three-topic price subscriptions typed to their channels ([e6d7526](https://github.com/Polymarket/py-sdk/commit/e6d7526df4f6f68dd3450158f9988d453fd0a003))
+* **errors:** accept HTTP-date Retry-After values ([b49859d](https://github.com/Polymarket/py-sdk/commit/b49859d3e82c68b6eda117267afb021091fc1d9e))
+* **perps:** accept current terminal order statuses ([b3153b0](https://github.com/Polymarket/py-sdk/commit/b3153b0c76c17c113220f0d74fb1a1b2d8fa3044))
+* **perps:** accept current terminal order statuses ([e583b83](https://github.com/Polymarket/py-sdk/commit/e583b8398dfca7f82764002653ff3cf1e4959e80))
+* **perps:** accept small numeric trailing activation prices ([ab72096](https://github.com/Polymarket/py-sdk/commit/ab7209672b85b9c09885d8c6a0e18514039050dc))
+* **perps:** expose snapshots on async secure clients ([2ce0da5](https://github.com/Polymarket/py-sdk/commit/2ce0da5ce3ac92112c7441251eab961ce68adf40))
+* **perps:** merge main and reuse batch leverage success model ([f251589](https://github.com/Polymarket/py-sdk/commit/f251589652f090546c7f5b17382e7314d0ae2308))
+* **perps:** preserve cancellation outcomes across bounded retries ([b78c4ce](https://github.com/Polymarket/py-sdk/commit/b78c4ce96424dfe1de576461201483187d4c3cc7))
+* **perps:** preserve command rejection errors ([28de448](https://github.com/Polymarket/py-sdk/commit/28de448e30798cf093086849af5bac19363b8683))
+* validate batch leverage response scalars ([63f6f63](https://github.com/Polymarket/py-sdk/commit/63f6f63261d5053900c0eb97ac380e3d3259b738))
+
+
+### Documentation
+
+* **perps:** clarify chase reference price anchoring ([f1a392e](https://github.com/Polymarket/py-sdk/commit/f1a392e2208983244ee06780c39d1a944e060a6e))
+
 ## [0.12.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.11.0...polymarket-client-v0.12.0) (2026-09-30)
 
 
