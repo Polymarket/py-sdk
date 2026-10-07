@@ -3786,11 +3786,16 @@ class AsyncSecureClient:
         return AsyncPaginator(fetch=fetch)
 
     async def get_total_earnings_for_user_for_day(
-        self, *, date: str
+        self, *, date: str, sponsored: bool | None = None
     ) -> tuple[TotalUserEarning, ...]:
-        """Get total reward earnings for the authenticated user on a date."""
+        """Get total reward earnings for the authenticated user on a date.
+
+        Set ``sponsored=True`` to include sponsored rewards and the native/sponsored
+        breakdown. Omitted or false returns native rewards only. Absent breakdown
+        fields remain ``None``.
+        """
         path, params = _rewards_actions.build_total_user_earnings_for_day_request(
-            date=date, signature_type=signature_type_for(self._ctx.wallet_type)
+            date=date, signature_type=signature_type_for(self._ctx.wallet_type), sponsored=sponsored
         )
         return _rewards_actions.parse_total_user_earnings(
             await self._ctx.secure_clob.get_json(path, params=params)

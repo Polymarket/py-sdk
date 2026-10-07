@@ -1,5 +1,6 @@
 # pyright: reportPrivateUsage=false
 import dataclasses
+from decimal import Decimal
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -117,15 +118,22 @@ def test_get_total_earnings_for_user_for_day_routes_to_total_endpoint() -> None:
                         "date": 1700000000000,
                         "earnings": "10.0",
                         "maker_address": "0xMAKER",
+                        "native_earnings": 7.5,
+                        "sponsored_earnings": 2.5,
                     }
                 ],
             ),
         )
-        totals = client.get_total_earnings_for_user_for_day(date="2026-01-01")
+        totals = client.get_total_earnings_for_user_for_day(date="2026-01-01", sponsored=True)
 
     assert len(totals) == 1
     request = captured[0]
     assert urlparse(str(request.url)).path == "/rewards/user/total"
+
+    qs = parse_qs(urlparse(str(captured[0].url)).query)
+    assert qs.get("sponsored") == ["true"]
+    assert totals[0].native_earnings == Decimal("7.5")
+    assert totals[0].sponsored_earnings == Decimal("2.5")
 
 
 def test_get_reward_percentages_routes_to_percentages_endpoint() -> None:

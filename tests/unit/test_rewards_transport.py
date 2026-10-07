@@ -1,6 +1,7 @@
 # pyright: reportPrivateUsage=false
 import asyncio
 import dataclasses
+from decimal import Decimal
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -291,6 +292,8 @@ def test_async_secure_get_total_earnings_for_user_for_day() -> None:
             "date": 1700000000000,
             "earnings": "100",
             "maker_address": "0xMAKER",
+            "native_earnings": 7.5,
+            "sponsored_earnings": 2.5,
         }
     ]
 
@@ -301,7 +304,9 @@ def test_async_secure_get_total_earnings_for_user_for_day() -> None:
                 client,
                 _routed_handler(captured, {("GET", "/rewards/user/total"): response_body}),
             )
-            return await client.get_total_earnings_for_user_for_day(date="2026-04-16")
+            return await client.get_total_earnings_for_user_for_day(
+                date="2026-04-16", sponsored=True
+            )
         finally:
             await client.close()
 
@@ -310,6 +315,11 @@ def test_async_secure_get_total_earnings_for_user_for_day() -> None:
     qs = parse_qs(urlparse(str(captured[0].url)).query)
     assert qs.get("date") == ["2026-04-16"]
     assert qs.get("signature_type") == ["0"]
+
+    qs = parse_qs(urlparse(str(captured[0].url)).query)
+    assert qs.get("sponsored") == ["true"]
+    assert items[0].native_earnings == Decimal("7.5")
+    assert items[0].sponsored_earnings == Decimal("2.5")
 
 
 def test_async_secure_list_user_earnings_and_markets_config_passes_filters() -> None:

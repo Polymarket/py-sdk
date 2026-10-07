@@ -115,6 +115,8 @@ def test_total_user_earning_does_not_carry_condition_id() -> None:
     )
     assert total.asset_address == "0xUSDC"
     assert not hasattr(total, "condition_id")
+    assert total.native_earnings is None
+    assert total.sponsored_earnings is None
 
 
 def test_user_rewards_config_requires_all_fields() -> None:
@@ -274,3 +276,20 @@ def test_optional_reward_decimals_accept_none_but_reject_empty_string(
 
     with pytest.raises(UnexpectedResponseError):
         model.parse_response(payload | {field: ""})
+
+
+@pytest.mark.parametrize("native,sponsored", [(10.25, 2.25), (0, 0)])
+def test_total_earnings_preserves_json_number_breakdown(native: float, sponsored: float) -> None:
+    earning = TotalUserEarning.parse_response(
+        {
+            "asset_address": "0xUSDC",
+            "asset_rate": 0.0001,
+            "date": 1700000000000,
+            "earnings": native + sponsored,
+            "maker_address": "0xMAKER",
+            "native_earnings": native,
+            "sponsored_earnings": sponsored,
+        }
+    )
+    assert earning.native_earnings == Decimal(str(native))
+    assert earning.sponsored_earnings == Decimal(str(sponsored))
