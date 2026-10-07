@@ -1,17 +1,25 @@
+# pyright: reportPrivateUsage=false
 """Perps collateral movement construction tests."""
 
 import asyncio
 import json
 from collections.abc import Callable
-from typing import cast
+from decimal import Decimal
+from typing import Any, cast
 
 import httpx
 import pytest
+import respx
 from eth_account import Account
 from eth_account.messages import encode_typed_data
 
+from polymarket import ApiKeyCreds, AsyncSecureClient
 from polymarket._internal.actions.perps.funds import perps_deposit_call, withdraw_from_perps
-from polymarket._internal.actions.perps.signing import build_perps_withdraw_typed_data
+from polymarket._internal.actions.perps.signing import (
+    build_perps_op_typed_data,
+    build_perps_withdraw_typed_data,
+)
+from polymarket._internal.environment import PRODUCTION_CONFIG
 from polymarket.clients._transport import AsyncTransport
 from polymarket.errors import RequestRejectedError, UserInputError
 from polymarket.types import EvmAddress
@@ -152,3 +160,97 @@ def test_withdraw_maps_err_status_and_missing_id() -> None:
             await missing.close()
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("amount", ["001.2300", Decimal("1.2300")])
+@pytest.mark.parametrize("status", [200, 503])
+def test_transfer_signs_exact_amount_and_submits_once(
+    respx_mock: respx.MockRouter, amount: Decimal | str, status: int
+) -> None:
+    recipient = "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc"
+    route = respx_mock.post(PRODUCTION_CONFIG.perps_url + "/v1/account/internal-transfer").respond(
+        status, json={"status": "ok", "transfer_id": 42}
+    )
+
+    async def run() -> None:
+        client = await AsyncSecureClient._create(
+            private_key=_OWNER_KEY,
+            wallet=_OWNER.address,
+            validate_credentials=False,
+            credentials=ApiKeyCreds(key="key", passphrase="pass", secret="c2VjcmV0"),
+        )
+        async with client:
+            if status == 503:
+                with pytest.raises(RequestRejectedError):
+                    await client.transfer_perps_collateral(recipient=recipient, amount=amount)
+            else:
+                assert (
+                    await client.transfer_perps_collateral(
+                        recipient=recipient, amount=amount, label="rebalance"
+                    )
+                    == 42
+                )
+
+    asyncio.run(run())
+    assert route.call_count == 1
+    body = json.loads(route.calls.last.request.content)
+    amount_string = amount if isinstance(amount, str) else format(amount, "f")
+    assert body["op"] == {
+        "type": "internalTransfer",
+        "args": {
+            "account": _OWNER.address,
+            "token": PRODUCTION_CONFIG.collateral_token,
+            "amount": amount_string,
+            "to": recipient,
+        },
+    }
+    assert body.get("label") == ("rebalance" if status == 200 else None)
+    assert 0 <= body["salt"] < 2**32 and 10**12 < body["ts"] < 10**14
+    payload = build_perps_op_typed_data(
+        chain_id=PRODUCTION_CONFIG.chain_id,
+        op=[
+            "internalTransfer",
+            [_OWNER.address, PRODUCTION_CONFIG.collateral_token, amount_string, recipient],
+        ],
+        salt=body["salt"],
+        timestamp_ms=body["ts"],
+    )
+    assert (
+        Account.recover_message(encode_typed_data(full_message=payload), signature=body["sig"])
+        == _OWNER.address
+    )
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"amount": "0"},
+        {"amount": 1.1},
+        {"recipient": _OWNER.address},
+        {"recipient": "invalid"},
+        {"label": "é" * 33},
+        {},
+    ],
+)
+def test_transfer_rejects_invalid_inputs_and_session_signers(
+    respx_mock: respx.MockRouter, overrides: dict[str, Any]
+) -> None:
+    async def run() -> None:
+        client = await AsyncSecureClient._create(
+            private_key=_OWNER_KEY,
+            validate_credentials=False,
+            wallet=_OWNER.address if overrides else "0x0000000000000000000000000000000000000002",
+            credentials=ApiKeyCreds(key="key", passphrase="pass", secret="c2VjcmV0"),
+        )
+        async with client:
+            with pytest.raises(UserInputError):
+                await client.transfer_perps_collateral(
+                    **{
+                        "recipient": "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
+                        "amount": "1",
+                        **overrides,
+                    }
+                )
+
+    asyncio.run(run())
+    assert not respx_mock.calls
