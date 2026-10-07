@@ -1750,3 +1750,102 @@ def test_optional_builder_subscription_never_blocks_readiness(acknowledgement: s
             assert session._builder_subscription_task is None
 
     asyncio.run(asyncio.wait_for(run(), timeout=10))
+
+
+def test_twap_rest_lifecycle_and_uncertain_create() -> None:
+    from polymarket._internal.actions.perps.signing import sign_perps_op_with_key
+    from polymarket.errors import UnexpectedResponseError
+
+    captured: list[httpx.Request] = []
+    response_mode = "ok"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        if request.method == "GET":
+            return httpx.Response(200, json=[], request=request)
+        if request.method == "POST":
+            if response_mode == "timeout":
+                return httpx.Response(500, json={"error": "timeout"}, request=request)
+            if response_mode == "malformed":
+                return httpx.Response(200, json={"status": "ok", "twid": 1}, request=request)
+            return httpx.Response(
+                200,
+                json={"status": "ok", "twid": 9007199254740991, "ts": 1767225600000},
+                request=request,
+            )
+        return httpx.Response(200, json={"status": "ok"}, request=request)
+
+    async def run() -> None:
+        nonlocal response_mode
+        session = PerpsSession(
+            chain_id=137,
+            credentials=_CREDENTIALS,
+            rest_url="https://perps.test",
+            ws_url="ws://127.0.0.1:9",
+        )
+        await session._api.close()
+        session._api = AsyncTransport(
+            base_url="https://perps.test",
+            client=httpx.AsyncClient(
+                base_url="https://perps.test", transport=httpx.MockTransport(handler)
+            ),
+            header_resolver=session._resolve_auth_headers,
+        )
+        try:
+            accepted = await session.create_twap(
+                instrument_id=1, side="BUY", quantity="1.000000000000000001", duration_ms=300000
+            )
+            assert accepted.twap_id == 9007199254740991
+            assert await session.fetch_twaps() == ()
+            await session.pause_twap(twap_id=accepted.twap_id)
+            await session.resume_twap(twap_id=accepted.twap_id)
+            await session.cancel_twap(twap_id=accepted.twap_id)
+            count = len(captured)
+            with pytest.raises(UserInputError):
+                await session.create_twap(
+                    instrument_id=1, side="BUY", quantity="1", duration_ms=300000, interval_ms=31000
+                )
+            assert len(captured) == count
+            response_mode = "timeout"
+            with pytest.raises(RequestRejectedError):
+                await session.create_twap(
+                    instrument_id=1, side="BUY", quantity="1", duration_ms=300000
+                )
+            assert len(captured) == count + 1
+            response_mode = "malformed"
+            with pytest.raises(UnexpectedResponseError):
+                await session.create_twap(
+                    instrument_id=1, side="BUY", quantity="1", duration_ms=300000
+                )
+        finally:
+            await session.close()
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+    created = json.loads(captured[0].content)
+    assert created["op"] == {
+        "type": "createTwap",
+        "args": {
+            "iid": 1,
+            "buy": True,
+            "qty": "1.000000000000000001",
+            "dur": 300000,
+            "rnd": False,
+            "slip_bps": 0,
+            "ro": False,
+        },
+    }
+    assert created["sig"] == sign_perps_op_with_key(
+        _PROXY_PRIVATE_KEY,
+        chain_id=137,
+        op=["createTwap", [1, True, "1.000000000000000001", 300000, False, 0, False]],
+        salt=created["salt"],
+        timestamp_ms=created["ts"],
+    )
+    for request, operation in zip(captured[2:5], ["pause", "resume", "cancel"], strict=True):
+        body = json.loads(request.content)
+        expected = (
+            {"type": "cancelTwap", "args": {"twid": 9007199254740991}}
+            if operation == "cancel"
+            else {"type": "controlTwap", "args": {"twid": 9007199254740991, "act": operation}}
+        )
+        assert body["op"] == expected

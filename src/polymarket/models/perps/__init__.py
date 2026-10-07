@@ -108,6 +108,7 @@ from polymarket.models.perps.requests import (
     PerpsPositionTpSlTrigger,
     PerpsTpSlTrigger,
 )
+from polymarket.models.perps.twaps import PerpsTwap, PerpsTwapAccepted, PerpsTwapId, PerpsTwapStatus
 from polymarket.models.perps.types import (
     PerpsBookDepth,
     PerpsClientOrderId,
@@ -138,6 +139,10 @@ from polymarket.models.perps.types import (
 )
 
 __all__ = [
+    "PerpsTwap",
+    "PerpsTwapAccepted",
+    "PerpsTwapId",
+    "PerpsTwapStatus",
     "PerpsBuilderAttribution",
     "PerpsBuilderStatus",
     "PerpsBuilderApproval",
