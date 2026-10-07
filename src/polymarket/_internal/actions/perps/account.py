@@ -291,6 +291,7 @@ def list_internal_transfers(
                 )
             items = tuple(item for item in transfers if str(item.transfer_id) not in seen)
             next_end -= 1
+            boundary = set()
             if next_end < state["start_timestamp"]:
                 return Page(items=items, has_more=False)
         for transfer in transfers:

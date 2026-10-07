@@ -13,7 +13,10 @@ from polymarket import (
     PerpsKnownInternalTransferType,
 )
 from polymarket._internal.actions.perps.account import list_internal_transfers
-from polymarket._internal.actions.perps.paging import encode_perps_cursor
+from polymarket._internal.actions.perps.paging import (
+    decode_perps_internal_transfers_cursor,
+    encode_perps_cursor,
+)
 from polymarket.clients._transport import AsyncTransport
 from polymarket.errors import (
     UnexpectedResponseError,
@@ -68,13 +71,19 @@ def test_history_advances_only_past_complete_millisecond_pages(truncated: bool) 
             first = await list_internal_transfers(transport, start=999, end=1001).first_page()
             assert len(first.items) == 500
             assert first.next_cursor is not None
-            remaining = list_internal_transfers(transport, cursor=first.next_cursor)
+            state = decode_perps_internal_transfers_cursor(first.next_cursor)
+            state["seen_keys"].append("1001")  # An ID retained from an earlier interval.
+            remaining = list_internal_transfers(transport, cursor=encode_perps_cursor(state))
             if truncated:
                 with pytest.raises(UnexpectedResponseError):
                     await remaining.first_page()
             else:
                 ids = [item.transfer_id for item in first.items]
-                ids.extend([item.transfer_id async for item in remaining.iter_items()])
+                async for page in remaining:
+                    ids.extend(item.transfer_id for item in page.items)
+                    if page.next_cursor:
+                        state = decode_perps_internal_transfers_cursor(page.next_cursor)
+                        assert set(state["seen_keys"]) == {str(index) for index in range(500)}
                 assert ids == list(range(501))
 
     asyncio.run(run())
