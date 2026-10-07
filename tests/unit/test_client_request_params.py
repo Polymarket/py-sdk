@@ -44,6 +44,8 @@ COMBO = "0x03" + "ab" * 30
             {"condition_id": CONDITION},
         ),
         ("list_positions", {}, {}),
+        ("list_positions", {"title": " BiTcOiN%_ "}, {"title": " BiTcOiN%_ "}),
+        ("list_positions", {"title": " " * 201}, {}),
         (
             "list_combo_positions",
             {"condition_id": COMBO, "status": ["RESOLVED_WIN", "RESOLVED_LOSS"]},

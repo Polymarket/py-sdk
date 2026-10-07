@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from decimal import Decimal, InvalidOperation, localcontext
-from typing import Any, Literal, cast
+from typing import Any, Literal, TypeAlias, cast
 
 from pydantic import AliasChoices, Field, field_validator, model_validator
 
@@ -257,13 +257,29 @@ class PerpsUpdateLeverageResult(BaseModel):
     cross_margin: bool = Field(validation_alias="cross")
 
 
+class PerpsLeverageUpdateRejection(BaseModel):
+    """Per-instrument rejection from a batch leverage update.
+
+    An ``internal_error`` means whether the update was applied is unknown.
+    """
+
+    status: Literal["err"]
+    instrument_id: PerpsInstrumentId
+    error: str = Field(min_length=1)
+
+
+PerpsBatchLeverageResult: TypeAlias = PerpsUpdateLeverageResult | PerpsLeverageUpdateRejection
+
+
 __all__ = [
     "PerpsAutoCancelResponse",
     "PerpsCancelAllOrdersResponse",
+    "PerpsBatchLeverageResult",
     "PerpsCancelOrderResult",
     "PerpsFill",
     "PerpsOrder",
     "PerpsPostOrderAck",
+    "PerpsLeverageUpdateRejection",
     "PerpsTpSlOrderFields",
     "PerpsUpdateLeverageResult",
 ]
