@@ -3,7 +3,7 @@
 import inspect
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import get_type_hints
+from typing import Any, cast, get_type_hints
 
 import pytest
 
@@ -19,6 +19,7 @@ from polymarket.models.perps.account import (
     PerpsPosition,
     PerpsProxyKey,
 )
+from polymarket.models.perps.events import parse_perps_session_event
 from polymarket.models.perps.funds import (
     PerpsDeposit,
     PerpsDepositUpdate,
@@ -53,11 +54,12 @@ def test_account_and_funds_annotations_expose_canonical_types_with_extras() -> N
         },
         PerpsMarginSummary: {
             "total_account_value": Decimal,
+            "available_order_margin": Decimal,
             "total_initial_margin": Decimal,
             "total_maintenance_margin": Decimal,
             "total_position_value": Decimal,
         },
-        PerpsPortfolio: {"withdrawable": Decimal, "timestamp": datetime},
+        PerpsPortfolio: {"withdrawable": Decimal, "timestamp": datetime, "fee_tier": int},
         PerpsFundingPayment: {
             "size": Decimal,
             "funding_rate": Decimal,
@@ -249,3 +251,77 @@ def test_proxy_expiry_normalizes_nanoseconds_before_epoch_ms_parsing() -> None:
 def test_proxy_expiry_preserves_strict_epoch_ms_grammar(raw: object) -> None:
     with pytest.raises(UnexpectedResponseError):
         PerpsProxyKey.parse_response({"proxy": "0xproxy", "expiry": raw})
+
+
+def _risk_portfolio() -> dict[str, object]:
+    return {
+        "positions": [
+            {
+                "instrument_id": 1,
+                "symbol": "BTC-PERP",
+                "size": "1",
+                "entry_price": "100",
+                "leverage": 5,
+                "cross": False,
+                "initial_margin": "20",
+                "maintenance_margin": "10",
+                "position_value": "100",
+                "liquidation_price": "80",
+                "unrealized_pnl": "0",
+                "return_on_equity": "0",
+                "cumulative_funding": "0",
+                "adl_index": 3,
+            }
+        ],
+        "margin": {
+            "total_account_value": "9007199254740993.00000001",
+            "available_order_margin": "9007199254740992.00000001",
+            "total_initial_margin": "20",
+            "total_maintenance_margin": "10",
+            "total_position_value": "100",
+        },
+        "withdrawable": "9007199254740992",
+        "in_liquidation": False,
+        "fee_tier": 2,
+        "timestamp": _EPOCH_MS,
+    }
+
+
+def test_portfolio_preserves_exact_available_margin_and_risk_tiers() -> None:
+    portfolio = PerpsPortfolio.parse_response(_risk_portfolio())
+    assert portfolio.margin.available_order_margin == Decimal("9007199254740992.00000001")
+    assert portfolio.fee_tier == 2
+    assert portfolio.positions[0].adl_index == 3
+    event = parse_perps_session_event(
+        {
+            "ch": "portfolio",
+            "ts": _EPOCH_MS + 1,
+            "ets": _EPOCH_MS,
+            "sq": 1,
+            "data": _risk_portfolio(),
+        }
+    )
+    assert event is not None and event.type == "portfolio"
+    assert event.payload == portfolio
+
+
+@pytest.mark.parametrize("field", ["fee_tier", "available_order_margin", "adl_index"])
+def test_portfolio_requires_risk_data_without_fabricated_defaults(field: str) -> None:
+    wire = cast(dict[str, Any], _risk_portfolio())
+    if field == "fee_tier":
+        owner = wire
+    elif field == "available_order_margin":
+        owner = wire["margin"]
+    else:
+        owner = wire["positions"][0]
+    del owner[field]
+    with pytest.raises(UnexpectedResponseError):
+        PerpsPortfolio.parse_response(wire)
+
+
+@pytest.mark.parametrize("adl_index", [-1, 4, 1.5, True])
+def test_portfolio_rejects_unsupported_adl_tiers(adl_index: object) -> None:
+    wire = cast(dict[str, Any], _risk_portfolio())
+    wire["positions"][0]["adl_index"] = adl_index
+    with pytest.raises(UnexpectedResponseError):
+        PerpsPortfolio.parse_response(wire)
