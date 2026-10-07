@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from decimal import Decimal, InvalidOperation, localcontext
-from typing import Any, Literal, cast
+from typing import Any, Literal, TypeAlias, cast
 
 from pydantic import AliasChoices, Field, field_validator, model_validator
 
@@ -126,6 +126,8 @@ class PerpsFill(BaseModel):
         validation_alias=AliasChoices("previous_entry_price", "pep")
     )
     pnl: Decimal
+    settlement: bool = False
+    """Whether this fill closes a position at instrument settlement; false on older responses."""
     liquidation: bool = Field(validation_alias=AliasChoices("liquidation", "liq"))
     timestamp: datetime = Field(validation_alias=AliasChoices("timestamp", "ts"))
     hash: str | None = None
@@ -260,13 +262,29 @@ class PerpsUpdateLeverageResult(BaseModel):
     cross_margin: bool = Field(validation_alias="cross")
 
 
+class PerpsLeverageUpdateRejection(BaseModel):
+    """Per-instrument rejection from a batch leverage update.
+
+    An ``internal_error`` means whether the update was applied is unknown.
+    """
+
+    status: Literal["err"]
+    instrument_id: PerpsInstrumentId
+    error: str = Field(min_length=1)
+
+
+PerpsBatchLeverageResult: TypeAlias = PerpsUpdateLeverageResult | PerpsLeverageUpdateRejection
+
+
 __all__ = [
     "PerpsAutoCancelResponse",
     "PerpsCancelAllOrdersResponse",
+    "PerpsBatchLeverageResult",
     "PerpsCancelOrderResult",
     "PerpsFill",
     "PerpsOrder",
     "PerpsPostOrderAck",
+    "PerpsLeverageUpdateRejection",
     "PerpsTpSlOrderFields",
     "PerpsUpdateLeverageResult",
 ]

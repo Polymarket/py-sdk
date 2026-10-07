@@ -10,6 +10,7 @@ import pytest
 from pydantic import ValidationError
 from pydantic.fields import FieldInfo
 
+from polymarket.models.perps import PerpsPositionDeleveragedNotification
 from polymarket.models.perps.events import (
     PerpsBookEvent,
     PerpsCandleEvent,
@@ -337,6 +338,50 @@ def test_session_notification_with_unknown_type_fails_validation() -> None:
         )
 
 
+@pytest.mark.parametrize("margin_type", ["cross", "isolated"])
+def test_session_notification_parses_adl_with_exact_decimals(margin_type: str) -> None:
+    event = parse_perps_session_event(
+        _notification_frame(
+            {
+                "id": "5f4a3c2b-1d0e-49f8-a7b6-c5d4e3f2a1b0",
+                "type": "position_deleveraged",
+                "instrument_id": 3,
+                "side": "short",
+                "size_closed": "0.01234567890123456789",
+                "price": "52000.125",
+                "pnl": "130.125",
+                "margin_type": margin_type,
+            }
+        )
+    )
+    assert isinstance(event, PerpsNotificationEvent)
+    assert event.payload.type == "position_deleveraged"
+    assert event.payload.instrument_id == 3
+    assert event.payload.size_closed == Decimal("0.01234567890123456789")
+    assert event.payload.price == Decimal("52000.125")
+    assert event.payload.pnl == Decimal("130.125")
+    assert event.payload.margin_type == margin_type
+    assert event.timestamp == datetime.fromtimestamp(1751500000, tz=UTC)
+    assert event.sequence == 42
+
+
+@pytest.mark.parametrize("field", ["instrument_id", "price", "pnl"])
+def test_adl_history_requires_concrete_instrument_and_settlement_values(field: str) -> None:
+    notification: dict[str, object] = {
+        "id": "6ab1e47f-9b8c-5eaf-8f9b-7c8d9e0f1a2b",
+        "type": "position_deleveraged",
+        "instrument_id": 1,
+        "side": "short",
+        "size_closed": "0.01",
+        "price": "52000",
+        "pnl": "130",
+        "margin_type": "cross",
+    }
+    notification[field] = None
+    with pytest.raises(ValidationError):
+        PerpsNotificationEntry.model_validate({"notification": notification, "ts": 1751500000000})
+
+
 @pytest.mark.parametrize("value", [True, [], object()])
 def test_notification_decimal_fields_keep_exact_perps_validation(value: object) -> None:
     with pytest.raises(ValidationError, match="expected decimal-ish value"):
@@ -452,6 +497,10 @@ def test_perps_notification_and_event_annotations_expose_canonical_types() -> No
     assert position_hints["size"] is Decimal
     assert position_hints["avg_price"] is Decimal
     assert liquidated_hints["pnl"] == Decimal | None
+    deleveraged_hints = get_type_hints(PerpsPositionDeleveragedNotification, include_extras=True)
+    assert deleveraged_hints["size_closed"] is Decimal
+    assert deleveraged_hints["price"] is Decimal
+    assert deleveraged_hints["pnl"] is Decimal
     assert entry_hints["read_at"] == datetime | None
     assert entry_hints["timestamp"] is datetime
     assert trade_hints["timestamp"] is datetime

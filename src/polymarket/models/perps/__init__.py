@@ -73,6 +73,7 @@ from polymarket.models.perps.market import (
     PerpsFeeTier,
     PerpsFundingRate,
     PerpsInstrument,
+    PerpsInstrumentSettlement,
     PerpsRiskTier,
     PerpsStatistic,
     PerpsTicker,
@@ -90,23 +91,28 @@ from polymarket.models.perps.notifications import (
     PerpsNotificationsPaginator,
     PerpsPositionChangeNotification,
     PerpsPositionClosedNotification,
+    PerpsPositionDeleveragedNotification,
     PerpsPositionLiquidatedNotification,
 )
 from polymarket.models.perps.orders import (
+    PerpsBatchLeverageResult,
     PerpsCancelOrderResult,
     PerpsFill,
+    PerpsLeverageUpdateRejection,
     PerpsOrder,
     PerpsPostOrderAck,
     PerpsTpSlOrderFields,
     PerpsUpdateLeverageResult,
 )
 from polymarket.models.perps.requests import (
+    PerpsLeverageUpdate,
     PerpsOrderRequest,
     PerpsPositionTpSlTrigger,
     PerpsPositionTrailingStop,
     PerpsTpSlTrigger,
     PerpsTrailingStop,
 )
+from polymarket.models.perps.twaps import PerpsTwap, PerpsTwapAccepted, PerpsTwapId, PerpsTwapStatus
 from polymarket.models.perps.types import (
     PerpsBookDepth,
     PerpsClientOrderId,
@@ -137,6 +143,10 @@ from polymarket.models.perps.types import (
 )
 
 __all__ = [
+    "PerpsTwap",
+    "PerpsTwapAccepted",
+    "PerpsTwapId",
+    "PerpsTwapStatus",
     "PerpsBuilderAttribution",
     "PerpsBuilderStatus",
     "PerpsBuilderApproval",
@@ -153,6 +163,7 @@ __all__ = [
     "PerpsAutoCancelStatus",
     "PerpsBalance",
     "PerpsBalanceEvent",
+    "PerpsBatchLeverageResult",
     "PerpsBbo",
     "PerpsBboEvent",
     "PerpsBook",
@@ -183,10 +194,13 @@ __all__ = [
     "PerpsFundingPaymentId",
     "PerpsFundingRate",
     "PerpsInstrument",
+    "PerpsInstrumentSettlement",
     "PerpsInstrumentCategory",
     "PerpsInstrumentId",
     "PerpsIsolatedLiquidationWarningNotification",
     "PerpsKlineInterval",
+    "PerpsLeverageUpdate",
+    "PerpsLeverageUpdateRejection",
     "PerpsKnownWithdrawalStatus",
     "PerpsLimitOrderCanceledNotification",
     "PerpsLiquidationWarningNotification",
@@ -213,6 +227,7 @@ __all__ = [
     "PerpsPosition",
     "PerpsPositionChangeNotification",
     "PerpsPositionClosedNotification",
+    "PerpsPositionDeleveragedNotification",
     "PerpsPositionLiquidatedNotification",
     "PerpsPositionTpSlTrigger",
     "PerpsPositionTrailingStop",

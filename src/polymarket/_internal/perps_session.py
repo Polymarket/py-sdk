@@ -16,6 +16,7 @@ from eth_account.signers.local import LocalAccount
 
 from polymarket._internal.actions.perps import account as _account
 from polymarket._internal.actions.perps import builders as _builders
+from polymarket._internal.actions.perps import twaps as _twaps
 from polymarket._internal.actions.perps.paging import to_epoch_ms
 from polymarket._internal.actions.perps.signing import (
     now_ms,
@@ -31,6 +32,7 @@ from polymarket._internal.actions.perps.trading import (
     create_orders_op,
     to_command_body_op,
     update_leverage_op,
+    update_leverages_op,
     update_margin_op,
 )
 from polymarket._internal.actions.perps.trading import (
@@ -84,15 +86,18 @@ from polymarket.models.perps.notifications import (
 )
 from polymarket.models.perps.orders import (
     PerpsAutoCancelResponse,
+    PerpsBatchLeverageResult,
     PerpsCancelAllOrdersResponse,
     PerpsCancelOrderResult,
     PerpsFill,
+    PerpsLeverageUpdateRejection,
     PerpsOrder,
     PerpsPostOrderAck,
     PerpsUpdateLeverageResult,
 )
 from polymarket.models.perps.requests import (
     DecimalInput,
+    PerpsLeverageUpdate,
     PerpsOrderRequest,
     PerpsPositionTpSlTrigger,
     PerpsPositionTrailingStop,
@@ -103,6 +108,7 @@ from polymarket.models.perps.results import (
     PerpsOrderPlacement,
     PerpsPlacedTpSlOrders,
 )
+from polymarket.models.perps.twaps import PerpsTwap, PerpsTwapAccepted
 from polymarket.models.perps.types import (
     PerpsDepositStatus,
     PerpsPnlInterval,
@@ -688,6 +694,111 @@ class PerpsSession:
         )
         PerpsCancelAllOrdersResponse.parse_response(response)
 
+    async def create_twap(
+        self,
+        *,
+        instrument_id: int,
+        side: OrderSide,
+        quantity: DecimalInput,
+        duration_ms: int,
+        interval_ms: int | None = None,
+        randomize: bool = False,
+        slippage_bps: int = 0,
+        min_price: DecimalInput | None = None,
+        max_price: DecimalInput | None = None,
+        reduce_only: bool = False,
+        client_order_id: str | None = None,
+        expires_at: datetime | int | None = None,
+    ) -> PerpsTwapAccepted:
+        """Start a server-managed TWAP lasting five minutes to 24 hours.
+
+        Omit ``interval_ms`` or pass zero for derived cadence. Otherwise use
+        at least 30000 ms and an exact divisor of ``duration_ms``. Randomization
+        defaults off; enabling it jitters slice sizes by up to 20 percent.
+        Zero slippage uses the venue default of 300 bps. Omitted or zero bounds
+        are unset. Retain ``client_order_id`` and reconcile uncertain submissions
+        with ``fetch_twaps`` before another create. No automatic retry occurs.
+        ``expires_at`` is a command deadline, not the run's end time.
+        """
+        op, body = _twaps.create_twap_op(
+            instrument_id=instrument_id,
+            side=side,
+            quantity=quantity,
+            duration_ms=duration_ms,
+            interval_ms=interval_ms,
+            randomize=randomize,
+            slippage_bps=slippage_bps,
+            min_price=min_price,
+            max_price=max_price,
+            reduce_only=reduce_only,
+            client_order_id=client_order_id,
+        )
+        to_epoch_ms("expires_at", expires_at)
+        response = await self._api.post_json(
+            "/v1/trade/twaps",
+            json={
+                **self._create_signed_command(op, expires_at=expires_at),
+                "op": body,
+            },
+        )
+        _twaps.check_twap_response(response)
+        return PerpsTwapAccepted.parse_response(response)
+
+    async def fetch_twaps(self) -> tuple[PerpsTwap, ...]:
+        """Fetch all active runs in ascending identity order, without pagination.
+
+        Ended runs are absent. Session closure does not stop server runs.
+        """
+        return PerpsTwap.parse_response_list(await self._api.get_json("/v1/account/twaps"))
+
+    async def pause_twap(self, *, twap_id: int, expires_at: datetime | int | None = None) -> None:
+        """pause an active run. An in-flight slice completes independently.
+
+        The original end time is unchanged. An unknown or ended run is rejected.
+        """
+        op, body = _twaps.control_twap_op(twap_id, "pause")
+        to_epoch_ms("expires_at", expires_at)
+        response = await self._api.patch_json(
+            "/v1/trade/twaps",
+            json={
+                **self._create_signed_command(op, expires_at=expires_at),
+                "op": body,
+            },
+        )
+        _twaps.check_twap_response(response)
+
+    async def resume_twap(self, *, twap_id: int, expires_at: datetime | int | None = None) -> None:
+        """resume an active run. An in-flight slice completes independently.
+
+        The original end time is unchanged. An unknown or ended run is rejected.
+        """
+        op, body = _twaps.control_twap_op(twap_id, "resume")
+        to_epoch_ms("expires_at", expires_at)
+        response = await self._api.patch_json(
+            "/v1/trade/twaps",
+            json={
+                **self._create_signed_command(op, expires_at=expires_at),
+                "op": body,
+            },
+        )
+        _twaps.check_twap_response(response)
+
+    async def cancel_twap(self, *, twap_id: int, expires_at: datetime | int | None = None) -> None:
+        """cancel an active run. An in-flight slice completes independently.
+
+        The original end time is unchanged. An unknown or ended run is rejected.
+        """
+        op, body = _twaps.cancel_twap_op(twap_id)
+        to_epoch_ms("expires_at", expires_at)
+        response = await self._api.delete_json(
+            "/v1/trade/twaps",
+            json={
+                **self._create_signed_command(op, expires_at=expires_at),
+                "op": body,
+            },
+        )
+        _twaps.check_twap_response(response)
+
     async def arm_auto_cancel(
         self,
         *,
@@ -769,6 +880,28 @@ class PerpsSession:
             parse=PerpsUpdateLeverageResult.parse_response,
             timeout_message="Perps update leverage response timed out.",
         )
+
+    async def update_leverages(
+        self, updates: Sequence[PerpsLeverageUpdate]
+    ) -> tuple[PerpsBatchLeverageResult, ...]:
+        """Update leverage for 1–100 unique instruments in request order.
+
+        The operation is sequential and non-atomic. Per-instrument rejections
+        are returned as data. In particular, ``internal_error`` means whether
+        that instrument's update was applied is unknown. Whole-request and
+        transport failures raise the normal SDK errors.
+        """
+        items = tuple(updates)
+        op = update_leverages_op(items)
+        expected_instrument_ids = tuple(update.instrument_id for update in items)
+        results = await self._send_signed_command(
+            op,
+            parse=lambda data: _parse_batch_leverage_results(
+                data, expected_instrument_ids=expected_instrument_ids
+            ),
+            timeout_message="Perps batch leverage response timed out.",
+        )
+        return tuple(results)
 
     async def update_margin(self, *, instrument_id: int, amount: DecimalInput) -> None:
         """Adjust isolated margin for an instrument position.
@@ -1316,6 +1449,47 @@ def _parse_cancel_results(data: object) -> list[PerpsCancelOrderResult]:
     if not isinstance(data, list):
         raise ValueError("expected a list of Perps cancel order results")
     return [PerpsCancelOrderResult.parse_response(item) for item in cast("list[object]", data)]
+
+
+def _parse_batch_leverage_results(
+    data: object, *, expected_instrument_ids: tuple[int, ...]
+) -> list[PerpsBatchLeverageResult]:
+    if not isinstance(data, list) or not data:
+        raise ValueError("expected a non-empty list of Perps batch leverage results")
+
+    entries = cast("list[object]", data)
+    first = cast("dict[str, Any]", entries[0]) if isinstance(entries[0], dict) else None
+    if first is not None and first.get("status") == "err" and "instrument_id" not in first:
+        raise RequestRejectedError(
+            _error_ack(first) or "Perps batch leverage request was rejected.", status=200
+        )
+    if len(entries) != len(expected_instrument_ids):
+        raise ValueError("Perps batch leverage response length did not match the request")
+
+    results: list[PerpsBatchLeverageResult] = []
+    for entry in entries:
+        wire = cast("dict[str, Any]", entry) if isinstance(entry, dict) else None
+        if wire is None:
+            raise ValueError("invalid Perps batch leverage result")
+        instrument_id = wire.get("instrument_id")
+        if type(instrument_id) is not int or not 0 <= instrument_id <= 2**32 - 1:
+            raise ValueError("invalid Perps batch leverage instrument id")
+        if wire.get("status") == "ok":
+            leverage = wire.get("leverage")
+            if type(leverage) is not int or not 1 <= leverage <= 2**32 - 1:
+                raise ValueError("invalid Perps batch leverage value")
+            if not isinstance(wire.get("cross"), bool):
+                raise ValueError("invalid Perps batch leverage margin mode")
+            results.append(PerpsUpdateLeverageResult.parse_response(wire))
+        elif wire.get("status") == "err":
+            results.append(PerpsLeverageUpdateRejection.parse_response(wire))
+        else:
+            raise ValueError("invalid Perps batch leverage result status")
+
+    returned_instrument_ids = tuple(result.instrument_id for result in results)
+    if returned_instrument_ids != expected_instrument_ids:
+        raise ValueError("Perps batch leverage response order did not match the request")
+    return results
 
 
 def _error_ack(value: object) -> str | None:

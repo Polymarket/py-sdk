@@ -80,6 +80,7 @@ from polymarket.models import (
     OrderSide,
     OrderType,
     PerpsBalance,
+    PerpsBatchLeverageResult,
     PerpsBook,
     PerpsCandle,
     PerpsCredentials,
@@ -89,6 +90,9 @@ from polymarket.models import (
     PerpsFundingPayment,
     PerpsFundingRate,
     PerpsInstrument,
+    PerpsInstrumentSettlement,
+    PerpsLeverageUpdate,
+    PerpsLeverageUpdateRejection,
     PerpsOrder,
     PerpsOrderPlacement,
     PerpsOrderRequest,
@@ -191,6 +195,7 @@ from polymarket.models.data import (
     Resolution,
     ResolutionMarketType,
     ResolutionReporter,
+    ResolutionSettlementTimeBasis,
     ResolutionSource,
     ResolutionStatus,
     RewardActivity,
@@ -230,6 +235,7 @@ from polymarket.models.perps.builders import (
     PerpsBuilderStatus,
     PerpsLiquidityRole,
 )
+from polymarket.models.perps.twaps import PerpsTwap, PerpsTwapAccepted, PerpsTwapId, PerpsTwapStatus
 from polymarket.pagination import AsyncPaginator, Page, Paginator
 from polymarket.rate_limit import RateLimitUpdate, RateLimitUpdateListener
 from polymarket.rfq import (
@@ -294,6 +300,10 @@ from polymarket.types import EvmAddress, HexString, TransactionHash
 from polymarket.version import __version__
 
 __all__ = [
+    "PerpsTwap",
+    "PerpsTwapAccepted",
+    "PerpsTwapId",
+    "PerpsTwapStatus",
     "PerpsBuilderAttribution",
     "PerpsBuilderStatus",
     "PerpsBuilderApproval",
@@ -356,6 +366,7 @@ __all__ = [
     "Resolution",
     "ResolutionMarketType",
     "ResolutionReporter",
+    "ResolutionSettlementTimeBasis",
     "ResolutionSource",
     "ResolutionStatus",
     "RewardActivity",
@@ -473,6 +484,7 @@ __all__ = [
     "PaginationLimitError",
     "Paginator",
     "PerpsBalance",
+    "PerpsBatchLeverageResult",
     "PerpsBook",
     "PerpsCandle",
     "PerpsCredentials",
@@ -482,6 +494,9 @@ __all__ = [
     "PerpsFundingPayment",
     "PerpsFundingRate",
     "PerpsInstrument",
+    "PerpsInstrumentSettlement",
+    "PerpsLeverageUpdate",
+    "PerpsLeverageUpdateRejection",
     "PerpsOrder",
     "PerpsOrderPlacement",
     "PerpsOrderRequest",
