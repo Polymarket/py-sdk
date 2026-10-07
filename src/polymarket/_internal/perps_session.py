@@ -82,7 +82,7 @@ from polymarket.models.perps.events import (
     PerpsSessionEvent,
     parse_perps_session_event,
 )
-from polymarket.models.perps.funds import PerpsDeposit, PerpsWithdrawal
+from polymarket.models.perps.funds import PerpsDeposit, PerpsInternalTransfer, PerpsWithdrawal
 from polymarket.models.perps.notifications import (
     PerpsNotificationEntry,
     PerpsNotificationsPaginator,
@@ -107,7 +107,9 @@ from polymarket.models.perps.requests import (
     PerpsLeverageUpdate,
     PerpsOrderRequest,
     PerpsPositionTpSlTrigger,
+    PerpsPositionTrailingStop,
     PerpsTpSlTrigger,
+    PerpsTrailingStop,
 )
 from polymarket.models.perps.results import (
     PerpsOrderPlacement,
@@ -449,7 +451,7 @@ class PerpsSession:
         reduce_only: bool = False,
         client_order_id: str | None = None,
         take_profit: PerpsTpSlTrigger | None = None,
-        stop_loss: PerpsTpSlTrigger | None = None,
+        stop_loss: PerpsTpSlTrigger | PerpsTrailingStop | None = None,
         expires_at: datetime | int | None = None,
     ) -> PerpsOrderPlacement: ...
     @overload
@@ -465,7 +467,7 @@ class PerpsSession:
         reduce_only: bool = False,
         client_order_id: str | None = None,
         take_profit: PerpsTpSlTrigger | None = None,
-        stop_loss: PerpsTpSlTrigger | None = None,
+        stop_loss: PerpsTpSlTrigger | PerpsTrailingStop | None = None,
         expires_at: datetime | int | None = None,
     ) -> PerpsOrderPlacement: ...
     @overload
@@ -480,7 +482,7 @@ class PerpsSession:
         reduce_only: bool = False,
         client_order_id: str | None = None,
         take_profit: PerpsTpSlTrigger | None = None,
-        stop_loss: PerpsTpSlTrigger | None = None,
+        stop_loss: PerpsTpSlTrigger | PerpsTrailingStop | None = None,
         expires_at: datetime | int | None = None,
     ) -> PerpsOrderPlacement: ...
     async def place_order(
@@ -496,7 +498,7 @@ class PerpsSession:
         reduce_only: bool = False,
         client_order_id: str | None = None,
         take_profit: PerpsTpSlTrigger | None = None,
-        stop_loss: PerpsTpSlTrigger | None = None,
+        stop_loss: PerpsTpSlTrigger | PerpsTrailingStop | None = None,
         expires_at: datetime | int | None = None,
     ) -> PerpsOrderPlacement:
         """Place one order and resolve with its first orders update.
@@ -575,7 +577,7 @@ class PerpsSession:
         *,
         instrument_id: int,
         take_profit: PerpsPositionTpSlTrigger | None = None,
-        stop_loss: PerpsPositionTpSlTrigger | None = None,
+        stop_loss: PerpsPositionTpSlTrigger | PerpsPositionTrailingStop | None = None,
         expires_at: datetime | int | None = None,
     ) -> PerpsPlacedTpSlOrders:
         """Protect the current position with take-profit/stop-loss triggers.
@@ -1120,6 +1122,22 @@ class PerpsSession:
             start=start,
             end=end,
         )
+
+    def list_internal_transfers(
+        self,
+        *,
+        start: datetime | int | None = None,
+        end: datetime | int | None = None,
+        cursor: str | None = None,
+    ) -> AsyncPaginator[PerpsInternalTransfer]:
+        """List settled internal transfers, newest first, for this account.
+
+        Defaults to the past 90 days. Time bounds accept datetimes or epoch
+        milliseconds. A cursor resumes its saved bounds. Overlapping records
+        are deduplicated by transfer ID; ``UnexpectedResponseError`` is raised
+        if a full millisecond cannot be paged without risking omitted records.
+        """
+        return _account.list_internal_transfers(self._api, start=start, end=end, cursor=cursor)
 
     def list_notifications(
         self,

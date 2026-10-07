@@ -444,3 +444,86 @@ def test_invalid_cancel_all_instrument_id_rejected() -> None:
         cancel_all_orders_op(instrument_id=True)  # type: ignore[arg-type]
     with pytest.raises(UserInputError, match="non-negative"):
         cancel_all_orders_op(instrument_id=-1)
+
+
+@pytest.mark.parametrize("bps", [9, 2001, 10.5, True, "200"])
+def test_trailing_stop_rejects_invalid_rate(bps: Any) -> None:
+    from polymarket import PerpsTrailingStop
+
+    with pytest.raises(UserInputError):
+        PerpsTrailingStop(trailing_bps=bps)
+
+
+@pytest.mark.parametrize("bps", [10, 2000])
+@pytest.mark.parametrize("activation", [None, "105.0000000000000000000000001"])
+def test_trailing_stop_signed_and_keyed_rows(bps: int, activation: str | None) -> None:
+    from polymarket import PerpsTrailingStop
+
+    trigger = PerpsTrailingStop(trailing_bps=bps, activation_price=activation)
+    row = to_raw_tp_sl_order(buy=False, instrument_id=1, kind="sl", quantity="3", trigger=trigger)
+    assert row[8] == [True, None, "sl", bps, activation]
+    body = to_command_body_op(create_orders_op([row], group="order"))
+    expected: dict[str, Any] = {"market": True, "tpsl": "sl", "trail_bps": bps}
+    if activation is not None:
+        expected["act"] = activation
+    assert body["args"][0]["tr"] == expected
+
+
+@pytest.mark.parametrize(
+    "quantity",
+    ["0", "-1", "1e-8", "0.00000000000000000000000000001", "79228162514264337593543950336"],
+)
+def test_position_trailing_stop_keeps_exact_partial_quantity_validation(quantity: str) -> None:
+    from polymarket import PerpsPositionTrailingStop
+
+    with pytest.raises(UserInputError):
+        PerpsPositionTrailingStop(trailing_bps=200, quantity=quantity)
+
+
+@pytest.mark.parametrize("activation", [1e-5, Decimal("1e-5")])
+def test_trailing_activation_serializes_small_numeric_prices(activation: float | Decimal) -> None:
+    from polymarket import PerpsPositionTrailingStop, PerpsTrailingStop
+
+    for trigger in (
+        PerpsTrailingStop(trailing_bps=200, activation_price=activation),
+        PerpsPositionTrailingStop(trailing_bps=200, activation_price=activation),
+    ):
+        row = to_raw_tp_sl_order(
+            buy=False, instrument_id=1, kind="sl", quantity="1", trigger=trigger
+        )
+        assert row[8] == [True, None, "sl", 200, "0.00001"]
+        body = to_command_body_op(create_orders_op([row], group="position"))
+        assert body["args"][0]["tr"]["act"] == "0.00001"
+
+
+def test_trailing_signing_preserves_builder_and_absent_gtd_slots() -> None:
+    from polymarket import PerpsTrailingStop
+    from polymarket._internal.actions.perps.signing import hash_perps_op
+    from polymarket.models.perps import PerpsBuilderAttribution
+
+    row = to_raw_tp_sl_order(
+        buy=False,
+        instrument_id=1,
+        kind="sl",
+        quantity="0.25",
+        trigger=PerpsTrailingStop(trailing_bps=200, activation_price="105"),
+        builder_attribution=PerpsBuilderAttribution(
+            address="0x" + "11" * 20, fee_rate=Decimal("0.0003")
+        ),
+    )
+    assert row[9] is None
+    assert row[10] == ["0x" + "11" * 20, "0.0003"]
+    assert (
+        hash_perps_op(create_orders_op([row], group="position"))
+        == "0x26fa3c30a20b82e2ea6ac87c42f2bc733af22cefa74038f08f74c0f7e151c885"
+    )
+
+
+@pytest.mark.parametrize(
+    "activation", ["0", "-1", "1e-5", "1e-29", True, Decimal("1E+999999"), Decimal("1E-999999")]
+)
+def test_trailing_activation_must_be_positive_and_exact(activation: Any) -> None:
+    from polymarket import PerpsTrailingStop
+
+    with pytest.raises(UserInputError):
+        PerpsTrailingStop(trailing_bps=200, activation_price=activation)

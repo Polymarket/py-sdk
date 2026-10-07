@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime
 from decimal import Decimal
 from types import CoroutineType
 from typing import TYPE_CHECKING, Any, assert_type
@@ -19,13 +20,27 @@ from polymarket.models.perps import (
     PerpsCancelOrderResult,
     PerpsChase,
     PerpsChaseAccepted,
+    PerpsInternalTransfer,
+    PerpsInternalTransferId,
     PerpsOrderRequest,
     PerpsPositionDeleveragedNotification,
     PerpsPostOrderAck,
 )
+from polymarket.pagination import AsyncPaginator
 from polymarket.perps import PerpsOrderPlacement, PerpsSession
 
 if TYPE_CHECKING:
+
+    async def _check_transfer_typing(session: PerpsSession) -> None:
+        pages = session.list_internal_transfers(start=0)
+        assert_type(pages, AsyncPaginator[PerpsInternalTransfer])
+        async for page in pages:
+            for transfer in page.items:
+                assert_type(transfer.amount, Decimal)
+                assert_type(transfer.created_at, datetime)
+                assert_type(transfer.transfer_id, PerpsInternalTransferId)
+
+    _transfer_typing_check = _check_transfer_typing
 
     async def _check_registration_typing(
         public: AsyncPublicClient, secure: AsyncSecureClient

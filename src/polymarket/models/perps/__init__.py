@@ -60,6 +60,7 @@ from polymarket.models.perps.events import (
 from polymarket.models.perps.funds import (
     PerpsDeposit,
     PerpsDepositUpdate,
+    PerpsInternalTransfer,
     PerpsWithdrawal,
     PerpsWithdrawalUpdate,
 )
@@ -120,7 +121,9 @@ from polymarket.models.perps.requests import (
     PerpsLeverageUpdate,
     PerpsOrderRequest,
     PerpsPositionTpSlTrigger,
+    PerpsPositionTrailingStop,
     PerpsTpSlTrigger,
+    PerpsTrailingStop,
 )
 from polymarket.models.perps.twaps import PerpsTwap, PerpsTwapAccepted, PerpsTwapId, PerpsTwapStatus
 from polymarket.models.perps.types import (
@@ -131,7 +134,11 @@ from polymarket.models.perps.types import (
     PerpsFundingPaymentId,
     PerpsInstrumentCategory,
     PerpsInstrumentId,
+    PerpsInternalTransferDirection,
+    PerpsInternalTransferId,
+    PerpsInternalTransferType,
     PerpsKlineInterval,
+    PerpsKnownInternalTransferType,
     PerpsKnownWithdrawalStatus,
     PerpsMarginType,
     PerpsNotificationId,
@@ -162,6 +169,11 @@ __all__ = [
     "PerpsPositionSnapshotFailure",
     "PerpsPositionSnapshotResult",
     "PerpsPositionSnapshots",
+    "PerpsInternalTransfer",
+    "PerpsInternalTransferId",
+    "PerpsInternalTransferDirection",
+    "PerpsInternalTransferType",
+    "PerpsKnownInternalTransferType",
     "PerpsChase",
     "PerpsChaseAccepted",
     "PerpsChaseId",
@@ -252,6 +264,8 @@ __all__ = [
     "PerpsPositionDeleveragedNotification",
     "PerpsPositionLiquidatedNotification",
     "PerpsPositionTpSlTrigger",
+    "PerpsPositionTrailingStop",
+    "PerpsTrailingStop",
     "PerpsPostOrderAck",
     "PerpsProxyKey",
     "PerpsResyncEvent",

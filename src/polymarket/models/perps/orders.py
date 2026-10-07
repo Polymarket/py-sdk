@@ -49,7 +49,14 @@ class PerpsTpSlOrderFields(BaseModel):
     armed_quantity: Decimal | None = Field(default=None, validation_alias="armed_qty")
     slippage_bps: int | None = Field(default=None, validation_alias="slip_bps")
 
-    @field_validator("trigger_price", "armed_quantity", mode="before")
+    trailing_bps: int | None = Field(default=None, validation_alias="trail_bps")
+    activation_price: Decimal | None = Field(default=None, validation_alias="act")
+    trailing_anchor: Decimal | None = Field(default=None, validation_alias="trail_anchor")
+    trailing_active: bool | None = Field(default=None, validation_alias="trail_active")
+
+    @field_validator(
+        "trigger_price", "armed_quantity", "activation_price", "trailing_anchor", mode="before"
+    )
     @classmethod
     def _parse_decimals(cls, value: object) -> object:
         return _coerce_decimalish(value)

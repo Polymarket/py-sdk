@@ -128,6 +128,16 @@ def decode_perps_notifications_cursor(cursor: str) -> dict[str, Any]:
     return state
 
 
+def decode_perps_internal_transfers_cursor(cursor: str) -> dict[str, Any]:
+    state = decode_perps_cursor(cursor, kind="perpsInternalTransfers")
+    _require_non_negative_int(state, "start_timestamp")
+    _require_non_negative_int(state, "end_timestamp")
+    _require_str_list(state, "seen_keys")
+    if state["start_timestamp"] > state["end_timestamp"]:
+        raise _invalid_cursor()
+    return state
+
+
 def _require_non_negative_int(state: dict[str, Any], key: str) -> None:
     value = state.get(key)
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
@@ -220,6 +230,7 @@ __all__ = [
     "decode_perps_cursor",
     "decode_perps_descending_account_cursor",
     "decode_perps_funding_cursor",
+    "decode_perps_internal_transfers_cursor",
     "decode_perps_notifications_cursor",
     "decode_perps_trades_cursor",
     "encode_perps_cursor",

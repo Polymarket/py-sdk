@@ -20,6 +20,7 @@ from polymarket.errors import (
     AutoCancelDailyLimitError,
     RequestRejectedError,
     TransportError,
+    UnexpectedResponseError,
     UserInputError,
 )
 from polymarket.errors import TimeoutError as SDKTimeoutError
@@ -34,6 +35,104 @@ from polymarket.models.perps.orders import PerpsLeverageUpdateRejection
 from polymarket.models.perps.requests import PerpsLeverageUpdate
 
 Handler = Callable[[ServerConnection], Awaitable[None]]
+
+
+def _internal_transfer(transfer_id: int, timestamp: int) -> dict[str, Any]:
+    return {
+        "transfer_id": transfer_id,
+        "type": "transfer",
+        "asset": "pUSD",
+        "amount": "1.23000000000000000001",
+        "direction": "out",
+        "counterparty": "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
+        "label": "rebalance-001",
+        "created_timestamp": timestamp,
+    }
+
+
+def test_internal_transfer_history_resumes_submillisecond_overlap() -> None:
+    captured: list[httpx.Request] = []
+    responses = [
+        {"data": [_internal_transfer(4, 1002), _internal_transfer(3, 1001)], "more": True},
+        {
+            "data": [
+                _internal_transfer(4, 1002),
+                _internal_transfer(3, 1001),
+                _internal_transfer(2, 1000),
+            ],
+            "more": True,
+        },
+        {
+            "data": [
+                _internal_transfer(3, 1001),
+                _internal_transfer(2, 1000),
+                _internal_transfer(1, 999),
+            ],
+            "more": False,
+        },
+    ]
+
+    def rest(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json=responses.pop(0))
+
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        await ws.wait_closed()
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            await session._api.close()
+            session._api = AsyncTransport(
+                base_url="https://perps.test",
+                client=httpx.AsyncClient(
+                    base_url="https://perps.test", transport=httpx.MockTransport(rest)
+                ),
+            )
+            pages = session.list_internal_transfers(start=0, end=2000)
+            assert captured == []
+            first = await pages.first_page()
+            assert [row.transfer_id for row in first.items] == [4, 3]
+            assert first.items[0].amount == Decimal("1.23000000000000000001")
+            assert first.items[0].created_at == datetime.fromtimestamp(1.002, tz=UTC)
+            assert first.items[0].label == "rebalance-001"
+            assert first.next_cursor is not None
+            resumed = session.list_internal_transfers(cursor=first.next_cursor)
+            assert [row.transfer_id async for page in resumed for row in page.items] == [2, 1]
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10))
+    assert [dict(request.url.params) for request in captured] == [
+        {"start_timestamp": "0", "end_timestamp": "2000"},
+        {"start_timestamp": "0", "end_timestamp": "1002"},
+        {"start_timestamp": "0", "end_timestamp": "1001"},
+    ]
+
+
+@pytest.mark.parametrize("rows", [[], [_internal_transfer(1, 1000)]])
+def test_internal_transfer_history_refuses_unsafe_progress(rows: list[dict[str, Any]]) -> None:
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        await ws.wait_closed()
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            await session._api.close()
+            session._api = AsyncTransport(
+                base_url="https://perps.test",
+                client=httpx.AsyncClient(
+                    base_url="https://perps.test",
+                    transport=httpx.MockTransport(
+                        lambda _: httpx.Response(200, json={"data": rows, "more": True})
+                    ),
+                ),
+            )
+            pages = session.list_internal_transfers(start=0, end=1001)
+            with pytest.raises(UnexpectedResponseError):
+                async for _ in pages:
+                    pass
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10))
+
 
 _PROXY_PRIVATE_KEY = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 _PROXY_ADDRESS = "0x14791697260E4c9A71f18484C9f997B308e59325"
@@ -597,6 +696,73 @@ def test_place_order_with_tp_sl_groups_rows_and_returns_trigger_ids() -> None:
     assert "c" not in op["args"][2]
     assert op["args"][1]["tr"] == {"tpsl": "tp", "trp": "1", "market": True}
     assert op["args"][2]["tr"] == {"tpsl": "sl", "trp": "0.25", "market": True}
+    # Trigger legs exit the position: entry BUY -> reduce-only SELL legs.
+    assert op["args"][1]["buy"] is False and op["args"][1]["ro"] is True
+
+
+def test_place_gtd_order_with_trailing_stop_loss() -> None:
+    from polymarket.models.perps.requests import PerpsTpSlTrigger, PerpsTrailingStop
+
+    commands: list[dict[str, Any]] = []
+
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        async for raw in ws:
+            message = json.loads(raw)
+            if _is_ping(message):
+                continue
+            commands.append(message)
+            client_order_id = message["op"]["args"][0]["c"]
+            await ws.send(
+                json.dumps(
+                    _order_update(
+                        100,
+                        client_order_id=client_order_id,
+                    )
+                )
+            )
+            await ws.send(
+                json.dumps(
+                    {
+                        "id": message["id"],
+                        "data": [
+                            {"status": "ok", "oid": 100},
+                            {"status": "ok", "oid": 101},
+                            {"status": "ok", "oid": 102},
+                        ],
+                    }
+                )
+            )
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            placement = await session.place_order(
+                instrument_id=1,
+                side="BUY",
+                price="0.5",
+                quantity="10",
+                time_in_force="gtd",
+                gtd_expiry=1893456000000,
+                take_profit=PerpsTpSlTrigger(trigger_price="1"),
+                stop_loss=PerpsTrailingStop(trailing_bps=200, activation_price=Decimal("1.05")),
+            )
+            assert placement.order.id == 100
+            assert placement.order.client_order_id == commands[0]["op"]["args"][0]["c"]
+            assert placement.tp_sl is not None
+            assert placement.tp_sl.take_profit is not None
+            assert placement.tp_sl.take_profit.order_id == 101
+            assert placement.tp_sl.stop_loss is not None
+            assert placement.tp_sl.stop_loss.order_id == 102
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+    op = commands[0]["op"]
+    assert op["grp"] == "order"
+    assert len(op["args"]) == 3
+    assert len(op["args"][0]["c"]) == 32
+    assert "c" not in op["args"][1]
+    assert "c" not in op["args"][2]
+    assert op["args"][1]["tr"] == {"tpsl": "tp", "trp": "1", "market": True}
+    assert op["args"][2]["tr"] == {"tpsl": "sl", "trail_bps": 200, "act": "1.05", "market": True}
     # Trigger legs exit the position: entry BUY -> reduce-only SELL legs.
     assert op["args"][1]["buy"] is False and op["args"][1]["ro"] is True
 
@@ -1507,13 +1673,19 @@ def test_builder_fills_share_session_iterator_before_ack_and_after_reconnect() -
         ),
     ],
 )
+@pytest.mark.parametrize("trailing", [False, True])
 def test_position_exits_keep_terms_captured_before_portfolio_read(
     size: str,
     take_profit_quantity: Decimal | str | None,
     stop_loss_quantity: str | None,
     quantities: list[str],
+    trailing: bool,
 ) -> None:
-    from polymarket.models.perps import PerpsBuilderAttribution, PerpsPositionTpSlTrigger
+    from polymarket.models.perps import (
+        PerpsBuilderAttribution,
+        PerpsPositionTpSlTrigger,
+        PerpsPositionTrailingStop,
+    )
 
     async def run() -> None:
         frames: list[dict[str, Any]] = []
@@ -1592,9 +1764,11 @@ def test_position_exits_keep_terms_captured_before_portfolio_read(
                     take_profit=PerpsPositionTpSlTrigger(
                         trigger_price="200", quantity=take_profit_quantity
                     ),
-                    stop_loss=PerpsPositionTpSlTrigger(
-                        trigger_price="50", quantity=stop_loss_quantity
-                    ),
+                    stop_loss=PerpsPositionTrailingStop(
+                        trailing_bps=200, quantity=stop_loss_quantity
+                    )
+                    if trailing
+                    else PerpsPositionTpSlTrigger(trigger_price="50", quantity=stop_loss_quantity),
                 )
                 assert frames[0]["op"]["grp"] == "position"
                 assert [row["qty"] for row in frames[0]["op"]["args"]] == quantities
@@ -1791,6 +1965,64 @@ def test_optional_builder_subscription_never_blocks_readiness(acknowledgement: s
             assert session._builder_subscription_task is None
 
     asyncio.run(asyncio.wait_for(run(), timeout=10))
+
+
+def test_activation_continues_existing_session_iterator() -> None:
+    from polymarket.models.perps import PerpsTpSlEvent
+
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        for sequence, status in enumerate(["armed", "activated", "expired"], 1):
+            await ws.send(
+                json.dumps(
+                    {
+                        "ch": "tpsl::1",
+                        "ts": 1751500000000,
+                        "sq": sequence,
+                        "data": {"oid": 44, "st": status},
+                    }
+                )
+            )
+        with contextlib.suppress(Exception):
+            async for _ in ws:
+                pass
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            statuses: list[str] = []
+            async for event in session:
+                assert isinstance(event, PerpsTpSlEvent)
+                statuses.append(event.payload.status)
+                assert event.sequence == len(statuses)
+                if len(statuses) == 3:
+                    break
+            assert statuses == ["armed", "activated", "expired"]
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10))
+
+
+def test_trailing_take_profit_is_rejected_before_reads_or_commands() -> None:
+    from typing import cast
+
+    from polymarket import PerpsPositionTrailingStop
+
+    async def run() -> None:
+        session = PerpsSession(
+            chain_id=137,
+            credentials=_CREDENTIALS,
+            rest_url="https://perps.test",
+            ws_url="ws://perps.test",
+        )
+        try:
+            with pytest.raises(UserInputError, match="take_profit"):
+                await session.place_position_tp_sl(
+                    instrument_id=1,
+                    take_profit=cast(Any, PerpsPositionTrailingStop(trailing_bps=200)),
+                )
+        finally:
+            await session.close()
+
+    asyncio.run(run())
 
 
 def test_twap_rest_lifecycle_and_uncertain_create() -> None:
