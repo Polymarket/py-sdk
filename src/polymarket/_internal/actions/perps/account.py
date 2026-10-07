@@ -15,6 +15,7 @@ from polymarket._internal.actions.perps.paging import (
     as_json_dict,
     decode_perps_ascending_account_cursor,
     decode_perps_descending_account_cursor,
+    decode_perps_internal_transfers_cursor,
     decode_perps_notifications_cursor,
     encode_perps_cursor,
     interval_ms,
@@ -34,7 +35,7 @@ from polymarket.models.perps.account import (
     PerpsPnlPoint,
     PerpsPortfolio,
 )
-from polymarket.models.perps.funds import PerpsDeposit, PerpsWithdrawal
+from polymarket.models.perps.funds import PerpsDeposit, PerpsInternalTransfer, PerpsWithdrawal
 from polymarket.models.perps.notifications import (
     PerpsNotificationEntry,
     PerpsNotificationsPage,
@@ -222,6 +223,75 @@ def list_withdrawals(
         get_timestamp=lambda item: item.get("confirmed_timestamp") or item.get("created_timestamp"),
         extra_params={"withdrawal_status": withdrawal_status, "hash": hash},
     )
+
+
+def list_internal_transfers(
+    api: AsyncTransport,
+    *,
+    start: datetime | int | None = None,
+    end: datetime | int | None = None,
+    cursor: str | None = None,
+) -> AsyncPaginator[PerpsInternalTransfer]:
+    start_ms = to_epoch_ms("start", start)
+    end_ms = to_epoch_ms("end", end)
+    if start_ms is not None and end_ms is not None and start_ms > end_ms:
+        raise UserInputError("start must not be after end")
+
+    async def fetch(page_cursor: str | None) -> Page[PerpsInternalTransfer]:
+        if page_cursor is None:
+            now = int(time.time() * 1000)
+            state: dict[str, Any] = {
+                "kind": "perpsInternalTransfers",
+                "start_timestamp": start_ms if start_ms is not None else now - NINETY_DAYS_MS,
+                "end_timestamp": end_ms if end_ms is not None else now,
+                "seen_keys": [],
+            }
+        else:
+            state = decode_perps_internal_transfers_cursor(page_cursor)
+        data, more = parse_data_envelope(
+            await api.get_json(
+                "/v1/account/internal-transfers",
+                params={
+                    "start_timestamp": state["start_timestamp"],
+                    "end_timestamp": state["end_timestamp"],
+                },
+            )
+        )
+        transfers = tuple(PerpsInternalTransfer.parse_response(item) for item in data)
+        seen = set(cast("list[str]", state["seen_keys"]))
+        items = tuple(item for item in transfers if str(item.transfer_id) not in seen)
+        if not more:
+            return Page(items=items, has_more=False)
+        if not transfers:
+            raise UnexpectedResponseError(
+                "Perps internal-transfer history reported more records "
+                "without a continuation timestamp"
+            )
+        # Keep the full final millisecond: the service stores submillisecond timestamps.
+        last_ms = round(transfers[-1].created_at.timestamp() * 1000)
+        next_end = min(state["end_timestamp"], last_ms + 1)
+        if next_end == state["end_timestamp"] and not items:
+            raise UnexpectedResponseError(
+                "Perps internal-transfer history cannot continue within a full millisecond "
+                "without skipping records"
+            )
+        boundary: set[str] = seen if next_end == state["end_timestamp"] else set()
+        for transfer in transfers:
+            if round(transfer.created_at.timestamp() * 1000) >= next_end - 1:
+                boundary.add(str(transfer.transfer_id))
+        return Page(
+            items=items,
+            has_more=True,
+            next_cursor=encode_perps_cursor(
+                {
+                    **state,
+                    "end_timestamp": next_end,
+                    "seen_keys": sorted(boundary),
+                }
+            ),
+        )
+
+    return AsyncPaginator(fetch=fetch, initial_cursor=cursor)
 
 
 class _PerpsNotificationsResponse(BaseModel):
@@ -505,6 +575,7 @@ __all__ = [
     "list_equity_history",
     "list_fills",
     "list_funding_payments",
+    "list_internal_transfers",
     "list_notifications",
     "list_pnl_history",
     "list_withdrawals",

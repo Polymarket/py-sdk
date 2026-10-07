@@ -1,5 +1,6 @@
 """Perps model-specific domain types."""
 
+from enum import StrEnum
 from typing import Literal, NewType, TypeAlias
 
 PerpsInstrumentId = NewType("PerpsInstrumentId", int)
@@ -9,7 +10,26 @@ PerpsNotificationId = NewType("PerpsNotificationId", str)
 PerpsFundingPaymentId = NewType("PerpsFundingPaymentId", int)
 PerpsTradeId = NewType("PerpsTradeId", int)
 PerpsWithdrawalId = NewType("PerpsWithdrawalId", int)
+PerpsInternalTransferId = NewType("PerpsInternalTransferId", int)
 PerpsEntityId = NewType("PerpsEntityId", int)
+
+
+class PerpsKnownInternalTransferType(StrEnum):
+    """Known classifications of settled internal transfers."""
+
+    TRANSFER = "transfer"
+    REFERRAL_PAYOUT = "referral_payout"
+
+
+PerpsInternalTransferType: TypeAlias = PerpsKnownInternalTransferType | str
+
+
+class PerpsInternalTransferDirection(StrEnum):
+    """Movement relative to the authenticated account."""
+
+    IN = "in"
+    OUT = "out"
+
 
 PerpsInstrumentCategory: TypeAlias = Literal["equity", "commodity", "index", "crypto"]
 PerpsMarginType: TypeAlias = Literal["cross", "isolated"]
@@ -80,6 +100,10 @@ PerpsOrderStatus: TypeAlias = Literal[
 ]
 
 __all__ = [
+    "PerpsInternalTransferId",
+    "PerpsInternalTransferType",
+    "PerpsKnownInternalTransferType",
+    "PerpsInternalTransferDirection",
     "PerpsBookDepth",
     "PerpsClientOrderId",
     "PerpsDepositStatus",

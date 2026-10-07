@@ -81,7 +81,7 @@ from polymarket.models.perps.events import (
     PerpsSessionEvent,
     parse_perps_session_event,
 )
-from polymarket.models.perps.funds import PerpsDeposit, PerpsWithdrawal
+from polymarket.models.perps.funds import PerpsDeposit, PerpsInternalTransfer, PerpsWithdrawal
 from polymarket.models.perps.notifications import (
     PerpsNotificationEntry,
     PerpsNotificationsPaginator,
@@ -1099,6 +1099,22 @@ class PerpsSession:
             start=start,
             end=end,
         )
+
+    def list_internal_transfers(
+        self,
+        *,
+        start: datetime | int | None = None,
+        end: datetime | int | None = None,
+        cursor: str | None = None,
+    ) -> AsyncPaginator[PerpsInternalTransfer]:
+        """List settled internal transfers, newest first, for this account.
+
+        Defaults to the past 90 days. Time bounds accept datetimes or epoch
+        milliseconds. A cursor resumes its saved bounds. Overlapping records
+        are deduplicated by transfer ID; ``UnexpectedResponseError`` is raised
+        if a full millisecond cannot be paged without risking omitted records.
+        """
+        return _account.list_internal_transfers(self._api, start=start, end=end, cursor=cursor)
 
     def list_notifications(
         self,
