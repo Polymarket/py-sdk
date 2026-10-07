@@ -98,7 +98,7 @@ A lost position still reports ``REDEEMABLE`` and a mergeable one ``OPEN``.
 """
 
 PositionSortBy = Literal[
-    "CURRENT_VALUE", "TOKENS", "UNREALIZED_PNL", "REALIZED_PNL", "TOTAL_PNL", "TIMESTAMP"
+    "CURRENT_VALUE", "PRICE", "TOKENS", "UNREALIZED_PNL", "REALIZED_PNL", "TOTAL_PNL", "TIMESTAMP"
 ]
 
 

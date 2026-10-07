@@ -88,8 +88,13 @@ def test_query_contracts() -> None:
         "condition_id": CONDITION,
     }
     assert data.list_positions_spec(
-        user=WALLET, status="CLOSED", include_archived=False
-    ).base_params == {"user": WALLET, "status": "CLOSED", "include_archived": False}
+        user=WALLET, status="CLOSED", include_archived=False, sort_by="PRICE"
+    ).base_params == {
+        "user": WALLET,
+        "status": "CLOSED",
+        "include_archived": False,
+        "sort_by": "PRICE",
+    }
     assert data.build_list_market_holders_spec(condition_ids=CONDITION).base_params == {
         "condition_id": CONDITION
     }
