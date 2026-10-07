@@ -35,7 +35,11 @@ from polymarket.perps import PerpsOrderPlacement, PerpsSession
 
 if TYPE_CHECKING:
 
-    async def _check_transfer_typing(session: PerpsSession) -> None:
+    async def _check_transfer_typing(client: AsyncSecureClient, session: PerpsSession) -> None:
+        assert_type(
+            await client.transfer_perps_collateral(recipient="0x" + "01" * 20, amount="1"),
+            PerpsInternalTransferId,
+        )
         pages = session.list_internal_transfers(start=0)
         assert_type(pages, AsyncPaginator[PerpsInternalTransfer])
         async for page in pages:

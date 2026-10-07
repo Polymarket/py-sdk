@@ -13,7 +13,10 @@ from polymarket import (
     PerpsKnownInternalTransferType,
 )
 from polymarket._internal.actions.perps.account import list_internal_transfers
-from polymarket._internal.actions.perps.paging import encode_perps_cursor
+from polymarket._internal.actions.perps.paging import (
+    decode_perps_internal_transfers_cursor,
+    encode_perps_cursor,
+)
 from polymarket.clients._transport import AsyncTransport
 from polymarket.errors import (
     UnexpectedResponseError,
@@ -21,6 +24,70 @@ from polymarket.errors import (
 )
 
 _RECIPIENT = "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc"
+
+
+@pytest.mark.parametrize("truncated", [False, True])
+def test_history_advances_only_past_complete_millisecond_pages(truncated: bool) -> None:
+    timestamps = [1_001_000_000] + list(range(1_000_000_498, 999_999_999, -1))
+    if truncated:
+        timestamps.insert(1, 1_000_500_000)
+    timestamps.append(999_000_000)
+    reads: list[tuple[int, int]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        start = int(request.url.params["start_timestamp"])
+        end = int(request.url.params["end_timestamp"])
+        reads.append((start, end))
+        # Inclusive nanosecond filtering, fixed 500-row cap, millisecond responses.
+        matches = [
+            (index, timestamp)
+            for index, timestamp in enumerate(timestamps)
+            if start * 1_000_000 <= timestamp <= end * 1_000_000
+        ]
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "transfer_id": index,
+                        "type": "transfer",
+                        "asset": "pUSD",
+                        "amount": "1",
+                        "direction": "in",
+                        "counterparty": _RECIPIENT,
+                        "created_timestamp": timestamp // 1_000_000,
+                    }
+                    for index, timestamp in matches[:500]
+                ],
+                "more": len(matches) > 500,
+            },
+        )
+
+    async def run() -> None:
+        async with httpx.AsyncClient(
+            base_url="https://perps.test", transport=httpx.MockTransport(handler)
+        ) as client:
+            transport = AsyncTransport(base_url="https://perps.test", client=client)
+            first = await list_internal_transfers(transport, start=999, end=1001).first_page()
+            assert len(first.items) == 500
+            assert first.next_cursor is not None
+            state = decode_perps_internal_transfers_cursor(first.next_cursor)
+            state["seen_keys"].append("1001")  # An ID retained from an earlier interval.
+            remaining = list_internal_transfers(transport, cursor=encode_perps_cursor(state))
+            if truncated:
+                with pytest.raises(UnexpectedResponseError):
+                    await remaining.first_page()
+            else:
+                ids = [item.transfer_id for item in first.items]
+                async for page in remaining:
+                    ids.extend(item.transfer_id for item in page.items)
+                    if page.next_cursor:
+                        state = decode_perps_internal_transfers_cursor(page.next_cursor)
+                        assert set(state["seen_keys"]) == {str(index) for index in range(500)}
+                assert ids == list(range(501))
+
+    asyncio.run(run())
+    assert reads == [(999, 1001), (999, 1001), (1000, 1001)] + ([] if truncated else [(999, 1000)])
 
 
 def test_history_defaults_and_canonical_classification(monkeypatch: pytest.MonkeyPatch) -> None:
