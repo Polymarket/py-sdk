@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from enum import IntEnum
 from typing import Annotated, Literal
@@ -49,6 +49,7 @@ class NotificationType(IntEnum):
     ORDER_FILL_FAILED = 8
     AUTO_REDEEMED = 9
     COMBO_AUTO_REDEEMED = 10
+    TAKER_TIER_UPGRADED = 11
 
 
 def _empty_string_to_none(value: object) -> object:
@@ -314,6 +315,28 @@ class ComboAutoRedeemedNotificationPayload(BaseModel):
         return validate_combo_condition_id(value)
 
 
+class TakerTierUpgradedNotificationPayload(BaseModel):
+    """A taker tier upgrade in a daily snapshot.
+
+    ``rebate_bps`` is in basis points and ``snapshot_date`` identifies the
+    snapshot's UTC calendar day.
+    """
+
+    previous_tier: int = Field(strict=True)
+    tier: int = Field(strict=True)
+    rebate_bps: int = Field(strict=True)
+    snapshot_date: date
+
+    @field_validator("snapshot_date", mode="before")
+    @classmethod
+    def _parse_snapshot_date(cls, value: object) -> date:
+        if type(value) is date:
+            return value
+        if isinstance(value, str) and len(value) == 10 and value[4] == value[7] == "-":
+            return date.fromisoformat(value)
+        raise ValueError("snapshot_date must be a YYYY-MM-DD calendar date")
+
+
 def _parse_notification_id(value: object) -> object:
     if isinstance(value, bool):
         msg = f"notification id must be an integer, got bool {value!r}"
@@ -414,6 +437,13 @@ class ComboAutoRedeemedNotification(_NotificationBase):
     payload: ComboAutoRedeemedNotificationPayload
 
 
+class TakerTierUpgradedNotification(_NotificationBase):
+    """The account's taker tier increased in a daily snapshot."""
+
+    type: Literal[NotificationType.TAKER_TIER_UPGRADED]
+    payload: TakerTierUpgradedNotificationPayload
+
+
 Notification = Annotated[
     OrderCancellationNotification
     | OrderFillNotification
@@ -424,7 +454,8 @@ Notification = Annotated[
     | YieldPayoutNotification
     | OrderFillFailedNotification
     | AutoRedeemedNotification
-    | ComboAutoRedeemedNotification,
+    | ComboAutoRedeemedNotification
+    | TakerTierUpgradedNotification,
     Field(discriminator="type"),
 ]
 """Account notification.
@@ -455,6 +486,8 @@ __all__ = [
     "OrderNotificationPayload",
     "RewardPayoutNotification",
     "RewardPayoutNotificationPayload",
+    "TakerTierUpgradedNotification",
+    "TakerTierUpgradedNotificationPayload",
     "YieldPayoutNotification",
     "YieldPayoutNotificationPayload",
 ]
