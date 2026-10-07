@@ -1890,3 +1890,139 @@ def test_twap_rest_lifecycle_and_uncertain_create() -> None:
             else {"type": "controlTwap", "args": {"twid": 9007199254740991, "act": operation}}
         )
         assert body["op"] == expected
+
+
+def test_chase_rest_lifecycle_and_uncertain_create() -> None:
+    from unittest.mock import patch
+
+    from polymarket._internal.actions.perps.signing import sign_perps_op_with_key
+    from polymarket.errors import UnexpectedResponseError
+
+    captured: list[httpx.Request] = []
+    response_mode = "ok"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        if request.method == "GET":
+            return httpx.Response(200, json=[], request=request)
+        if response_mode == "timeout":
+            return httpx.Response(500, json={"error": "timeout"}, request=request)
+        if response_mode == "transport":
+            raise httpx.ReadError("lost acknowledgement", request=request)
+        if response_mode == "disabled":
+            return httpx.Response(404, json={"error": "not_found"}, request=request)
+        if response_mode == "domain":
+            return httpx.Response(
+                200, json={"status": "err", "error": "chase_limit_exceeded"}, request=request
+            )
+        if request.method == "POST":
+            if response_mode == "malformed":
+                return httpx.Response(200, json={"status": "ok", "chid": 1}, request=request)
+            return httpx.Response(
+                200, json={"status": "ok", "chid": 2**53 - 1, "ts": 1767225600000}, request=request
+            )
+        return httpx.Response(200, json={"status": "ok"}, request=request)
+
+    async def run() -> None:
+        nonlocal response_mode
+        session = PerpsSession(
+            chain_id=137,
+            credentials=_CREDENTIALS,
+            rest_url="https://perps.test",
+            ws_url="ws://127.0.0.1:9",
+        )
+        await session._api.close()
+        session._api = AsyncTransport(
+            base_url="https://perps.test",
+            client=httpx.AsyncClient(
+                base_url="https://perps.test", transport=httpx.MockTransport(handler)
+            ),
+            header_resolver=session._resolve_auth_headers,
+        )
+        try:
+            accepted = await session.create_chase(
+                instrument_id=1, side="BUY", quantity="1.000000000000000001"
+            )
+            assert accepted.chase_id == 2**53 - 1
+            assert await session.fetch_chases() == ()
+            await session.cancel_chase(chase_id=accepted.chase_id)
+            await session.create_chase(
+                instrument_id=1,
+                side="SELL",
+                quantity=1e-8,
+                limit_price="1.000000000000000001",
+                max_distance="0",
+                max_distance_bps=1000,
+                post_only=False,
+                reduce_only=True,
+                client_order_id="a" * 32,
+                expires_at=1767225660000,
+            )
+            count = len(captured)
+            with patch.object(session, "_create_signed_command") as sign:
+                for invalid in [
+                    {"max_distance_bps": 0},
+                    {"max_distance": "1", "max_distance_bps": 50},
+                    {"expires_at": -1},
+                    {"expires_at": 2**53},
+                ]:
+                    with pytest.raises(UserInputError):
+                        await session.create_chase(
+                            **({"instrument_id": 1, "side": "BUY", "quantity": "1"} | invalid)  # pyright: ignore[reportArgumentType]
+                        )
+                with pytest.raises(UserInputError):
+                    await session.cancel_chase(chase_id=2**53)
+                sign.assert_not_called()
+            assert len(captured) == count
+            for mode, error in [
+                ("timeout", RequestRejectedError),
+                ("transport", TransportError),
+                ("disabled", RequestRejectedError),
+                ("domain", RequestRejectedError),
+                ("malformed", UnexpectedResponseError),
+            ]:
+                response_mode = mode
+                with pytest.raises(error):
+                    await session.create_chase(instrument_id=1, side="BUY", quantity="1")
+                count += 1
+                assert len(captured) == count
+            response_mode = "transport"
+            with pytest.raises(TransportError):
+                await session.cancel_chase(chase_id=accepted.chase_id)
+            assert len(captured) == count + 1
+        finally:
+            await session.close()
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+    for index, op in [
+        (0, ["createChase", [1, True, "1.000000000000000001", True, False]]),
+        (2, ["cancelChase", [2**53 - 1]]),
+        (
+            3,
+            [
+                "createChase",
+                [1, False, "0.00000001", "1.000000000000000001", "0", 1000, False, True, "a" * 32],
+            ],
+        ),
+    ]:
+        body = json.loads(captured[index].content)
+        assert body["sig"] == sign_perps_op_with_key(
+            _PROXY_PRIVATE_KEY, chain_id=137, op=op, salt=body["salt"], timestamp_ms=body["ts"]
+        )
+    assert captured[1].headers["polymarket-proxy"] == _PROXY_ADDRESS
+    assert captured[1].headers["polymarket-secret"] == "session-secret"
+    assert json.loads(captured[3].content)["exp"] == 1767225660000
+    assert json.loads(captured[2].content)["op"] == {
+        "type": "cancelChase",
+        "args": {"chid": 2**53 - 1},
+    }
+
+
+def test_chase_child_identity_in_private_order_event() -> None:
+    from polymarket.models.perps.events import parse_perps_session_event
+
+    frame = _order_update(42)
+    frame["data"]["chid"] = 2**53 - 1
+    event = parse_perps_session_event(frame)
+    assert isinstance(event, PerpsOrderEvent)
+    assert event.payload.chase_id == 2**53 - 1
