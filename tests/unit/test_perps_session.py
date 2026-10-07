@@ -182,6 +182,7 @@ def _order_update(
     update: dict[str, Any] = {
         "ch": "orders",
         "ts": 1751500000000,
+        "ets": 1751499999000,
         "sq": sequence,
         "data": {
             "oid": order_id,
@@ -208,6 +209,7 @@ def _fills_update(*, sequence: int = 6) -> dict[str, Any]:
     return {
         "ch": "fills",
         "ts": 1751500000002,
+        "ets": 1751499999000,
         "sq": sequence,
         "data": [
             {
@@ -1299,6 +1301,7 @@ def _notification_update(sequence: int, notification_id: str) -> dict[str, Any]:
     return {
         "ch": "notifications",
         "ts": 1751500000000,
+        "ets": 1751499999000,
         "sq": sequence,
         "data": {
             "id": notification_id,
@@ -1321,6 +1324,7 @@ def test_adl_notifications_arrive_on_existing_session_iterator() -> None:
                 {
                     "ch": "notifications",
                     "ts": 1751500000000,
+                    "ets": 1751499999000,
                     "sq": 42,
                     "data": {
                         "id": "6ab1e47f-9b8c-5eaf-8f9b-7c8d9e0f1a2b",
@@ -1406,7 +1410,15 @@ def test_server_notifications_resync_frame_emits_server_resync_event() -> None:
     async def handler(ws: ServerConnection) -> None:
         await _handshake(ws)
         await ws.send(
-            json.dumps({"ch": "notifications", "ts": 1751500000000, "sq": 77, "type": "resync"})
+            json.dumps(
+                {
+                    "ch": "notifications",
+                    "ts": 1751500000000,
+                    "ets": 1751499999000,
+                    "sq": 77,
+                    "type": "resync",
+                }
+            )
         )
         with contextlib.suppress(Exception):
             async for _ in ws:
@@ -1628,6 +1640,7 @@ def test_builder_fills_share_session_iterator_before_ack_and_after_reconnect() -
                                     {
                                         "ch": "builderFills",
                                         "ts": 1751500000000,
+                                        "ets": 1751499999000,
                                         "sq": sequence,
                                         "data": [],
                                     }
@@ -1640,7 +1653,13 @@ def test_builder_fills_share_session_iterator_before_ack_and_after_reconnect() -
                     else:
                         await ws.send(
                             json.dumps(
-                                {"ch": "builderFills", "ts": 1751500000000, "sq": 200, "data": []}
+                                {
+                                    "ch": "builderFills",
+                                    "ts": 1751500000000,
+                                    "ets": 1751499999000,
+                                    "sq": 200,
+                                    "data": [],
+                                }
                             )
                         )
                         await ws.wait_closed()
@@ -2103,6 +2122,7 @@ def test_activation_continues_existing_session_iterator() -> None:
                     {
                         "ch": "tpsl::1",
                         "ts": 1751500000000,
+                        "ets": 1751499999000,
                         "sq": sequence,
                         "data": {"oid": 44, "st": status},
                     }

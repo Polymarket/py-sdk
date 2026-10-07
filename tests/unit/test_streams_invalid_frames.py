@@ -208,6 +208,7 @@ def test_perps_market_drops_invalid_frames_and_ignores_request_responses() -> No
                 {
                     "ch": "book::1",
                     "ts": 1751500000000,
+                    "ets": 1751499999000,
                     "sq": 2,
                     "data": {"b": [["0.5", "10"]], "a": [["0.6", "4"]]},
                 }
@@ -236,6 +237,7 @@ def test_perps_session_drops_invalid_frame_and_keeps_session_open() -> None:
     balance = {
         "ch": "balances",
         "ts": 1751500000000,
+        "ets": 1751499999000,
         "sq": 1,
         "data": {"asset": "USDC", "balance": "1", "value": "1"},
     }
