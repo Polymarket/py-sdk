@@ -13,6 +13,7 @@ from polymarket.models.gamma import (
     Event,
     EventPartner,
     Market,
+    MarketResolutionStatus,
     ProtocolVersion,
     PublicProfile,
     Reaction,
@@ -54,6 +55,58 @@ def test_market_parses_minimal_payload() -> None:
     assert market.outcomes.no.price == Decimal("0.4")
     with pytest.warns(DeprecationWarning, match="position_id on each outcome"):
         assert market.position_ids == ("POSITION-YES", "POSITION-NO")
+
+
+def test_market_preserves_v2_oracle_metadata() -> None:
+    event_id = "0x" + "ab" * 29 + "000000"
+    request_id = "0x" + "cd" * 31 + "00"
+    market = Market.parse_response(
+        _minimal_market_payload(
+            version="v2",
+            onchainEventId=event_id,
+            requestId=request_id,
+            resolutionStatus="active",
+        )
+    )
+
+    assert market.resolution.onchain_event_id == event_id
+    assert market.resolution.request_id == request_id
+    assert market.resolution.resolution_status is MarketResolutionStatus.ACTIVE
+    assert market.resolution.uma_resolution_status is None
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {},
+        {
+            "onchainEventId": None,
+            "requestId": None,
+            "resolutionStatus": None,
+        },
+    ],
+)
+def test_market_accepts_absent_and_null_v2_metadata(metadata: dict[str, object]) -> None:
+    market = Market.parse_response(_minimal_market_payload(**metadata))
+
+    assert market.resolution.onchain_event_id is None
+    assert market.resolution.request_id is None
+    assert market.resolution.resolution_status is None
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"onchainEventId": "0x" + "ab" * 29 + "000001"},
+        {"onchainEventId": "not-hex"},
+        {"requestId": "0x" + "ab" * 32},
+        {"requestId": "0x1234"},
+        {"resolutionStatus": "pending"},
+    ],
+)
+def test_market_rejects_malformed_v2_metadata(metadata: dict[str, object]) -> None:
+    with pytest.raises(UnexpectedResponseError):
+        Market.parse_response(_minimal_market_payload(**metadata))
 
 
 @pytest.mark.parametrize(

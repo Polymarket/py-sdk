@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
@@ -46,6 +47,14 @@ class ProtocolVersion(StrEnum):
 
     V1 = "v1"
     V2 = "v2"
+
+
+class MarketResolutionStatus(StrEnum):
+    """Resolution state for a market using the v2 protocol."""
+
+    INACTIVE = "inactive"
+    ACTIVE = "active"
+    RESOLVED = "resolved"
 
 
 class UmaResolutionStatus(StrEnum):
@@ -270,6 +279,21 @@ class MarketTrading(BaseModel):
 class MarketResolution(BaseModel):
     """Resolution metadata for a market."""
 
+    onchain_event_id: str | None = Field(
+        default=None,
+        validation_alias="onchainEventId",
+        description="Parent v2 on-chain event ID, shared by markets in a neg-risk event.",
+    )
+    request_id: ResolutionRequestId | None = Field(
+        default=None,
+        validation_alias="requestId",
+        description="Oracle request ID: a condition ID or the parent event ID.",
+    )
+    resolution_status: MarketResolutionStatus | None = Field(
+        default=None,
+        validation_alias="resolutionStatus",
+        description="V2 resolution state, distinct from the legacy UMA lifecycle.",
+    )
     question_id: QuestionId | None = Field(
         default=None,
         validation_alias="questionId",
@@ -287,6 +311,26 @@ class MarketResolution(BaseModel):
         default=None,
         validation_alias="resolvedBy",
     )
+
+    @field_validator("onchain_event_id", mode="before")
+    @classmethod
+    def _validate_onchain_event_id(cls, value: object) -> object:
+        if value is not None and (
+            not isinstance(value, str) or re.fullmatch(r"0x[0-9a-fA-F]{58}000000", value) is None
+        ):
+            raise ValueError(
+                "Expected a 32-byte on-chain event ID with the bottom three bytes zero"
+            )
+        return value
+
+    @field_validator("request_id", mode="before")
+    @classmethod
+    def _validate_request_id(cls, value: object) -> object:
+        if value is not None and (
+            not isinstance(value, str) or re.fullmatch(r"0x[0-9a-fA-F]{62}00", value) is None
+        ):
+            raise ValueError("Expected a 32-byte oracle request ID with the outcome byte zero")
+        return value
 
     @field_validator("question_id", "neg_risk_request_id", "resolved_by", mode="before")
     @classmethod
@@ -549,6 +593,9 @@ class Market(BaseModel):
                 "fee_schedule": data.get("feeSchedule"),
             },
             "resolution": {
+                "onchain_event_id": data.get("onchainEventId"),
+                "request_id": data.get("requestId"),
+                "resolution_status": data.get("resolutionStatus"),
                 "question_id": empty_string_to_none(data.get("questionID")),
                 "neg_risk_request_id": empty_string_to_none(data.get("negRiskRequestID")),
                 "uma_resolution_status": empty_string_to_none(data.get("umaResolutionStatus")),
@@ -610,5 +657,6 @@ __all__ = [
     "MarketTag",
     "MarketTrading",
     "ProtocolVersion",
+    "MarketResolutionStatus",
     "UmaResolutionStatus",
 ]

@@ -1,5 +1,10 @@
-import pytest
+import asyncio
 
+import httpx
+import pytest
+import respx
+
+from polymarket import AsyncPublicClient, PublicClient
 from polymarket._internal.actions import gamma as gamma_actions
 from polymarket._internal.pagination import fingerprint_query
 from polymarket._internal.request import (
@@ -8,7 +13,7 @@ from polymarket._internal.request import (
     PageBasedSpec,
 )
 from polymarket.errors import UnexpectedResponseError, UserInputError
-from polymarket.models import Comment
+from polymarket.models import Comment, MarketResolutionStatus, ProtocolVersion
 
 
 def _minimal_market_payload(**overrides: object) -> dict[str, object]:
@@ -69,6 +74,107 @@ def test_list_markets_spec_default_has_no_params() -> None:
     assert spec.service == "gamma"
     assert spec.path == "/markets/keyset"
     assert spec.base_params is None
+
+
+def test_list_markets_spec_preserves_v2_filters_and_pagination_fingerprint() -> None:
+    spec = gamma_actions.list_markets_spec(
+        request_ids=["request-A", "request-B"],
+        onchain_event_ids="event-A",
+        resolution_status=MarketResolutionStatus.ACTIVE,
+        version=ProtocolVersion.V2,
+    )
+
+    assert spec.base_params == {
+        "request_ids": ("request-A", "request-B"),
+        "onchain_event_ids": ("event-A",),
+        "resolution_status": "active",
+        "version": "v2",
+    }
+    assert fingerprint_query(spec.base_params) != fingerprint_query(None)
+
+
+@pytest.mark.parametrize("name", ["request_ids", "onchain_event_ids"])
+def test_list_markets_spec_bounds_v2_filter_count(name: str) -> None:
+    accepted = (
+        gamma_actions.list_markets_spec(request_ids=["ID"] * 100)
+        if name == "request_ids"
+        else gamma_actions.list_markets_spec(onchain_event_ids=["ID"] * 100)
+    )
+    assert accepted.base_params is not None
+    assert accepted.base_params[name] == ("ID",) * 100
+    with pytest.raises(UserInputError, match="100"):
+        if name == "request_ids":
+            gamma_actions.list_markets_spec(request_ids=["ID"] * 101)
+        else:
+            gamma_actions.list_markets_spec(onchain_event_ids=["ID"] * 101)
+
+
+@pytest.mark.parametrize("client_mode", ["sync", "async"])
+def test_public_market_lists_preserve_v2_filters_across_pages(client_mode: str) -> None:
+    # Controlled responses isolate filter serialization and continuation while
+    # the live metadata API is unavailable in this environment.
+    requests: list[httpx.Request] = []
+    responses = iter(
+        [
+            httpx.Response(200, json={"markets": [], "next_cursor": "page-2"}),
+            httpx.Response(200, json={"markets": []}),
+        ]
+    )
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return next(responses)
+
+    with respx.mock as router:
+        route = router.get("https://gamma-api.polymarket.com/markets/keyset")
+        route.side_effect = respond
+
+        if client_mode == "sync":
+            with PublicClient() as client:
+                pages = list(
+                    client.list_markets(
+                        request_ids=["request-A", "request-B"],
+                        onchain_event_ids=["event-A"],
+                        resolution_status="active",
+                        version="v2",
+                        page_size=10,
+                    )
+                )
+        else:
+
+            async def collect() -> int:
+                async with AsyncPublicClient() as client:
+                    pages = [
+                        page
+                        async for page in client.list_markets(
+                            request_ids=["request-A", "request-B"],
+                            onchain_event_ids=["event-A"],
+                            resolution_status="active",
+                            version="v2",
+                            page_size=10,
+                        )
+                    ]
+                    return len(pages)
+
+            assert asyncio.run(collect()) == 2
+            pages = []
+
+        if client_mode == "sync":
+            assert len(pages) == 2
+        assert len(requests) == 2
+        for request in requests:
+            query = request.url.params
+            assert query.get_list("request_ids") == ["request-A", "request-B"]
+            assert query.get_list("onchain_event_ids") == ["event-A"]
+            assert query["resolution_status"] == "active"
+            assert query["version"] == "v2"
+        assert requests[1].url.params["after_cursor"] == "page-2"
+
+
+@pytest.mark.parametrize("filters", [{"resolution_status": "pending"}, {"version": "v3"}])
+def test_list_markets_spec_rejects_unsupported_v2_filter_enums(filters: dict[str, str]) -> None:
+    with pytest.raises(UserInputError):
+        gamma_actions.list_markets_spec(**filters)  # type: ignore[arg-type]
 
 
 def test_list_markets_spec_collects_array_params() -> None:
