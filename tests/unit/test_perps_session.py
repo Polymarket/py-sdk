@@ -1126,6 +1126,47 @@ def _notification_update(sequence: int, notification_id: str) -> dict[str, Any]:
     }
 
 
+def test_adl_notifications_arrive_on_existing_session_iterator() -> None:
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        await ws.send(
+            json.dumps(
+                {
+                    "ch": "notifications",
+                    "ts": 1751500000000,
+                    "sq": 42,
+                    "data": {
+                        "id": "6ab1e47f-9b8c-5eaf-8f9b-7c8d9e0f1a2b",
+                        "type": "position_deleveraged",
+                        "instrument_id": 1,
+                        "side": "short",
+                        "size_closed": "0.01",
+                        "price": "52000",
+                        "pnl": "130",
+                        "margin_type": "isolated",
+                    },
+                }
+            )
+        )
+        await ws.send(json.dumps(_order_update(1, sequence=1)))
+        with contextlib.suppress(Exception):
+            async for _ in ws:
+                pass
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            async for event in session:
+                assert isinstance(event, PerpsNotificationEvent)
+                assert event.payload.type == "position_deleveraged"
+                assert event.payload.price == Decimal("52000")
+                assert event.payload.pnl == Decimal("130")
+                assert event.sequence == 42
+                assert event.timestamp == datetime.fromtimestamp(1751500000, tz=UTC)
+                break
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+
+
 def test_notification_sequence_gaps_do_not_emit_local_resync() -> None:
     async def handler(ws: ServerConnection) -> None:
         await _handshake(ws)
