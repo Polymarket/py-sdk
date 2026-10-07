@@ -2383,3 +2383,50 @@ def test_chase_child_identity_in_private_order_event() -> None:
     event = parse_perps_session_event(frame)
     assert isinstance(event, PerpsOrderEvent)
     assert event.payload.chase_id == 2**53 - 1
+
+
+def test_position_snapshots_use_authenticated_owner() -> None:
+    async def run() -> None:
+        owner = "0x1111111111111111111111111111111111111111"
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert request.headers["POLYMARKET-PROXY"] == _CREDENTIALS.proxy
+            assert request.headers["POLYMARKET-SECRET"] == _CREDENTIALS.secret
+            if request.url.path == "/v1/account/credentials":
+                return httpx.Response(200, json={"address": owner, "keys": []})
+            assert json.loads(request.content) == {
+                "address": owner,
+                "active_instrument_ids": [7],
+                "history_fills": [],
+            }
+            return httpx.Response(
+                200,
+                json={
+                    "history_as_of_at": 0,
+                    "active": [{"instrument_id": 7, "status": "not_found"}],
+                    "history": [],
+                },
+            )
+
+        session = PerpsSession(
+            chain_id=137,
+            credentials=_CREDENTIALS,
+            rest_url="https://perps.test",
+            ws_url="ws://unused",
+        )
+        async with httpx.AsyncClient(
+            base_url="https://perps.test", transport=httpx.MockTransport(handler)
+        ) as http:
+            await session._api.close()
+            session._api = AsyncTransport(
+                base_url="https://perps.test",
+                client=http,
+                header_resolver=session._resolve_auth_headers,
+            )
+            try:
+                snapshots = await session.fetch_position_snapshots(active_instrument_ids=(7,))
+                assert snapshots.active[0].status == "not_found"
+            finally:
+                await session.close()
+
+    asyncio.run(run())

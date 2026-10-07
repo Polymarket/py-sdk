@@ -72,6 +72,7 @@ from polymarket._internal.actions.orders.types import OrderDraft
 from polymarket._internal.actions.perps import builders as _perps_builders
 from polymarket._internal.actions.perps import credentials as _perps_credentials
 from polymarket._internal.actions.perps import funds as _perps_funds
+from polymarket._internal.actions.perps import position_snapshots as _position_snapshots
 from polymarket._internal.actions.perps import public as _perps_actions
 from polymarket._internal.actions.relayer.approvals import (
     build_get_trading_approvals_state_spec,
@@ -248,6 +249,10 @@ from polymarket.models.perps import (
     PerpsWithdrawalId,
 )
 from polymarket.models.perps.builders import PerpsBuilderStatus
+from polymarket.models.perps.position_snapshots import (
+    PerpsPositionSnapshotFill,
+    PerpsPositionSnapshots,
+)
 from polymarket.models.price_events import (
     CryptoPriceEvent,
     CryptoTwapPriceEvent,
@@ -3829,6 +3834,26 @@ class AsyncSecureClient:
         )
         return _rewards_actions.parse_reward_percentages(
             await self._ctx.secure_clob.get_json(path, params=params)
+        )
+
+    async def fetch_perps_position_snapshots(
+        self,
+        *,
+        address: str,
+        active_instrument_ids: Sequence[int] = (),
+        history_fills: Sequence[PerpsPositionSnapshotFill] = (),
+    ) -> PerpsPositionSnapshots:
+        """Fetch ordered snapshots anonymously, including on secure clients.
+
+        Use session.fetch_position_snapshots for owner-only leverage and PnL
+        percentage. No pagination or automatic retries of item statuses.
+        Experimental: may change in breaking ways, including patch releases.
+        """
+        return await _position_snapshots.fetch_position_snapshots(
+            self._ctx.perps,
+            address=address,
+            active_instrument_ids=active_instrument_ids,
+            history_fills=history_fills,
         )
 
     async def fetch_perps_builder_status(self, *, address: str) -> PerpsBuilderStatus:
