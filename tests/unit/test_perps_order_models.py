@@ -49,6 +49,19 @@ def _expanded_order(**overrides: object) -> dict[str, object]:
     }
 
 
+@pytest.mark.parametrize(
+    "wire",
+    [
+        _compact_order(tif="gtd", status="order_expired"),
+        _expanded_order(tif="gtd", status="order_expired"),
+    ],
+)
+def test_gtd_order_read_and_update(wire: dict[str, object]) -> None:
+    order = PerpsOrder.model_validate(wire)
+    assert order.time_in_force == "gtd"
+    assert order.quantity == Decimal("10")
+
+
 def _compact_fill(**overrides: object) -> dict[str, object]:
     return {
         "tid": 9,

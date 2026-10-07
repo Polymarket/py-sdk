@@ -25,6 +25,18 @@ if TYPE_CHECKING:
     assert_type(
         PerpsOrderRequest(
             instrument_id=1,
+            side="BUY",
+            quantity="1",
+            price="100",
+            time_in_force="gtd",
+            gtd_expiry=1_893_456_000_123,
+            post_only=True,
+        ),
+        PerpsOrderRequest,
+    )
+    assert_type(
+        PerpsOrderRequest(
+            instrument_id=1,
             price="100",
             quantity="1",
             side="BUY",
@@ -44,6 +56,18 @@ if TYPE_CHECKING:
     )
 
     async def _check_session_typing(session: PerpsSession) -> None:
+        assert_type(
+            await session.place_order(
+                instrument_id=1,
+                side="BUY",
+                quantity="1",
+                price="100",
+                time_in_force="gtd",
+                gtd_expiry=1_893_456_000_123,
+                post_only=True,
+            ),
+            PerpsOrderPlacement,
+        )
         assert_type(
             await session.place_order(
                 instrument_id=1,
