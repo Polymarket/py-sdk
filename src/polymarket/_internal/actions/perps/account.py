@@ -119,11 +119,18 @@ async def fetch_orders(
 def list_fills(
     api: AsyncTransport,
     *,
+    instrument_id: int | None = None,
     start: datetime | int | None = None,
     end: datetime | int | None = None,
     sort: PerpsSortDirection | None = None,
     cursor: str | None = None,
 ) -> AsyncPaginator[PerpsFill]:
+    if instrument_id is not None and (
+        isinstance(instrument_id, bool)
+        or not isinstance(instrument_id, int)
+        or not 0 <= instrument_id <= 4_294_967_295
+    ):
+        raise UserInputError("instrument_id must be an unsigned 32-bit integer")
     if sort is not None and sort not in _SORT_DIRECTIONS:
         raise UserInputError(f"sort must be one of {list(_SORT_DIRECTIONS)}, got {sort!r}")
     start_ms = to_epoch_ms("start", start)
@@ -134,6 +141,7 @@ def list_fills(
             await api.get_json(
                 "/v1/account/fills",
                 params={
+                    "instrument_id": instrument_id,
                     "start_timestamp": start_ms,
                     "end_timestamp": end_ms,
                     "sort": sort,

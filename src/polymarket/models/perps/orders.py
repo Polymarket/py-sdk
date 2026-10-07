@@ -121,6 +121,22 @@ class PerpsOrder(BaseModel):
         return _require_epoch_ms(value)
 
 
+PerpsLiquidationMethod: TypeAlias = Literal["market", "backstop"]
+
+
+class PerpsLiquidationDetails(BaseModel):
+    """Liquidation command context, distinct from the fill's accounting price."""
+
+    liquidated_user: str | None = None
+    mark: Decimal
+    method: PerpsLiquidationMethod
+
+    @field_validator("mark", mode="before")
+    @classmethod
+    def _parse_mark(cls, value: object) -> object:
+        return _coerce_decimalish(value)
+
+
 class PerpsFill(BaseModel):
     """One fill on a Perps order for the account."""
 
@@ -144,6 +160,10 @@ class PerpsFill(BaseModel):
     settlement: bool = False
     """Whether this fill closes a position at instrument settlement; false on older responses."""
     liquidation: bool = Field(validation_alias=AliasChoices("liquidation", "liq"))
+    adl: bool = Field(strict=True)
+    """Whether this fill came from auto-deleveraging."""
+    liquidation_details: PerpsLiquidationDetails | None = None
+    """Present for backstop liquidations; ordinary order-book liquidations omit it."""
     timestamp: datetime = Field(validation_alias=AliasChoices("timestamp", "ts"))
     hash: str | None = None
     client_order_id: str | None = Field(default=None, validation_alias="coid")
@@ -324,6 +344,8 @@ __all__ = [
     "PerpsCancelOrderResult",
     "PerpsCancelOrderSuccess",
     "PerpsFill",
+    "PerpsLiquidationDetails",
+    "PerpsLiquidationMethod",
     "PerpsOrder",
     "PerpsPostOrderAck",
     "PerpsLeverageUpdateRejection",

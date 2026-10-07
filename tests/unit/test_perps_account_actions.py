@@ -222,6 +222,7 @@ def _fill(trade_id: int, timestamp: int) -> dict[str, Any]:
         "previous_entry_price": "0",
         "pnl": "0",
         "liquidation": False,
+        "adl": False,
         "timestamp": timestamp,
         "hash": "0x" + "1" * 64,
     }
@@ -263,7 +264,7 @@ def test_list_fills_pages_with_native_cursor() -> None:
     async def run() -> None:
         transport = _transport(handler)
         try:
-            pages = perps_account.list_fills(transport, start=0, end=3000)
+            pages = perps_account.list_fills(transport, instrument_id=0, start=0, end=3000)
             first = await pages.first_page()
             second = await pages.from_cursor(first.next_cursor).first_page()
         finally:
@@ -274,10 +275,15 @@ def test_list_fills_pages_with_native_cursor() -> None:
         assert first.next_cursor == "2"
         assert [fill.trade_id for fill in second.items] == [1]
         assert second.has_more is False
-        assert dict(requests[0].url.params) == {"start_timestamp": "0", "end_timestamp": "3000"}
+        assert dict(requests[0].url.params) == {
+            "instrument_id": "0",
+            "start_timestamp": "0",
+            "end_timestamp": "3000",
+        }
         assert dict(requests[1].url.params) == {
             "start_timestamp": "0",
             "end_timestamp": "3000",
+            "instrument_id": "0",
             "cursor": "2",
         }
 
@@ -299,6 +305,7 @@ def _compact_fill(trade_id: int, timestamp: int) -> dict[str, Any]:
         "pep": "0",
         "pnl": "0",
         "liq": False,
+        "adl": False,
         "ts": timestamp,
     }
 
@@ -372,7 +379,7 @@ def test_list_fills_forwards_caller_cursor_unchanged_with_filters() -> None:
         transport = _transport(handler)
         try:
             first = await perps_account.list_fills(
-                transport, end=5000, sort="desc", cursor="42"
+                transport, instrument_id=4_294_967_295, end=5000, sort="desc", cursor="42"
             ).first_page()
         finally:
             await transport.close()
@@ -380,6 +387,7 @@ def test_list_fills_forwards_caller_cursor_unchanged_with_filters() -> None:
         assert [fill.trade_id for fill in first.items] == [41]
         assert dict(requests[0].url.params) == {
             "end_timestamp": "5000",
+            "instrument_id": "4294967295",
             "sort": "desc",
             "cursor": "42",
         }
@@ -619,6 +627,22 @@ def test_mark_notifications_read_rejects_err_status_and_bad_arguments() -> None:
                 await perps_account.mark_notifications_read(
                     transport, ids="5f4a3c2b-1d0e-49f8-a7b6-c5d4e3f2a1b0"
                 )
+        finally:
+            await transport.close()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("instrument_id", [-1, 4_294_967_296, 1.5, True, "1"])
+def test_list_fills_rejects_non_uint32_instrument_before_request(instrument_id: Any) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("must not fetch with invalid instrument filter")
+
+    async def run() -> None:
+        transport = _transport(handler)
+        try:
+            with pytest.raises(UserInputError, match="instrument_id"):
+                perps_account.list_fills(transport, instrument_id=instrument_id)
         finally:
             await transport.close()
 

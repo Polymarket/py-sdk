@@ -77,6 +77,7 @@ def _compact_fill(**overrides: object) -> dict[str, object]:
         "pep": "0",
         "pnl": "1.25",
         "liq": False,
+        "adl": False,
         "ts": 1751500000000,
         **overrides,
     }
@@ -97,6 +98,7 @@ def _expanded_fill(**overrides: object) -> dict[str, object]:
         "previous_entry_price": "99",
         "pnl": "-1.25",
         "liquidation": False,
+        "adl": False,
         "timestamp": 1751500000000,
         **overrides,
     }
@@ -337,3 +339,51 @@ def test_fill_settlement_flags_across_wire_shapes(metadata: dict[str, bool]) -> 
     expanded = PerpsFill.parse_response(_expanded_fill(**metadata))
     assert compact.settlement is metadata.get("settlement", False)
     assert expanded.settlement is compact.settlement
+
+
+@pytest.mark.parametrize("factory", [_expanded_fill, _compact_fill])
+def test_fills_keep_liquidation_mark_distinct_from_accounting_price(factory: Any) -> None:
+    fill = PerpsFill.parse_response(
+        factory(
+            adl=False,
+            liquidation_details={
+                "liquidated_user": "0x1111111111111111111111111111111111111111",
+                "mark": "9007199254740993.00000001",
+                "method": "backstop",
+            },
+        )
+    )
+    assert fill.price == Decimal("100.5")
+    assert fill.adl is False
+    assert fill.liquidation_details is not None
+    assert fill.liquidation_details.mark == Decimal("9007199254740993.00000001")
+    assert fill.liquidation_details.method == "backstop"
+    assert fill.liquidation_details.liquidated_user == "0x1111111111111111111111111111111111111111"
+
+
+@pytest.mark.parametrize("factory", [_expanded_fill, _compact_fill])
+def test_adl_fills_do_not_invent_liquidation_details_or_identity(factory: Any) -> None:
+    adl = PerpsFill.parse_response(factory(adl=True))
+    assert adl.adl is True
+    assert adl.liquidation_details is None
+    liquidation = PerpsFill.parse_response(
+        factory(adl=False, liquidation_details={"mark": "100.1", "method": "market"})
+    )
+    assert liquidation.liquidation_details is not None
+    assert liquidation.liquidation_details.liquidated_user is None
+
+
+@pytest.mark.parametrize("factory", [_expanded_fill, _compact_fill])
+def test_fills_require_adl_and_complete_liquidation_details(factory: Any) -> None:
+    wire = factory()
+    wire.pop("adl", None)
+    with pytest.raises(UnexpectedResponseError):
+        PerpsFill.parse_response(wire)
+    for details in [
+        {"method": "backstop"},
+        {"mark": "100"},
+        {"mark": "100", "method": "auction"},
+        {"mark": "NaN", "method": "backstop"},
+    ]:
+        with pytest.raises(UnexpectedResponseError):
+            PerpsFill.parse_response(factory(adl=False, liquidation_details=details))
