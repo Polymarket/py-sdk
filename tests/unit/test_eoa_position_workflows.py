@@ -5,13 +5,48 @@ from types import SimpleNamespace
 from typing import Any
 
 import httpx
+import pytest
 from _relayer_helpers import make_eoa_client_with_rpc, make_rpc_handler
 from eth_abi.abi import encode as abi_encode
 
+from polymarket._internal.environment import PRODUCTION_CONFIG
 from polymarket.pagination import Page
 from polymarket.transactions import EoaTransactionHandle
 
 _CONDITION_ID = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+
+
+@pytest.mark.parametrize(
+    ("operation", "selector"),
+    [("convert", "9380f1c8"), ("horizontal_split", "40657b52"), ("horizontal_merge", "24f24944")],
+)
+def test_eoa_neg_risk_operations_broadcast_router_call(operation: str, selector: str) -> None:
+    handler = make_rpc_handler()
+    event_id = "0x02" + "11" * 16 + "0003" + "00" * 10
+
+    async def run() -> None:
+        client = await make_eoa_client_with_rpc(rpc_handler=handler)
+        try:
+            if operation == "convert":
+                handle = await client.convert(event_id=event_id, condition_index=0, amount=5)
+            elif operation == "horizontal_split":
+                handle = await client.horizontal_split(event_id=event_id, amount=5)
+            else:
+                handle = await client.horizontal_merge(event_id=event_id, amount=5)
+            assert isinstance(handle, EoaTransactionHandle)
+        finally:
+            await client.close()
+
+    asyncio.run(run())
+    captured = handler.captured  # pyright: ignore[reportFunctionMemberAccess]
+    estimates = [c["params"][0] for c in captured if c["method"] == "eth_estimateGas"]
+    assert len(estimates) == 1
+    assert estimates[0]["to"].lower() == PRODUCTION_CONFIG.protocol_v2_router.lower()
+    index_word = "00" * 32 if operation == "convert" else ""
+    assert (
+        estimates[0]["data"] == "0x" + selector + event_id[2:] + "000000" + index_word + f"{5:064x}"
+    )
+    assert len([c for c in captured if c["method"] == "eth_sendRawTransaction"]) == 1
 
 
 class _StubPaginator:
