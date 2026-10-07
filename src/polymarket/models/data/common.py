@@ -98,7 +98,7 @@ A lost position still reports ``REDEEMABLE`` and a mergeable one ``OPEN``.
 """
 
 PositionSortBy = Literal[
-    "CURRENT_VALUE", "TOKENS", "UNREALIZED_PNL", "REALIZED_PNL", "TOTAL_PNL", "TIMESTAMP"
+    "CURRENT_VALUE", "PRICE", "TOKENS", "UNREALIZED_PNL", "REALIZED_PNL", "TOTAL_PNL", "TIMESTAMP"
 ]
 
 
@@ -178,6 +178,15 @@ class ResolutionStatus(StrEnum):
     ACTIVE = "active"
     ARBITRATION = "arbitration"
     RESOLVED = "resolved"
+
+
+class ResolutionSettlementTimeBasis(StrEnum):
+    """Basis for a resolution's earliest estimated settlement time."""
+
+    MANAGED_PROPOSAL_EXPIRATION = "managed_proposal_expiration"
+    PROPOSAL_EXPIRATION = "proposal_expiration"
+    LIVENESS = "liveness"
+    DVM_ROUND_ESTIMATE = "dvm_round_estimate"
 
 
 class ResolutionMarketType(StrEnum):
@@ -285,6 +294,7 @@ __all__ = [
     "PriceHistoryInterval",
     "ResolutionMarketType",
     "ResolutionReporter",
+    "ResolutionSettlementTimeBasis",
     "ResolutionSource",
     "ResolutionStatus",
     "SortDirection",

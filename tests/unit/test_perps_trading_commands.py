@@ -1,5 +1,6 @@
 """Perps trading command construction tests."""
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, cast
 
@@ -16,10 +17,12 @@ from polymarket._internal.actions.perps.trading import (
     to_raw_order,
     to_raw_tp_sl_order,
     update_leverage_op,
+    update_leverages_op,
     update_margin_op,
 )
 from polymarket.errors import UserInputError
 from polymarket.models.perps.requests import (
+    PerpsLeverageUpdate,
     PerpsOrderRequest,
     PerpsPositionTpSlTrigger,
     PerpsTpSlTrigger,
@@ -27,6 +30,69 @@ from polymarket.models.perps.requests import (
 
 # Pinned by the TypeScript SDK trading suite for the same command.
 _CREATE_ORDER_DATA_HASH = "0x817207b7b8b31044a8f27e43c16e24d9fd5e11d3f106feb962f104f3ef28d52a"
+_UPDATE_LEVERAGES_DATA_HASH = "0xdcdd40c029abb105bb4911882321a203c294e9c4da73a32c5957afdbfb34cfdc"
+
+
+@pytest.mark.parametrize(
+    "expiry", [1_893_456_000_123, datetime(2030, 1, 1, 0, 0, 0, 123000, tzinfo=UTC)]
+)
+def test_gtd_expiry_signing_and_builder_position(expiry: int | datetime) -> None:
+    from polymarket.models.perps.builders import PerpsBuilderAttribution
+
+    request = PerpsOrderRequest(
+        instrument_id=1,
+        side="BUY",
+        price="100.50",
+        quantity="10",
+        time_in_force="gtd",
+        gtd_expiry=expiry,
+        post_only=True,
+    )
+    builder = PerpsBuilderAttribution(
+        address="0x1111111111111111111111111111111111111111", fee_rate=Decimal("0.0005")
+    )
+    row = to_raw_order(request, builder)
+    assert row[7:10] == [None, None, 1_893_456_000_123]
+    assert row[10] == [builder.address, "0.0005"]
+    op = create_orders_op([row])
+    assert to_command_body_op(op)["args"][0]["gtd_expiry"] == 1_893_456_000_123
+    compact = [
+        "createOrders",
+        [[1, True, "100.50", "10", "gtd", True, 1_893_456_000_123, [builder.address, "0.0005"]]],
+    ]
+    assert build_perps_op_typed_data(
+        chain_id=31_337, op=op, salt=1, timestamp_ms=1_739_491_200_000
+    ) == build_perps_op_typed_data(
+        chain_id=31_337, op=compact, salt=1, timestamp_ms=1_739_491_200_000
+    )
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {},
+        {"gtd_expiry": 1},
+        {"gtd_expiry": True},
+        {"gtd_expiry": 1.5},
+        {"gtd_expiry": 18_446_744_073_710},
+        {"gtd_expiry": datetime(2030, 1, 1)},
+        {"gtd_expiry": 1_893_456_000_123, "price": None},
+        {"gtd_expiry": 1_893_456_000_123, "time_in_force": "gtc"},
+        {"gtd_expiry": 1_893_456_000_123, "time_in_force": "ioc"},
+        {"gtd_expiry": 1_893_456_000_123, "time_in_force": "fok"},
+    ],
+)
+def test_invalid_gtd_request_is_rejected(overrides: dict[str, Any]) -> None:
+    params: dict[str, Any] = {
+        "instrument_id": 1,
+        "side": "BUY",
+        "price": "100",
+        "quantity": "1",
+        "time_in_force": "gtd",
+        **overrides,
+    }
+    with pytest.raises(UserInputError):
+        PerpsOrderRequest(**params)
 
 
 def test_create_orders_hash_matches_typescript_suite() -> None:
@@ -46,6 +112,18 @@ def test_create_orders_hash_matches_typescript_suite() -> None:
         "type": "createOrders",
         "args": [{"iid": 1, "buy": True, "po": False, "qty": "10", "tif": "gtc", "p": "100.50"}],
     }
+
+
+def test_gtd_accepts_the_largest_representable_millisecond() -> None:
+    request = PerpsOrderRequest(
+        instrument_id=1,
+        side="BUY",
+        price="1",
+        quantity="1",
+        time_in_force="gtd",
+        gtd_expiry=18_446_744_073_709,
+    )
+    assert to_raw_order(request)[9] == 18_446_744_073_709
 
 
 def test_market_style_order_omits_price_from_body() -> None:
@@ -132,6 +210,36 @@ def test_position_tp_sl_uses_zero_quantity() -> None:
     assert body["args"][0]["qty"] == "0"
 
 
+@pytest.mark.parametrize(
+    "quantity",
+    [
+        "0",
+        "-0",
+        "0.000",
+        "-1",
+        "NaN",
+        "Infinity",
+        "bad",
+        "",
+        "0x1",
+        "1e-8",
+        "0.00000000000000000000000000001",
+        "79228162514264337593543950336",
+        "7.9228162514264337593543950336",
+        Decimal("1E-29"),
+        Decimal("1E+999999999"),
+        0,
+        -1,
+        True,
+        float("nan"),
+        float("inf"),
+    ],
+)
+def test_position_tp_sl_rejects_nonpositive_or_invalid_quantity(quantity: Any) -> None:
+    with pytest.raises(UserInputError, match="quantity"):
+        PerpsPositionTpSlTrigger(trigger_price="100", quantity=quantity)
+
+
 def test_cancel_and_leverage_ops() -> None:
     assert to_command_body_op(cancel_orders_op([11, 22])) == {
         "type": "cancelOrders",
@@ -150,6 +258,80 @@ def test_cancel_and_leverage_ops() -> None:
     assert to_command_body_op(
         update_leverage_op(instrument_id=3, leverage=20, cross_margin=True)
     ) == {"type": "updateLeverage", "args": {"cross": True, "iid": 3, "lev": 20}}
+
+
+def test_update_leverages_op_matches_backend_hash_and_wire_shape() -> None:
+    updates = [
+        PerpsLeverageUpdate(instrument_id=1, leverage=5, cross_margin=False),
+        PerpsLeverageUpdate(instrument_id=2, leverage=10, cross_margin=True),
+    ]
+
+    op = update_leverages_op(updates)
+
+    assert op == ["updateLeverages", [[1, 5, False], [2, 10, True]]]
+    payload = build_perps_op_typed_data(
+        chain_id=137,
+        op=op,
+        salt=1,
+        timestamp_ms=1_751_500_000_000,
+    )
+    assert payload["message"]["data"] == _UPDATE_LEVERAGES_DATA_HASH
+    assert to_command_body_op(op) == {
+        "type": "updateLeverages",
+        "args": [
+            {"cross": False, "iid": 1, "lev": 5},
+            {"cross": True, "iid": 2, "lev": 10},
+        ],
+    }
+
+
+def test_update_leverages_accepts_one_and_one_hundred_items() -> None:
+    one = [PerpsLeverageUpdate(instrument_id=1, leverage=1, cross_margin=False)]
+    hundred = [
+        PerpsLeverageUpdate(instrument_id=index, leverage=1, cross_margin=False)
+        for index in range(100)
+    ]
+
+    assert len(update_leverages_op(one)[1]) == 1
+    assert len(update_leverages_op(hundred)[1]) == 100
+
+
+def test_update_leverages_rejects_invalid_batch_before_signing() -> None:
+    with pytest.raises(UserInputError, match="between 1 and 100"):
+        update_leverages_op([])
+    with pytest.raises(UserInputError, match="between 1 and 100"):
+        update_leverages_op(
+            [
+                PerpsLeverageUpdate(instrument_id=index, leverage=1, cross_margin=False)
+                for index in range(101)
+            ]
+        )
+    with pytest.raises(UserInputError, match="duplicate 1"):
+        update_leverages_op(
+            [
+                PerpsLeverageUpdate(instrument_id=1, leverage=1, cross_margin=False),
+                PerpsLeverageUpdate(instrument_id=1, leverage=2, cross_margin=True),
+            ]
+        )
+    with pytest.raises(UserInputError, match="PerpsLeverageUpdate"):
+        update_leverages_op([cast(Any, {"instrument_id": 1})])
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"instrument_id": True, "leverage": 1, "cross_margin": False}, "instrument_id"),
+        ({"instrument_id": -1, "leverage": 1, "cross_margin": False}, "instrument_id"),
+        ({"instrument_id": 2**32, "leverage": 1, "cross_margin": False}, "instrument_id"),
+        ({"instrument_id": 1, "leverage": True, "cross_margin": False}, "leverage"),
+        ({"instrument_id": 1, "leverage": 0, "cross_margin": False}, "leverage"),
+        ({"instrument_id": 1, "leverage": 2**32, "cross_margin": False}, "leverage"),
+        ({"instrument_id": 1, "leverage": 1, "cross_margin": 1}, "cross_margin"),
+    ],
+)
+def test_leverage_update_validates_u32_fields(kwargs: dict[str, Any], message: str) -> None:
+    with pytest.raises(UserInputError, match=message):
+        PerpsLeverageUpdate(**kwargs)  # type: ignore[arg-type]
 
 
 def test_auto_cancel_op() -> None:

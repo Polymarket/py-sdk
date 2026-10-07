@@ -33,6 +33,9 @@ WALLET = "0x" + "12" * 20
         ("list_activity", {"user": WALLET, "start": datetime(2026, 1, 1)}),
         ("list_activity", {"user": WALLET, "full_history": True, "end": 100}),
         ("list_positions", {}),
+        ("list_positions", {"user": WALLET, "title": 123}),
+        ("list_positions", {"user": WALLET, "title": "x" * 201}),
+        ("list_positions", {"user": WALLET, "title": "😀" * 201}),
         ("list_positions", {"condition_id": [CONDITION, "0x" + "cd" * 32]}),
         ("list_positions", {"user": WALLET, "status": "CLOSED", "include_archived": True}),
         ("list_combo_positions", {"user": WALLET, "status": ["REDEEMABLE", "OPEN"]}),
@@ -85,8 +88,13 @@ def test_query_contracts() -> None:
         "condition_id": CONDITION,
     }
     assert data.list_positions_spec(
-        user=WALLET, status="CLOSED", include_archived=False
-    ).base_params == {"user": WALLET, "status": "CLOSED", "include_archived": False}
+        user=WALLET, status="CLOSED", include_archived=False, sort_by="PRICE"
+    ).base_params == {
+        "user": WALLET,
+        "status": "CLOSED",
+        "include_archived": False,
+        "sort_by": "PRICE",
+    }
     assert data.build_list_market_holders_spec(condition_ids=CONDITION).base_params == {
         "condition_id": CONDITION
     }
@@ -123,6 +131,21 @@ def test_query_contracts() -> None:
         "/v1/accounting/snapshot",
         {"user": WALLET},
     )
+
+
+@pytest.mark.parametrize("anchor", [{"user": WALLET}, {"condition_id": CONDITION}])
+@pytest.mark.parametrize("title", [" BiTcOiN%_ ", "x" * 200, "😀" * 200])
+def test_position_title_preserves_patterns_and_counts_unicode(
+    anchor: dict[str, Any], title: str
+) -> None:
+    spec = data.list_positions_spec(**anchor, title=title)
+    assert spec.base_params is not None
+    assert spec.base_params["title"] == title
+
+
+@pytest.mark.parametrize("title", [None, "", " \t\n", " " * 201])
+def test_position_blank_title_is_absent_before_length_validation(title: str | None) -> None:
+    assert data.list_positions_spec(user=WALLET, title=title).base_params == {"user": WALLET}
 
 
 @pytest.mark.parametrize("bound", ["start", "end"])

@@ -77,6 +77,7 @@ class Position(BaseModel):
     )
     end_date: date | None = None
     last_event_at: datetime | None = None
+    first_entry_at: datetime | None = None
 
     _validate_condition_id_response = field_validator("condition_id", mode="before")(
         validate_condition_id_response
@@ -122,9 +123,9 @@ class Position(BaseModel):
         date_from_calendar_string
     )
 
-    _optional_datetime_from_epoch_seconds = field_validator("last_event_at", mode="before")(
-        optional_datetime_from_epoch_seconds
-    )
+    _optional_datetime_from_epoch_seconds = field_validator(
+        "last_event_at", "first_entry_at", mode="before"
+    )(optional_datetime_from_epoch_seconds)
 
     @computed_field
     @property
