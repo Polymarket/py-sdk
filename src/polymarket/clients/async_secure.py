@@ -190,6 +190,7 @@ from polymarket.models.clob.relayer import RelayerTransactionType
 from polymarket.models.clob.rewards import (
     CurrentReward,
     MarketReward,
+    RebatedFee,
     RewardsPercentages,
     TotalUserEarning,
     UserEarning,
@@ -3713,6 +3714,18 @@ class AsyncSecureClient:
             signature=build_order_signature(unsigned, signature_hex),
         )
         return create_signed_order(unsigned, final_signature, post_only=post_only)
+
+    async def get_current_rebates(self, *, date: str, maker_address: str) -> tuple[RebatedFee, ...]:
+        """Get maker fee rebates for a YYYY-MM-DD calendar day without authentication.
+
+        Amounts retain exact precision as Decimal values in USDC units.
+        """
+        path, params = _rewards_actions.build_get_current_rebates_request(
+            date=date, maker_address=maker_address
+        )
+        return _rewards_actions.parse_current_rebates(
+            await self._ctx.clob.get_json(path, params=params)
+        )
 
     def list_current_rewards(
         self, *, sponsored: bool | None = None

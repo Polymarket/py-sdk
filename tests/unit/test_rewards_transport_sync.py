@@ -161,3 +161,15 @@ class TestListMarketRewards:
 
         assert len(page.items) == 1
         assert captured[0].headers.get("POLY_SIGNATURE") is None
+
+
+def test_sync_public_current_rebates_uses_unsigned_read() -> None:
+    captured: list[httpx.Request] = []
+    with PublicClient() as client:
+        _install_sync_clob(client, _routed_handler(captured, {("GET", "/rebates/current"): []}))
+        assert client.get_current_rebates(date="2024-02-29", maker_address=SIGNER_ADDRESS) == ()
+    assert parse_qs(urlparse(str(captured[0].url)).query) == {
+        "date": ["2024-02-29"],
+        "maker_address": [SIGNER_ADDRESS],
+    }
+    assert "POLY_SIGNATURE" not in captured[0].headers
