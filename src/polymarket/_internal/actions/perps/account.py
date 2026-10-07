@@ -270,12 +270,29 @@ def list_internal_transfers(
         # Keep the full final millisecond: the service stores submillisecond timestamps.
         last_ms = round(transfers[-1].created_at.timestamp() * 1000)
         next_end = min(state["end_timestamp"], last_ms + 1)
-        if next_end == state["end_timestamp"] and not items:
-            raise UnexpectedResponseError(
-                "Perps internal-transfer history cannot continue within a full millisecond "
-                "without skipping records"
-            )
         boundary: set[str] = seen if next_end == state["end_timestamp"] else set()
+        if next_end == state["end_timestamp"] and not items:
+            # Check the whole overlap interval before moving its inclusive upper bound.
+            # The last row may lie exactly at that bound, so use end - 1, not last_ms.
+            data, more = parse_data_envelope(
+                await api.get_json(
+                    "/v1/account/internal-transfers",
+                    params={
+                        "start_timestamp": max(state["start_timestamp"], next_end - 1),
+                        "end_timestamp": next_end,
+                    },
+                )
+            )
+            transfers = tuple(PerpsInternalTransfer.parse_response(item) for item in data)
+            if more:
+                raise UnexpectedResponseError(
+                    "Perps internal-transfer history cannot continue within a full millisecond "
+                    "without skipping records"
+                )
+            items = tuple(item for item in transfers if str(item.transfer_id) not in seen)
+            next_end -= 1
+            if next_end < state["start_timestamp"]:
+                return Page(items=items, has_more=False)
         for transfer in transfers:
             if round(transfer.created_at.timestamp() * 1000) >= next_end - 1:
                 boundary.add(str(transfer.transfer_id))
