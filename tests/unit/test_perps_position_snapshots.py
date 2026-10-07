@@ -4,12 +4,12 @@ import json
 from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, assert_type
 
 import httpx
 import pytest
 
-from polymarket import AsyncPublicClient
+from polymarket import ApiKeyCreds, AsyncPublicClient, AsyncSecureClient
 from polymarket._internal.actions.perps.position_snapshots import (
     build_position_snapshot_selection,
     fetch_own_position_snapshots,
@@ -127,7 +127,7 @@ def test_invalid_selection(kwargs: dict[str, Any]) -> None:
         build_position_snapshot_selection(**kwargs)
 
 
-async def _test_public_client_request_is_anonymous_and_preserves_order() -> None:
+async def _test_public_client_request_is_anonymous_and_preserves_order(secure: bool) -> None:
     captured: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -149,17 +149,31 @@ async def _test_public_client_request_is_anonymous_and_preserves_order() -> None
         }
         return httpx.Response(200, json={"active": [], "history": [], "history_as_of_at": 0})
 
+    client = (
+        await AsyncSecureClient._create(
+            private_key="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+            wallet="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+            credentials=ApiKeyCreds(
+                key="test-key", passphrase="test-passphrase", secret="dGVzdA=="
+            ),
+            validate_credentials=False,
+        )
+        if secure
+        else AsyncPublicClient()
+    )
     async with (
         httpx.AsyncClient(
             base_url="https://perps.test", transport=httpx.MockTransport(handler)
         ) as http,
-        AsyncPublicClient() as client,
+        client,
     ):
         await client._ctx.perps.close()
-        client._ctx = replace(
-            client._ctx, perps=AsyncTransport(base_url="https://perps.test", client=http)
-        )
-        await client.fetch_perps_position_snapshots(
+        transport = AsyncTransport(base_url="https://perps.test", client=http)
+        if isinstance(client, AsyncSecureClient):
+            client._ctx = replace(client._ctx, perps=transport)
+        else:
+            client._ctx = replace(client._ctx, perps=transport)
+        snapshots = await client.fetch_perps_position_snapshots(
             address="0x1111111111111111111111111111111111111111",
             active_instrument_ids=(9, 0),
             history_fills=(
@@ -168,6 +182,9 @@ async def _test_public_client_request_is_anonymous_and_preserves_order() -> None
                 ),
             ),
         )
+        assert isinstance(snapshots, PerpsPositionSnapshots)
+        assert_type(snapshots, PerpsPositionSnapshots)
+        assert snapshots.active == () and snapshots.history == ()
     assert len(captured) == 1
 
 
@@ -209,8 +226,9 @@ async def _test_owner_resolution_and_invalid_auth_do_not_fall_back_to_anonymous(
         assert len(paths) == 3
 
 
-def test_public_client_request_is_anonymous_and_preserves_order() -> None:
-    asyncio.run(_test_public_client_request_is_anonymous_and_preserves_order())
+@pytest.mark.parametrize("secure", [False, True])
+def test_public_client_request_is_anonymous_and_preserves_order(secure: bool) -> None:
+    asyncio.run(_test_public_client_request_is_anonymous_and_preserves_order(secure))
 
 
 def test_owner_resolution_and_invalid_auth_do_not_fall_back_to_anonymous() -> None:
