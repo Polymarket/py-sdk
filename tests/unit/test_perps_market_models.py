@@ -40,6 +40,7 @@ _TIMESTAMP = datetime(2025, 7, 2, 23, 46, 40, tzinfo=UTC)
         (
             PerpsInstrument,
             {
+                "ui_live_time": datetime | None,
                 "price_bounds": Decimal,
                 "liquidation_fee": Decimal,
                 "min_notional": Decimal,
@@ -311,9 +312,35 @@ def test_instrument_settlement_preserves_identity_and_precision() -> None:
         "max_leverage": 10,
         "isolated_only": True,
         "risk_tiers": [{"lower_bound": "0", "max_leverage": 10}],
+        "ui_live_time": None,
     }
+    visible = PerpsInstrument.model_validate(
+        {
+            **instrument_payload,
+            "ui_live_time": _EPOCH_MS,
+            "logo": {"light": "light.svg", "dark": "dark.svg"},
+        }
+    )
+    assert visible.ui_live_time == _TIMESTAMP
+    assert visible.logo is not None
+    assert visible.logo.light == "light.svg"
+    assert visible.logo.dark == "dark.svg"
+    assert PerpsInstrument.model_validate(
+        {**instrument_payload, "ui_live_time": 0}
+    ).ui_live_time == datetime(1970, 1, 1, tzinfo=UTC)
+    for invalid in (-1, 1.5, "1751500000000", True, 253402300799001):
+        with pytest.raises(ValidationError):
+            PerpsInstrument.model_validate({**instrument_payload, "ui_live_time": invalid})
+    missing = dict(instrument_payload)
+    del missing["ui_live_time"]
+    with pytest.raises(ValidationError):
+        PerpsInstrument.model_validate(missing)
+    with pytest.raises(ValidationError):
+        PerpsInstrument.model_validate({**instrument_payload, "logo": {"light": "light.svg"}})
     for metadata in ({}, {"close_only": False}):
         legacy = PerpsInstrument.model_validate({**instrument_payload, **metadata})
+        assert legacy.ui_live_time is None
+        assert legacy.logo is None
         assert legacy.close_only is False
         assert legacy.settlement is None
         assert legacy.display_symbol is None

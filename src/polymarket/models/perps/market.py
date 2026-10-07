@@ -53,6 +53,13 @@ class PerpsInstrumentSettlement(BaseModel):
         return _require_epoch_ms(value)
 
 
+class PerpsInstrumentLogo(BaseModel):
+    """Immutable instrument logo URLs for light and dark themes."""
+
+    light: str
+    dark: str
+
+
 class PerpsInstrument(BaseModel):
     """A tradable Perps instrument and its trading limits."""
 
@@ -79,6 +86,21 @@ class PerpsInstrument(BaseModel):
     max_leverage: int
     isolated_only: bool
     risk_tiers: tuple[PerpsRiskTier, ...]
+    ui_live_time: datetime | None
+    """Advisory visibility time; None means hidden. Does not restrict trading."""
+    logo: PerpsInstrumentLogo | None = None
+    """Immutable theme logo URLs; absent until uploaded."""
+
+    @field_validator("ui_live_time", mode="before")
+    @classmethod
+    def _parse_ui_live_time(cls, value: object) -> object:
+        if (
+            isinstance(value, int)
+            and not isinstance(value, bool)
+            and not 0 <= value <= 253402300799000
+        ):
+            raise ValueError("ui_live_time must be within 0..253402300799000 epoch milliseconds")
+        return _parse_epoch_ms(value)
 
     @field_validator(
         "price_bounds",
@@ -387,6 +409,7 @@ __all__ = [
     "PerpsFeeTier",
     "PerpsFundingRate",
     "PerpsInstrument",
+    "PerpsInstrumentLogo",
     "PerpsRiskTier",
     "PerpsStatistic",
     "PerpsTicker",
