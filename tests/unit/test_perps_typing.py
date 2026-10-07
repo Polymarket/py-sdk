@@ -21,6 +21,7 @@ from polymarket.models.perps import (
     PerpsInternalTransfer,
     PerpsInternalTransferId,
     PerpsOrderRequest,
+    PerpsPositionDeleveragedNotification,
     PerpsPostOrderAck,
 )
 from polymarket.pagination import AsyncPaginator
@@ -39,6 +40,27 @@ if TYPE_CHECKING:
 
     _transfer_typing_check = _check_transfer_typing
 
+    async def _check_registration_typing(
+        public: AsyncPublicClient, secure: AsyncSecureClient
+    ) -> None:
+        address = "0x1111111111111111111111111111111111111111"
+        assert_type(await public.fetch_perps_registration(address=address), bool)
+        assert_type(await secure.fetch_perps_registration(address=address), bool)
+
+    _registration_typing_check = _check_registration_typing
+
+    assert_type(
+        PerpsOrderRequest(
+            instrument_id=1,
+            side="BUY",
+            quantity="1",
+            price="100",
+            time_in_force="gtd",
+            gtd_expiry=1_893_456_000_123,
+            post_only=True,
+        ),
+        PerpsOrderRequest,
+    )
     assert_type(
         PerpsOrderRequest(
             instrument_id=1,
@@ -61,6 +83,28 @@ if TYPE_CHECKING:
     )
 
     async def _check_session_typing(session: PerpsSession) -> None:
+        page = await session.list_notifications().first_page()
+        for entry in page.items:
+            if entry.notification.type == "position_deleveraged":
+                assert_type(entry.notification, PerpsPositionDeleveragedNotification)
+                assert_type(entry.notification.pnl, Decimal)
+        async for event in session:
+            if event.type == "notification" and event.payload.type == "position_deleveraged":
+                assert_type(event.payload, PerpsPositionDeleveragedNotification)
+                assert_type(event.payload.price, Decimal)
+
+        assert_type(
+            await session.place_order(
+                instrument_id=1,
+                side="BUY",
+                quantity="1",
+                price="100",
+                time_in_force="gtd",
+                gtd_expiry=1_893_456_000_123,
+                post_only=True,
+            ),
+            PerpsOrderPlacement,
+        )
         assert_type(
             await session.place_order(
                 instrument_id=1,

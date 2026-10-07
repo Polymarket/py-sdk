@@ -49,6 +49,19 @@ def _expanded_order(**overrides: object) -> dict[str, object]:
     }
 
 
+@pytest.mark.parametrize(
+    "wire",
+    [
+        _compact_order(tif="gtd", status="order_expired"),
+        _expanded_order(tif="gtd", status="order_expired"),
+    ],
+)
+def test_gtd_order_read_and_update(wire: dict[str, object]) -> None:
+    order = PerpsOrder.model_validate(wire)
+    assert order.time_in_force == "gtd"
+    assert order.quantity == Decimal("10")
+
+
 def _compact_fill(**overrides: object) -> dict[str, object]:
     return {
         "tid": 9,
@@ -164,6 +177,57 @@ def test_order_parses_nested_tpsl_decimals() -> None:
     assert order.tp_sl is not None
     assert order.tp_sl.trigger_price == Decimal("105")
     assert order.tp_sl.armed_quantity == Decimal("1.5")
+
+
+# REST cancel_reason_status and WS order_status_from_reason at perpetuals 5a6d080.
+@pytest.mark.parametrize(
+    "status",
+    [
+        "order_already_terminal",
+        "sweep_cap_exceeded",
+        "resting_order_limit_exceeded",
+        "below_min_notional",
+        "instrument_disabled",
+        "instrument_close_only",
+        "instrument_settled",
+        "insufficient_margin_at_fill",
+        "mark_price_unavailable",
+    ],
+)
+def test_order_preserves_terminal_status_in_history_and_private_updates(status: str) -> None:
+    client_order_id = "0123456789abcdef0123456789abcdef"
+    price = "100.000000000000000001"
+    filled = "0.000000000000000001"
+    compact = PerpsOrder.parse_response(
+        _compact_order(status=status, coid=client_order_id, p=price, fill=filled, rest="0")
+    )
+    history = PerpsOrder.parse_response_list(
+        [
+            _expanded_order(order_id=4, status="filled"),
+            _expanded_order(
+                status=status,
+                client_order_id=client_order_id,
+                price=price,
+                filled_quantity=filled,
+                resting_quantity="0",
+            ),
+        ]
+    )
+    assert [order.status for order in history] == ["filled", status]
+    historical_order = history[1]
+    assert compact.status == historical_order.status == status
+    assert compact.client_order_id == historical_order.client_order_id == client_order_id
+    assert compact.price == historical_order.price == Decimal(price)
+    assert compact.filled_quantity == historical_order.filled_quantity == Decimal(filled)
+
+
+def test_order_rejects_unknown_status_in_history_and_private_updates() -> None:
+    for payload in (
+        _compact_order(status="unsupported_status"),
+        _expanded_order(status="unsupported_status"),
+    ):
+        with pytest.raises(UnexpectedResponseError):
+            PerpsOrder.parse_response(payload)
 
 
 @pytest.mark.parametrize("field", ["trp", "armed_qty"])

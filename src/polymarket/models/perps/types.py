@@ -42,9 +42,10 @@ PerpsNotificationType: TypeAlias = Literal[
     "limit_order_canceled",
     "liquidation_warning",
     "position_liquidated",
+    "position_deleveraged",
 ]
 PerpsSide: TypeAlias = Literal["long", "short"]
-PerpsTimeInForce: TypeAlias = Literal["gtc", "ioc", "fok"]
+PerpsTimeInForce: TypeAlias = Literal["gtc", "ioc", "fok", "gtd"]
 PerpsTpSlKind: TypeAlias = Literal["tp", "sl"]
 PerpsTpSlScope: TypeAlias = Literal["order", "position"]
 PerpsDepositStatus: TypeAlias = Literal["pending", "confirmed", "removed"]
@@ -74,9 +75,18 @@ PerpsOrderStatus: TypeAlias = Literal[
     "zero_quantity",
     "duplicate_order",
     "order_not_found",
+    "order_already_terminal",
     "reduce_only_invalid",
     "reduce_only_expired",
     "order_expired",
+    "sweep_cap_exceeded",
+    "resting_order_limit_exceeded",
+    "below_min_notional",
+    "instrument_disabled",
+    "instrument_close_only",
+    "instrument_settled",
+    "insufficient_margin_at_fill",
+    "mark_price_unavailable",
     "untriggered",
     "armed",
     "triggered",
