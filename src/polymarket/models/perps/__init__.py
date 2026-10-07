@@ -31,6 +31,7 @@ from polymarket.models.perps.builders import (
     PerpsBuilderStatus,
     PerpsLiquidityRole,
 )
+from polymarket.models.perps.chases import PerpsChase, PerpsChaseAccepted, PerpsChaseId
 from polymarket.models.perps.credentials import PerpsCredentials
 from polymarket.models.perps.events import (
     PerpsBalanceEvent,
@@ -151,6 +152,9 @@ __all__ = [
     "PerpsInternalTransferDirection",
     "PerpsInternalTransferType",
     "PerpsKnownInternalTransferType",
+    "PerpsChase",
+    "PerpsChaseAccepted",
+    "PerpsChaseId",
     "PerpsTwap",
     "PerpsTwapAccepted",
     "PerpsTwapId",
