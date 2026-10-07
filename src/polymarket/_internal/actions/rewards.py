@@ -384,12 +384,7 @@ def build_list_reward_markets_request(
         ("max_price", max_price),
     ):
         if bound is not None:
-            if (
-                isinstance(bound, bool)
-                or not isinstance(bound, int | float)
-                or not math.isfinite(bound)
-                or bound < 0
-            ):
+            if type(bound) not in (int, float) or not math.isfinite(bound) or bound < 0:
                 raise UserInputError(f"{name} must be a finite nonnegative number.")
             params[name] = bound
     validated_cursor = validate_cursor(cursor)
