@@ -126,9 +126,7 @@ def list_fills(
     cursor: str | None = None,
 ) -> AsyncPaginator[PerpsFill]:
     if instrument_id is not None and (
-        isinstance(instrument_id, bool)
-        or not isinstance(instrument_id, int)
-        or not 0 <= instrument_id <= 4_294_967_295
+        type(instrument_id) is not int or not 0 <= instrument_id <= 4_294_967_295
     ):
         raise UserInputError("instrument_id must be an unsigned 32-bit integer")
     if sort is not None and sort not in _SORT_DIRECTIONS:
