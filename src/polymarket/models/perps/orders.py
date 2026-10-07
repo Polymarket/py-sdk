@@ -2,7 +2,8 @@
 
 from datetime import datetime
 from decimal import Decimal, InvalidOperation, localcontext
-from typing import Any, Literal, TypeAlias, cast
+from enum import StrEnum
+from typing import Annotated, Any, Literal, TypeAlias, cast
 
 from pydantic import AliasChoices, Field, field_validator, model_validator
 
@@ -28,6 +29,16 @@ from polymarket.models.perps.types import (
 from polymarket.models.types import OrderSide
 
 _DEFAULT_ACK_ERROR = "Perps command was rejected."
+
+
+class PerpsCancelOrderErrorCode(StrEnum):
+    """Stable rejection identifiers for Perps order cancellations."""
+
+    ORDER_UNKNOWN = "order_unknown"
+    ORDER_NOT_IN_ORDERBOOK = "order_not_in_orderbook"
+    ORDER_IN_FLIGHT = "order_in_flight"
+    ORDER_NOT_PENDING_ENGINE = "order_not_pending_engine"
+    ORDER_NOT_FOUND = "order_not_found"
 
 
 def _side_from_buy(value: object) -> OrderSide:
@@ -221,18 +232,42 @@ class PerpsPostOrderAck(BaseModel):
         return self
 
 
-class PerpsCancelOrderResult(BaseModel):
-    """Result of one Perps order cancellation."""
+class PerpsCancelOrderSuccess(BaseModel):
+    """A successfully cancelled Perps order."""
 
-    status: Literal["ok", "err"]
-    order_id: PerpsOrderId | None = Field(default=None, validation_alias="oid")
-    client_order_id: str | None = Field(default=None, validation_alias="coid")
-    error: str | None = None
+    status: Literal["ok"]
+    order_id: PerpsOrderId | None = Field(default=None, validation_alias="oid", strict=True, ge=0)
+    client_order_id: str | None = Field(
+        default=None, validation_alias="coid", pattern=r"^[0-9a-f]{32}$"
+    )
 
-    @model_validator(mode="before")
+
+class PerpsCancelOrderRejection(BaseModel):
+    """A rejected Perps order cancellation."""
+
+    status: Literal["err"]
+    error: PerpsCancelOrderErrorCode | str
+    order_id: PerpsOrderId | None = Field(default=None, validation_alias="oid", strict=True, ge=0)
+    client_order_id: str | None = Field(
+        default=None, validation_alias="coid", pattern=r"^[0-9a-f]{32}$"
+    )
+
+    @field_validator("error", mode="before")
     @classmethod
-    def _normalize(cls, data: object) -> object:
-        return _default_ack_error(data)
+    def _parse_error(cls, value: object) -> PerpsCancelOrderErrorCode | str:
+        if not isinstance(value, str) or not value:
+            raise ValueError("expected a non-empty cancellation rejection code")
+        try:
+            return PerpsCancelOrderErrorCode(value)
+        except ValueError:
+            return value
+
+
+PerpsCancelOrderResult: TypeAlias = Annotated[
+    PerpsCancelOrderSuccess | PerpsCancelOrderRejection,
+    Field(discriminator="status"),
+]
+"""Result of one Perps order cancellation."""
 
 
 class PerpsCancelAllOrdersResponse(BaseModel):
@@ -283,8 +318,11 @@ PerpsBatchLeverageResult: TypeAlias = PerpsUpdateLeverageResult | PerpsLeverageU
 __all__ = [
     "PerpsAutoCancelResponse",
     "PerpsCancelAllOrdersResponse",
+    "PerpsCancelOrderErrorCode",
+    "PerpsCancelOrderRejection",
     "PerpsBatchLeverageResult",
     "PerpsCancelOrderResult",
+    "PerpsCancelOrderSuccess",
     "PerpsFill",
     "PerpsOrder",
     "PerpsPostOrderAck",

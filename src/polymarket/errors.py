@@ -1,8 +1,13 @@
 """Exception types raised by the Polymarket SDK."""
 
-from typing import Literal, TypeAlias
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Literal, TypeAlias
 
 from polymarket.rate_limit import RateLimitUpdate
+
+if TYPE_CHECKING:
+    from polymarket.models.perps.orders import PerpsCancelOrderResult
 
 
 class PolymarketError(Exception):
@@ -30,6 +35,28 @@ class PaginationLimitError(PolymarketError):
 
 class TransportError(PolymarketError):
     """Error raised when a network or runtime transport failure occurs."""
+
+
+class PerpsCancelRetryError(PolymarketError):
+    """A later cancellation attempt failed after receiving earlier results.
+
+    ``results`` retains the last received results in original request order.
+    ``pending_indexes`` identifies the positions in the failed attempt. Their
+    entries are historical rejections, not outcomes of that attempt. Reconcile
+    those orders before submitting another cancellation. ``__cause__`` is the
+    original failure. Task cancellation still raises ``asyncio.CancelledError``.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        results: tuple[PerpsCancelOrderResult, ...],
+        pending_indexes: tuple[int, ...],
+    ) -> None:
+        super().__init__(message)
+        self.results = results
+        self.pending_indexes = pending_indexes
 
 
 class ConnectionLostError(PolymarketError):

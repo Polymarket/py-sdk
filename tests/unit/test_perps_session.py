@@ -31,7 +31,7 @@ from polymarket.models.perps.events import (
     PerpsOrderEvent,
     PerpsResyncEvent,
 )
-from polymarket.models.perps.orders import PerpsLeverageUpdateRejection
+from polymarket.models.perps.orders import PerpsCancelOrderErrorCode, PerpsLeverageUpdateRejection
 from polymarket.models.perps.requests import PerpsLeverageUpdate
 
 Handler = Callable[[ServerConnection], Awaitable[None]]
@@ -865,7 +865,7 @@ def test_cancel_order_returns_result_without_raising_on_err_status() -> None:
                 json.dumps(
                     {
                         "id": message["id"],
-                        "data": [{"status": "err", "oid": 55, "error": "order not found"}],
+                        "data": [{"status": "err", "oid": 55, "error": "order_not_found"}],
                     }
                 )
             )
@@ -874,7 +874,7 @@ def test_cancel_order_returns_result_without_raising_on_err_status() -> None:
         async with ws_server(handler) as url, _open_session(url) as session:
             result = await session.cancel_order(order_id=55)
             assert result.status == "err"
-            assert result.error == "order not found"
+            assert result.error is PerpsCancelOrderErrorCode.ORDER_NOT_FOUND
 
     asyncio.run(asyncio.wait_for(run(), timeout=10.0))
 
@@ -1198,6 +1198,27 @@ def test_update_margin_sends_signed_command_and_completes() -> None:
     }
     assert commands[0]["req"] == "post"
     assert commands[0]["sig"].startswith("0x") and len(commands[0]["sig"]) == 132
+
+
+def test_update_leverage_rejection_surfaces_server_error() -> None:
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        async for raw in ws:
+            message = json.loads(raw)
+            if _is_ping(message):
+                continue
+            await ws.send(
+                json.dumps(
+                    {"id": message["id"], "data": {"status": "err", "error": "invalid_leverage"}}
+                )
+            )
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            with pytest.raises(RequestRejectedError, match="invalid_leverage"):
+                await session.update_leverage(instrument_id=1, leverage=100, cross_margin=False)
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
 
 
 def test_update_margin_rejection_surfaces_request_rejected_error() -> None:
@@ -1965,6 +1986,110 @@ def test_optional_builder_subscription_never_blocks_readiness(acknowledgement: s
             assert session._builder_subscription_task is None
 
     asyncio.run(asyncio.wait_for(run(), timeout=10))
+
+
+@pytest.mark.parametrize("identifiers", [[1, -1], [1, True], [1, 1.5]])
+def test_cancel_validates_entire_batch_before_signing(
+    monkeypatch: pytest.MonkeyPatch,
+    identifiers: list[Any],
+) -> None:
+    def unexpected_sign(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("invalid batch reached signing")
+
+    async def run() -> None:
+        from polymarket._internal import perps_session
+
+        monkeypatch.setattr(perps_session, "sign_perps_op_with_key", unexpected_sign)
+
+        async def handler(ws: ServerConnection) -> None:
+            await _handshake(ws)
+            await ws.wait_closed()
+
+        async with ws_server(handler) as url, _open_session(url) as session:
+            with pytest.raises(UserInputError):
+                await session.cancel_orders(order_ids=identifiers)
+            assert not session._pending
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10))
+
+
+@pytest.mark.parametrize("later_failure", [False, True])
+def test_cancel_lost_response_never_replays_uncertain_command(
+    monkeypatch: pytest.MonkeyPatch,
+    later_failure: bool,
+) -> None:
+    from polymarket import PerpsCancelRetryError
+    from polymarket._internal import perps_session
+
+    monkeypatch.setattr(perps_session, "_ACK_TIMEOUT_S", 0.05)
+    commands: list[dict[str, Any]] = []
+
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        async for raw in ws:
+            message = json.loads(raw)
+            if _is_ping(message):
+                continue
+            commands.append(message)
+            if later_failure and len(commands) == 1:
+                await ws.send(
+                    json.dumps(
+                        {
+                            "id": message["id"],
+                            "data": [
+                                {"status": "ok", "oid": 1},
+                                {"status": "err", "oid": 2, "error": "order_in_flight"},
+                            ],
+                        }
+                    )
+                )
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            if later_failure:
+                with pytest.raises(PerpsCancelRetryError) as caught:
+                    await session.cancel_orders(order_ids=[1, 2], expires_at=4_000_000_000_000)
+                assert caught.value.pending_indexes == (1,)
+                assert caught.value.results[0].status == "ok"
+                assert caught.value.results[1].status == "err"
+                assert isinstance(caught.value.__cause__, TransportError)
+            else:
+                with pytest.raises(TransportError):
+                    await session.cancel_order(order_id=2, expires_at=4_000_000_000_000)
+            assert not session._pending
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10))
+    assert [command["op"]["args"] for command in commands] == (
+        [[1, 2], [2]] if later_failure else [[2]]
+    )
+    assert all(command["exp"] == 4_000_000_000_000 for command in commands)
+
+
+def test_cancelling_cancel_task_removes_pending_request_without_retry() -> None:
+    commands: list[dict[str, Any]] = []
+
+    async def run() -> None:
+        received = asyncio.Event()
+
+        async def handler(ws: ServerConnection) -> None:
+            await _handshake(ws)
+            async for raw in ws:
+                message = json.loads(raw)
+                if _is_ping(message):
+                    continue
+                commands.append(message)
+                received.set()
+
+        async with ws_server(handler) as url, _open_session(url) as session:
+            task = asyncio.create_task(session.cancel_order(order_id=1))
+            await received.wait()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            assert not session._pending
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10))
+    assert len(commands) == 1
 
 
 def test_activation_continues_existing_session_iterator() -> None:

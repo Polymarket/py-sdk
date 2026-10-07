@@ -98,7 +98,10 @@ from polymarket.models.perps.notifications import (
 )
 from polymarket.models.perps.orders import (
     PerpsBatchLeverageResult,
+    PerpsCancelOrderErrorCode,
+    PerpsCancelOrderRejection,
     PerpsCancelOrderResult,
+    PerpsCancelOrderSuccess,
     PerpsFill,
     PerpsLeverageUpdateRejection,
     PerpsOrder,
@@ -107,6 +110,7 @@ from polymarket.models.perps.orders import (
     PerpsUpdateLeverageResult,
 )
 from polymarket.models.perps.requests import (
+    PerpsCancelRetryOptions,
     PerpsLeverageUpdate,
     PerpsOrderRequest,
     PerpsPositionTpSlTrigger,
@@ -185,7 +189,11 @@ __all__ = [
     "PerpsBookEvent",
     "PerpsBookLevel",
     "PerpsBookUpdate",
+    "PerpsCancelOrderErrorCode",
+    "PerpsCancelOrderRejection",
     "PerpsCancelOrderResult",
+    "PerpsCancelOrderSuccess",
+    "PerpsCancelRetryOptions",
     "PerpsCandle",
     "PerpsCandleBatch",
     "PerpsCandleEvent",

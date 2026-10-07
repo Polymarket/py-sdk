@@ -17,7 +17,11 @@ from polymarket.models.perps import (
     PerpsBuilderEarningsSummary,
     PerpsBuilderFillEvent,
     PerpsBuilderStatus,
+    PerpsCancelOrderErrorCode,
+    PerpsCancelOrderRejection,
     PerpsCancelOrderResult,
+    PerpsCancelOrderSuccess,
+    PerpsCancelRetryOptions,
     PerpsChase,
     PerpsChaseAccepted,
     PerpsInternalTransfer,
@@ -119,7 +123,10 @@ if TYPE_CHECKING:
             PerpsOrderPlacement,
         )
         assert_type(
-            await session.cancel_order(order_id=1),
+            await session.cancel_order(
+                order_id=1,
+                retry=PerpsCancelRetryOptions(max_attempts=2, max_elapsed_s=1.0),
+            ),
             PerpsCancelOrderResult,
         )
         assert_type(
@@ -127,9 +134,15 @@ if TYPE_CHECKING:
             PerpsCancelOrderResult,
         )
         assert_type(
-            await session.cancel_orders(order_ids=[1, 2]),
+            await session.cancel_orders(order_ids=[1, 2], retry=False),
             tuple[PerpsCancelOrderResult, ...],
         )
+        result = await session.cancel_order(order_id=1)
+        if result.status == "err":
+            assert_type(result, PerpsCancelOrderRejection)
+            assert_type(result.error, PerpsCancelOrderErrorCode | str)
+        else:
+            assert_type(result, PerpsCancelOrderSuccess)
         assert_type(
             await session.post_orders(
                 [
