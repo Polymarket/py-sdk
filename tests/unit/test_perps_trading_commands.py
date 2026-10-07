@@ -403,6 +403,22 @@ def test_position_trailing_stop_keeps_exact_partial_quantity_validation(quantity
         PerpsPositionTrailingStop(trailing_bps=200, quantity=quantity)
 
 
+@pytest.mark.parametrize("activation", [1e-5, Decimal("1e-5")])
+def test_trailing_activation_serializes_small_numeric_prices(activation: float | Decimal) -> None:
+    from polymarket import PerpsPositionTrailingStop, PerpsTrailingStop
+
+    for trigger in (
+        PerpsTrailingStop(trailing_bps=200, activation_price=activation),
+        PerpsPositionTrailingStop(trailing_bps=200, activation_price=activation),
+    ):
+        row = to_raw_tp_sl_order(
+            buy=False, instrument_id=1, kind="sl", quantity="1", trigger=trigger
+        )
+        assert row[8] == [True, None, "sl", 200, "0.00001"]
+        body = to_command_body_op(create_orders_op([row], group="position"))
+        assert body["args"][0]["tr"]["act"] == "0.00001"
+
+
 def test_trailing_signing_preserves_builder_and_absent_gtd_slots() -> None:
     from polymarket import PerpsTrailingStop
     from polymarket._internal.actions.perps.signing import hash_perps_op
@@ -427,7 +443,7 @@ def test_trailing_signing_preserves_builder_and_absent_gtd_slots() -> None:
 
 
 @pytest.mark.parametrize(
-    "activation", ["0", "-1", "1e-29", True, Decimal("1E+999999"), Decimal("1E-999999")]
+    "activation", ["0", "-1", "1e-5", "1e-29", True, Decimal("1E+999999"), Decimal("1E-999999")]
 )
 def test_trailing_activation_must_be_positive_and_exact(activation: Any) -> None:
     from polymarket import PerpsTrailingStop

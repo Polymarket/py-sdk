@@ -275,7 +275,7 @@ def validate_trailing_stop(trailing_bps: int, activation_price: DecimalInput | N
         assert isinstance(exponent, int)
         if exponent < -28 or exponent > 28 or len(digits) + max(exponent, 0) > 29:
             raise UserInputError("activation_price exceeds fixed-point decimal precision")
-        fixed = format(parsed, "f") if isinstance(activation_price, Decimal) else candidate
+        fixed = candidate if isinstance(activation_price, str) else format(parsed, "f")
         if (
             re.fullmatch(r"[0-9]+(?:\.[0-9]{1,28})?", fixed) is None
             or parsed <= 0
