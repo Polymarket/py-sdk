@@ -208,13 +208,44 @@ class PerpsTpSlTrigger:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class PerpsPositionTpSlTrigger:
-    """A take-profit or stop-loss trigger protecting a full position."""
+    """A take-profit or stop-loss trigger protecting an open position."""
 
     trigger_price: DecimalInput
     """Mark price at which the trigger arms."""
+    quantity: DecimalInput | None = None
+    """Positive close quantity, clamped to the live position at trigger time.
+
+    Omit or pass ``None`` to close the full position. Strings must use fixed-point
+    notation. Values must fit a 96-bit coefficient and at most 28 decimal places.
+    ``Decimal`` inputs are converted to fixed-point without rounding.
+    """
 
     def __post_init__(self) -> None:
         to_decimal_string("trigger_price", self.trigger_price)
+        if self.quantity is not None:
+            to_position_tp_sl_quantity(self.quantity)
+
+
+def to_position_tp_sl_quantity(value: DecimalInput) -> str:
+    """Serialize a positive close quantity without rounding it into a full close."""
+    candidate = to_decimal_string("quantity", value)
+    parsed = Decimal(candidate)
+    _, digits, exponent = parsed.as_tuple()
+    assert isinstance(exponent, int)  # Non-finite values were rejected above.
+    if (
+        parsed <= 0
+        or exponent < -28
+        or exponent > 28
+        or len(digits) + max(exponent, 0) > 29
+        or (isinstance(value, str) and re.fullmatch(r"[0-9]+(?:\.[0-9]{1,28})?", value) is None)
+    ):
+        raise UserInputError(
+            "quantity must be a positive fixed-point decimal with at most 28 decimal places"
+        )
+    coefficient = int("".join(str(digit) for digit in digits)) * 10 ** max(exponent, 0)
+    if coefficient > 79_228_162_514_264_337_593_543_950_335:
+        raise UserInputError("quantity must be exactly representable with a 96-bit coefficient")
+    return candidate if isinstance(value, str) else format(parsed, "f")
 
 
 __all__ = [

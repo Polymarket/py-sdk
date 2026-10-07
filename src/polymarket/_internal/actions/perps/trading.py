@@ -23,6 +23,7 @@ from polymarket.models.perps.requests import (
     PerpsPositionTpSlTrigger,
     PerpsTpSlTrigger,
     to_decimal_string,
+    to_position_tp_sl_quantity,
     validate_client_order_id,
     validate_gtd_expiry,
 )
@@ -153,7 +154,9 @@ async def place_position_tp_sl(
                 buy=exit_buy,
                 instrument_id=instrument_id,
                 kind="tp",
-                quantity="0",
+                quantity="0"
+                if take_profit.quantity is None
+                else to_position_tp_sl_quantity(take_profit.quantity),
                 builder_attribution=builder_attribution,
                 trigger=take_profit,
             )
@@ -164,7 +167,9 @@ async def place_position_tp_sl(
                 buy=exit_buy,
                 instrument_id=instrument_id,
                 kind="sl",
-                quantity="0",
+                quantity="0"
+                if stop_loss.quantity is None
+                else to_position_tp_sl_quantity(stop_loss.quantity),
                 builder_attribution=builder_attribution,
                 trigger=stop_loss,
             )
