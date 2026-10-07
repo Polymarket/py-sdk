@@ -707,7 +707,7 @@ def test_async_close_does_not_close_injected_client() -> None:
 def test_order_heartbeat_rejection_preserves_id_without_retry(path: str, expected: bool) -> None:
     from polymarket.errors import OrderHeartbeatMismatchError
 
-    calls = []
+    calls: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append(request)
