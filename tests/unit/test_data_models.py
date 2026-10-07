@@ -20,6 +20,7 @@ from polymarket import (
     PositionStatus,
     PriceHistoryPoint,
     Resolution,
+    ResolutionSettlementTimeBasis,
     ResolutionStatus,
     Trade,
     TraderLeaderboardEntry,
@@ -152,12 +153,52 @@ def test_resolution_units_and_timestamps() -> None:
         assert row.payouts == (Decimal("0.5"), Decimal("0.5"))
         assert row.status is ResolutionStatus(payload["status"])
         assert row.last_updated_at == datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC)
+        assert row.expected_settlement_time is None
+        assert row.settlement_time_basis is None
     dated = Resolution.parse_response({**payload, "last_update_timestamp": "2023-11-14"})
     assert dated.last_updated_at == datetime(2023, 11, 14, tzinfo=UTC)
     combo = ComboPosition.parse_response_list(sample("positions_combos"))[0]
     market = combo.legs[0].market
     assert market is not None and market.end_date == datetime(2026, 8, 5, tzinfo=UTC)
     assert OpenInterest.parse_response({"condition_id": "GLOBAL", "value": 0}).condition_id is None
+
+
+@pytest.mark.parametrize(
+    "wire_basis,basis",
+    [
+        ("managed_proposal_expiration", ResolutionSettlementTimeBasis.MANAGED_PROPOSAL_EXPIRATION),
+        ("proposal_expiration", ResolutionSettlementTimeBasis.PROPOSAL_EXPIRATION),
+        ("liveness", ResolutionSettlementTimeBasis.LIVENESS),
+        ("dvm_round_estimate", ResolutionSettlementTimeBasis.DVM_ROUND_ESTIMATE),
+    ],
+)
+def test_resolution_settlement_estimates(
+    wire_basis: str, basis: ResolutionSettlementTimeBasis
+) -> None:
+    row = Resolution.parse_response(
+        {
+            **sample("resolutions")[0],
+            "status": "proposed",
+            "expected_settlement_time": "2024-08-01T02:00:00Z",
+            "settlement_time_basis": wire_basis,
+        }
+    )
+    assert row.expected_settlement_time == datetime(2024, 8, 1, 2, tzinfo=UTC)
+    assert row.settlement_time_basis is basis
+    assert Resolution.model_validate(row.model_dump()) == row
+    assert Resolution.model_validate_json(row.model_dump_json()) == row
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"expected_settlement_time": "not-a-date"},
+        {"settlement_time_basis": "unknown"},
+    ],
+)
+def test_malformed_resolution_settlement_metadata(metadata: dict[str, str]) -> None:
+    with pytest.raises(UnexpectedResponseError):
+        Resolution.parse_response({**sample("resolutions")[0], **metadata})
 
 
 def test_winner_discriminators_and_holder_pnl() -> None:

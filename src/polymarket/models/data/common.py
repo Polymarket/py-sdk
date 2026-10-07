@@ -180,6 +180,15 @@ class ResolutionStatus(StrEnum):
     RESOLVED = "resolved"
 
 
+class ResolutionSettlementTimeBasis(StrEnum):
+    """Basis for a resolution's earliest estimated settlement time."""
+
+    MANAGED_PROPOSAL_EXPIRATION = "managed_proposal_expiration"
+    PROPOSAL_EXPIRATION = "proposal_expiration"
+    LIVENESS = "liveness"
+    DVM_ROUND_ESTIMATE = "dvm_round_estimate"
+
+
 class ResolutionMarketType(StrEnum):
     """Market structure of a resolved condition."""
 
@@ -285,6 +294,7 @@ __all__ = [
     "PriceHistoryInterval",
     "ResolutionMarketType",
     "ResolutionReporter",
+    "ResolutionSettlementTimeBasis",
     "ResolutionSource",
     "ResolutionStatus",
     "SortDirection",

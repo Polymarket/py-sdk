@@ -11,6 +11,7 @@ from polymarket.models.base import BaseModel
 from polymarket.models.data.common import (
     ResolutionMarketType,
     ResolutionReporter,
+    ResolutionSettlementTimeBasis,
     ResolutionSource,
     ResolutionStatus,
     datetime_from_epoch_or_iso,
@@ -33,6 +34,10 @@ class Resolution(BaseModel):
     condition_id: ConditionId | None = None
     status: ResolutionStatus
     extended_review: bool
+    expected_settlement_time: datetime | None = None
+    """Earliest estimated settlement time, not a deadline; may have elapsed."""
+    settlement_time_basis: ResolutionSettlementTimeBasis | None = None
+    """Estimate basis, absent when unavailable. Voting estimates can roll to a later round."""
     was_disputed: bool
     question_rules_updated: bool = Field(validation_alias="new_version_q")
     proposed_price: Decimal | None = None
