@@ -102,7 +102,9 @@ from polymarket.models.perps.requests import (
     PerpsLeverageUpdate,
     PerpsOrderRequest,
     PerpsPositionTpSlTrigger,
+    PerpsPositionTrailingStop,
     PerpsTpSlTrigger,
+    PerpsTrailingStop,
 )
 from polymarket.models.perps.results import (
     PerpsOrderPlacement,
@@ -444,7 +446,7 @@ class PerpsSession:
         reduce_only: bool = False,
         client_order_id: str | None = None,
         take_profit: PerpsTpSlTrigger | None = None,
-        stop_loss: PerpsTpSlTrigger | None = None,
+        stop_loss: PerpsTpSlTrigger | PerpsTrailingStop | None = None,
         expires_at: datetime | int | None = None,
     ) -> PerpsOrderPlacement: ...
     @overload
@@ -460,7 +462,7 @@ class PerpsSession:
         reduce_only: bool = False,
         client_order_id: str | None = None,
         take_profit: PerpsTpSlTrigger | None = None,
-        stop_loss: PerpsTpSlTrigger | None = None,
+        stop_loss: PerpsTpSlTrigger | PerpsTrailingStop | None = None,
         expires_at: datetime | int | None = None,
     ) -> PerpsOrderPlacement: ...
     @overload
@@ -475,7 +477,7 @@ class PerpsSession:
         reduce_only: bool = False,
         client_order_id: str | None = None,
         take_profit: PerpsTpSlTrigger | None = None,
-        stop_loss: PerpsTpSlTrigger | None = None,
+        stop_loss: PerpsTpSlTrigger | PerpsTrailingStop | None = None,
         expires_at: datetime | int | None = None,
     ) -> PerpsOrderPlacement: ...
     async def place_order(
@@ -491,7 +493,7 @@ class PerpsSession:
         reduce_only: bool = False,
         client_order_id: str | None = None,
         take_profit: PerpsTpSlTrigger | None = None,
-        stop_loss: PerpsTpSlTrigger | None = None,
+        stop_loss: PerpsTpSlTrigger | PerpsTrailingStop | None = None,
         expires_at: datetime | int | None = None,
     ) -> PerpsOrderPlacement:
         """Place one order and resolve with its first orders update.
@@ -570,7 +572,7 @@ class PerpsSession:
         *,
         instrument_id: int,
         take_profit: PerpsPositionTpSlTrigger | None = None,
-        stop_loss: PerpsPositionTpSlTrigger | None = None,
+        stop_loss: PerpsPositionTpSlTrigger | PerpsPositionTrailingStop | None = None,
         expires_at: datetime | int | None = None,
     ) -> PerpsPlacedTpSlOrders:
         """Protect the current position with take-profit/stop-loss triggers.

@@ -109,7 +109,9 @@ from polymarket.models.perps.requests import (
     PerpsLeverageUpdate,
     PerpsOrderRequest,
     PerpsPositionTpSlTrigger,
+    PerpsPositionTrailingStop,
     PerpsTpSlTrigger,
+    PerpsTrailingStop,
 )
 from polymarket.models.perps.twaps import PerpsTwap, PerpsTwapAccepted, PerpsTwapId, PerpsTwapStatus
 from polymarket.models.perps.types import (
@@ -232,6 +234,8 @@ __all__ = [
     "PerpsPositionDeleveragedNotification",
     "PerpsPositionLiquidatedNotification",
     "PerpsPositionTpSlTrigger",
+    "PerpsPositionTrailingStop",
+    "PerpsTrailingStop",
     "PerpsPostOrderAck",
     "PerpsProxyKey",
     "PerpsResyncEvent",
