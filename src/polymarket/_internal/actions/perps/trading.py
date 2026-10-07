@@ -19,11 +19,14 @@ from polymarket.models.perps.events import PerpsOrderEvent, PerpsSessionEvent
 from polymarket.models.perps.orders import PerpsOrder, PerpsPostOrderAck
 from polymarket.models.perps.requests import (
     DecimalInput,
+    PerpsLeverageUpdate,
     PerpsOrderRequest,
     PerpsPositionTpSlTrigger,
     PerpsTpSlTrigger,
     to_decimal_string,
+    to_position_tp_sl_quantity,
     validate_client_order_id,
+    validate_gtd_expiry,
 )
 from polymarket.models.perps.results import (
     PerpsOrderPlacement,
@@ -40,7 +43,7 @@ _ORDER_PLACEMENT_UPDATE_TIMEOUT_S = 2.0
 
 RawPerpsOrder = list[Any]
 """Positional order row: [iid, buy, price?, qty, tif?, post_only, reduce_only?,
-client_order_id?, trigger?]. ``None`` holes are compacted before signing."""
+client_order_id?, trigger?, gtd_expiry?, builder?]. ``None`` holes are compacted before signing."""
 
 
 async def place_order(
@@ -152,7 +155,9 @@ async def place_position_tp_sl(
                 buy=exit_buy,
                 instrument_id=instrument_id,
                 kind="tp",
-                quantity="0",
+                quantity="0"
+                if take_profit.quantity is None
+                else to_position_tp_sl_quantity(take_profit.quantity),
                 builder_attribution=builder_attribution,
                 trigger=take_profit,
             )
@@ -163,7 +168,9 @@ async def place_position_tp_sl(
                 buy=exit_buy,
                 instrument_id=instrument_id,
                 kind="sl",
-                quantity="0",
+                quantity="0"
+                if stop_loss.quantity is None
+                else to_position_tp_sl_quantity(stop_loss.quantity),
                 builder_attribution=builder_attribution,
                 trigger=stop_loss,
             )
@@ -239,6 +246,7 @@ def _expect_ok_ack(ack: PerpsPostOrderAck) -> PerpsOrderId:
 def to_raw_order(
     request: PerpsOrderRequest, builder_attribution: PerpsBuilderAttribution | None = None
 ) -> RawPerpsOrder:
+    expiry_ms = validate_gtd_expiry(request.time_in_force, request.gtd_expiry)
     row: RawPerpsOrder = [
         request.instrument_id,
         request.side == "BUY",
@@ -251,8 +259,10 @@ def to_raw_order(
         None,
     ]
 
+    if expiry_ms is not None or builder_attribution is not None:
+        row.append(expiry_ms)
     if builder_attribution is not None:
-        row.extend([None, [builder_attribution.address, format(builder_attribution.fee_rate, "f")]])
+        row.append([builder_attribution.address, format(builder_attribution.fee_rate, "f")])
     return row
 
 
@@ -345,6 +355,26 @@ def update_leverage_op(*, instrument_id: int, leverage: int, cross_margin: bool)
     return ["updateLeverage", [instrument_id, leverage, cross_margin]]
 
 
+def update_leverages_op(updates: Sequence[PerpsLeverageUpdate]) -> list[Any]:
+    items = list(updates)
+    if not 1 <= len(items) <= 100:
+        raise UserInputError("updates must contain between 1 and 100 items")
+
+    rows: list[list[int | bool]] = []
+    instrument_ids: set[int] = set()
+    for update in items:
+        if not isinstance(update, PerpsLeverageUpdate):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise UserInputError("updates must contain PerpsLeverageUpdate values")
+        if update.instrument_id in instrument_ids:
+            raise UserInputError(
+                f"updates must contain unique instrument IDs; duplicate {update.instrument_id}"
+            )
+        instrument_ids.add(update.instrument_id)
+        rows.append([update.instrument_id, update.leverage, update.cross_margin])
+
+    return ["updateLeverages", rows]
+
+
 def update_margin_op(*, instrument_id: int, amount: DecimalInput) -> list[Any]:
     if isinstance(instrument_id, bool) or not isinstance(instrument_id, int):  # pyright: ignore[reportUnnecessaryIsInstance]
         raise UserInputError("instrument_id must be an int")
@@ -382,6 +412,14 @@ def to_command_body_op(op: Sequence[Any]) -> dict[str, Any]:
             "type": op_type,
             "args": {"cross": cross_margin, "iid": instrument_id, "lev": leverage},
         }
+    if op_type == "updateLeverages":
+        return {
+            "type": op_type,
+            "args": [
+                {"cross": cross_margin, "iid": instrument_id, "lev": leverage}
+                for instrument_id, leverage, cross_margin in op[1]
+            ],
+        }
     if op_type == "updateMargin":
         instrument_id, amount = op[1]
         return {"type": op_type, "args": {"amt": amount, "iid": instrument_id}}
@@ -400,6 +438,8 @@ def _to_order_body(row: RawPerpsOrder) -> dict[str, Any]:
         body["c"] = row[7]
     if row[8] is not None:
         body["tr"] = _to_trigger_body(row[8])
+    if len(row) > 9 and row[9] is not None:
+        body["gtd_expiry"] = row[9]
     if len(row) > 10 and row[10] is not None:
         body["builder"] = {"address": row[10][0], "fee_rate": row[10][1]}
     return body

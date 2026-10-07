@@ -122,6 +122,7 @@ from polymarket.models.data import (
     Resolution,
     ResolutionMarketType,
     ResolutionReporter,
+    ResolutionSettlementTimeBasis,
     ResolutionSource,
     ResolutionStatus,
     RewardActivity,
@@ -173,6 +174,7 @@ from polymarket.models.perps import (
     PerpsAccountStats,
     PerpsAutoCancelStatus,
     PerpsBalance,
+    PerpsBatchLeverageResult,
     PerpsBbo,
     PerpsBook,
     PerpsBookDepth,
@@ -202,8 +204,11 @@ from polymarket.models.perps import (
     PerpsInstrument,
     PerpsInstrumentCategory,
     PerpsInstrumentId,
+    PerpsInstrumentSettlement,
     PerpsKlineInterval,
     PerpsKnownWithdrawalStatus,
+    PerpsLeverageUpdate,
+    PerpsLeverageUpdateRejection,
     PerpsMarginSummary,
     PerpsOrder,
     PerpsOrderId,
@@ -255,6 +260,7 @@ from polymarket.models.perps.results import (
     PerpsPlacedTpSlOrder,
     PerpsPlacedTpSlOrders,
 )
+from polymarket.models.perps.twaps import PerpsTwap, PerpsTwapAccepted, PerpsTwapId, PerpsTwapStatus
 from polymarket.models.rfq import ComboMarket, ComboMarketOutcome, ComboMarketOutcomes
 from polymarket.models.trading import (
     Erc20TradingApproval,
@@ -287,6 +293,10 @@ from polymarket.models.types import (
 )
 
 __all__ = [
+    "PerpsTwap",
+    "PerpsTwapAccepted",
+    "PerpsTwapId",
+    "PerpsTwapStatus",
     "PerpsBuilderAttribution",
     "PerpsBuilderStatus",
     "PerpsBuilderApproval",
@@ -349,6 +359,7 @@ __all__ = [
     "Resolution",
     "ResolutionMarketType",
     "ResolutionReporter",
+    "ResolutionSettlementTimeBasis",
     "ResolutionSource",
     "ResolutionStatus",
     "RewardActivity",
@@ -468,6 +479,7 @@ __all__ = [
     "PerpsAccountStats",
     "PerpsAutoCancelStatus",
     "PerpsBalance",
+    "PerpsBatchLeverageResult",
     "PerpsBbo",
     "PerpsBook",
     "PerpsBookDepth",
@@ -495,9 +507,12 @@ __all__ = [
     "PerpsFundingPaymentId",
     "PerpsFundingRate",
     "PerpsInstrument",
+    "PerpsInstrumentSettlement",
     "PerpsInstrumentCategory",
     "PerpsInstrumentId",
     "PerpsKlineInterval",
+    "PerpsLeverageUpdate",
+    "PerpsLeverageUpdateRejection",
     "PerpsKnownWithdrawalStatus",
     "PerpsMarginSummary",
     "PerpsOrder",
