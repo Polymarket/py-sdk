@@ -750,6 +750,27 @@ def test_update_margin_sends_signed_command_and_completes() -> None:
     assert commands[0]["sig"].startswith("0x") and len(commands[0]["sig"]) == 132
 
 
+def test_update_leverage_rejection_surfaces_server_error() -> None:
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        async for raw in ws:
+            message = json.loads(raw)
+            if _is_ping(message):
+                continue
+            await ws.send(
+                json.dumps(
+                    {"id": message["id"], "data": {"status": "err", "error": "invalid_leverage"}}
+                )
+            )
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            with pytest.raises(RequestRejectedError, match="invalid_leverage"):
+                await session.update_leverage(instrument_id=1, leverage=100, cross_margin=False)
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+
+
 def test_update_margin_rejection_surfaces_request_rejected_error() -> None:
     async def handler(ws: ServerConnection) -> None:
         await _handshake(ws)

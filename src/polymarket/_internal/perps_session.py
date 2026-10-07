@@ -1267,13 +1267,15 @@ class PerpsSession:
         data = message.get("data")
         try:
             result = pending.parse(data)
-        except (RequestRejectedError, UnexpectedResponseError) as error:
+        except RequestRejectedError as error:
             self._reject_future(pending.future, error)
             return True
-        except Exception:
+        except Exception as error:
             error_ack = _error_ack(data if data is not None else message)
             if error_ack is not None:
                 self._reject_future(pending.future, RequestRejectedError(error_ack, status=200))
+            elif isinstance(error, UnexpectedResponseError):
+                self._reject_future(pending.future, error)
             else:
                 self._reject_future(
                     pending.future, TransportError("Perps session unexpected response.")
