@@ -15,6 +15,7 @@ from polymarket.models.perps._validators import (
     _require_epoch_ms,  # pyright: ignore[reportPrivateUsage]
 )
 from polymarket.models.perps.builders import PerpsBuilderAttribution
+from polymarket.models.perps.chases import PerpsChaseId
 from polymarket.models.perps.types import (
     PerpsInstrumentId,
     PerpsOrderId,
@@ -83,6 +84,9 @@ class PerpsOrder(BaseModel):
     updated_at: datetime = Field(validation_alias=AliasChoices("updated_timestamp", "uts"))
     client_order_id: str | None = Field(
         default=None, validation_alias=AliasChoices("client_order_id", "coid")
+    )
+    chase_id: PerpsChaseId | None = Field(
+        default=None, validation_alias="chid", gt=0, le=2**53 - 1, strict=True
     )
     tp_sl: PerpsTpSlOrderFields | None = Field(default=None, validation_alias="tpsl")
     builder: PerpsBuilderAttribution | None = None

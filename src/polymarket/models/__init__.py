@@ -255,6 +255,7 @@ from polymarket.models.perps.builders import (
     PerpsBuilderStatus,
     PerpsLiquidityRole,
 )
+from polymarket.models.perps.chases import PerpsChase, PerpsChaseAccepted, PerpsChaseId
 from polymarket.models.perps.results import (
     PerpsOrderPlacement,
     PerpsPlacedTpSlOrder,
@@ -293,6 +294,9 @@ from polymarket.models.types import (
 )
 
 __all__ = [
+    "PerpsChase",
+    "PerpsChaseAccepted",
+    "PerpsChaseId",
     "PerpsTwap",
     "PerpsTwapAccepted",
     "PerpsTwapId",
