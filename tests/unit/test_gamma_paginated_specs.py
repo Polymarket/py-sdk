@@ -3,8 +3,9 @@ import asyncio
 import httpx
 import pytest
 import respx
+from eth_account import Account
 
-from polymarket import AsyncPublicClient, PublicClient
+from polymarket import ApiKeyCreds, AsyncPublicClient, AsyncSecureClient, PublicClient, SecureClient
 from polymarket._internal.actions import gamma as gamma_actions
 from polymarket._internal.pagination import fingerprint_query
 from polymarket._internal.request import (
@@ -110,9 +111,19 @@ def test_list_markets_spec_bounds_v2_filter_count(name: str) -> None:
 
 
 @pytest.mark.parametrize("client_mode", ["sync", "async"])
-def test_public_market_lists_preserve_v2_filters_across_pages(client_mode: str) -> None:
+@pytest.mark.parametrize("secure", [False, True], ids=["public", "secure"])
+def test_market_lists_preserve_v2_filters_and_bounds_across_pages(
+    client_mode: str,
+    secure: bool,
+) -> None:
     # Controlled responses isolate filter serialization and continuation while
     # the live metadata API is unavailable in this environment.
+    request_ids = [f"request-{index}" for index in range(100)]
+    event_ids = [f"event-{index}" for index in range(100)]
+    # Synthetic signing material is used only with controlled transports.
+    test_key = "0x" + "01" * 32
+    wallet = Account.from_key(test_key).address
+    credentials = ApiKeyCreds(key="test-key", passphrase="test-passphrase", secret="dGVzdA==")
     requests: list[httpx.Request] = []
     responses = iter(
         [
@@ -126,34 +137,60 @@ def test_public_market_lists_preserve_v2_filters_across_pages(client_mode: str) 
         return next(responses)
 
     with respx.mock as router:
+        if secure:
+            router.get("https://clob.polymarket.com/auth/api-keys").respond(
+                json={"apiKeys": [credentials.key]},
+            )
         route = router.get("https://gamma-api.polymarket.com/markets/keyset")
         route.side_effect = respond
 
         if client_mode == "sync":
-            with PublicClient() as client:
+            client = (
+                SecureClient.create(private_key=test_key, wallet=wallet, credentials=credentials)
+                if secure
+                else PublicClient()
+            )
+            with client:
                 pages = list(
                     client.list_markets(
-                        request_ids=["request-A", "request-B"],
-                        onchain_event_ids=["event-A"],
+                        request_ids=request_ids,
+                        onchain_event_ids=event_ids,
                         resolution_status="active",
                         version="v2",
                         page_size=10,
                     )
                 )
+                with pytest.raises(UserInputError, match="100"):
+                    client.list_markets(request_ids=request_ids + ["extra"])
+                with pytest.raises(UserInputError, match="100"):
+                    client.list_markets(onchain_event_ids=event_ids + ["extra"])
         else:
 
             async def collect() -> int:
-                async with AsyncPublicClient() as client:
+                client = (
+                    await AsyncSecureClient.create(
+                        private_key=test_key,
+                        wallet=wallet,
+                        credentials=credentials,
+                    )
+                    if secure
+                    else AsyncPublicClient()
+                )
+                async with client:
                     pages = [
                         page
                         async for page in client.list_markets(
-                            request_ids=["request-A", "request-B"],
-                            onchain_event_ids=["event-A"],
+                            request_ids=request_ids,
+                            onchain_event_ids=event_ids,
                             resolution_status="active",
                             version="v2",
                             page_size=10,
                         )
                     ]
+                    with pytest.raises(UserInputError, match="100"):
+                        client.list_markets(request_ids=request_ids + ["extra"])
+                    with pytest.raises(UserInputError, match="100"):
+                        client.list_markets(onchain_event_ids=event_ids + ["extra"])
                     return len(pages)
 
             assert asyncio.run(collect()) == 2
@@ -164,8 +201,8 @@ def test_public_market_lists_preserve_v2_filters_across_pages(client_mode: str) 
         assert len(requests) == 2
         for request in requests:
             query = request.url.params
-            assert query.get_list("request_ids") == ["request-A", "request-B"]
-            assert query.get_list("onchain_event_ids") == ["event-A"]
+            assert query.get_list("request_ids") == request_ids
+            assert query.get_list("onchain_event_ids") == event_ids
             assert query["resolution_status"] == "active"
             assert query["version"] == "v2"
         assert requests[1].url.params["after_cursor"] == "page-2"
