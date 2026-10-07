@@ -253,6 +253,66 @@ class PerpsPositionTpSlTrigger:
             to_position_tp_sl_quantity(self.quantity)
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PerpsTrailingStop:
+    """A market stop loss that follows favorable marks after activation."""
+
+    trailing_bps: int
+    """Pullback in basis points, an integer from 10 through 2000."""
+    activation_price: DecimalInput | None = None
+    """Positive activation mark. Omit to start trailing when the leg arms."""
+
+    def __post_init__(self) -> None:
+        validate_trailing_stop(self.trailing_bps, self.activation_price)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PerpsPositionTrailingStop:
+    """A trailing market stop loss protecting an open position."""
+
+    trailing_bps: int
+    """Pullback in basis points, an integer from 10 through 2000."""
+    activation_price: DecimalInput | None = None
+    """Positive activation mark. Omit to start trailing when the leg arms."""
+    quantity: DecimalInput | None = None
+    """Positive exact close quantity. Omit to close the full position.
+
+    Uses the same fixed-point, 96-bit coefficient and 28-place limits as
+    ``PerpsPositionTpSlTrigger``; ``Decimal`` values preserve exact precision.
+    """
+
+    def __post_init__(self) -> None:
+        validate_trailing_stop(self.trailing_bps, self.activation_price)
+        if self.quantity is not None:
+            to_position_tp_sl_quantity(self.quantity)
+
+
+def validate_trailing_stop(trailing_bps: int, activation_price: DecimalInput | None) -> None:
+    """Validate the trailing rate and an exactly representable activation price."""
+    if (
+        isinstance(trailing_bps, bool)
+        or not isinstance(trailing_bps, int)  # pyright: ignore[reportUnnecessaryIsInstance]
+        or not 10 <= trailing_bps <= 2000
+    ):
+        raise UserInputError("trailing_bps must be an integer from 10 through 2000")
+    if activation_price is not None:
+        candidate = to_decimal_string("activation_price", activation_price)
+        parsed = Decimal(candidate)
+        _, digits, exponent = parsed.as_tuple()
+        assert isinstance(exponent, int)
+        if exponent < -28 or exponent > 28 or len(digits) + max(exponent, 0) > 29:
+            raise UserInputError("activation_price exceeds fixed-point decimal precision")
+        fixed = candidate if isinstance(activation_price, str) else format(parsed, "f")
+        if (
+            re.fullmatch(r"[0-9]+(?:\.[0-9]{1,28})?", fixed) is None
+            or parsed <= 0
+            or int(fixed.replace(".", "")) > 79_228_162_514_264_337_593_543_950_335
+        ):
+            raise UserInputError(
+                "activation_price must be a positive, exactly representable fixed-point decimal"
+            )
+
+
 def to_position_tp_sl_quantity(value: DecimalInput) -> str:
     """Serialize a positive close quantity without rounding it into a full close."""
     candidate = to_decimal_string("quantity", value)
@@ -305,6 +365,8 @@ __all__ = [
     "PerpsLeverageUpdate",
     "PerpsOrderRequest",
     "PerpsPositionTpSlTrigger",
+    "PerpsPositionTrailingStop",
+    "PerpsTrailingStop",
     "PerpsTpSlTrigger",
     "to_decimal_string",
     "validate_client_order_id",

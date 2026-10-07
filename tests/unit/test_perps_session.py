@@ -601,6 +601,73 @@ def test_place_order_with_tp_sl_groups_rows_and_returns_trigger_ids() -> None:
     assert op["args"][1]["buy"] is False and op["args"][1]["ro"] is True
 
 
+def test_place_gtd_order_with_trailing_stop_loss() -> None:
+    from polymarket.models.perps.requests import PerpsTpSlTrigger, PerpsTrailingStop
+
+    commands: list[dict[str, Any]] = []
+
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        async for raw in ws:
+            message = json.loads(raw)
+            if _is_ping(message):
+                continue
+            commands.append(message)
+            client_order_id = message["op"]["args"][0]["c"]
+            await ws.send(
+                json.dumps(
+                    _order_update(
+                        100,
+                        client_order_id=client_order_id,
+                    )
+                )
+            )
+            await ws.send(
+                json.dumps(
+                    {
+                        "id": message["id"],
+                        "data": [
+                            {"status": "ok", "oid": 100},
+                            {"status": "ok", "oid": 101},
+                            {"status": "ok", "oid": 102},
+                        ],
+                    }
+                )
+            )
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            placement = await session.place_order(
+                instrument_id=1,
+                side="BUY",
+                price="0.5",
+                quantity="10",
+                time_in_force="gtd",
+                gtd_expiry=1893456000000,
+                take_profit=PerpsTpSlTrigger(trigger_price="1"),
+                stop_loss=PerpsTrailingStop(trailing_bps=200, activation_price=Decimal("1.05")),
+            )
+            assert placement.order.id == 100
+            assert placement.order.client_order_id == commands[0]["op"]["args"][0]["c"]
+            assert placement.tp_sl is not None
+            assert placement.tp_sl.take_profit is not None
+            assert placement.tp_sl.take_profit.order_id == 101
+            assert placement.tp_sl.stop_loss is not None
+            assert placement.tp_sl.stop_loss.order_id == 102
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+    op = commands[0]["op"]
+    assert op["grp"] == "order"
+    assert len(op["args"]) == 3
+    assert len(op["args"][0]["c"]) == 32
+    assert "c" not in op["args"][1]
+    assert "c" not in op["args"][2]
+    assert op["args"][1]["tr"] == {"tpsl": "tp", "trp": "1", "market": True}
+    assert op["args"][2]["tr"] == {"tpsl": "sl", "trail_bps": 200, "act": "1.05", "market": True}
+    # Trigger legs exit the position: entry BUY -> reduce-only SELL legs.
+    assert op["args"][1]["buy"] is False and op["args"][1]["ro"] is True
+
+
 def test_place_order_rejection_raises_request_rejected() -> None:
     async def handler(ws: ServerConnection) -> None:
         await _handshake(ws)
@@ -1528,13 +1595,19 @@ def test_builder_fills_share_session_iterator_before_ack_and_after_reconnect() -
         ),
     ],
 )
+@pytest.mark.parametrize("trailing", [False, True])
 def test_position_exits_keep_terms_captured_before_portfolio_read(
     size: str,
     take_profit_quantity: Decimal | str | None,
     stop_loss_quantity: str | None,
     quantities: list[str],
+    trailing: bool,
 ) -> None:
-    from polymarket.models.perps import PerpsBuilderAttribution, PerpsPositionTpSlTrigger
+    from polymarket.models.perps import (
+        PerpsBuilderAttribution,
+        PerpsPositionTpSlTrigger,
+        PerpsPositionTrailingStop,
+    )
 
     async def run() -> None:
         frames: list[dict[str, Any]] = []
@@ -1613,9 +1686,11 @@ def test_position_exits_keep_terms_captured_before_portfolio_read(
                     take_profit=PerpsPositionTpSlTrigger(
                         trigger_price="200", quantity=take_profit_quantity
                     ),
-                    stop_loss=PerpsPositionTpSlTrigger(
-                        trigger_price="50", quantity=stop_loss_quantity
-                    ),
+                    stop_loss=PerpsPositionTrailingStop(
+                        trailing_bps=200, quantity=stop_loss_quantity
+                    )
+                    if trailing
+                    else PerpsPositionTpSlTrigger(trigger_price="50", quantity=stop_loss_quantity),
                 )
                 assert frames[0]["op"]["grp"] == "position"
                 assert [row["qty"] for row in frames[0]["op"]["args"]] == quantities
@@ -1916,6 +1991,64 @@ def test_cancelling_cancel_task_removes_pending_request_without_retry() -> None:
 
     asyncio.run(asyncio.wait_for(run(), timeout=10))
     assert len(commands) == 1
+
+
+def test_activation_continues_existing_session_iterator() -> None:
+    from polymarket.models.perps import PerpsTpSlEvent
+
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        for sequence, status in enumerate(["armed", "activated", "expired"], 1):
+            await ws.send(
+                json.dumps(
+                    {
+                        "ch": "tpsl::1",
+                        "ts": 1751500000000,
+                        "sq": sequence,
+                        "data": {"oid": 44, "st": status},
+                    }
+                )
+            )
+        with contextlib.suppress(Exception):
+            async for _ in ws:
+                pass
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            statuses: list[str] = []
+            async for event in session:
+                assert isinstance(event, PerpsTpSlEvent)
+                statuses.append(event.payload.status)
+                assert event.sequence == len(statuses)
+                if len(statuses) == 3:
+                    break
+            assert statuses == ["armed", "activated", "expired"]
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10))
+
+
+def test_trailing_take_profit_is_rejected_before_reads_or_commands() -> None:
+    from typing import cast
+
+    from polymarket import PerpsPositionTrailingStop
+
+    async def run() -> None:
+        session = PerpsSession(
+            chain_id=137,
+            credentials=_CREDENTIALS,
+            rest_url="https://perps.test",
+            ws_url="ws://perps.test",
+        )
+        try:
+            with pytest.raises(UserInputError, match="take_profit"):
+                await session.place_position_tp_sl(
+                    instrument_id=1,
+                    take_profit=cast(Any, PerpsPositionTrailingStop(trailing_bps=200)),
+                )
+        finally:
+            await session.close()
+
+    asyncio.run(run())
 
 
 def test_twap_rest_lifecycle_and_uncertain_create() -> None:

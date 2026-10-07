@@ -183,18 +183,19 @@ def test_session_funding_event_parses_compact_payload() -> None:
     assert event.payload.funding == Decimal("0.5")
 
 
-def test_session_tpsl_event_parses_lifecycle_update() -> None:
+@pytest.mark.parametrize("status", ["armed", "activated", "expired"])
+def test_session_tpsl_event_parses_lifecycle_update(status: str) -> None:
     event = parse_perps_session_event(
         {
             "ch": "tpsl::12",
             "ts": 1751500000000,
             "sq": 1,
-            "data": {"oid": 44, "st": "armed"},
+            "data": {"oid": 44, "st": status},
         }
     )
     assert isinstance(event, PerpsTpSlEvent)
     assert event.payload.order_id == 44
-    assert event.payload.status == "armed"
+    assert event.payload.status == status
 
 
 def test_session_deposit_event_normalizes_placeholder_hash() -> None:
