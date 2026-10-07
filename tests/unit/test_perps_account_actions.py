@@ -427,7 +427,23 @@ def test_list_notifications_pins_since_seq_across_pages() -> None:
             return httpx.Response(
                 200,
                 json={
-                    "items": [_notification_entry("5f4a3c2b-1d0e-49f8-a7b6-c5d4e3f2a1b0")],
+                    "items": [
+                        _notification_entry("5f4a3c2b-1d0e-49f8-a7b6-c5d4e3f2a1b0"),
+                        {
+                            "notification": {
+                                "id": "6ab1e47f-9b8c-5eaf-8f9b-7c8d9e0f1a2b",
+                                "type": "position_deleveraged",
+                                "instrument_id": 1,
+                                "side": "short",
+                                "size_closed": "0.01",
+                                "price": "52000",
+                                "pnl": "130",
+                                "margin_type": "isolated",
+                            },
+                            "read_at": None,
+                            "ts": 1751500000000,
+                        },
+                    ],
                     "unread": 3,
                     "durable_source_seq": 90,
                     "has_more": True,
@@ -458,6 +474,13 @@ def test_list_notifications_pins_since_seq_across_pages() -> None:
             assert isinstance(notification, PerpsPositionChangeNotification)
             assert notification.size == Decimal("0.5")
             assert first.items[0].read_at is None
+            assert len(first.items) == 2
+            deleveraged = first.items[1].notification
+            assert deleveraged.type == "position_deleveraged"
+            assert deleveraged.size_closed == Decimal("0.01")
+            assert deleveraged.price == Decimal("52000")
+            assert deleveraged.pnl == Decimal("130")
+            assert first.items[1].timestamp == first.items[0].timestamp
 
             second = await pages.from_cursor(first.next_cursor).first_page()
             assert second.has_more is False

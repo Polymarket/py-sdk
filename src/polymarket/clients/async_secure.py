@@ -444,6 +444,7 @@ class AsyncSecureClient:
         condition_id: str | Sequence[str] | None = None,
         status: PositionStatusFilter | None = None,
         event_id: int | Sequence[int] | None = None,
+        title: str | None = None,
         filter_type: PositionFilterType | None = None,
         filter_amount: float | None = None,
         include_archived: bool | None = None,
@@ -464,6 +465,10 @@ class AsyncSecureClient:
         one ``OPEN``. ``sort_by`` defaults to ``TOKENS`` for ``MERGEABLE``,
         ``REALIZED_PNL`` for ``CLOSED``, and ``CURRENT_VALUE`` for every other status.
 
+        ``title`` filters by case-insensitive substring (max 200 Unicode characters).
+        ``%`` and ``_`` remain wildcards. Blank input is ignored; other patterns are
+        preserved unchanged on every page, including cursor replay.
+
         Positions have no time bounds by default. ``full_history=True`` also includes
         holdings without activity and cannot be combined with ``start`` or ``end``.
 
@@ -475,6 +480,7 @@ class AsyncSecureClient:
             condition_id=condition_id,
             status=status,
             event_id=event_id,
+            title=title,
             filter_type=filter_type,
             filter_amount=filter_amount,
             include_archived=include_archived,
@@ -3853,6 +3859,16 @@ class AsyncSecureClient:
     async def fetch_perps_builder_status(self, *, address: str) -> PerpsBuilderStatus:
         """Experimental: read builder registration, availability, and fee cap."""
         return await _perps_builders.fetch_status(self._ctx.perps, address=address)
+
+    async def fetch_perps_registration(self, *, address: str) -> bool:
+        """Fetch whether an address has a Perps account without authentication.
+
+        Registration is permanent. A false result may be cached for up to ten seconds.
+
+        Experimental: This API may change in a breaking way in any release,
+        including patch releases.
+        """
+        return await _perps_actions.fetch_registration(self._ctx.perps, address=address)
 
     async def fetch_perps_instruments(
         self,

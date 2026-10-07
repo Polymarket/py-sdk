@@ -30,6 +30,8 @@ from polymarket.models.perps.events import (
     PerpsOrderEvent,
     PerpsResyncEvent,
 )
+from polymarket.models.perps.orders import PerpsLeverageUpdateRejection
+from polymarket.models.perps.requests import PerpsLeverageUpdate
 
 Handler = Callable[[ServerConnection], Awaitable[None]]
 
@@ -217,7 +219,11 @@ def test_auth_rejection_surfaces_request_rejected_error() -> None:
     asyncio.run(asyncio.wait_for(run(), timeout=10.0))
 
 
-def test_place_order_signs_command_and_returns_order_update() -> None:
+@pytest.mark.parametrize("status", ["open", "instrument_settled", "insufficient_margin_at_fill"])
+@pytest.mark.parametrize("update_before_ack", [True, False])
+def test_place_order_signs_command_and_returns_order_update(
+    status: str, update_before_ack: bool
+) -> None:
     commands: list[dict[str, Any]] = []
 
     async def handler(ws: ServerConnection) -> None:
@@ -228,16 +234,16 @@ def test_place_order_signs_command_and_returns_order_update() -> None:
                 continue
             commands.append(message)
             client_order_id = message["op"]["args"][0]["c"]
-            await ws.send(
-                json.dumps(
-                    _order_update(
-                        77,
-                        client_order_id=client_order_id,
-                        reduce_only=True,
-                    )
-                )
+            update = _order_update(
+                77,
+                client_order_id=client_order_id,
+                reduce_only=True,
             )
-            await ws.send(json.dumps({"id": message["id"], "data": [{"status": "ok", "oid": 77}]}))
+            update["data"]["status"] = status
+            ack = {"id": message["id"], "data": [{"status": "ok", "oid": 77}]}
+            frames = [update, ack] if update_before_ack else [ack, update]
+            for frame in frames:
+                await ws.send(json.dumps(frame))
 
     async def run() -> None:
         async with ws_server(handler) as url, _open_session(url) as session:
@@ -252,9 +258,12 @@ def test_place_order_signs_command_and_returns_order_update() -> None:
             assert placement.order.id == 77
             assert placement.order.client_order_id == commands[0]["op"]["args"][0]["c"]
             assert placement.order.reduce_only is True
-            assert placement.order.status == "open"
+            assert placement.order.status == status
             assert placement.tp_sl is None
             assert session._event_waiters == []
+            event = await asyncio.wait_for(session.__anext__(), timeout=5.0)
+            assert isinstance(event, PerpsOrderEvent)
+            assert event.payload == placement.order
 
     asyncio.run(asyncio.wait_for(run(), timeout=10.0))
     command = commands[0]
@@ -278,6 +287,89 @@ def test_place_order_signs_command_and_returns_order_update() -> None:
     assert isinstance(command["salt"], int)
     assert isinstance(command["ts"], int)
     assert command["sig"].startswith("0x") and len(command["sig"]) == 132
+
+
+@pytest.mark.parametrize("with_exits", [False, True])
+def test_gtd_placement_keeps_order_and_command_expiry_separate(with_exits: bool) -> None:
+    from polymarket.models.perps.requests import PerpsTpSlTrigger
+
+    commands: list[dict[str, Any]] = []
+    expiry = datetime.now(UTC) + timedelta(minutes=5)
+    deadline = datetime.now(UTC) + timedelta(seconds=30)
+
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        async for raw in ws:
+            message = json.loads(raw)
+            if _is_ping(message):
+                continue
+            commands.append(message)
+            update = _order_update(77, client_order_id=message["op"]["args"][0]["c"])
+            update["data"]["tif"] = "gtd"
+            await ws.send(json.dumps(update))
+            acks = [
+                {"status": "ok", "oid": 77 + index} for index in range(len(message["op"]["args"]))
+            ]
+            await ws.send(json.dumps({"id": message["id"], "data": acks}))
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            placement = await session.place_order(
+                instrument_id=1,
+                side="BUY",
+                price="0.5",
+                quantity="10",
+                time_in_force="gtd",
+                gtd_expiry=expiry,
+                expires_at=deadline,
+                stop_loss=PerpsTpSlTrigger(trigger_price="0.4") if with_exits else None,
+            )
+            assert placement.order.time_in_force == "gtd"
+            assert commands[0]["exp"] == int(deadline.timestamp() * 1000)
+            assert commands[0]["op"]["args"][0]["gtd_expiry"] == int(expiry.timestamp() * 1000)
+            if with_exits:
+                assert placement.tp_sl is not None
+                assert placement.tp_sl.stop_loss is not None
+                assert "gtd_expiry" not in commands[0]["op"]["args"][1]
+                assert "tif" not in commands[0]["op"]["args"][1]
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+
+
+def test_gtd_batch_revalidates_expiry_before_sending(monkeypatch: pytest.MonkeyPatch) -> None:
+    from polymarket.models.perps.requests import PerpsOrderRequest
+
+    commands: list[dict[str, Any]] = []
+    expiry = 1_893_456_000_123
+    monkeypatch.setattr(
+        "polymarket.models.perps.requests.time.time_ns", lambda: (expiry - 1) * 1_000_000
+    )
+    valid = PerpsOrderRequest(
+        instrument_id=1, side="BUY", price="1", quantity="1", time_in_force="gtc"
+    )
+    delayed = PerpsOrderRequest(
+        instrument_id=1, side="BUY", price="1", quantity="1", time_in_force="gtd", gtd_expiry=expiry
+    )
+    monkeypatch.setattr("polymarket.models.perps.requests.time.time_ns", lambda: expiry * 1_000_000)
+
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        async for raw in ws:
+            message = json.loads(raw)
+            if _is_ping(message):
+                continue
+            commands.append(message)
+            await ws.send(json.dumps({"id": message["id"], "data": [{"status": "ok", "oid": 1}]}))
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            with pytest.raises(UserInputError, match="strictly in the future"):
+                await session.post_orders([valid, delayed])
+            await session.post_orders([valid])
+            assert len(commands) == 1
+            assert len(commands[0]["op"]["args"]) == 1
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
 
 
 def test_place_order_update_timeout_starts_after_ack(
@@ -721,6 +813,199 @@ def test_arm_auto_cancel_daily_limit_raises_typed_error() -> None:
     asyncio.run(asyncio.wait_for(run(), timeout=10.0))
 
 
+def test_update_leverages_preserves_order_and_mixed_results() -> None:
+    commands: list[dict[str, Any]] = []
+
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        async for raw in ws:
+            message = json.loads(raw)
+            if _is_ping(message):
+                continue
+            commands.append(message)
+            await ws.send(
+                json.dumps(
+                    {
+                        "id": message["id"],
+                        "data": [
+                            {
+                                "status": "ok",
+                                "instrument_id": 2,
+                                "leverage": 10,
+                                "cross": True,
+                            },
+                            {
+                                "status": "err",
+                                "instrument_id": 1,
+                                "error": "internal_error",
+                            },
+                        ],
+                    }
+                )
+            )
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            results = await session.update_leverages(
+                [
+                    PerpsLeverageUpdate(instrument_id=2, leverage=10, cross_margin=True),
+                    PerpsLeverageUpdate(instrument_id=1, leverage=5, cross_margin=False),
+                ]
+            )
+            assert [result.instrument_id for result in results] == [2, 1]
+            assert [result.status for result in results] == ["ok", "err"]
+            assert isinstance(results[1], PerpsLeverageUpdateRejection)
+            assert results[1].error == "internal_error"
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+    assert commands[0]["req"] == "post"
+    assert commands[0]["op"] == {
+        "type": "updateLeverages",
+        "args": [
+            {"cross": True, "iid": 2, "lev": 10},
+            {"cross": False, "iid": 1, "lev": 5},
+        ],
+    }
+    assert commands[0]["sig"].startswith("0x") and len(commands[0]["sig"]) == 132
+
+
+def test_update_leverages_request_rejection_raises() -> None:
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        async for raw in ws:
+            message = json.loads(raw)
+            if _is_ping(message):
+                continue
+            await ws.send(
+                json.dumps(
+                    {
+                        "id": message["id"],
+                        "data": [{"status": "err", "error": "batch_rate_limited"}],
+                    }
+                )
+            )
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            with pytest.raises(RequestRejectedError, match="batch_rate_limited"):
+                await session.update_leverages(
+                    [PerpsLeverageUpdate(instrument_id=1, leverage=5, cross_margin=False)]
+                )
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        [],
+        [{"status": "ok", "instrument_id": 1, "leverage": 5, "cross": False}],
+        [
+            {"status": "err", "instrument_id": 2, "error": "invalid_leverage"},
+            {"status": "ok", "instrument_id": 1, "leverage": 5, "cross": False},
+        ],
+        *[
+            [
+                {"status": "ok", "instrument_id": 1, "leverage": 5, "cross": False, **fields},
+                {"status": "ok", "instrument_id": 2, "leverage": 5, "cross": False},
+            ]
+            for fields in (
+                {"instrument_id": True, "leverage": -5, "cross": "false"},
+                {"instrument_id": True},
+                {"instrument_id": "1"},
+                {"leverage": True},
+                {"leverage": "5"},
+                {"leverage": 0},
+                {"leverage": -5},
+                {"leverage": 2**32},
+                {"cross": "false"},
+                {"cross": 0},
+            )
+        ],
+        [
+            {"status": "err", "instrument_id": True, "error": "invalid_leverage"},
+            {"status": "ok", "instrument_id": 2, "leverage": 5, "cross": False},
+        ],
+    ],
+)
+def test_update_leverages_rejects_malformed_or_misordered_results(response: object) -> None:
+    commands: list[dict[str, Any]] = []
+
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        async for raw in ws:
+            message = json.loads(raw)
+            if _is_ping(message):
+                continue
+            commands.append(message)
+            await ws.send(json.dumps({"id": message["id"], "data": response}))
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            with pytest.raises(TransportError, match="unexpected response"):
+                await session.update_leverages(
+                    [
+                        PerpsLeverageUpdate(instrument_id=1, leverage=5, cross_margin=False),
+                        PerpsLeverageUpdate(instrument_id=2, leverage=5, cross_margin=False),
+                    ]
+                )
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+    assert len(commands) == 1
+
+
+def test_update_leverages_connection_loss_does_not_resubmit() -> None:
+    commands: list[dict[str, Any]] = []
+
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        async for raw in ws:
+            message = json.loads(raw)
+            if _is_ping(message):
+                continue
+            commands.append(message)
+            await ws.close()
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            with pytest.raises(TransportError, match="connection closed"):
+                await session.update_leverages(
+                    [
+                        PerpsLeverageUpdate(instrument_id=1, leverage=5, cross_margin=False),
+                    ]
+                )
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+    assert len(commands) == 1
+
+
+def test_update_leverages_validates_batch_before_transport() -> None:
+    async def run() -> None:
+        session = PerpsSession(
+            chain_id=137,
+            credentials=_CREDENTIALS,
+            rest_url="http://127.0.0.1:9",
+            ws_url="ws://127.0.0.1:9",
+        )
+        try:
+            with pytest.raises(UserInputError, match="between 1 and 100"):
+                await session.update_leverages([])
+            update = PerpsLeverageUpdate(instrument_id=1, leverage=5, cross_margin=False)
+            with pytest.raises(UserInputError, match="duplicate 1"):
+                await session.update_leverages([update, update])
+            with pytest.raises(UserInputError, match="between 1 and 100"):
+                await session.update_leverages(
+                    [
+                        PerpsLeverageUpdate(instrument_id=index, leverage=1, cross_margin=False)
+                        for index in range(101)
+                    ]
+                )
+        finally:
+            await session.close()
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+
+
 def test_update_margin_sends_signed_command_and_completes() -> None:
     commands: list[dict[str, Any]] = []
 
@@ -839,6 +1124,47 @@ def _notification_update(sequence: int, notification_id: str) -> dict[str, Any]:
             "order_type": "market",
         },
     }
+
+
+def test_adl_notifications_arrive_on_existing_session_iterator() -> None:
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        await ws.send(
+            json.dumps(
+                {
+                    "ch": "notifications",
+                    "ts": 1751500000000,
+                    "sq": 42,
+                    "data": {
+                        "id": "6ab1e47f-9b8c-5eaf-8f9b-7c8d9e0f1a2b",
+                        "type": "position_deleveraged",
+                        "instrument_id": 1,
+                        "side": "short",
+                        "size_closed": "0.01",
+                        "price": "52000",
+                        "pnl": "130",
+                        "margin_type": "isolated",
+                    },
+                }
+            )
+        )
+        await ws.send(json.dumps(_order_update(1, sequence=1)))
+        with contextlib.suppress(Exception):
+            async for _ in ws:
+                pass
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            async for event in session:
+                assert isinstance(event, PerpsNotificationEvent)
+                assert event.payload.type == "position_deleveraged"
+                assert event.payload.price == Decimal("52000")
+                assert event.payload.pnl == Decimal("130")
+                assert event.sequence == 42
+                assert event.timestamp == datetime.fromtimestamp(1751500000, tz=UTC)
+                break
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
 
 
 def test_notification_sequence_gaps_do_not_emit_local_resync() -> None:
@@ -1161,7 +1487,32 @@ def test_builder_fills_share_session_iterator_before_ack_and_after_reconnect() -
     asyncio.run(asyncio.wait_for(run(), timeout=15))
 
 
-def test_position_exits_keep_terms_captured_before_portfolio_read() -> None:
+@pytest.mark.parametrize(
+    ("size", "take_profit_quantity", "stop_loss_quantity", "quantities"),
+    [
+        ("1", None, None, ["0", "0"]),
+        (
+            "-1",
+            Decimal("0.1234567890123456789012345678"),
+            None,
+            ["0.1234567890123456789012345678", "0"],
+        ),
+        ("1", "0.25", "0.75", ["0.25", "0.75"]),
+        ("1", Decimal("1E-8"), "0.7500", ["0.00000001", "0.7500"]),
+        (
+            "-1",
+            "0.0000000000000000000000000001",
+            "79228162514264337593543950335",
+            ["0.0000000000000000000000000001", "79228162514264337593543950335"],
+        ),
+    ],
+)
+def test_position_exits_keep_terms_captured_before_portfolio_read(
+    size: str,
+    take_profit_quantity: Decimal | str | None,
+    stop_loss_quantity: str | None,
+    quantities: list[str],
+) -> None:
     from polymarket.models.perps import PerpsBuilderAttribution, PerpsPositionTpSlTrigger
 
     async def run() -> None:
@@ -1203,7 +1554,7 @@ def test_position_exits_keep_terms_captured_before_portfolio_read() -> None:
                             {
                                 "instrument_id": 1,
                                 "symbol": "BTC",
-                                "size": "1",
+                                "size": size,
                                 "entry_price": "100",
                                 "leverage": 1,
                                 "cross": True,
@@ -1238,9 +1589,18 @@ def test_position_exits_keep_terms_captured_before_portfolio_read() -> None:
             async with await session.open():
                 await session.place_position_tp_sl(
                     instrument_id=1,
-                    take_profit=PerpsPositionTpSlTrigger(trigger_price="200"),
-                    stop_loss=PerpsPositionTpSlTrigger(trigger_price="50"),
+                    take_profit=PerpsPositionTpSlTrigger(
+                        trigger_price="200", quantity=take_profit_quantity
+                    ),
+                    stop_loss=PerpsPositionTpSlTrigger(
+                        trigger_price="50", quantity=stop_loss_quantity
+                    ),
                 )
+                assert frames[0]["op"]["grp"] == "position"
+                assert [row["qty"] for row in frames[0]["op"]["args"]] == quantities
+                assert all(row["buy"] == size.startswith("-") for row in frames[0]["op"]["args"])
+                assert all(row["ro"] is True for row in frames[0]["op"]["args"])
+                assert all(row["tr"]["market"] is True for row in frames[0]["op"]["args"])
                 assert [row["builder"] for row in frames[0]["op"]["args"]] == [
                     {"address": terms.address, "fee_rate": "0.0003"},
                     {"address": terms.address, "fee_rate": "0.0003"},
@@ -1431,6 +1791,105 @@ def test_optional_builder_subscription_never_blocks_readiness(acknowledgement: s
             assert session._builder_subscription_task is None
 
     asyncio.run(asyncio.wait_for(run(), timeout=10))
+
+
+def test_twap_rest_lifecycle_and_uncertain_create() -> None:
+    from polymarket._internal.actions.perps.signing import sign_perps_op_with_key
+    from polymarket.errors import UnexpectedResponseError
+
+    captured: list[httpx.Request] = []
+    response_mode = "ok"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        if request.method == "GET":
+            return httpx.Response(200, json=[], request=request)
+        if request.method == "POST":
+            if response_mode == "timeout":
+                return httpx.Response(500, json={"error": "timeout"}, request=request)
+            if response_mode == "malformed":
+                return httpx.Response(200, json={"status": "ok", "twid": 1}, request=request)
+            return httpx.Response(
+                200,
+                json={"status": "ok", "twid": 9007199254740991, "ts": 1767225600000},
+                request=request,
+            )
+        return httpx.Response(200, json={"status": "ok"}, request=request)
+
+    async def run() -> None:
+        nonlocal response_mode
+        session = PerpsSession(
+            chain_id=137,
+            credentials=_CREDENTIALS,
+            rest_url="https://perps.test",
+            ws_url="ws://127.0.0.1:9",
+        )
+        await session._api.close()
+        session._api = AsyncTransport(
+            base_url="https://perps.test",
+            client=httpx.AsyncClient(
+                base_url="https://perps.test", transport=httpx.MockTransport(handler)
+            ),
+            header_resolver=session._resolve_auth_headers,
+        )
+        try:
+            accepted = await session.create_twap(
+                instrument_id=1, side="BUY", quantity="1.000000000000000001", duration_ms=300000
+            )
+            assert accepted.twap_id == 9007199254740991
+            assert await session.fetch_twaps() == ()
+            await session.pause_twap(twap_id=accepted.twap_id)
+            await session.resume_twap(twap_id=accepted.twap_id)
+            await session.cancel_twap(twap_id=accepted.twap_id)
+            count = len(captured)
+            with pytest.raises(UserInputError):
+                await session.create_twap(
+                    instrument_id=1, side="BUY", quantity="1", duration_ms=300000, interval_ms=31000
+                )
+            assert len(captured) == count
+            response_mode = "timeout"
+            with pytest.raises(RequestRejectedError):
+                await session.create_twap(
+                    instrument_id=1, side="BUY", quantity="1", duration_ms=300000
+                )
+            assert len(captured) == count + 1
+            response_mode = "malformed"
+            with pytest.raises(UnexpectedResponseError):
+                await session.create_twap(
+                    instrument_id=1, side="BUY", quantity="1", duration_ms=300000
+                )
+        finally:
+            await session.close()
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+    created = json.loads(captured[0].content)
+    assert created["op"] == {
+        "type": "createTwap",
+        "args": {
+            "iid": 1,
+            "buy": True,
+            "qty": "1.000000000000000001",
+            "dur": 300000,
+            "rnd": False,
+            "slip_bps": 0,
+            "ro": False,
+        },
+    }
+    assert created["sig"] == sign_perps_op_with_key(
+        _PROXY_PRIVATE_KEY,
+        chain_id=137,
+        op=["createTwap", [1, True, "1.000000000000000001", 300000, False, 0, False]],
+        salt=created["salt"],
+        timestamp_ms=created["ts"],
+    )
+    for request, operation in zip(captured[2:5], ["pause", "resume", "cancel"], strict=True):
+        body = json.loads(request.content)
+        expected = (
+            {"type": "cancelTwap", "args": {"twid": 9007199254740991}}
+            if operation == "cancel"
+            else {"type": "controlTwap", "args": {"twid": 9007199254740991, "act": operation}}
+        )
+        assert body["op"] == expected
 
 
 def test_position_snapshots_use_authenticated_owner() -> None:
