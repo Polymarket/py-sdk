@@ -31,6 +31,7 @@ from polymarket._internal.actions.perps.trading import (
     create_orders_op,
     to_command_body_op,
     update_leverage_op,
+    update_leverages_op,
     update_margin_op,
 )
 from polymarket._internal.actions.perps.trading import (
@@ -84,15 +85,18 @@ from polymarket.models.perps.notifications import (
 )
 from polymarket.models.perps.orders import (
     PerpsAutoCancelResponse,
+    PerpsBatchLeverageResult,
     PerpsCancelAllOrdersResponse,
     PerpsCancelOrderResult,
     PerpsFill,
+    PerpsLeverageUpdateRejection,
     PerpsOrder,
     PerpsPostOrderAck,
     PerpsUpdateLeverageResult,
 )
 from polymarket.models.perps.requests import (
     DecimalInput,
+    PerpsLeverageUpdate,
     PerpsOrderRequest,
     PerpsPositionTpSlTrigger,
     PerpsTpSlTrigger,
@@ -768,6 +772,28 @@ class PerpsSession:
             timeout_message="Perps update leverage response timed out.",
         )
 
+    async def update_leverages(
+        self, updates: Sequence[PerpsLeverageUpdate]
+    ) -> tuple[PerpsBatchLeverageResult, ...]:
+        """Update leverage for 1–100 unique instruments in request order.
+
+        The operation is sequential and non-atomic. Per-instrument rejections
+        are returned as data. In particular, ``internal_error`` means whether
+        that instrument's update was applied is unknown. Whole-request and
+        transport failures raise the normal SDK errors.
+        """
+        items = tuple(updates)
+        op = update_leverages_op(items)
+        expected_instrument_ids = tuple(update.instrument_id for update in items)
+        results = await self._send_signed_command(
+            op,
+            parse=lambda data: _parse_batch_leverage_results(
+                data, expected_instrument_ids=expected_instrument_ids
+            ),
+            timeout_message="Perps batch leverage response timed out.",
+        )
+        return tuple(results)
+
     async def update_margin(self, *, instrument_id: int, amount: DecimalInput) -> None:
         """Adjust isolated margin for an instrument position.
 
@@ -1314,6 +1340,47 @@ def _parse_cancel_results(data: object) -> list[PerpsCancelOrderResult]:
     if not isinstance(data, list):
         raise ValueError("expected a list of Perps cancel order results")
     return [PerpsCancelOrderResult.parse_response(item) for item in cast("list[object]", data)]
+
+
+def _parse_batch_leverage_results(
+    data: object, *, expected_instrument_ids: tuple[int, ...]
+) -> list[PerpsBatchLeverageResult]:
+    if not isinstance(data, list) or not data:
+        raise ValueError("expected a non-empty list of Perps batch leverage results")
+
+    entries = cast("list[object]", data)
+    first = cast("dict[str, Any]", entries[0]) if isinstance(entries[0], dict) else None
+    if first is not None and first.get("status") == "err" and "instrument_id" not in first:
+        raise RequestRejectedError(
+            _error_ack(first) or "Perps batch leverage request was rejected.", status=200
+        )
+    if len(entries) != len(expected_instrument_ids):
+        raise ValueError("Perps batch leverage response length did not match the request")
+
+    results: list[PerpsBatchLeverageResult] = []
+    for entry in entries:
+        wire = cast("dict[str, Any]", entry) if isinstance(entry, dict) else None
+        if wire is None:
+            raise ValueError("invalid Perps batch leverage result")
+        instrument_id = wire.get("instrument_id")
+        if type(instrument_id) is not int or not 0 <= instrument_id <= 2**32 - 1:
+            raise ValueError("invalid Perps batch leverage instrument id")
+        if wire.get("status") == "ok":
+            leverage = wire.get("leverage")
+            if type(leverage) is not int or not 1 <= leverage <= 2**32 - 1:
+                raise ValueError("invalid Perps batch leverage value")
+            if not isinstance(wire.get("cross"), bool):
+                raise ValueError("invalid Perps batch leverage margin mode")
+            results.append(PerpsUpdateLeverageResult.parse_response(wire))
+        elif wire.get("status") == "err":
+            results.append(PerpsLeverageUpdateRejection.parse_response(wire))
+        else:
+            raise ValueError("invalid Perps batch leverage result status")
+
+    returned_instrument_ids = tuple(result.instrument_id for result in results)
+    if returned_instrument_ids != expected_instrument_ids:
+        raise ValueError("Perps batch leverage response order did not match the request")
+    return results
 
 
 def _error_ack(value: object) -> str | None:

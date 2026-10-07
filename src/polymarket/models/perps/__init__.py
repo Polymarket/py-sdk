@@ -93,14 +93,17 @@ from polymarket.models.perps.notifications import (
     PerpsPositionLiquidatedNotification,
 )
 from polymarket.models.perps.orders import (
+    PerpsBatchLeverageResult,
     PerpsCancelOrderResult,
     PerpsFill,
+    PerpsLeverageUpdateRejection,
     PerpsOrder,
     PerpsPostOrderAck,
     PerpsTpSlOrderFields,
     PerpsUpdateLeverageResult,
 )
 from polymarket.models.perps.requests import (
+    PerpsLeverageUpdate,
     PerpsOrderRequest,
     PerpsPositionTpSlTrigger,
     PerpsTpSlTrigger,
@@ -151,6 +154,7 @@ __all__ = [
     "PerpsAutoCancelStatus",
     "PerpsBalance",
     "PerpsBalanceEvent",
+    "PerpsBatchLeverageResult",
     "PerpsBbo",
     "PerpsBboEvent",
     "PerpsBook",
@@ -185,6 +189,8 @@ __all__ = [
     "PerpsInstrumentId",
     "PerpsIsolatedLiquidationWarningNotification",
     "PerpsKlineInterval",
+    "PerpsLeverageUpdate",
+    "PerpsLeverageUpdateRejection",
     "PerpsKnownWithdrawalStatus",
     "PerpsLimitOrderCanceledNotification",
     "PerpsLiquidationWarningNotification",
