@@ -647,9 +647,10 @@ def test_wire_horizons_require_integer_even_when_canonical_unknown_is_none(horiz
         parse_perps_market_event(
             {"ch": "trades::1", "ts": 1751500000000, "sq": 1, "ets": horizon, "data": []}
         )
-    for frame in (
+    frames: tuple[dict[str, object], ...] = (
         {"ch": "builderFills", "data": []},
         {"ch": "notifications", "type": "resync"},
-    ):
+    )
+    for frame in frames:
         with pytest.raises(ValidationError):
             parse_perps_session_event({**frame, "ts": 1751500000000, "sq": 1, "ets": horizon})
