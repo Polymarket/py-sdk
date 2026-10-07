@@ -233,6 +233,7 @@ from polymarket.models.perps.builders import (
     PerpsBuilderStatus,
     PerpsLiquidityRole,
 )
+from polymarket.models.perps.chases import PerpsChase, PerpsChaseAccepted, PerpsChaseId
 from polymarket.models.perps.position_snapshots import (
     PerpsPositionSnapshot,
     PerpsPositionSnapshotCandle,
@@ -318,6 +319,9 @@ __all__ = [
     "PerpsPositionSnapshotFailure",
     "PerpsPositionSnapshotResult",
     "PerpsPositionSnapshots",
+    "PerpsChase",
+    "PerpsChaseAccepted",
+    "PerpsChaseId",
     "PerpsTwap",
     "PerpsTwapAccepted",
     "PerpsTwapId",
