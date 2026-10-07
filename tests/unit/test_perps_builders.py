@@ -82,6 +82,7 @@ def test_legacy_fill_fee_totals_are_exact() -> None:
         "pep": "0",
         "pnl": "0",
         "liq": False,
+        "adl": False,
         "ts": 1751500000000,
     }
     legacy = PerpsFill.parse_response(fill)
@@ -111,6 +112,7 @@ def test_legacy_fill_constructor_derives_total_fee() -> None:
         previous_entry_price=Decimal(0),
         pnl=Decimal(0),
         liquidation=False,
+        adl=False,
         timestamp=datetime(2026, 1, 1, tzinfo=UTC),
     )
     assert fill.total_fee == Decimal("0.1")
