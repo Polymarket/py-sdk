@@ -1,13 +1,20 @@
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import assert_type
 
 import pytest
 from data_v2_samples import sample
 
 from polymarket import (
     ActivityType,
+    AsyncPublicClient,
     ComboActivityType,
+    ComboConditionId,
+    ComboRedemptionActivity,
     ComboTradeActivity,
+    ConditionId,
+    PublicClient,
+    RedeemActivity,
     TipActivity,
     TradeActivity,
     UnknownActivity,
@@ -94,3 +101,109 @@ def test_combo_activity_position_and_redeem_payout() -> None:
         assert row.position_id == base["combo_position_id"]
         assert row.type is ComboActivityType(kind)
         assert ("payout" in type(row).model_fields) == (kind == "REDEEM")
+
+
+# data-api-v2 53a79ac, combo_token_outcomes_survive_projection_and_keyset.
+_COMBO_CONDITION = "0x03" + "ab" * 30
+
+
+def combo_row(kind: str, outcome: str, index: int) -> dict[str, object]:
+    return {
+        **sample("activity")[0],
+        "type": kind,
+        "is_combo": True,
+        "condition_id": _COMBO_CONDITION,
+        "outcome": outcome,
+        "outcome_index": index,
+        "side": "BUY",
+        "size": 17.105871,
+        "usdc_size": 0.5,
+        "price": 0.03,
+        "token_id": str(
+            1373525411643998707269718504228978186297414887389368269897738957660941713408
+            + (2 if index == 999 else index)
+        ),
+        "title": "Georgia vs. Arkansas",
+        "slug": "",
+        "event_slug": "",
+    }
+
+
+@pytest.mark.parametrize(
+    "kind,side,outcome,index",
+    [
+        ("TRADE", "BUY", "Yes", 0),
+        ("TRADE", "BUY", "No", 1),
+        ("TRADE", "SELL", "Yes", 0),
+        ("TRADE", "SELL", "No", 1),
+        ("REDEEM", "", "Yes", 0),
+        ("REDEEM", "", "No", 1),
+    ],
+)
+def test_combo_token_outcomes(kind: str, side: str, outcome: str, index: int) -> None:
+    row = parse_activity({**combo_row(kind, outcome, index), "side": side})
+    assert isinstance(row, (ComboTradeActivity, ComboRedemptionActivity))
+    assert row.is_combo is True
+    assert row.condition_id == _COMBO_CONDITION
+    assert row.outcome == outcome
+    assert row.outcome_index == index
+    assert row.amount == Decimal("0.5")
+
+
+@pytest.mark.parametrize("kind", ["TRADE", "REDEEM"])
+def test_unknown_combo_outcomes_stay_unavailable(kind: str) -> None:
+    row = parse_activity(combo_row(kind, "", 999))
+    assert isinstance(row, (ComboTradeActivity, ComboRedemptionActivity))
+    assert row.outcome is None
+    assert row.outcome_index is None
+
+
+@pytest.mark.parametrize("is_combo", [False, None])
+def test_redeem_ctf03_prefix_does_not_imply_combo(is_combo: bool | None) -> None:
+    condition_id = "0x03" + "cd" * 30 + "00"
+    payload = {**combo_row("REDEEM", "Arkansas", 1), "condition_id": condition_id}
+    if is_combo is None:
+        payload.pop("is_combo")
+    else:
+        payload["is_combo"] = is_combo
+    row = parse_activity(payload)
+    assert isinstance(row, RedeemActivity)
+    assert row.is_combo is False
+    assert row.condition_id == condition_id
+    assert row.outcome == "Arkansas"
+    assert row.outcome_index == 1
+
+
+def test_combo_redemptions_stay_in_the_mixed_activity_feed() -> None:
+    rows = parse_activities(
+        [
+            combo_row("TRADE", "Yes", 0),
+            combo_row("REDEEM", "No", 1),
+            {**sample("activity")[0], "type": "REWARD"},
+        ]
+    )
+    assert [row.type for row in rows] == ["TRADE", "REDEEM", "REWARD"]
+    assert isinstance(rows[1], ComboRedemptionActivity)
+    with pytest.raises(UnexpectedResponseError):
+        parse_activity({**combo_row("REDEEM", "No", 1), "condition_id": "0x01" + "ab" * 30})
+
+
+# Checked by Pyright through the real public method annotations; no fabricated client.
+def _public_activity_types(client: PublicClient) -> None:
+    for activity in client.list_activity(user="0x" + "12" * 20).first_page().items:
+        if isinstance(activity, ComboTradeActivity):
+            assert_type(activity.outcome, str | None)
+            assert_type(activity.outcome_index, int | None)
+        if isinstance(activity, ComboRedemptionActivity):
+            assert_type(activity.condition_id, ComboConditionId)
+        if isinstance(activity, RedeemActivity):
+            assert_type(activity.condition_id, ConditionId)
+
+
+async def _async_public_activity_types(client: AsyncPublicClient) -> None:
+    page = await client.list_activity(user="0x" + "12" * 20).first_page()
+    for activity in page.items:
+        if isinstance(activity, ComboRedemptionActivity):
+            assert_type(activity.condition_id, ComboConditionId)
+            assert_type(activity.outcome, str | None)
+            assert_type(activity.outcome_index, int | None)

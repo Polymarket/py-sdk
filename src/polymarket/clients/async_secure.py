@@ -402,7 +402,10 @@ class AsyncSecureClient:
     ) -> AsyncPaginator[Activity]:
         """List wallet activity, including deposits and withdrawals.
 
-        Amounts are USDC and shares are outcome units.
+        Amounts are USDC and shares are outcome units. Combo trades and redemptions
+        expose available basket token outcomes. Combo redemptions return
+        ``ComboRedemptionActivity``; ordinary redemptions return ``RedeemActivity``.
+        A basket's outcome names its token side, not a selected leg.
 
         Omit ``user`` to use the authenticated wallet.
 
