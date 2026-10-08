@@ -28,6 +28,7 @@ from polymarket.models import (
     Comment,
     Event,
     Market,
+    ProtocolVersion,
     PublicProfile,
     RelatedTag,
     SearchResults,
@@ -476,11 +477,17 @@ def list_events_spec(
     tag_match: TagMatch | None = None,
     tag_slug: str | None = None,
     title_search: str | None = None,
+    version: ProtocolVersion | Literal["v1", "v2"] | None = None,
     volume_max: float | None = None,
     volume_min: float | None = None,
 ) -> KeysetPaginatedSpec[Event]:
     _check_recurrence(recurrence)
     _check_tag_match(tag_match)
+    if version is not None and (
+        not isinstance(version, str)  # pyright: ignore[reportUnnecessaryIsInstance]
+        or version not in ("v1", "v2")
+    ):
+        raise UserInputError("version must be one of: v1, v2")
 
     params: dict[str, QueryParamValue] = {}
     _add_optional(params, "ascending", ascending)
@@ -519,6 +526,7 @@ def list_events_spec(
     _add_optional(params, "tag_match", tag_match)
     _add_optional(params, "tag_slug", tag_slug)
     _add_optional(params, "title_search", title_search)
+    _add_optional(params, "version", version)
     _add_optional(params, "volume_max", volume_max)
     _add_optional(params, "volume_min", volume_min)
 

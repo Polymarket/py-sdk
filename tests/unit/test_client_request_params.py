@@ -1,21 +1,174 @@
 # pyright: reportPrivateUsage=false
 import asyncio
 import dataclasses
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 import pytest
 from data_v2_samples import position_payload, sample
 
-from polymarket import ApiKeyCreds, AsyncPublicClient, AsyncSecureClient, PublicClient, SecureClient
+from polymarket import (
+    ApiKeyCreds,
+    AsyncPublicClient,
+    AsyncSecureClient,
+    ProtocolVersion,
+    PublicClient,
+    SecureClient,
+)
+from polymarket._internal.pagination import encode_keyset_cursor
 from polymarket.clients._transport import AsyncTransport, SyncTransport
 from polymarket.errors import UserInputError
+from polymarket.pagination import AsyncPaginator
 
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 WALLET = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 CREDS = ApiKeyCreds(key="test", passphrase="test", secret="dGVzdA==")
 CONDITION = "0x" + "ab" * 32
 COMBO = "0x03" + "ab" * 30
+
+
+@pytest.mark.parametrize("mode", ["public", "secure", "async_public", "async_secure"])
+@pytest.mark.parametrize("version", [None, "v1", "v2", ProtocolVersion.V1, ProtocolVersion.V2])
+def test_event_protocol_filter_and_cursor_binding(
+    mode: str, version: ProtocolVersion | Literal["v1", "v2"] | None
+) -> None:
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "events": [{"id": "event-1", "title": "Protocol-filtered event"}],
+                "next_cursor": None if "after_cursor" in request.url.params else "server-next",
+            },
+        )
+
+    async def run() -> None:
+        client: PublicClient | SecureClient | AsyncPublicClient | AsyncSecureClient
+        if mode == "public":
+            client = PublicClient()
+        elif mode == "secure":
+            client = SecureClient._create(
+                private_key=PRIVATE_KEY,
+                wallet=WALLET,
+                credentials=CREDS,
+                validate_credentials=False,
+            )
+        elif mode == "async_public":
+            client = AsyncPublicClient()
+        else:
+            client = await AsyncSecureClient._create(
+                private_key=PRIVATE_KEY,
+                wallet=WALLET,
+                credentials=CREDS,
+                validate_credentials=False,
+            )
+        asynchronous = isinstance(client, AsyncPublicClient | AsyncSecureClient)
+        http: Any = (
+            httpx.AsyncClient(
+                base_url="https://example.test", transport=httpx.MockTransport(handler)
+            )
+            if asynchronous
+            else httpx.Client(
+                base_url="https://example.test", transport=httpx.MockTransport(handler)
+            )
+        )
+        if isinstance(client, AsyncSecureClient):
+            await client._ctx.gamma.close()
+            client._ctx = dataclasses.replace(
+                client._ctx, gamma=AsyncTransport(base_url="https://example.test", client=http)
+            )
+        elif isinstance(client, AsyncPublicClient):
+            await client._ctx.gamma.close()
+            client._ctx = dataclasses.replace(
+                client._ctx, gamma=AsyncTransport(base_url="https://example.test", client=http)
+            )
+        elif isinstance(client, SecureClient):
+            client._ctx.gamma.close()
+            client._ctx = dataclasses.replace(
+                client._ctx, gamma=SyncTransport(base_url="https://example.test", client=http)
+            )
+        else:
+            client._ctx.gamma.close()
+            client._ctx = dataclasses.replace(
+                client._ctx, gamma=SyncTransport(base_url="https://example.test", client=http)
+            )
+        try:
+            if version is None:
+                for invalid in ("v3", "V2", "", 2, True, ["v2"], ("v1", "v2")):
+                    with pytest.raises(UserInputError, match="version must be one of: v1, v2"):
+                        client.list_events(version=invalid)  # type: ignore[arg-type]
+                assert not captured
+
+            paginator = client.list_events(version=version, page_size=5)
+            first = (
+                await paginator.first_page()
+                if isinstance(paginator, AsyncPaginator)
+                else paginator.first_page()
+            )
+            assert first.next_cursor is not None
+            # An omitted filter must still resume a cursor created with the old query.
+            cursor = (
+                encode_keyset_cursor(
+                    service="gamma",
+                    path="/events/keyset",
+                    base_params={"closed": False},
+                    server_cursor="server-next",
+                )
+                if version is None
+                else first.next_cursor
+            )
+            same_version = (
+                None
+                if version is None
+                else (ProtocolVersion.V1 if version == "v1" else ProtocolVersion.V2)
+            )
+            replay = client.list_events(version=same_version, page_size=5).from_cursor(cursor)
+            second = (
+                await replay.first_page()
+                if isinstance(replay, AsyncPaginator)
+                else replay.first_page()
+            )
+            assert first.items[0].id == second.items[0].id == "event-1"
+            assert not second.has_more
+
+            for changed in (None, ProtocolVersion.V1, ProtocolVersion.V2):
+                if changed == same_version:
+                    continue
+                other = client.list_events(version=changed, page_size=5).from_cursor(cursor)
+                with pytest.raises(UserInputError, match="different query parameters"):
+                    if isinstance(other, AsyncPaginator):
+                        await other.first_page()
+                    else:
+                        other.first_page()
+            assert len(captured) == 2
+
+            if isinstance(paginator, AsyncPaginator):
+                pages = [page async for page in paginator]
+            else:
+                pages = list(paginator)
+            assert len(pages) == 2
+        finally:
+            if isinstance(client, AsyncPublicClient | AsyncSecureClient):
+                await client.close()
+                await http.aclose()
+            else:
+                client.close()
+                http.close()
+
+    asyncio.run(run())
+    assert len(captured) == 4
+    expected = {"closed": "false", "limit": "5"}
+    if version is not None:
+        expected["version"] = version
+    assert [dict(request.url.params) for request in captured] == [
+        expected,
+        {**expected, "after_cursor": "server-next"},
+        expected,
+        {**expected, "after_cursor": "server-next"},
+    ]
+    assert all(request.url.path == "/events/keyset" for request in captured)
 
 
 @pytest.mark.parametrize("mode", ["public", "secure", "async_public", "async_secure"])
