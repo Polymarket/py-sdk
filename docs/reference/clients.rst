@@ -15,8 +15,10 @@ the final accessible full page has ``limit_reached=True``. Automatic page
 and item iteration then stop normally. ``has_more`` and ``next_cursor``
 are preserved: the flag means completeness is unknown, not that additional
 rows definitely exist. Explicitly resuming an over-limit cursor raises
-``PaginationLimitError`` before sending a request. Request failures still
-propagate normally.
+``PaginationLimitError`` before sending a request. Automatic iteration raises
+``UnexpectedResponseError`` if a response reports more items without a next
+cursor or repeats a cursor already requested in that walk, after yielding the
+pages fetched so far. Request failures still propagate normally.
 
 Eager exports require an explicit ``limit``. ``limit=None`` collects all
 accessible rows, but a depth-limited result is not known to be complete.
