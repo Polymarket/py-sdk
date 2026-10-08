@@ -1,7 +1,7 @@
 # pyright: reportPrivateUsage=false
 import asyncio
 import dataclasses
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import httpx
 import pytest
@@ -74,24 +74,16 @@ def test_event_protocol_filter_and_cursor_binding(
                 base_url="https://example.test", transport=httpx.MockTransport(handler)
             )
         )
-        if isinstance(client, AsyncSecureClient):
+        # Replacing a dataclass preserves its concrete context type. Keep this
+        # private transport seam dynamic while checking the public calls below.
+        if isinstance(client, AsyncPublicClient | AsyncSecureClient):
             await client._ctx.gamma.close()
-            client._ctx = dataclasses.replace(
+            cast(Any, client)._ctx = dataclasses.replace(
                 client._ctx, gamma=AsyncTransport(base_url="https://example.test", client=http)
-            )
-        elif isinstance(client, AsyncPublicClient):
-            await client._ctx.gamma.close()
-            client._ctx = dataclasses.replace(
-                client._ctx, gamma=AsyncTransport(base_url="https://example.test", client=http)
-            )
-        elif isinstance(client, SecureClient):
-            client._ctx.gamma.close()
-            client._ctx = dataclasses.replace(
-                client._ctx, gamma=SyncTransport(base_url="https://example.test", client=http)
             )
         else:
             client._ctx.gamma.close()
-            client._ctx = dataclasses.replace(
+            cast(Any, client)._ctx = dataclasses.replace(
                 client._ctx, gamma=SyncTransport(base_url="https://example.test", client=http)
             )
         try:
