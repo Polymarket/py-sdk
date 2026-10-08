@@ -90,3 +90,23 @@ async def test_authenticated_wallet_defaults(
     standing = await client.get_trader_leaderboard_standing()
     if standing is not None:
         assert standing.wallet.lower() == deposit_wallet_address.lower()
+
+
+def test_token_reference_lookup(sync_public_client: PublicClient) -> None:
+    rows = sync_public_client.get_token_references(condition_ids=CONDITION)
+    if not rows:
+        pytest.skip("reference condition has no registered outcome assets")
+    asset_ids = tuple(row.asset_id for row in rows[:2])
+    selected = sync_public_client.get_token_references(asset_ids=asset_ids)
+    assert tuple(row.asset_id for row in selected) == asset_ids
+    assert all(row.condition_id == CONDITION for row in selected)
+    assert sync_public_client.get_token_references(asset_ids="9" * 78) == ()
+
+
+@pytest.mark.anyio
+async def test_async_token_reference_lookup(public_client: AsyncPublicClient) -> None:
+    rows = await public_client.get_token_references(condition_ids=CONDITION)
+    if not rows:
+        pytest.skip("reference condition has no registered outcome assets")
+    selected = await public_client.get_token_references(asset_ids=rows[0].asset_id)
+    assert selected and selected[0].asset_id == rows[0].asset_id

@@ -87,6 +87,7 @@ from polymarket.models.data.portfolio import (
 from polymarket.models.data.resolutions import (
     Resolution,
 )
+from polymarket.models.data.tokens import TokenModule, TokenReference
 
 __all__ = [
     "Activity",
@@ -138,6 +139,8 @@ __all__ = [
     "RedeemActivity",
     "ReferralRewardActivity",
     "Resolution",
+    "TokenModule",
+    "TokenReference",
     "ResolutionMarketType",
     "ResolutionReporter",
     "ResolutionSettlementTimeBasis",
