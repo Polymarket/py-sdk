@@ -189,7 +189,7 @@ def test_combo_redemptions_stay_in_the_mixed_activity_feed() -> None:
 
 
 # Checked by Pyright through the real public method annotations; no fabricated client.
-def _public_activity_types(client: PublicClient) -> None:
+def public_activity_types(client: PublicClient) -> None:
     for activity in client.list_activity(user="0x" + "12" * 20).first_page().items:
         if isinstance(activity, ComboTradeActivity):
             assert_type(activity.outcome, str | None)
@@ -200,7 +200,7 @@ def _public_activity_types(client: PublicClient) -> None:
             assert_type(activity.condition_id, ConditionId)
 
 
-async def _async_public_activity_types(client: AsyncPublicClient) -> None:
+async def async_public_activity_types(client: AsyncPublicClient) -> None:
     page = await client.list_activity(user="0x" + "12" * 20).first_page()
     for activity in page.items:
         if isinstance(activity, ComboRedemptionActivity):
