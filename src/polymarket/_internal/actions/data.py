@@ -2,7 +2,7 @@ import re
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from math import isfinite
-from typing import get_args
+from typing import cast, get_args
 
 from polymarket._internal.data_envelope import (
     parse_data_envelope,
@@ -430,11 +430,12 @@ def build_get_token_references_spec(
     )
 
 
-def _token_selector_items(values: str | Sequence[str], name: str) -> tuple[str, ...]:
+def _token_selector_items(values: object, name: str) -> tuple[str, ...]:
+    items: tuple[object, ...]
     if isinstance(values, str):
         items = (values,)
     elif isinstance(values, Sequence):
-        items = tuple(values)
+        items = tuple(cast(Sequence[object], values))
     else:
         raise UserInputError(f"{name} must be a string or sequence of strings")
     out: list[str] = []
