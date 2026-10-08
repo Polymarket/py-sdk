@@ -207,3 +207,19 @@ async def async_public_activity_types(client: AsyncPublicClient) -> None:
             assert_type(activity.condition_id, ComboConditionId)
             assert_type(activity.outcome, str | None)
             assert_type(activity.outcome_index, int | None)
+
+
+@pytest.mark.parametrize("title", ["", None])
+def test_combo_redemption_missing_presentation_keeps_mixed_feed(title: str | None) -> None:
+    redemption = combo_row("REDEEM", "No", 1)
+    if title is None:
+        redemption.pop("title")
+    else:
+        redemption["title"] = title
+    for field in ("icon", "slug", "event_slug"):
+        redemption.pop(field, None)
+    rows = parse_activities([{**sample("activity")[0], "type": "REWARD"}, redemption])
+    assert [row.type for row in rows] == ["REWARD", "REDEEM"]
+    assert isinstance(rows[1], ComboRedemptionActivity)
+    assert rows[1].title is None and rows[1].icon is None
+    assert rows[1].outcome == "No" and rows[1].outcome_index == 1
