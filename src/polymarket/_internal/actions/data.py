@@ -1,7 +1,8 @@
+import re
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from math import isfinite
-from typing import get_args
+from typing import cast, get_args
 
 from polymarket._internal.data_envelope import (
     parse_data_envelope,
@@ -45,6 +46,7 @@ from polymarket.models.data import (
     PriceHistoryPoint,
     Resolution,
     SortDirection,
+    TokenReference,
     Trade,
     TradeFilterType,
     TraderLeaderboardEntry,
@@ -386,6 +388,66 @@ def build_list_market_holders_spec(
         max_page_size=100 if include_pnl else 1000,
         retry=DATA_READ_RETRY,
     )
+
+
+def build_get_token_references_spec(
+    *,
+    asset_ids: str | Sequence[str] | None = None,
+    condition_ids: str | Sequence[str] | None = None,
+) -> RequestSpec[tuple[TokenReference, ...]]:
+    if (asset_ids is None) == (condition_ids is None):
+        raise UserInputError("Provide exactly one of asset_ids or condition_ids")
+    if asset_ids is not None:
+        items = _token_selector_items(asset_ids, "asset_ids")
+        normalized: dict[str, None] = {}
+        for value in items:
+            if re.fullmatch(r"[0-9]+", value) is None:
+                raise UserInputError("asset_ids must contain decimal digit strings")
+            value = value.lstrip("0") or "0"
+            if len(value) > 78:
+                raise UserInputError("asset_ids must contain at most 78 digits after leading zeros")
+            normalized.setdefault(value, None)
+        if len(normalized) > 50:
+            raise UserInputError("asset_ids accepts at most 50 distinct values")
+        params = build_data_params({"token_id": tuple(normalized)})
+    else:
+        assert condition_ids is not None
+        conditions: dict[str, None] = {}
+        for value in _token_selector_items(condition_ids, "condition_ids"):
+            if re.fullmatch(r"0x(?:[0-9a-fA-F]{62}|[0-9a-fA-F]{64})", value) is None:
+                raise UserInputError("condition_ids must contain 31-byte or 32-byte hex strings")
+            conditions.setdefault(value.lower(), None)
+        if len(conditions) > 10:
+            raise UserInputError("condition_ids accepts at most 10 distinct values")
+        params = build_data_params({"condition": tuple(conditions)})
+    return RequestSpec(
+        service="data",
+        method="GET",
+        path="/v2/tokens",
+        params=params,
+        parse=lambda payload: parse_data_envelope(payload, TokenReference.parse_response_list),
+        retry=DATA_READ_RETRY,
+    )
+
+
+def _token_selector_items(values: object, name: str) -> tuple[str, ...]:
+    items: tuple[object, ...]
+    if isinstance(values, str):
+        items = (values,)
+    elif isinstance(values, Sequence):
+        items = tuple(cast(Sequence[object], values))
+    else:
+        raise UserInputError(f"{name} must be a string or sequence of strings")
+    out: list[str] = []
+    for value in items:
+        if type(value) is not str:
+            raise UserInputError(f"{name} must contain strings")
+        stripped = value.strip()
+        if stripped:
+            out.append(stripped)
+    if not out:
+        raise UserInputError(f"{name} must contain at least one nonempty selector")
+    return tuple(out)
 
 
 def get_open_interests_spec(
