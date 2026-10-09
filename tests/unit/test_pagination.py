@@ -16,7 +16,7 @@ from polymarket._internal.pagination import (
     encode_page_cursor,
     fingerprint_query,
 )
-from polymarket.errors import UnexpectedResponseError, UserInputError
+from polymarket.errors import RequestRejectedError, UnexpectedResponseError, UserInputError
 from polymarket.pagination import AsyncPaginator, Page, Paginator
 
 
@@ -283,6 +283,80 @@ def test_paginator_first_page_returns_page() -> None:
     assert page.items == (1, 2, 3)
     assert page.has_more is False
     assert page.next_cursor is None
+
+
+def test_paginator_preserves_rejected_cursor_without_restarting() -> None:
+    rejection = RequestRejectedError("Restart this listing", status=400)
+    requested: list[str | None] = []
+
+    def fetch(cursor: str | None) -> Page[int]:
+        requested.append(cursor)
+        raise rejection
+
+    paginator = Paginator[int](fetch=fetch)
+    with pytest.raises(RequestRejectedError) as caught:
+        paginator.from_cursor("obsolete-closed-order").first_page()
+    assert caught.value is rejection
+    assert requested == ["obsolete-closed-order"]
+
+
+def test_paginator_keeps_pages_before_rejected_continuation() -> None:
+    rejection = RequestRejectedError("Restart this listing", status=400)
+    requested: list[str | None] = []
+
+    def fetch(cursor: str | None) -> Page[int]:
+        requested.append(cursor)
+        if cursor is not None:
+            raise rejection
+        return Page(items=(1,), has_more=True, next_cursor="obsolete-closed-order")
+
+    pages: list[Page[int]] = []
+    with pytest.raises(RequestRejectedError) as caught:
+        for page in Paginator[int](fetch=fetch):
+            pages.append(page)
+    assert caught.value is rejection
+    assert [page.items for page in pages] == [(1,)]
+    assert requested == [None, "obsolete-closed-order"]
+
+
+def test_async_paginator_preserves_rejected_cursor_without_restarting() -> None:
+    rejection = RequestRejectedError("Restart this listing", status=400)
+    requested: list[str | None] = []
+
+    async def fetch(cursor: str | None) -> Page[int]:
+        requested.append(cursor)
+        raise rejection
+
+    async def run() -> None:
+        paginator = AsyncPaginator[int](fetch=fetch)
+        with pytest.raises(RequestRejectedError) as caught:
+            await paginator.from_cursor("obsolete-closed-order").first_page()
+        assert caught.value is rejection
+
+    asyncio.run(run())
+    assert requested == ["obsolete-closed-order"]
+
+
+def test_async_paginator_keeps_pages_before_rejected_continuation() -> None:
+    rejection = RequestRejectedError("Restart this listing", status=400)
+    requested: list[str | None] = []
+
+    async def fetch(cursor: str | None) -> Page[int]:
+        requested.append(cursor)
+        if cursor is not None:
+            raise rejection
+        return Page(items=(1,), has_more=True, next_cursor="obsolete-closed-order")
+
+    async def run() -> list[Page[int]]:
+        pages: list[Page[int]] = []
+        with pytest.raises(RequestRejectedError) as caught:
+            async for page in AsyncPaginator[int](fetch=fetch):
+                pages.append(page)
+        assert caught.value is rejection
+        return pages
+
+    assert [page.items for page in asyncio.run(run())] == [(1,)]
+    assert requested == [None, "obsolete-closed-order"]
 
 
 def test_paginator_iteration_walks_all_pages() -> None:
