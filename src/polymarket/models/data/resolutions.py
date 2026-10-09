@@ -44,7 +44,17 @@ class Resolution(BaseModel):
     reproposed_price: Decimal | None = None
     price: Decimal | None = None
     transaction_hash: TransactionHash | None = None
+    """Latest lifecycle transaction, when available.
+
+    On UMA lifecycle rows, this can differ from the initial RequestPrice
+    transaction whose log index is retained in ``log_index``.
+    """
     log_index: int | None = None
+    """Initial RequestPrice log index on UMA lifecycle rows, when available.
+
+    It need not belong to ``transaction_hash``. Condition-resolution fallback
+    rows instead carry their condition event's log index and transaction hash.
+    """
     last_updated_at: datetime = Field(validation_alias="last_update_timestamp")
     market_type: ResolutionMarketType | None = None
     payouts: tuple[Decimal, Decimal] | None = None
