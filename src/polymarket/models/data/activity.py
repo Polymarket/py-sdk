@@ -174,8 +174,11 @@ class ComboTradeActivity(_KnownActivityBase):
     price: Decimal
     title: str | None = None
     icon: str | None = None
+    outcome: str | None = None
+    outcome_index: int | None = None
 
-    _display_text = field_validator("title", "icon", mode="before")(optional_text)
+    _display_text = field_validator("title", "icon", "outcome", mode="before")(optional_text)
+    _outcome_index = field_validator("outcome_index", mode="before")(optional_outcome_index)
 
     @field_validator("condition_id", mode="before")
     @classmethod
@@ -220,7 +223,37 @@ class MergeActivity(_MarketEventActivity):
 
 
 class RedeemActivity(_MarketEventActivity):
+    """Redeemed proceeds from an ordinary market token."""
+
     type: Literal[ActivityType.REDEEM]
+    is_combo: Literal[False] = False
+    outcome: str | None = None
+    outcome_index: int | None = None
+
+    _outcome = field_validator("outcome", mode="before")(optional_text)
+    _outcome_index = field_validator("outcome_index", mode="before")(optional_outcome_index)
+
+
+class ComboRedemptionActivity(_KnownActivityBase):
+    """Redeemed proceeds from a Combo basket token in wallet activity history.
+
+    ``outcome`` names the basket token's side, not a selected leg.
+    ``outcome_index`` is unavailable when that side is unknown.
+    """
+
+    type: Literal[ActivityType.REDEEM]
+    is_combo: Literal[True]
+    condition_id: ComboConditionId
+    amount: Decimal = Field(validation_alias="usdc_size")
+    title: str | None = None
+    icon: str | None = None
+    outcome: str | None = None
+    outcome_index: int | None = None
+
+    _display_text = field_validator("title", "icon", "outcome", mode="before")(optional_text)
+    _outcome_index = field_validator("outcome_index", mode="before")(optional_outcome_index)
+    _condition = field_validator("condition_id", mode="before")(validate_combo_condition_id)
+    _amount = field_validator("amount", mode="before")(decimal_from_number)
 
 
 class ConversionActivity(_MarketEventActivity):
@@ -323,6 +356,7 @@ Activity = (
     | SplitActivity
     | MergeActivity
     | RedeemActivity
+    | ComboRedemptionActivity
     | ConversionActivity
     | RewardActivity
     | DepositActivity
@@ -441,6 +475,8 @@ def parse_activity(payload: object) -> Activity:
     activity_type = data.get("type")
     if activity_type == "TRADE" and data.get("is_combo") is True:
         return ComboTradeActivity.parse_response(data)
+    if activity_type == "REDEEM" and data.get("is_combo") is True:
+        return ComboRedemptionActivity.parse_response(data)
     if isinstance(activity_type, str) and activity_type in _KNOWN_ACTIVITY_TYPES:
         cls = _KNOWN_ACTIVITY_TYPES[activity_type]
         return cast(Activity, cls.parse_response(data))
@@ -478,6 +514,7 @@ __all__ = [
     "ComboConvertActivity",
     "ComboMergeActivity",
     "ComboRedeemActivity",
+    "ComboRedemptionActivity",
     "ComboSplitActivity",
     "ComboTradeActivity",
     "ComboUnwrapActivity",
