@@ -66,7 +66,7 @@ from polymarket.models import (
 )
 from polymarket.models.clob.builder import BuilderTrade
 from polymarket.models.clob.market_events import MarketEvent
-from polymarket.models.clob.rewards import CurrentReward, MarketReward
+from polymarket.models.clob.rewards import CurrentReward, MarketReward, RebatedFee
 from polymarket.models.data import (
     Activity,
     ActivityTypeFilter,
@@ -1561,6 +1561,18 @@ class AsyncPublicClient:
             amount=amount,
             shares=shares,
             order_type=order_type,
+        )
+
+    async def get_current_rebates(self, *, date: str, maker_address: str) -> tuple[RebatedFee, ...]:
+        """Get maker fee rebates for a YYYY-MM-DD calendar day without authentication.
+
+        Amounts retain exact precision as Decimal values in USDC units.
+        """
+        path, params = _rewards_actions.build_get_current_rebates_request(
+            date=date, maker_address=maker_address
+        )
+        return _rewards_actions.parse_current_rebates(
+            await self._ctx.clob.get_json(path, params=params)
         )
 
     def list_current_rewards(
