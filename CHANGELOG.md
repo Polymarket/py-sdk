@@ -24,7 +24,6 @@
 * **perps:** support chase order lifecycle ([e4454a0](https://github.com/Polymarket/py-sdk/commit/e4454a072cbd306ac7978e238c4c39dadc833e13))
 * **perps:** support good-till-date orders ([418f192](https://github.com/Polymarket/py-sdk/commit/418f192e1ed9a84123b4ed3f251a9ae812468721))
 * **perps:** support good-till-date orders ([ed03bfc](https://github.com/Polymarket/py-sdk/commit/ed03bfc59d9bb2ab5ea1bd3146c05d7524f59e6f))
-* **perps:** support internal collateral transfers and history ([28aae5c](https://github.com/Polymarket/py-sdk/commit/28aae5ccc7e4fbcae2d52ecefe2834550b119ddb))
 * **perps:** support partial position tp/sl exits ([900edc7](https://github.com/Polymarket/py-sdk/commit/900edc728937d666f1b98dd945362dffa6a7b5bc))
 * **perps:** support partial position TP/SL exits ([9079081](https://github.com/Polymarket/py-sdk/commit/907908111f4a25fbf7a7fa302c6d18b620837c12))
 * **perps:** support trailing stop losses and activation ([017b976](https://github.com/Polymarket/py-sdk/commit/017b976dd5c4893738b4c1e39b8ba254c27b2a82))
