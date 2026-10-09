@@ -1,3 +1,5 @@
+from typing import Literal
+
 import pytest
 
 from polymarket._internal.actions import gamma as gamma_actions
@@ -8,7 +10,7 @@ from polymarket._internal.request import (
     PageBasedSpec,
 )
 from polymarket.errors import UnexpectedResponseError, UserInputError
-from polymarket.models import Comment
+from polymarket.models import Comment, ProtocolVersion
 
 
 def _minimal_market_payload(**overrides: object) -> dict[str, object]:
@@ -31,6 +33,21 @@ def test_list_events_spec_defaults_to_open_events() -> None:
     assert spec.service == "gamma"
     assert spec.path == "/events/keyset"
     assert spec.base_params == {"closed": False}
+
+
+@pytest.mark.parametrize("version", ["v1", "v2", ProtocolVersion.V1, ProtocolVersion.V2])
+def test_list_events_spec_sends_scalar_protocol_version(
+    version: ProtocolVersion | Literal["v1", "v2"],
+) -> None:
+    spec = gamma_actions.list_events_spec(version=version)
+
+    assert spec.base_params == {"closed": False, "version": version}
+
+
+@pytest.mark.parametrize("version", ["v3", "V2", "", 2, True, ["v2"], ("v1", "v2")])
+def test_list_events_spec_rejects_invalid_protocol_version(version: object) -> None:
+    with pytest.raises(UserInputError, match="version must be one of: v1, v2"):
+        gamma_actions.list_events_spec(version=version)  # type: ignore[arg-type]
 
 
 def test_list_events_spec_collects_filter_params() -> None:

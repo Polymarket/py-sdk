@@ -48,6 +48,7 @@ from polymarket.models import (
     OrderBook,
     OrderSide,
     PriceRequest,
+    ProtocolVersion,
     PublicProfile,
     RelatedTag,
     SearchResults,
@@ -794,6 +795,7 @@ class PublicClient:
         tag_match: TagMatch | None = None,
         tag_slug: str | None = None,
         title_search: str | None = None,
+        version: ProtocolVersion | Literal["v1", "v2"] | None = None,
         volume_max: float | None = None,
         volume_min: float | None = None,
         page_size: int = 20,
@@ -801,6 +803,9 @@ class PublicClient:
         """List events.
 
         Defaults to open events. Pass ``closed=True`` to list settled events.
+        Pass ``version="v1"`` or ``version="v2"`` to filter by protocol; omitting
+        it leaves the protocol unfiltered. Keep the same version when resuming
+        a saved cursor.
 
         Returns:
             A paginator over matching events.
@@ -854,6 +859,7 @@ class PublicClient:
             tag_match=tag_match,
             tag_slug=tag_slug,
             title_search=title_search,
+            version=version,
             volume_max=volume_max,
             volume_min=volume_min,
         )
