@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from enum import StrEnum
 from typing import TypeAlias
 
 from pydantic import AliasChoices, Field, computed_field, field_validator
@@ -10,7 +11,13 @@ from polymarket.models.base import BaseModel
 from polymarket.models.clob._validators import (
     _coerce_decimalish,  # pyright: ignore[reportPrivateUsage]
 )
-from polymarket.models.types import ClobAssetId, ConditionId, validate_condition_id
+from polymarket.models.types import (
+    ClobAssetId,
+    ConditionId,
+    EventId,
+    MarketId,
+    validate_condition_id,
+)
 
 
 def _from_epoch_ms(value: int) -> datetime:
@@ -285,3 +292,67 @@ __all__ = [
     "UserRewardsConfig",
     "UserRewardsEarning",
 ]
+
+
+class RewardMarketSort(StrEnum):
+    """Fields available for ordering reward market discovery."""
+
+    MARKET_ID = "market_id"
+    CREATED_AT = "created_at"
+    VOLUME_24HR = "volume_24hr"
+    SPREAD = "spread"
+    COMPETITIVENESS = "competitiveness"
+    MAX_SPREAD = "max_spread"
+    MIN_SIZE = "min_size"
+    QUESTION = "question"
+    ONE_DAY_PRICE_CHANGE = "one_day_price_change"
+    RATE_PER_DAY = "rate_per_day"
+    PRICE = "price"
+    END_DATE = "end_date"
+    START_DATE = "start_date"
+    REWARD_END_DATE = "reward_end_date"
+
+
+class RewardMarket(BaseModel):
+    """Active market and its reward configurations and discovery metadata."""
+
+    condition_id: ConditionId
+    market_id: MarketId
+    market_slug: str
+    question: str
+    image: str
+    market_competitiveness: float
+    rewards_config: tuple[CurrentRewardConfig, ...]
+    rewards_max_spread: float
+    rewards_min_size: Decimal
+    spread: Decimal
+    tokens: tuple[MarketRewardToken, ...]
+    group_item_title: str
+    volume_24hr: Decimal
+    event_id: EventId
+    event_slug: str
+    created_at: datetime
+    one_day_price_change: Decimal
+    end_date: datetime | None
+
+    @field_validator("condition_id", mode="before")
+    @classmethod
+    def _validate_condition_id(cls, value: object) -> ConditionId:
+        return validate_condition_id(value)
+
+    @field_validator(
+        "rewards_min_size", "spread", "volume_24hr", "one_day_price_change", mode="before"
+    )
+    @classmethod
+    def _parse_decimals(cls, value: object) -> object:
+        return _coerce_decimalish(value)
+
+    @field_validator("created_at", mode="before")
+    @classmethod
+    def _parse_created_at(cls, value: object) -> datetime:
+        return _parse_epoch_ms(value)
+
+    @field_validator("end_date", mode="before")
+    @classmethod
+    def _parse_end_date(cls, value: object) -> datetime | None:
+        return _parse_optional_epoch_ms(value)

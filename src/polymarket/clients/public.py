@@ -60,7 +60,12 @@ from polymarket.models import (
     TradingApprovalsState,
 )
 from polymarket.models.clob import BuilderTrade
-from polymarket.models.clob.rewards import CurrentReward, MarketReward
+from polymarket.models.clob.rewards import (
+    CurrentReward,
+    MarketReward,
+    RewardMarket,
+    RewardMarketSort,
+)
 from polymarket.models.data import (
     Activity,
     ActivityTypeFilter,
@@ -1334,6 +1339,57 @@ class PublicClient:
             shares=shares,
             order_type=order_type,
         )
+
+    def list_reward_markets(
+        self,
+        *,
+        query: str | None = None,
+        tag_slugs: Sequence[str] | None = None,
+        exclude_tag_slugs: Sequence[str] | None = None,
+        market_id: int | None = None,
+        event_ids: Sequence[int] | None = None,
+        event_title: str | None = None,
+        order_by: RewardMarketSort | str | None = None,
+        sort_direction: SortDirection | None = None,
+        min_volume_24hr: float | None = None,
+        max_volume_24hr: float | None = None,
+        min_spread: float | None = None,
+        max_spread: float | None = None,
+        min_price: float | None = None,
+        max_price: float | None = None,
+        page_size: int = 100,
+    ) -> Paginator[RewardMarket]:
+        """List active markets and their reward configurations, which may be empty.
+
+        Pages default to 100 items, with a maximum of 500. Positive numeric bounds
+        are min-exclusive and max-inclusive; zero disables a bound. Without order_by
+        ordering is unspecified; otherwise sort_direction defaults to ASC.
+        """
+
+        def fetch(cursor: str | None) -> Page[RewardMarket]:
+            path, params = _rewards_actions.build_list_reward_markets_request(
+                query=query,
+                tag_slugs=tag_slugs,
+                exclude_tag_slugs=exclude_tag_slugs,
+                market_id=market_id,
+                event_ids=event_ids,
+                event_title=event_title,
+                order_by=order_by,
+                sort_direction=sort_direction,
+                min_volume_24hr=min_volume_24hr,
+                max_volume_24hr=max_volume_24hr,
+                min_spread=min_spread,
+                max_spread=max_spread,
+                min_price=min_price,
+                max_price=max_price,
+                page_size=page_size,
+                cursor=cursor,
+            )
+            return _rewards_actions.parse_reward_markets_page(
+                self._ctx.clob.get_json(path, params=params)
+            )
+
+        return Paginator(fetch=fetch)
 
     def list_current_rewards(self, *, sponsored: bool | None = None) -> Paginator[CurrentReward]:
         """List current rewards.
