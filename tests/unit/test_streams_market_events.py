@@ -276,6 +276,51 @@ def test_new_market_game_start_time_parsed_to_datetime() -> None:
     assert event.payload.game_start_time == datetime.fromtimestamp(1710000000, tz=UTC)
 
 
+@pytest.mark.parametrize(
+    "game_start_time",
+    [
+        "2026-10-17 23:30:00+00",  # as sent on the stream
+        "2026-10-17 23:30:00+00:00",
+        "2026-10-17T23:30:00Z",
+        "2026-10-17T23:30:00+00:00",
+        "2026-10-17 23:30:00",  # naive is read as UTC
+    ],
+)
+def test_new_market_game_start_time_accepts_datetime_strings(game_start_time: str) -> None:
+    from datetime import UTC, datetime
+
+    payload = dict(_NEW_MARKET) | {"game_start_time": game_start_time}
+    event = parse_market_event(payload)
+    assert isinstance(event, NewMarketEvent)
+    assert event.payload.game_start_time == datetime(2026, 10, 17, 23, 30, tzinfo=UTC)
+
+
+def test_new_market_game_start_time_keeps_explicit_offset() -> None:
+    from datetime import UTC, datetime, timedelta, timezone
+
+    payload = dict(_NEW_MARKET) | {"game_start_time": "2026-10-17 23:30:00.123456-05"}
+    event = parse_market_event(payload)
+    assert isinstance(event, NewMarketEvent)
+    expected = datetime(2026, 10, 17, 23, 30, 0, 123456, tzinfo=timezone(timedelta(hours=-5)))
+    start = event.payload.game_start_time
+    assert start == expected
+    assert start is not None
+    assert start.astimezone(UTC) == datetime(2026, 10, 18, 4, 30, 0, 123456, tzinfo=UTC)
+
+
+def test_new_market_empty_game_start_time_normalized_to_none() -> None:
+    payload = dict(_NEW_MARKET) | {"game_start_time": ""}
+    event = parse_market_event(payload)
+    assert isinstance(event, NewMarketEvent)
+    assert event.payload.game_start_time is None
+
+
+def test_new_market_timestamp_still_rejects_datetime_strings() -> None:
+    payload = dict(_NEW_MARKET) | {"timestamp": "2026-10-17 23:30:00+00"}
+    with pytest.raises(ValidationError):
+        parse_market_event(payload)
+
+
 def test_last_trade_empty_string_fee_rate_bps_parsed_as_none() -> None:
     payload = dict(_LAST_TRADE) | {"fee_rate_bps": ""}
     event = parse_market_event(payload)
