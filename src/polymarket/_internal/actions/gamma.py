@@ -28,6 +28,8 @@ from polymarket.models import (
     Comment,
     Event,
     Market,
+    MarketResolutionStatus,
+    ProtocolVersion,
     PublicProfile,
     RelatedTag,
     SearchResults,
@@ -548,9 +550,14 @@ def list_markets_spec(
     locale: str | None = None,
     market_maker_addresses: str | Sequence[str] | None = None,
     order: str | None = None,
+    onchain_event_ids: str | Sequence[str] | None = None,
     position_ids: str | Sequence[str] | None = None,
     question_ids: str | Sequence[str] | None = None,
     related_tags: bool | None = None,
+    request_ids: str | Sequence[str] | None = None,
+    resolution_status: MarketResolutionStatus
+    | Literal["inactive", "active", "resolved"]
+    | None = None,
     rfq_enabled: bool | None = None,
     rewards_min_size: float | None = None,
     slug: str | Sequence[str] | None = None,
@@ -560,10 +567,17 @@ def list_markets_spec(
     tag_id: int | None = None,
     tag_match: TagMatch | None = None,
     uma_resolution_status: str | None = None,
+    version: ProtocolVersion | Literal["v1", "v2"] | None = None,
     volume_num_max: float | None = None,
     volume_num_min: float | None = None,
 ) -> KeysetPaginatedSpec[Market]:
     _check_tag_match(tag_match)
+    if resolution_status is not None and resolution_status not in {
+        status.value for status in MarketResolutionStatus
+    }:
+        raise UserInputError("resolution_status must be one of: inactive, active, resolved")
+    if version is not None and version not in {protocol.value for protocol in ProtocolVersion}:
+        raise UserInputError("version must be one of: v1, v2")
 
     params: dict[str, QueryParamValue] = {}
     _add_optional(params, "ascending", ascending)
@@ -582,6 +596,17 @@ def list_markets_spec(
     _add_optional(params, "locale", locale)
     _add_optional_seq(params, "market_maker_address", market_maker_addresses)
     _add_optional(params, "order", _normalize_market_order(order))
+    _add_optional_seq(params, "onchain_event_ids", onchain_event_ids)
+    _add_optional_seq(params, "request_ids", request_ids)
+    for key in ("onchain_event_ids", "request_ids"):
+        values = cast(tuple[object, ...] | None, params.get(key))
+        if values is not None:
+            if len(values) > 100:
+                raise UserInputError(f"{key} accepts at most 100 values")
+            if any(not isinstance(value, str) for value in values):
+                raise UserInputError(f"{key} expects string values")
+    _add_optional(params, "resolution_status", resolution_status)
+    _add_optional(params, "version", version)
     _add_optional_seq(params, "position_ids", position_ids)
     _add_optional_seq(params, "question_ids", question_ids)
     _add_optional(params, "related_tags", related_tags)

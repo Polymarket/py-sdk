@@ -165,11 +165,13 @@ from polymarket.models import (
     LastTradePrice,
     LastTradePriceForAsset,
     Market,
+    MarketResolutionStatus,
     Notification,
     OpenOrder,
     OrderBook,
     OrderSide,
     PriceRequest,
+    ProtocolVersion,
     PublicProfile,
     RelatedTag,
     SearchResults,
@@ -1980,9 +1982,14 @@ class AsyncSecureClient:
         locale: str | None = None,
         market_maker_addresses: str | Sequence[str] | None = None,
         order: str | None = None,
+        onchain_event_ids: str | Sequence[str] | None = None,
         position_ids: str | Sequence[str] | None = None,
         question_ids: str | Sequence[str] | None = None,
         related_tags: bool | None = None,
+        request_ids: str | Sequence[str] | None = None,
+        resolution_status: MarketResolutionStatus
+        | Literal["inactive", "active", "resolved"]
+        | None = None,
         rfq_enabled: bool | None = None,
         rewards_min_size: float | None = None,
         slug: str | Sequence[str] | None = None,
@@ -1992,11 +1999,16 @@ class AsyncSecureClient:
         tag_id: int | None = None,
         tag_match: TagMatch | None = None,
         uma_resolution_status: str | None = None,
+        version: ProtocolVersion | Literal["v1", "v2"] | None = None,
         volume_num_max: float | None = None,
         volume_num_min: float | None = None,
         page_size: int = 20,
     ) -> AsyncPaginator[Market]:
         """List markets.
+
+        V2 markets can be filtered by ``version``, ``resolution_status``,
+        ``request_ids``, and ``onchain_event_ids``. Each ID filter accepts at
+        most 100 values. V1 markets use ``uma_resolution_status`` separately.
 
         Markets that cannot be represented by the binary Market model are
         omitted from results.
@@ -2021,9 +2033,12 @@ class AsyncSecureClient:
             locale=locale,
             market_maker_addresses=market_maker_addresses,
             order=order,
+            onchain_event_ids=onchain_event_ids,
             position_ids=position_ids,
             question_ids=question_ids,
             related_tags=related_tags,
+            request_ids=request_ids,
+            resolution_status=resolution_status,
             rfq_enabled=rfq_enabled,
             rewards_min_size=rewards_min_size,
             slug=slug,
@@ -2033,6 +2048,7 @@ class AsyncSecureClient:
             tag_id=tag_id,
             tag_match=tag_match,
             uma_resolution_status=uma_resolution_status,
+            version=version,
             volume_num_max=volume_num_max,
             volume_num_min=volume_num_min,
         )
