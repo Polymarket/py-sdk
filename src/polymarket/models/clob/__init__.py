@@ -35,6 +35,8 @@ from polymarket.models.clob.notifications import (
     OrderNotificationPayload,
     RewardPayoutNotification,
     RewardPayoutNotificationPayload,
+    TakerTierUpgradedNotification,
+    TakerTierUpgradedNotificationPayload,
     YieldPayoutNotification,
     YieldPayoutNotificationPayload,
 )
@@ -128,6 +130,8 @@ __all__ = [
     "UserEarning",
     "UserRewardsConfig",
     "UserRewardsEarning",
+    "TakerTierUpgradedNotification",
+    "TakerTierUpgradedNotificationPayload",
     "YieldPayoutNotification",
     "YieldPayoutNotificationPayload",
 ]
