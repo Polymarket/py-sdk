@@ -1788,15 +1788,29 @@ class SecureClient:
         )
 
     def send_order_heartbeat(self, *, heartbeat_id: str = "") -> OrderHeartbeat:
-        """Send an authenticated order heartbeat and retain the returned ID.
+        """Send one authenticated order heartbeat and retain the returned ID.
 
-        Start with an empty ID, serialize sends, and send every five seconds.
-        Missing the ten-second deadline triggers cancellation of this API key's
-        orders. No timer or retry is started; this is separate from WebSocket keepalive.
+        The first accepted send enables timeout cancellation for ALL open orders
+        owned by this API key, across markets and processes. Only start when you
+        can keep sending every five seconds. After ten seconds without an accepted
+        send, the server attempts cancel-all; timing and success are not guaranteed.
+        Start with an empty ID, serialize sends per key, and retain every returned
+        ID. No timer or automatic retry starts. A lost response may follow an
+        accepted send, so failure does not prove registration is inactive.
+
+        There is no disarm operation. Stopping sends or closing the client leaves
+        the deadline active. On shutdown, stop placing orders and explicitly
+        cancel/verify orders you intend to remove. Expiry removes the registration;
+        later accepted sends register again. Separate from WebSocket keepalive.
 
         Raises:
+            UserInputError: heartbeat_id is not a string.
             OrderHeartbeatMismatchError: Retry explicitly with the error's
                 heartbeat_id. Rejected sends do not refresh the deadline.
+            RequestRejectedError: Authentication or another request rejection.
+            RateLimitError: The request was rate limited.
+            TransportError: The request failed; acceptance may be unknown.
+            UnexpectedResponseError: The response could not be parsed.
         """
         path, body = _order_heartbeat_actions.build_send_order_heartbeat_request(
             heartbeat_id=heartbeat_id
@@ -1806,11 +1820,26 @@ class SecureClient:
         )
 
     def send_legacy_order_heartbeat(self) -> LegacyOrderHeartbeat:
-        """Send an authenticated legacy heartbeat without ID tracking.
+        """Send one authenticated legacy heartbeat without ID tracking.
 
-        Shares this API key's registration with send_order_heartbeat and resets
-        its expected ID to empty. Send every five seconds to avoid timeout
-        cancellation. No timer or retry is started.
+        The first accepted send enables timeout cancellation for ALL open orders
+        owned by this API key. Keep sending every five seconds; after ten seconds
+        without an accepted send, the server attempts cancel-all with no guarantee
+        of timing or success. Shares the key's registration with
+        send_order_heartbeat and resets its expected ID to empty. Coordinate one
+        sender per key. No timer or automatic retry starts.
+
+        There is no disarm operation: stopping sends or closing the client leaves
+        the deadline active. A lost response may follow an accepted send. Stop
+        placing orders and explicitly cancel/verify orders you intend to remove
+        on shutdown. Expiry removes the registration; later accepted sends
+        register again.
+
+        Raises:
+            RequestRejectedError: Authentication or another request rejection.
+            RateLimitError: The request was rate limited.
+            TransportError: The request failed; acceptance may be unknown.
+            UnexpectedResponseError: The response could not be parsed.
         """
         path = _order_heartbeat_actions.build_send_legacy_order_heartbeat_request()
         return _order_heartbeat_actions.parse_legacy_order_heartbeat(

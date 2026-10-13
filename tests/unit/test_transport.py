@@ -704,7 +704,10 @@ def test_async_close_does_not_close_injected_client() -> None:
 
 
 @pytest.mark.parametrize("path,expected", [("/v1/heartbeats", True), ("/other-route", False)])
-def test_order_heartbeat_rejection_preserves_id_without_retry(path: str, expected: bool) -> None:
+@pytest.mark.parametrize("heartbeat_id", ["expected-id", ""])
+def test_order_heartbeat_rejection_preserves_id_without_retry(
+    path: str, expected: bool, heartbeat_id: str
+) -> None:
     from polymarket.errors import OrderHeartbeatMismatchError
 
     calls: list[httpx.Request] = []
@@ -713,7 +716,7 @@ def test_order_heartbeat_rejection_preserves_id_without_retry(path: str, expecte
         calls.append(request)
         return httpx.Response(
             400,
-            json={"error_msg": "Invalid Heartbeat ID", "heartbeat_id": "expected-id"},
+            json={"error_msg": "Invalid Heartbeat ID", "heartbeat_id": heartbeat_id},
             request=request,
         )
 
@@ -725,5 +728,24 @@ def test_order_heartbeat_rejection_preserves_id_without_retry(path: str, expecte
         transport.post_json(path, json={"heartbeat_id": "stale-id"})
     assert isinstance(error.value, OrderHeartbeatMismatchError) is expected
     if isinstance(error.value, OrderHeartbeatMismatchError):
-        assert error.value.heartbeat_id == "expected-id"
+        assert error.value.heartbeat_id == heartbeat_id
     assert len(calls) == 1
+
+
+def test_invalid_heartbeat_payload_has_no_recovery_id() -> None:
+    from polymarket.errors import OrderHeartbeatMismatchError
+
+    transport = SyncTransport(
+        base_url="https://clob.test",
+        client=httpx.Client(
+            base_url="https://clob.test",
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(
+                    400, json={"error": "Invalid payload"}, request=request
+                )
+            ),
+        ),
+    )
+    with pytest.raises(RequestRejectedError, match="Invalid payload") as error:
+        transport.post_json("/v1/heartbeats")
+    assert not isinstance(error.value, OrderHeartbeatMismatchError)
