@@ -406,6 +406,7 @@ def test_current_rebates_request_and_exact_response() -> None:
     assert fees[0].date == date(2024, 2, 29)
     assert fees[0].rebated_fees_usdc == Decimal(amount)
     assert parse_current_rebates([]) == ()
+    assert parse_current_rebates(None) == ()
     for invalid_date in ("2023-02-29", "20240229", "2024-W09-4", "0000-01-01"):
         with pytest.raises(UserInputError):
             build_get_current_rebates_request(date=invalid_date, maker_address=maker)

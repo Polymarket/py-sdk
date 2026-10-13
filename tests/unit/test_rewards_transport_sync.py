@@ -32,6 +32,8 @@ def _routed_handler(
         path = urlparse(str(request.url)).path
         key = (request.method, path)
         if key in routes:
+            if routes[key] is None:
+                return httpx.Response(200, content=b"null", request=request)
             return httpx.Response(200, json=routes[key], request=request)
         return httpx.Response(404, json={"error": "not mocked"}, request=request)
 
@@ -166,7 +168,7 @@ class TestListMarketRewards:
 def test_sync_public_current_rebates_uses_unsigned_read() -> None:
     captured: list[httpx.Request] = []
     with PublicClient() as client:
-        _install_sync_clob(client, _routed_handler(captured, {("GET", "/rebates/current"): []}))
+        _install_sync_clob(client, _routed_handler(captured, {("GET", "/rebates/current"): None}))
         assert client.get_current_rebates(date="2024-02-29", maker_address=SIGNER_ADDRESS) == ()
     assert parse_qs(urlparse(str(captured[0].url)).query) == {
         "date": ["2024-02-29"],

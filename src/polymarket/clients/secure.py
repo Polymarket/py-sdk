@@ -1790,6 +1790,7 @@ class SecureClient:
         """Get maker fee rebates for a YYYY-MM-DD calendar day without authentication.
 
         Amounts retain exact precision as Decimal values in USDC units.
+        Returns an empty tuple when the maker has no rebates for the date.
         """
         path, params = _rewards_actions.build_get_current_rebates_request(
             date=date, maker_address=maker_address

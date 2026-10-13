@@ -324,4 +324,4 @@ def build_get_current_rebates_request(
 
 
 def parse_current_rebates(data: object) -> tuple[RebatedFee, ...]:
-    return RebatedFee.parse_response_list(data)
+    return RebatedFee.parse_response_list([] if data is None else data)
