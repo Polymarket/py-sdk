@@ -703,10 +703,11 @@ def test_async_close_does_not_close_injected_client() -> None:
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("base_url", ["https://clob.test", "https://clob.test/prefix/"])
 @pytest.mark.parametrize("path,expected", [("/v1/heartbeats", True), ("/other-route", False)])
 @pytest.mark.parametrize("heartbeat_id", ["expected-id", ""])
 def test_order_heartbeat_rejection_preserves_id_without_retry(
-    path: str, expected: bool, heartbeat_id: str
+    path: str, expected: bool, heartbeat_id: str, base_url: str
 ) -> None:
     from polymarket.errors import OrderHeartbeatMismatchError
 
@@ -721,8 +722,8 @@ def test_order_heartbeat_rejection_preserves_id_without_retry(
         )
 
     transport = SyncTransport(
-        base_url="https://clob.test",
-        client=httpx.Client(base_url="https://clob.test", transport=httpx.MockTransport(handler)),
+        base_url=base_url,
+        client=httpx.Client(base_url=base_url, transport=httpx.MockTransport(handler)),
     )
     with pytest.raises(RequestRejectedError) as error:
         transport.post_json(path, json={"heartbeat_id": "stale-id"})
@@ -732,13 +733,14 @@ def test_order_heartbeat_rejection_preserves_id_without_retry(
     assert len(calls) == 1
 
 
-def test_invalid_heartbeat_payload_has_no_recovery_id() -> None:
+@pytest.mark.parametrize("base_url", ["https://clob.test", "https://clob.test/prefix/"])
+def test_invalid_heartbeat_payload_has_no_recovery_id(base_url: str) -> None:
     from polymarket.errors import OrderHeartbeatMismatchError
 
     transport = SyncTransport(
-        base_url="https://clob.test",
+        base_url=base_url,
         client=httpx.Client(
-            base_url="https://clob.test",
+            base_url=base_url,
             transport=httpx.MockTransport(
                 lambda request: httpx.Response(
                     400, json={"error": "Invalid payload"}, request=request
