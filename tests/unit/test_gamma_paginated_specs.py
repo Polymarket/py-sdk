@@ -219,8 +219,16 @@ def test_market_lists_preserve_v2_filters_and_bounds_across_pages(
         assert requests[1].url.params["after_cursor"] == "page-2"
 
 
-@pytest.mark.parametrize("filters", [{"resolution_status": "pending"}, {"version": "v3"}])
-def test_list_markets_spec_rejects_unsupported_v2_filter_enums(filters: dict[str, str]) -> None:
+@pytest.mark.parametrize(
+    "filters",
+    [
+        {"resolution_status": "pending"},
+        {"version": "v3"},
+        {"resolution_status": []},
+        {"resolution_status": {}},
+    ],
+)
+def test_list_markets_spec_rejects_unsupported_v2_filter_enums(filters: dict[str, object]) -> None:
     with pytest.raises(UserInputError):
         gamma_actions.list_markets_spec(**filters)  # type: ignore[arg-type]
 
@@ -699,3 +707,10 @@ def test_comments_paginate_by_cursor_selects_supported_reads_only(
 def test_list_markets_spec_rejects_malformed_protocol_selection(version: object) -> None:
     with pytest.raises(UserInputError, match="version must be"):
         gamma_actions.list_markets_spec(version=version)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("name", ["request_ids", "onchain_event_ids"])
+@pytest.mark.parametrize("invalid", [1.5, object(), {"ID": True}, {"ID"}, b"ID"])
+def test_list_markets_spec_rejects_malformed_id_filter_shapes(name: str, invalid: object) -> None:
+    with pytest.raises(UserInputError, match=name):
+        gamma_actions.list_markets_spec(**{name: invalid})  # type: ignore[arg-type]

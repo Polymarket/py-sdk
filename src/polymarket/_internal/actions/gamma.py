@@ -575,9 +575,10 @@ def list_markets_spec(
     volume_num_min: float | None = None,
 ) -> KeysetPaginatedSpec[Market]:
     _check_tag_match(tag_match)
-    if resolution_status is not None and resolution_status not in {
-        status.value for status in MarketResolutionStatus
-    }:
+    if resolution_status is not None and (
+        not isinstance(cast(object, resolution_status), str)
+        or resolution_status not in {status.value for status in MarketResolutionStatus}
+    ):
         raise UserInputError("resolution_status must be one of: inactive, active, resolved")
     versions: tuple[str, ...] | None = None
     if version is not None:
@@ -610,9 +611,12 @@ def list_markets_spec(
     _add_optional(params, "locale", locale)
     _add_optional_seq(params, "market_maker_address", market_maker_addresses)
     _add_optional(params, "order", _normalize_market_order(order))
-    _add_optional_seq(params, "onchain_event_ids", onchain_event_ids)
-    _add_optional_seq(params, "request_ids", request_ids)
-    for key in ("onchain_event_ids", "request_ids"):
+    for key, value in (("onchain_event_ids", onchain_event_ids), ("request_ids", request_ids)):
+        if value is not None and (
+            not isinstance(cast(object, value), str | Sequence) or isinstance(value, bytes)
+        ):
+            raise UserInputError(f"{key} expects a string or sequence of strings")
+        _add_optional_seq(params, key, value)
         values = cast(tuple[object, ...] | None, params.get(key))
         if values is not None:
             if len(values) > 100:
