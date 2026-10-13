@@ -1132,12 +1132,19 @@ class AsyncPublicClient:
         tag_id: int | None = None,
         tag_match: TagMatch | None = None,
         uma_resolution_status: str | None = None,
-        version: ProtocolVersion | Literal["v1", "v2"] | None = None,
+        version: ProtocolVersion
+        | Literal["v1", "v2"]
+        | Sequence[ProtocolVersion | Literal["v1", "v2"]]
+        | None = None,
         volume_num_max: float | None = None,
         volume_num_min: float | None = None,
         page_size: int = 20,
     ) -> AsyncPaginator[Market]:
         """List markets.
+
+        Omitting ``version`` uses the current server default of CTF markets (v1).
+        Pass one version or a sequence of one or two versions. Keep the same
+        selection when resuming a cursor.
 
         V2 markets can be filtered by ``version``, ``resolution_status``,
         ``request_ids``, and ``onchain_event_ids``. Each ID filter accepts at

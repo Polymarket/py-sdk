@@ -1,4 +1,6 @@
 import asyncio
+from collections.abc import Sequence
+from typing import Literal
 
 import httpx
 import pytest
@@ -110,11 +112,18 @@ def test_list_markets_spec_bounds_v2_filter_count(name: str) -> None:
             gamma_actions.list_markets_spec(onchain_event_ids=["ID"] * 101)
 
 
+@pytest.mark.parametrize(
+    "version", [None, "v2", ["v1", "v2"], (ProtocolVersion.V2, ProtocolVersion.V1), ["v1", "v1"]]
+)
 @pytest.mark.parametrize("client_mode", ["sync", "async"])
 @pytest.mark.parametrize("secure", [False, True], ids=["public", "secure"])
 def test_market_lists_preserve_v2_filters_and_bounds_across_pages(
     client_mode: str,
     secure: bool,
+    version: ProtocolVersion
+    | Literal["v1", "v2"]
+    | Sequence[ProtocolVersion | Literal["v1", "v2"]]
+    | None,
 ) -> None:
     # Controlled responses isolate filter serialization and continuation while
     # the live metadata API is unavailable in this environment.
@@ -156,7 +165,7 @@ def test_market_lists_preserve_v2_filters_and_bounds_across_pages(
                         request_ids=request_ids,
                         onchain_event_ids=event_ids,
                         resolution_status="active",
-                        version="v2",
+                        version=version,
                         page_size=10,
                     )
                 )
@@ -183,7 +192,7 @@ def test_market_lists_preserve_v2_filters_and_bounds_across_pages(
                             request_ids=request_ids,
                             onchain_event_ids=event_ids,
                             resolution_status="active",
-                            version="v2",
+                            version=version,
                             page_size=10,
                         )
                     ]
@@ -204,7 +213,9 @@ def test_market_lists_preserve_v2_filters_and_bounds_across_pages(
             assert query.get_list("request_ids") == request_ids
             assert query.get_list("onchain_event_ids") == event_ids
             assert query["resolution_status"] == "active"
-            assert query["version"] == "v2"
+            assert query.get_list("version") == (
+                [] if version is None else [version] if isinstance(version, str) else list(version)
+            )
         assert requests[1].url.params["after_cursor"] == "page-2"
 
 
@@ -680,3 +691,11 @@ def test_comments_paginate_by_cursor_selects_supported_reads_only(
         )
         is expected
     )
+
+
+@pytest.mark.parametrize(
+    "version", ["v3", "", 2, True, [], ["v1", "v2", "v1"], ["v2", None], b"v1", {"v1"}]
+)
+def test_list_markets_spec_rejects_malformed_protocol_selection(version: object) -> None:
+    with pytest.raises(UserInputError, match="version must be"):
+        gamma_actions.list_markets_spec(version=version)  # type: ignore[arg-type]

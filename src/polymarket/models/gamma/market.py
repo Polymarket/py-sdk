@@ -315,6 +315,8 @@ class MarketResolution(BaseModel):
     @field_validator("onchain_event_id", mode="before")
     @classmethod
     def _validate_onchain_event_id(cls, value: object) -> object:
+        if value == "":
+            return None
         if value is not None and (
             not isinstance(value, str) or re.fullmatch(r"0x[0-9a-fA-F]{58}000000", value) is None
         ):
@@ -326,13 +328,17 @@ class MarketResolution(BaseModel):
     @field_validator("request_id", mode="before")
     @classmethod
     def _validate_request_id(cls, value: object) -> object:
+        if value == "":
+            return None
         if value is not None and (
             not isinstance(value, str) or re.fullmatch(r"0x[0-9a-fA-F]{62}00", value) is None
         ):
             raise ValueError("Expected a 32-byte oracle request ID with the outcome byte zero")
         return value
 
-    @field_validator("question_id", "neg_risk_request_id", "resolved_by", mode="before")
+    @field_validator(
+        "question_id", "neg_risk_request_id", "resolved_by", "resolution_status", mode="before"
+    )
     @classmethod
     def empty_string_to_none(cls, value: object) -> object | None:
         return None if value == "" else value

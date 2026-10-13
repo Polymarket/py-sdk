@@ -84,9 +84,14 @@ def test_market_preserves_v2_oracle_metadata() -> None:
             "requestId": None,
             "resolutionStatus": None,
         },
+        {
+            "onchainEventId": "",
+            "requestId": "",
+            "resolutionStatus": "",
+        },
     ],
 )
-def test_market_accepts_absent_and_null_v2_metadata(metadata: dict[str, object]) -> None:
+def test_market_accepts_absent_empty_and_null_v2_metadata(metadata: dict[str, object]) -> None:
     market = Market.parse_response(_minimal_market_payload(**metadata))
 
     assert market.resolution.onchain_event_id is None
