@@ -490,12 +490,13 @@ def list_events_spec(
     if version is not None:
         if isinstance(version, str):
             versions = (version,)
-        elif isinstance(version, Sequence) and not isinstance(version, bytes):
+        elif isinstance(cast(object, version), Sequence) and not isinstance(version, bytes):
             versions = tuple(version)
         else:
             raise UserInputError("version must be v1, v2, or a sequence of one or two values")
         if not 1 <= len(versions) <= 2 or any(
-            not isinstance(value, str) or value not in ("v1", "v2") for value in versions
+            not isinstance(cast(object, value), str) or value not in ("v1", "v2")
+            for value in versions
         ):
             raise UserInputError("version must be v1, v2, or a sequence of one or two values")
 
