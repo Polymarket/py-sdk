@@ -44,9 +44,11 @@ def test_list_events_spec_sends_scalar_protocol_version(
     assert spec.base_params == {"closed": False, "version": version}
 
 
-@pytest.mark.parametrize("version", ["v3", "V2", "", 2, True, ["v2"], ("v1", "v2")])
+@pytest.mark.parametrize(
+    "version", ["v3", "V2", "", 2, True, [], ["v1", "v2", "v1"], ["v2", None], b"v1", {"v1"}]
+)
 def test_list_events_spec_rejects_invalid_protocol_version(version: object) -> None:
-    with pytest.raises(UserInputError, match="version must be one of: v1, v2"):
+    with pytest.raises(UserInputError, match="version must be"):
         gamma_actions.list_events_spec(version=version)  # type: ignore[arg-type]
 
 

@@ -1,6 +1,7 @@
 # pyright: reportPrivateUsage=false
 import asyncio
 import dataclasses
+from collections.abc import Sequence
 from typing import Any, Literal, cast
 
 import httpx
@@ -28,9 +29,25 @@ COMBO = "0x03" + "ab" * 30
 
 
 @pytest.mark.parametrize("mode", ["public", "secure", "async_public", "async_secure"])
-@pytest.mark.parametrize("version", [None, "v1", "v2", ProtocolVersion.V1, ProtocolVersion.V2])
+@pytest.mark.parametrize(
+    "version",
+    [
+        None,
+        "v1",
+        "v2",
+        ProtocolVersion.V1,
+        ProtocolVersion.V2,
+        ["v1", "v2"],
+        (ProtocolVersion.V2, ProtocolVersion.V1),
+        ["v1", "v1"],
+    ],
+)
 def test_event_protocol_filter_and_cursor_binding(
-    mode: str, version: ProtocolVersion | Literal["v1", "v2"] | None
+    mode: str,
+    version: ProtocolVersion
+    | Literal["v1", "v2"]
+    | Sequence[ProtocolVersion | Literal["v1", "v2"]]
+    | None,
 ) -> None:
     captured: list[httpx.Request] = []
 
@@ -88,8 +105,19 @@ def test_event_protocol_filter_and_cursor_binding(
             )
         try:
             if version is None:
-                for invalid in ("v3", "V2", "", 2, True, ["v2"], ("v1", "v2")):
-                    with pytest.raises(UserInputError, match="version must be one of: v1, v2"):
+                for invalid in (
+                    "v3",
+                    "V2",
+                    "",
+                    2,
+                    True,
+                    [],
+                    ["v1", "v2", "v1"],
+                    ["v2", None],
+                    b"v1",
+                    {"v1"},
+                ):
+                    with pytest.raises(UserInputError, match="version must be"):
                         client.list_events(version=invalid)  # type: ignore[arg-type]
                 assert not captured
 
@@ -114,7 +142,7 @@ def test_event_protocol_filter_and_cursor_binding(
             same_version = (
                 None
                 if version is None
-                else (ProtocolVersion.V1 if version == "v1" else ProtocolVersion.V2)
+                else (ProtocolVersion(version) if isinstance(version, str) else version)
             )
             replay = client.list_events(version=same_version, page_size=5).from_cursor(cursor)
             second = (
@@ -152,8 +180,13 @@ def test_event_protocol_filter_and_cursor_binding(
     asyncio.run(run())
     assert len(captured) == 4
     expected = {"closed": "false", "limit": "5"}
-    if version is not None:
-        expected["version"] = version
+    expected_versions = (
+        [] if version is None else [version] if isinstance(version, str) else list(version)
+    )
+    for request in captured:
+        assert request.url.params.get_list("version") == expected_versions
+    if expected_versions:
+        expected["version"] = expected_versions[0]
     assert [dict(request.url.params) for request in captured] == [
         expected,
         {**expected, "after_cursor": "server-next"},
