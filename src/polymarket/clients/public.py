@@ -1348,7 +1348,7 @@ class PublicClient:
         market_id: int | None = None,
         event_ids: Sequence[int] | None = None,
         event_title: str | None = None,
-        order_by: RewardMarketSort | str | None = None,
+        order_by: RewardMarketSort | None = None,
         sort_direction: SortDirection | None = None,
         min_volume_24hr: float | None = None,
         max_volume_24hr: float | None = None,

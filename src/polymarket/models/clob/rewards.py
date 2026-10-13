@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from enum import StrEnum
-from typing import TypeAlias
+from typing import Literal, TypeAlias
 
 from pydantic import AliasChoices, Field, computed_field, field_validator
 
@@ -294,23 +293,23 @@ __all__ = [
 ]
 
 
-class RewardMarketSort(StrEnum):
-    """Fields available for ordering reward market discovery."""
-
-    MARKET_ID = "market_id"
-    CREATED_AT = "created_at"
-    VOLUME_24HR = "volume_24hr"
-    SPREAD = "spread"
-    COMPETITIVENESS = "competitiveness"
-    MAX_SPREAD = "max_spread"
-    MIN_SIZE = "min_size"
-    QUESTION = "question"
-    ONE_DAY_PRICE_CHANGE = "one_day_price_change"
-    RATE_PER_DAY = "rate_per_day"
-    PRICE = "price"
-    END_DATE = "end_date"
-    START_DATE = "start_date"
-    REWARD_END_DATE = "reward_end_date"
+RewardMarketSort: TypeAlias = Literal[
+    "market_id",
+    "created_at",
+    "volume_24hr",
+    "spread",
+    "competitiveness",
+    "max_spread",
+    "min_size",
+    "question",
+    "one_day_price_change",
+    "rate_per_day",
+    "price",
+    "end_date",
+    "start_date",
+    "reward_end_date",
+]
+"""Fields available for ordering reward market discovery."""
 
 
 class RewardMarket(BaseModel):

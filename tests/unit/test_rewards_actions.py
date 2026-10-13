@@ -433,3 +433,9 @@ def test_reward_market_filters_survive_cursor_and_empty_rewards(end_date: str | 
     assert page.has_more is False
     with pytest.raises(UserInputError):
         build_list_reward_markets_request(min_price=float("nan"))
+    from typing import cast
+
+    from polymarket.models.clob.rewards import RewardMarketSort
+
+    with pytest.raises(UserInputError, match="Invalid reward market sort field"):
+        build_list_reward_markets_request(order_by=cast(RewardMarketSort, "volume24hr"))

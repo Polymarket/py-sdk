@@ -1,7 +1,7 @@
 import math
 from collections.abc import Sequence
 from datetime import date as _date
-from typing import cast
+from typing import cast, get_args
 
 from pydantic import TypeAdapter, ValidationError
 
@@ -317,7 +317,7 @@ def build_list_reward_markets_request(
     market_id: int | None = None,
     event_ids: Sequence[int] | None = None,
     event_title: str | None = None,
-    order_by: RewardMarketSort | str | None = None,
+    order_by: RewardMarketSort | None = None,
     sort_direction: SortDirection | None = None,
     min_volume_24hr: float | None = None,
     max_volume_24hr: float | None = None,
@@ -352,10 +352,9 @@ def build_list_reward_markets_request(
             raise UserInputError("event_ids must be positive integers.")
         params["event_id"] = tuple(event_ids)
     if order_by is not None:
-        try:
-            params["order_by"] = RewardMarketSort(order_by).value
-        except ValueError as error:
-            raise UserInputError("Invalid reward market sort field.") from error
+        if order_by not in get_args(RewardMarketSort):
+            raise UserInputError("Invalid reward market sort field.")
+        params["order_by"] = order_by
     if sort_direction is not None:
         if sort_direction not in ("ASC", "DESC"):
             raise UserInputError("sort_direction must be ASC or DESC.")
