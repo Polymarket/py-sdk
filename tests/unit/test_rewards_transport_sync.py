@@ -205,7 +205,8 @@ def test_sync_reward_market_pagination_retains_filters() -> None:
             client.list_reward_markets(
                 query="sports",
                 tag_slugs=("sports", "politics"),
-                exclude_tag_slugs=("5m",),
+                min_volume_24hr=1,
+                max_volume_24hr=100,
                 event_ids=(1, 2),
                 order_by="volume_24hr",
                 sort_direction="DESC",
@@ -217,7 +218,9 @@ def test_sync_reward_market_pagination_retains_filters() -> None:
     for request in captured:
         params = parse_qs(urlparse(str(request.url)).query)
         assert params["tag_slug"] == ["sports", "politics"]
-        assert params["exclude_tag_slug"] == ["5m"]
+        assert params["min_volume_24hr"] == ["1"]
+        assert params["max_volume_24hr"] == ["100"]
+        assert "exclude_tag_slug" not in params
         assert params["event_id"] == ["1", "2"]
         assert params["position"] == ["DESC"]
         assert params["q"] == ["sports"]

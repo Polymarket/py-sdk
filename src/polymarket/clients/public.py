@@ -1345,7 +1345,6 @@ class PublicClient:
         *,
         query: str | None = None,
         tag_slugs: Sequence[str] | None = None,
-        exclude_tag_slugs: Sequence[str] | None = None,
         market_id: int | None = None,
         event_ids: Sequence[int] | None = None,
         event_title: str | None = None,
@@ -1370,7 +1369,6 @@ class PublicClient:
             path, params = _rewards_actions.build_list_reward_markets_request(
                 query=query,
                 tag_slugs=tag_slugs,
-                exclude_tag_slugs=exclude_tag_slugs,
                 market_id=market_id,
                 event_ids=event_ids,
                 event_title=event_title,

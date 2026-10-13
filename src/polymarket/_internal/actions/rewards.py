@@ -1,5 +1,4 @@
 import math
-import re
 from collections.abc import Sequence
 from datetime import date as _date
 from typing import cast
@@ -315,7 +314,6 @@ def build_list_reward_markets_request(
     *,
     query: str | None = None,
     tag_slugs: Sequence[str] | None = None,
-    exclude_tag_slugs: Sequence[str] | None = None,
     market_id: int | None = None,
     event_ids: Sequence[int] | None = None,
     event_title: str | None = None,
@@ -343,19 +341,6 @@ def build_list_reward_markets_request(
         if isinstance(tag_slugs, str | bytes):
             raise UserInputError("tag_slugs must be a sequence of strings.")
         params["tag_slug"] = tuple(require_nonempty("tag_slug", item) for item in tag_slugs)
-    if exclude_tag_slugs is not None:
-        if isinstance(exclude_tag_slugs, str | bytes):
-            raise UserInputError("exclude_tag_slugs must be a sequence of strings.")
-        excluded: list[str] = []
-        for item in exclude_tag_slugs:
-            slug = require_nonempty("exclude_tag_slug", item).strip().lower()
-            if len(slug) > 64 or re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slug) is None:
-                raise UserInputError("Invalid excluded tag slug.")
-            if slug not in excluded:
-                excluded.append(slug)
-        if len(excluded) > 20:
-            raise UserInputError("At most 20 unique excluded tags are supported.")
-        params["exclude_tag_slug"] = tuple(excluded)
     if market_id is not None:
         if type(market_id) is not int or market_id <= 0:
             raise UserInputError("market_id must be a positive integer.")

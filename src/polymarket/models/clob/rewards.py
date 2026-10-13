@@ -333,7 +333,7 @@ class RewardMarket(BaseModel):
     event_slug: str
     created_at: datetime
     one_day_price_change: Decimal
-    end_date: datetime | None
+    end_date: datetime | None = None
 
     @field_validator("condition_id", mode="before")
     @classmethod

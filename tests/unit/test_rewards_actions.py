@@ -377,7 +377,8 @@ def test_parse_reward_percentages_rejects_bool_value() -> None:
         parse_reward_percentages({"0xCOND1": True})
 
 
-def test_reward_market_filters_survive_cursor_and_empty_rewards() -> None:
+@pytest.mark.parametrize("end_date", [None, "", "missing"])
+def test_reward_market_filters_survive_cursor_and_empty_rewards(end_date: str | None) -> None:
     from polymarket._internal.actions.rewards import (
         build_list_reward_markets_request,
         parse_reward_markets_page,
@@ -386,11 +387,12 @@ def test_reward_market_filters_survive_cursor_and_empty_rewards() -> None:
     path, params = build_list_reward_markets_request(
         query="sports",
         tag_slugs=("sports", "politics"),
-        exclude_tag_slugs=("5m", "Recurring"),
         market_id=12,
         event_ids=(1, 2),
         min_price=0.1,
         max_price=0.9,
+        min_volume_24hr=1,
+        max_volume_24hr=100,
         sort_direction="DESC",
         order_by="volume_24hr",
         cursor="MjU=",
@@ -400,11 +402,12 @@ def test_reward_market_filters_survive_cursor_and_empty_rewards() -> None:
     assert params == {
         "q": "sports",
         "tag_slug": ("sports", "politics"),
-        "exclude_tag_slug": ("5m", "recurring"),
         "market_id": 12,
         "event_id": (1, 2),
         "min_price": 0.1,
         "max_price": 0.9,
+        "min_volume_24hr": 1,
+        "max_volume_24hr": 100,
         "position": "DESC",
         "order_by": "volume_24hr",
         "next_cursor": "MjU=",
@@ -415,18 +418,18 @@ def test_reward_market_filters_survive_cursor_and_empty_rewards() -> None:
         market_id="12",
         event_id="1",
         created_at="2026-10-07T00:00:00Z",
-        end_date="",
+        end_date=end_date,
         group_item_title="",
         spread=0.1,
         volume_24hr=1.5,
         one_day_price_change=-0.2,
         rewards_config=[],
     )
+    if end_date == "missing":
+        del payload["end_date"]
     page = parse_reward_markets_page({"data": [payload], "next_cursor": "LTE="})
     assert page.items[0].rewards_config == ()
     assert page.items[0].end_date is None
     assert page.has_more is False
-    with pytest.raises(UserInputError):
-        build_list_reward_markets_request(exclude_tag_slugs=tuple(f"tag-{i}" for i in range(21)))
     with pytest.raises(UserInputError):
         build_list_reward_markets_request(min_price=float("nan"))
