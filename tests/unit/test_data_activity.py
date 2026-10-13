@@ -9,8 +9,6 @@ from polymarket import (
     ActivityType,
     AsyncPublicClient,
     ComboActivityType,
-    ComboConditionId,
-    ComboRedemptionActivity,
     ComboTradeActivity,
     ConditionId,
     PublicClient,
@@ -142,7 +140,7 @@ def combo_row(kind: str, outcome: str, index: int) -> dict[str, object]:
 )
 def test_combo_token_outcomes(kind: str, side: str, outcome: str, index: int) -> None:
     row = parse_activity({**combo_row(kind, outcome, index), "side": side})
-    assert isinstance(row, (ComboTradeActivity, ComboRedemptionActivity))
+    assert isinstance(row, (ComboTradeActivity, RedeemActivity))
     assert row.is_combo is True
     assert row.condition_id == _COMBO_CONDITION
     assert row.outcome == outcome
@@ -153,7 +151,7 @@ def test_combo_token_outcomes(kind: str, side: str, outcome: str, index: int) ->
 @pytest.mark.parametrize("kind", ["TRADE", "REDEEM"])
 def test_unknown_combo_outcomes_stay_unavailable(kind: str) -> None:
     row = parse_activity(combo_row(kind, "", 999))
-    assert isinstance(row, (ComboTradeActivity, ComboRedemptionActivity))
+    assert isinstance(row, (ComboTradeActivity, RedeemActivity))
     assert row.outcome is None
     assert row.outcome_index is None
 
@@ -183,7 +181,9 @@ def test_combo_redemptions_stay_in_the_mixed_activity_feed() -> None:
         ]
     )
     assert [row.type for row in rows] == ["TRADE", "REDEEM", "REWARD"]
-    assert isinstance(rows[1], ComboRedemptionActivity)
+    assert isinstance(rows[1], RedeemActivity)
+    assert rows[1].slug is None and rows[1].event_slug is None
+    assert RedeemActivity.parse_response(combo_row("REDEEM", "No", 1)) == rows[1]
     with pytest.raises(UnexpectedResponseError):
         parse_activity({**combo_row("REDEEM", "No", 1), "condition_id": "0x01" + "ab" * 30})
 
@@ -194,17 +194,16 @@ def public_activity_types(client: PublicClient) -> None:
         if isinstance(activity, ComboTradeActivity):
             assert_type(activity.outcome, str | None)
             assert_type(activity.outcome_index, int | None)
-        if isinstance(activity, ComboRedemptionActivity):
-            assert_type(activity.condition_id, ComboConditionId)
         if isinstance(activity, RedeemActivity):
+            assert_type(activity.is_combo, bool)
             assert_type(activity.condition_id, ConditionId)
 
 
 async def async_public_activity_types(client: AsyncPublicClient) -> None:
     page = await client.list_activity(user="0x" + "12" * 20).first_page()
     for activity in page.items:
-        if isinstance(activity, ComboRedemptionActivity):
-            assert_type(activity.condition_id, ComboConditionId)
+        if isinstance(activity, RedeemActivity):
+            assert_type(activity.condition_id, ConditionId)
             assert_type(activity.outcome, str | None)
             assert_type(activity.outcome_index, int | None)
 
@@ -220,6 +219,6 @@ def test_combo_redemption_missing_presentation_keeps_mixed_feed(title: str | Non
         redemption.pop(field, None)
     rows = parse_activities([{**sample("activity")[0], "type": "REWARD"}, redemption])
     assert [row.type for row in rows] == ["REWARD", "REDEEM"]
-    assert isinstance(rows[1], ComboRedemptionActivity)
+    assert isinstance(rows[1], RedeemActivity)
     assert rows[1].title is None and rows[1].icon is None
     assert rows[1].outcome == "No" and rows[1].outcome_index == 1
