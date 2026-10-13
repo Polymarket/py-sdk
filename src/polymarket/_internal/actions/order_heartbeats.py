@@ -1,5 +1,5 @@
 from polymarket.errors import UserInputError
-from polymarket.models.clob.order_heartbeats import LegacyOrderHeartbeat, OrderHeartbeat
+from polymarket.models.clob.order_heartbeats import OrderHeartbeat
 
 
 def build_send_order_heartbeat_request(*, heartbeat_id: str = "") -> tuple[str, dict[str, str]]:
@@ -10,13 +10,5 @@ def build_send_order_heartbeat_request(*, heartbeat_id: str = "") -> tuple[str, 
     return "/v1/heartbeats", {"heartbeat_id": heartbeat_id}
 
 
-def build_send_legacy_order_heartbeat_request() -> str:
-    return "/heartbeats"
-
-
 def parse_order_heartbeat(data: object) -> OrderHeartbeat:
     return OrderHeartbeat.parse_response(data)
-
-
-def parse_legacy_order_heartbeat(data: object) -> LegacyOrderHeartbeat:
-    return LegacyOrderHeartbeat.parse_response(data)

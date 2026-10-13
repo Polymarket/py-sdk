@@ -11,12 +11,6 @@ class OrderHeartbeat(BaseModel):
     heartbeat_id: str = Field(min_length=1, strict=True)
 
 
-class LegacyOrderHeartbeat(BaseModel):
-    """Acknowledgement for a legacy order heartbeat."""
-
-    status: Literal["ok"]
-
-
 class OrderHeartbeatMismatchResponse(BaseModel):
     """Rejection carrying the currently expected order heartbeat ID."""
 

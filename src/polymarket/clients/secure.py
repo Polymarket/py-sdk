@@ -164,7 +164,7 @@ from polymarket.models import (
 )
 from polymarket.models.clob import BuilderApiKeyInfo, BuilderTrade
 from polymarket.models.clob.cancel import CancelOrdersResponse
-from polymarket.models.clob.order_heartbeats import LegacyOrderHeartbeat, OrderHeartbeat
+from polymarket.models.clob.order_heartbeats import OrderHeartbeat
 from polymarket.models.clob.order_response import AcceptedOrder, OrderResponse
 from polymarket.models.clob.orders import MarketOrderType, SignedOrder
 from polymarket.models.clob.relayer import RelayerTransactionType
@@ -1817,33 +1817,6 @@ class SecureClient:
         )
         return _order_heartbeat_actions.parse_order_heartbeat(
             self._ctx.secure_clob.post_json(path, json=body)
-        )
-
-    def send_legacy_order_heartbeat(self) -> LegacyOrderHeartbeat:
-        """Send one authenticated legacy heartbeat without ID tracking.
-
-        The first accepted send enables timeout cancellation for ALL open orders
-        owned by this API key. Keep sending every five seconds; after ten seconds
-        without an accepted send, the server attempts cancel-all with no guarantee
-        of timing or success. Shares the key's registration with
-        send_order_heartbeat and resets its expected ID to empty. Coordinate one
-        sender per key. No timer or automatic retry starts.
-
-        There is no disarm operation: stopping sends or closing the client leaves
-        the deadline active. A lost response may follow an accepted send. Stop
-        placing orders and explicitly cancel/verify orders you intend to remove
-        on shutdown. Expiry removes the registration; later accepted sends
-        register again.
-
-        Raises:
-            RequestRejectedError: Authentication or another request rejection.
-            RateLimitError: The request was rate limited.
-            TransportError: The request failed; acceptance may be unknown.
-            UnexpectedResponseError: The response could not be parsed.
-        """
-        path = _order_heartbeat_actions.build_send_legacy_order_heartbeat_request()
-        return _order_heartbeat_actions.parse_legacy_order_heartbeat(
-            self._ctx.secure_clob.post_json(path)
         )
 
     def list_current_rewards(self, *, sponsored: bool | None = None) -> Paginator[CurrentReward]:

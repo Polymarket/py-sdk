@@ -151,9 +151,7 @@ def test_order_heartbeats_sign_exact_body_and_return_rotated_id() -> None:
         captured.append(request)
         return httpx.Response(
             200,
-            json={"heartbeat_id": "next-id"}
-            if request.url.path == "/v1/heartbeats"
-            else {"status": "ok"},
+            json={"heartbeat_id": "next-id"},
             request=request,
         )
 
@@ -161,12 +159,11 @@ def test_order_heartbeats_sign_exact_body_and_return_rotated_id() -> None:
         _install_secure_clob(client, httpx.MockTransport(handler))
         heartbeat = client.send_order_heartbeat()
         client.send_order_heartbeat(heartbeat_id=heartbeat.heartbeat_id)
-        assert client.send_legacy_order_heartbeat().status == "ok"
     assert [request.content for request in captured] == [
         b'{"heartbeat_id":""}',
         b'{"heartbeat_id":"next-id"}',
-        b"",
     ]
+    assert [request.url.path for request in captured] == ["/v1/heartbeats"] * 2
     for request in captured:
         signature = build_hmac_signature(
             secret=FAKE_CREDS.secret,
@@ -177,3 +174,18 @@ def test_order_heartbeats_sign_exact_body_and_return_rotated_id() -> None:
         )
         assert request.headers["POLY_SIGNATURE"] == signature
         assert request.headers["POLY_API_KEY"] == FAKE_CREDS.key
+
+
+def test_order_heartbeat_public_surface_has_one_workflow() -> None:
+    import polymarket
+    import polymarket.models
+    import polymarket.models.clob
+    from polymarket import AsyncSecureClient
+
+    for client_type in (SecureClient, AsyncSecureClient):
+        assert callable(client_type.send_order_heartbeat)
+        assert not hasattr(client_type, "send_legacy_order_heartbeat")
+    for module in (polymarket, polymarket.models, polymarket.models.clob):
+        assert hasattr(module, "OrderHeartbeat")
+        assert not hasattr(module, "LegacyOrderHeartbeat")
+        assert "LegacyOrderHeartbeat" not in module.__all__
