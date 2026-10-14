@@ -1292,6 +1292,7 @@ def test_sequence_gap_emits_resync_event_before_update() -> None:
             assert second.channel == "orders"
             assert second.previous_sequence == 1
             assert second.sequence == 5
+            assert second.event_timestamp is None
             assert isinstance(third, PerpsOrderEvent)
 
     asyncio.run(asyncio.wait_for(run(), timeout=10.0))
@@ -1457,6 +1458,7 @@ def test_session_reconnects_reauthenticates_and_emits_resync() -> None:
             event = await asyncio.wait_for(session.__anext__(), timeout=10.0)
             assert isinstance(event, PerpsResyncEvent)
             assert event.reason == "reconnect"
+            assert event.event_timestamp is None
             await asyncio.wait_for(connected.wait(), timeout=10.0)
             assert connections == 2
 

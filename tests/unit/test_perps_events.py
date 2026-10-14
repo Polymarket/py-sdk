@@ -619,8 +619,49 @@ def test_market_horizon_is_distinct_from_send_time(frame: dict[str, object]) -> 
 @pytest.mark.parametrize(
     "frame",
     [
+        {"ch": "balances", "data": {"asset": "USDC", "balance": "10", "value": "10"}},
+        {
+            "ch": "portfolio",
+            "data": {
+                "positions": [],
+                "margin": {
+                    "total_account_value": "10",
+                    "total_initial_margin": "0",
+                    "total_maintenance_margin": "0",
+                    "total_position_value": "0",
+                },
+                "withdrawable": "10",
+                "in_liquidation": False,
+                "timestamp": 1751500000000,
+            },
+        },
+        {"ch": "orders", "data": _order_update()},
         {"ch": "fills", "data": []},
         {"ch": "builderFills", "data": []},
+        {
+            "ch": "funding",
+            "data": {
+                "id": 1,
+                "iid": 1,
+                "sz": "10",
+                "fr": "0.0001",
+                "fua": "USDC",
+                "fund": "0.5",
+                "ts": 1751500000000,
+            },
+        },
+        {"ch": "deposits", "data": {"asset": "USDC", "amount": "10", "status": "pending"}},
+        {
+            "ch": "withdrawals",
+            "data": {
+                "withdraw_id": "1",
+                "asset": "USDC",
+                "amount": "10",
+                "fee": "0",
+                "status": "pending",
+                "to": "0x" + "11" * 20,
+            },
+        },
         {"ch": "notifications", "data": _position_change_notification()},
         {"ch": "tpsl::1", "data": {"oid": 1, "st": "armed"}},
         {"ch": "notifications", "type": "resync"},
@@ -633,6 +674,7 @@ def test_session_horizon_including_recovery_has_no_send_time_fallback(
     event = parse_perps_session_event(wire)
     assert event is not None
     assert event.event_timestamp == datetime.fromtimestamp(1751500000, tz=UTC)
+    assert event.timestamp == datetime.fromtimestamp(1751500000.1, tz=UTC)
     unknown = parse_perps_session_event({**wire, "ets": 0})
     assert unknown is not None and unknown.event_timestamp is None
     del wire["ets"]
@@ -641,7 +683,7 @@ def test_session_horizon_including_recovery_has_no_send_time_fallback(
     assert PerpsResyncEvent(reason="reconnect").event_timestamp is None
 
 
-@pytest.mark.parametrize("horizon", [None, True, 1751500000000.0, "1751500000000"])
+@pytest.mark.parametrize("horizon", [None, True, -1, 1751500000000.0, "1751500000000"])
 def test_wire_horizons_require_integer_even_when_canonical_unknown_is_none(horizon: object) -> None:
     with pytest.raises(ValidationError):
         parse_perps_market_event(

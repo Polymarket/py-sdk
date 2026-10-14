@@ -51,7 +51,7 @@ _NOTIFICATIONS_CHANNEL = "notifications"
 
 
 class _PerpsWireEventHorizon(BaseModel):
-    ets: int = Field(strict=True)
+    ets: int = Field(strict=True, ge=0)
 
 
 class _PerpsEventEnvelope(BaseModel):
