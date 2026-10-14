@@ -269,6 +269,9 @@ class NewMarketPayload(BaseModel):
     @field_validator("game_start_time", mode="before")
     @classmethod
     def _parse_game_start_time(cls, value: object) -> object:
+        # Numeric strings retain the stream's epoch-millisecond encoding.
+        if isinstance(value, str) and value.isdecimal():
+            return _parse_epoch_ms_timestamp(value)
         return _parse_epoch_or_iso_timestamp(value)
 
 

@@ -276,6 +276,27 @@ def test_new_market_game_start_time_parsed_to_datetime() -> None:
     assert event.payload.game_start_time == datetime.fromtimestamp(1710000000, tz=UTC)
 
 
+@pytest.mark.parametrize("game_start_time", ["0", "1", "1710000000", "99999999999"])
+def test_new_market_numeric_game_start_time_preserves_millisecond_units(
+    game_start_time: str,
+) -> None:
+    from datetime import UTC, datetime
+
+    event = parse_market_event(dict(_NEW_MARKET) | {"game_start_time": game_start_time})
+    assert isinstance(event, NewMarketEvent)
+    assert event.payload.game_start_time == datetime.fromtimestamp(
+        int(game_start_time) / 1000, tz=UTC
+    )
+
+
+@pytest.mark.parametrize("game_start_time", ["9" * 1000, 10**1000], ids=["string", "integer"])
+def test_new_market_out_of_range_game_start_time_is_validation_error(
+    game_start_time: object,
+) -> None:
+    with pytest.raises(ValidationError):
+        parse_market_event(dict(_NEW_MARKET) | {"game_start_time": game_start_time})
+
+
 @pytest.mark.parametrize(
     "game_start_time",
     [
