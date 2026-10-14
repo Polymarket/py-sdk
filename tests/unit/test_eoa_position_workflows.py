@@ -28,11 +28,11 @@ def test_eoa_neg_risk_operations_broadcast_router_call(operation: str, selector:
         client = await make_eoa_client_with_rpc(rpc_handler=handler)
         try:
             if operation == "convert":
-                handle = await client.convert(event_id=event_id, condition_index=0, amount=5)
+                handle = await client.convert(condition_id=event_id + "0002", amount=5)
             elif operation == "horizontal_split":
-                handle = await client.horizontal_split(event_id=event_id, amount=5)
+                handle = await client.horizontal_split(condition_id=event_id + "0002", amount=5)
             else:
-                handle = await client.horizontal_merge(event_id=event_id, amount=5)
+                handle = await client.horizontal_merge(condition_id=event_id + "0002", amount=5)
             assert isinstance(handle, EoaTransactionHandle)
         finally:
             await client.close()
@@ -42,7 +42,7 @@ def test_eoa_neg_risk_operations_broadcast_router_call(operation: str, selector:
     estimates = [c["params"][0] for c in captured if c["method"] == "eth_estimateGas"]
     assert len(estimates) == 1
     assert estimates[0]["to"].lower() == PRODUCTION_CONFIG.protocol_v2_router.lower()
-    index_word = "00" * 32 if operation == "convert" else ""
+    index_word = f"{2:064x}" if operation == "convert" else ""
     assert (
         estimates[0]["data"] == "0x" + selector + event_id[2:] + "000000" + index_word + f"{5:064x}"
     )

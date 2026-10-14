@@ -47,19 +47,33 @@ _CONDITION_ID = "0x" + "11" * 32
     ("operation", "selector"),
     [("convert", "9380f1c8"), ("horizontal_split", "40657b52"), ("horizontal_merge", "24f24944")],
 )
-def test_sync_neg_risk_operations_submit_one_router_call(operation: str, selector: str) -> None:
+@pytest.mark.parametrize("suffix", ["", "00"])
+@pytest.mark.parametrize("metadata", [None, "Neg risk", ""])
+def test_sync_neg_risk_operations_submit_one_router_call(
+    operation: str, selector: str, suffix: str, metadata: str | None
+) -> None:
     captured: list[httpx.Request] = []
-    event_id = "0x02" + "11" * 16 + "0003" + "00" * 10
+    event_id = "0x02" + "11" * 16 + "0003" + "00" * 8 + "00ff"
     with make_sync_deposit_client() as client:
         install_sync_relayer_handler(client, _deposit_relayer_handler(captured))
         if operation == "convert":
             handle = client.convert(
-                event_id=event_id, condition_index=3, amount=5, metadata="Neg risk"
+                condition_id="0x" + event_id[2:].upper() + "0003" + suffix,
+                amount=5,
+                metadata=metadata,
             )
         elif operation == "horizontal_split":
-            handle = client.horizontal_split(event_id=event_id, amount=5, metadata="Neg risk")
+            handle = client.horizontal_split(
+                condition_id="0x" + event_id[2:].upper() + "0002" + suffix,
+                amount=5,
+                metadata=metadata,
+            )
         else:
-            handle = client.horizontal_merge(event_id=event_id, amount=5, metadata="Neg risk")
+            handle = client.horizontal_merge(
+                condition_id="0x" + event_id[2:].upper() + "0002" + suffix,
+                amount=5,
+                metadata=metadata,
+            )
         assert isinstance(handle, SyncGaslessTransactionHandle)
     submits = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
     assert len(submits) == 1
@@ -69,7 +83,12 @@ def test_sync_neg_risk_operations_submit_one_router_call(operation: str, selecto
     assert calls[0]["target"].lower() == PRODUCTION_CONFIG.protocol_v2_router.lower()
     index_word = f"{3:064x}" if operation == "convert" else ""
     assert calls[0]["data"] == "0x" + selector + event_id[2:] + "000000" + index_word + f"{5:064x}"
-    assert body["metadata"] == "Neg risk"
+    expected_metadata = {
+        "convert": f"Convert 5 positions for condition {event_id}0003",
+        "horizontal_split": f"Horizontal split 5 positions for event {event_id}",
+        "horizontal_merge": f"Horizontal merge 5 positions for event {event_id}",
+    }
+    assert body["metadata"] == (metadata if metadata is not None else expected_metadata[operation])
 
 
 @pytest.mark.parametrize("operation", ["convert", "horizontal_split", "horizontal_merge"])
@@ -80,11 +99,11 @@ def test_sync_neg_risk_validation_precedes_submission(operation: str) -> None:
         install_sync_relayer_handler(client, _deposit_relayer_handler(captured))
         with pytest.raises(UserInputError):
             if operation == "convert":
-                client.convert(event_id=event_id, condition_index=4, amount=5)
+                client.convert(condition_id=event_id + "0004", amount=5)
             elif operation == "horizontal_split":
-                client.horizontal_split(event_id=event_id + "000001", amount=5)
+                client.horizontal_split(condition_id=event_id + "000001", amount=5)
             else:
-                client.horizontal_merge(event_id=event_id, amount=0)
+                client.horizontal_merge(condition_id=event_id + "0000", amount=0)
     assert captured == []
 
 
@@ -119,17 +138,17 @@ def test_sync_eoa_neg_risk_operations_broadcast_router_call(operation: str, sele
     with make_sync_eoa_client() as client:
         install_sync_rpc_handler(client, handler)
         if operation == "convert":
-            handle = client.convert(event_id=event_id, condition_index=0, amount=5)
+            handle = client.convert(condition_id=event_id + "0002", amount=5)
         elif operation == "horizontal_split":
-            handle = client.horizontal_split(event_id=event_id, amount=5)
+            handle = client.horizontal_split(condition_id=event_id + "0002", amount=5)
         else:
-            handle = client.horizontal_merge(event_id=event_id, amount=5)
+            handle = client.horizontal_merge(condition_id=event_id + "0002", amount=5)
         assert isinstance(handle, SyncEoaTransactionHandle)
     captured = handler.captured  # pyright: ignore[reportFunctionMemberAccess]
     estimates = [c["params"][0] for c in captured if c["method"] == "eth_estimateGas"]
     assert len(estimates) == 1
     assert estimates[0]["to"].lower() == PRODUCTION_CONFIG.protocol_v2_router.lower()
-    index_word = "00" * 32 if operation == "convert" else ""
+    index_word = f"{2:064x}" if operation == "convert" else ""
     assert (
         estimates[0]["data"] == "0x" + selector + event_id[2:] + "000000" + index_word + f"{5:064x}"
     )

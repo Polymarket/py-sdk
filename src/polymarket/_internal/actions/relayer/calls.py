@@ -266,18 +266,18 @@ def router_redeem_call(
 
 
 def router_convert_call(
-    *, router: EvmAddress, event_id: str, condition_index: int, amount: int
+    *, router: EvmAddress, protocol_event_id: str, condition_index: int, amount: int
 ) -> TransactionCall:
     """Convert NO into YES for every other condition in the complete event set.
 
     Other is included unless converting NO for Other itself.
 
-    Requires PositionManager approval for Router. ``event_id`` is a protocol v2
+    Requires PositionManager approval for Router. ``protocol_event_id`` is a protocol v2
     neg-risk event ID (bytes29 or zero-suffixed bytes32). ``condition_index`` is
     zero-based, with Other at the event arity. ``amount`` is positive base units
     with six decimals.
     """
-    event_bytes = _neg_risk_event_id_bytes(event_id)
+    event_bytes = _neg_risk_event_id_bytes(protocol_event_id)
     _expect_uint256(condition_index, "Condition index")
     if condition_index > int.from_bytes(event_bytes[17:19], "big"):
         raise UserInputError("Condition index must be between 0 and the event arity (Other)")
@@ -289,15 +289,15 @@ def router_convert_call(
 
 
 def router_horizontal_split_call(
-    *, router: EvmAddress, event_id: str, amount: int
+    *, router: EvmAddress, protocol_event_id: str, amount: int
 ) -> TransactionCall:
     """Split pUSD into YES for every condition, including synthetic Other.
 
-    Requires pUSD approval for Router. ``event_id`` is a protocol v2 neg-risk
+    Requires pUSD approval for Router. ``protocol_event_id`` is a protocol v2 neg-risk
     event ID (bytes29 or zero-suffixed bytes32). ``amount`` is positive base
     units with six decimals.
     """
-    event_bytes = _neg_risk_event_id_bytes(event_id)
+    event_bytes = _neg_risk_event_id_bytes(protocol_event_id)
     _expect_positive_neg_risk_amount(amount)
     payload = _ROUTER_HORIZONTAL_SPLIT_SELECTOR + abi_encode(
         ["bytes29", "uint256"], [event_bytes, amount]
@@ -306,15 +306,15 @@ def router_horizontal_split_call(
 
 
 def router_horizontal_merge_call(
-    *, router: EvmAddress, event_id: str, amount: int
+    *, router: EvmAddress, protocol_event_id: str, amount: int
 ) -> TransactionCall:
     """Merge equal YES amounts for every condition, including Other, into pUSD.
 
-    Requires PositionManager approval for Router. ``event_id`` is a protocol v2
+    Requires PositionManager approval for Router. ``protocol_event_id`` is a protocol v2
     neg-risk event ID (bytes29 or zero-suffixed bytes32). ``amount`` is positive
     base units with six decimals.
     """
-    event_bytes = _neg_risk_event_id_bytes(event_id)
+    event_bytes = _neg_risk_event_id_bytes(protocol_event_id)
     _expect_positive_neg_risk_amount(amount)
     payload = _ROUTER_HORIZONTAL_MERGE_SELECTOR + abi_encode(
         ["bytes29", "uint256"], [event_bytes, amount]
@@ -322,9 +322,33 @@ def router_horizontal_merge_call(
     return TransactionCall(to=router, data=cast(HexString, "0x" + payload.hex()))
 
 
-def _neg_risk_event_id_bytes(event_id: str) -> bytes:
+def parse_neg_risk_condition_id(condition_id: str) -> tuple[str, int]:
+    """Derive the protocol event and index from a neg-risk market condition."""
+    message = "Protocol v2 neg-risk condition ID must be bytes31, or bytes32 with a zero final byte"
+    if not isinstance(condition_id, str):  # pyright: ignore[reportUnnecessaryIsInstance]
+        raise UserInputError(message)
+    hex_value = condition_id[2:] if condition_id.startswith(("0x", "0X")) else ""
+    if len(hex_value) == 64 and hex_value.endswith("00"):
+        hex_value = hex_value[:-2]
+    if len(hex_value) != 62:
+        raise UserInputError(message)
+    try:
+        raw = bytes.fromhex(hex_value)
+    except ValueError as error:
+        raise UserInputError(message) from error
+    if len(raw) != 31:
+        raise UserInputError(message)
+    protocol_event_id = "0x" + raw[:29].hex()
+    event_bytes = _neg_risk_event_id_bytes(protocol_event_id)
+    condition_index = int.from_bytes(raw[29:], "big")
+    if condition_index > int.from_bytes(event_bytes[17:19], "big"):
+        raise UserInputError("Condition index must be between 0 and the event arity (Other)")
+    return protocol_event_id, condition_index
+
+
+def _neg_risk_event_id_bytes(protocol_event_id: str) -> bytes:
     message = "Protocol v2 event ID must be bytes29, or bytes32 with three trailing zero bytes"
-    hex_value = event_id[2:] if event_id.startswith(("0x", "0X")) else ""
+    hex_value = protocol_event_id[2:] if protocol_event_id.startswith(("0x", "0X")) else ""
     if len(hex_value) == 64 and hex_value.endswith("000000"):
         hex_value = hex_value[:-6]
     if len(hex_value) != 58:

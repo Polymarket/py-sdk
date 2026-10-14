@@ -33,9 +33,13 @@ _CONDITION_ID = "0x" + "11" * 32
     ("operation", "selector"),
     [("convert", "9380f1c8"), ("horizontal_split", "40657b52"), ("horizontal_merge", "24f24944")],
 )
-def test_neg_risk_operations_submit_one_router_call(operation: str, selector: str) -> None:
+@pytest.mark.parametrize("suffix", ["", "00"])
+@pytest.mark.parametrize("metadata", [None, "Neg risk", ""])
+def test_neg_risk_operations_submit_one_router_call(
+    operation: str, selector: str, suffix: str, metadata: str | None
+) -> None:
     captured: list[httpx.Request] = []
-    event_id = "0x02" + "11" * 16 + "0003" + "00" * 10
+    event_id = "0x02" + "11" * 16 + "0003" + "00" * 8 + "00ff"
 
     async def run() -> None:
         client = await make_deposit_client()
@@ -43,15 +47,21 @@ def test_neg_risk_operations_submit_one_router_call(operation: str, selector: st
         try:
             if operation == "convert":
                 handle = await client.convert(
-                    event_id=event_id, condition_index=3, amount=5, metadata="Neg risk"
+                    condition_id="0x" + event_id[2:].upper() + "0003" + suffix,
+                    amount=5,
+                    metadata=metadata,
                 )
             elif operation == "horizontal_split":
                 handle = await client.horizontal_split(
-                    event_id=event_id, amount=5, metadata="Neg risk"
+                    condition_id="0x" + event_id[2:].upper() + "0002" + suffix,
+                    amount=5,
+                    metadata=metadata,
                 )
             else:
                 handle = await client.horizontal_merge(
-                    event_id=event_id, amount=5, metadata="Neg risk"
+                    condition_id="0x" + event_id[2:].upper() + "0002" + suffix,
+                    amount=5,
+                    metadata=metadata,
                 )
             assert isinstance(handle, GaslessTransactionHandle)
         finally:
@@ -64,7 +74,12 @@ def test_neg_risk_operations_submit_one_router_call(operation: str, selector: st
     assert calls[0]["target"].lower() == PRODUCTION_CONFIG.protocol_v2_router.lower()
     index_word = f"{3:064x}" if operation == "convert" else ""
     assert calls[0]["data"] == "0x" + selector + event_id[2:] + "000000" + index_word + f"{5:064x}"
-    assert body["metadata"] == "Neg risk"
+    expected_metadata = {
+        "convert": f"Convert 5 positions for condition {event_id}0003",
+        "horizontal_split": f"Horizontal split 5 positions for event {event_id}",
+        "horizontal_merge": f"Horizontal merge 5 positions for event {event_id}",
+    }
+    assert body["metadata"] == (metadata if metadata is not None else expected_metadata[operation])
 
 
 @pytest.mark.parametrize("operation", ["convert", "horizontal_split", "horizontal_merge"])
@@ -78,11 +93,11 @@ def test_neg_risk_validation_precedes_submission(operation: str) -> None:
         try:
             with pytest.raises(UserInputError):
                 if operation == "convert":
-                    await client.convert(event_id=event_id, condition_index=4, amount=5)
+                    await client.convert(condition_id=event_id + "0004", amount=5)
                 elif operation == "horizontal_split":
-                    await client.horizontal_split(event_id=event_id + "000001", amount=5)
+                    await client.horizontal_split(condition_id=event_id + "000001", amount=5)
                 else:
-                    await client.horizontal_merge(event_id=event_id, amount=0)
+                    await client.horizontal_merge(condition_id=event_id + "0000", amount=0)
         finally:
             await client.close()
 
