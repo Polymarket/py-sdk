@@ -8,7 +8,7 @@ from decimal import Decimal
 from types import CoroutineType
 from typing import TYPE_CHECKING, Any, assert_type
 
-from polymarket import AsyncPublicClient, AsyncSecureClient
+from polymarket import AsyncPublicClient, AsyncSecureClient, PerpsInstrumentLogo
 from polymarket.models.perps import (
     PerpsBuilderApproval,
     PerpsBuilderAttribution,
@@ -34,6 +34,16 @@ from polymarket.pagination import AsyncPaginator
 from polymarket.perps import PerpsOrderPlacement, PerpsSession
 
 if TYPE_CHECKING:
+
+    async def _check_instrument_presentation_typing(client: AsyncPublicClient) -> None:
+        for instrument in await client.fetch_perps_instruments():
+            assert_type(instrument.ui_live_time, datetime | None)
+            assert_type(instrument.logo, PerpsInstrumentLogo | None)
+            if instrument.logo:
+                assert_type(instrument.logo.light, str)
+                assert_type(instrument.logo.dark, str)
+
+    _instrument_presentation_typing_check = _check_instrument_presentation_typing
 
     async def _check_transfer_typing(session: PerpsSession) -> None:
         pages = session.list_internal_transfers(start=0)
