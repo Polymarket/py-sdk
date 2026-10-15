@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import TypeAlias
 
@@ -285,3 +285,23 @@ __all__ = [
     "UserRewardsConfig",
     "UserRewardsEarning",
 ]
+
+
+class RebatedFee(BaseModel):
+    """Maker fee rebate for a calendar day, with exact USDC amounts."""
+
+    date: date
+    condition_id: ConditionId
+    asset_address: str
+    maker_address: str
+    rebated_fees_usdc: Decimal
+
+    @field_validator("condition_id", mode="before")
+    @classmethod
+    def _validate_condition_id(cls, value: object) -> ConditionId:
+        return validate_condition_id(value)
+
+    @field_validator("rebated_fees_usdc", mode="before")
+    @classmethod
+    def _parse_amount(cls, value: object) -> object:
+        return _coerce_decimalish(value)

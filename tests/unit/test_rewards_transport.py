@@ -34,6 +34,8 @@ def _routed_handler(
         path = urlparse(str(request.url)).path
         key = (request.method, path)
         if key in routes:
+            if routes[key] is None:
+                return httpx.Response(200, content=b"null", request=request)
             return httpx.Response(200, json=routes[key], request=request)
         return httpx.Response(404, json={"error": "not mocked"}, request=request)
 
@@ -442,3 +444,24 @@ def test_async_secure_list_user_earnings_for_day_rejects_bad_date() -> None:
 
     with pytest.raises(UserInputError):
         asyncio.run(run())
+
+
+def test_async_public_current_rebates_uses_unsigned_read() -> None:
+    captured: list[httpx.Request] = []
+
+    async def run() -> None:
+        async with AsyncPublicClient() as client:
+            _install_public_clob(
+                client, _routed_handler(captured, {("GET", "/rebates/current"): None})
+            )
+            assert (
+                await client.get_current_rebates(date="2024-02-29", maker_address=SIGNER_ADDRESS)
+                == ()
+            )
+
+    asyncio.run(run())
+    assert parse_qs(urlparse(str(captured[0].url)).query) == {
+        "date": ["2024-02-29"],
+        "maker_address": [SIGNER_ADDRESS],
+    }
+    assert "POLY_SIGNATURE" not in captured[0].headers
