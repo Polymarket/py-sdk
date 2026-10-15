@@ -15,6 +15,7 @@ from polymarket._internal.actions import gamma as _gamma_actions
 from polymarket._internal.actions import rewards as _rewards_actions
 from polymarket._internal.actions import rfq as _rfq_actions
 from polymarket._internal.actions.gamma import (
+    ClosedFilter,
     CommentParentEntityType,
     DateFilter,
     Recurrence,
@@ -999,7 +1000,7 @@ class AsyncPublicClient:
         self,
         *,
         ascending: bool | None = None,
-        closed: bool = False,
+        closed: ClosedFilter = False,
         cyom: bool | None = None,
         end_date_max: TimestampFilter | None = None,
         end_date_min: TimestampFilter | None = None,
@@ -1040,7 +1041,8 @@ class AsyncPublicClient:
     ) -> AsyncPaginator[Event]:
         """List events.
 
-        Defaults to open events. Pass ``closed=True`` to list settled events.
+        Defaults to open events. Pass ``closed=True`` to list settled events
+        or ``closed="any"`` to include both open and closed events.
 
         Returns:
             An async paginator over matching events.
@@ -1098,7 +1100,7 @@ class AsyncPublicClient:
         self,
         *,
         ascending: bool | None = None,
-        closed: bool | None = None,
+        closed: ClosedFilter | None = None,
         clob_token_ids: str | Sequence[str] | None = None,
         condition_ids: str | Sequence[str] | None = None,
         cyom: bool | None = None,
@@ -1130,6 +1132,11 @@ class AsyncPublicClient:
         page_size: int = 20,
     ) -> AsyncPaginator[Market]:
         """List markets.
+
+        Omitted ``closed`` (or ``None``) lists open markets, as does ``False``.
+        Pass ``True`` for closed markets, or ``"any"`` for both. ``"any"`` requires
+        at least one of ``ids``, ``slug``, ``clob_token_ids``, ``condition_ids``,
+        ``position_ids``, or ``question_ids``.
 
         Markets that cannot be represented by the binary Market model are
         omitted from results.
