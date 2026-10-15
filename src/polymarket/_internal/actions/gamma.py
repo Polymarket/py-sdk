@@ -126,6 +126,7 @@ def _add_optional(
         params[key] = value
 
 
+ClosedFilter: TypeAlias = bool | Literal["any"]
 DateFilter: TypeAlias = str | date
 TimestampFilter: TypeAlias = str | datetime
 
@@ -198,7 +199,7 @@ def _add_optional_seq(
     params[key] = coerced
 
 
-def _check_closed(value: bool | Literal["any"] | None) -> None:
+def _check_closed(value: ClosedFilter | None) -> None:
     if value is not None and not isinstance(value, bool) and value != "any":
         raise UserInputError('closed must be True, False, None, or "any"')
 
@@ -413,6 +414,7 @@ def get_comment_thread_spec(
 
 
 __all__ = [
+    "ClosedFilter",
     "CommentParentEntityType",
     "DateFilter",
     "Recurrence",
@@ -446,7 +448,7 @@ __all__ = [
 def list_events_spec(
     *,
     ascending: bool | None = None,
-    closed: bool | Literal["any"] = False,
+    closed: ClosedFilter = False,
     cyom: bool | None = None,
     end_date_max: TimestampFilter | None = None,
     end_date_min: TimestampFilter | None = None,
@@ -539,7 +541,7 @@ def list_events_spec(
 def list_markets_spec(
     *,
     ascending: bool | None = None,
-    closed: bool | Literal["any"] | None = None,
+    closed: ClosedFilter | None = None,
     clob_token_ids: str | Sequence[str] | None = None,
     condition_ids: str | Sequence[str] | None = None,
     cyom: bool | None = None,

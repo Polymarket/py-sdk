@@ -15,6 +15,7 @@ from polymarket._internal.actions import gamma as _gamma_actions
 from polymarket._internal.actions import rewards as _rewards_actions
 from polymarket._internal.actions import rfq as _rfq_actions
 from polymarket._internal.actions.gamma import (
+    ClosedFilter,
     CommentParentEntityType,
     DateFilter,
     Recurrence,
@@ -999,7 +1000,7 @@ class AsyncPublicClient:
         self,
         *,
         ascending: bool | None = None,
-        closed: bool | Literal["any"] = False,
+        closed: ClosedFilter = False,
         cyom: bool | None = None,
         end_date_max: TimestampFilter | None = None,
         end_date_min: TimestampFilter | None = None,
@@ -1099,7 +1100,7 @@ class AsyncPublicClient:
         self,
         *,
         ascending: bool | None = None,
-        closed: bool | Literal["any"] | None = None,
+        closed: ClosedFilter | None = None,
         clob_token_ids: str | Sequence[str] | None = None,
         condition_ids: str | Sequence[str] | None = None,
         cyom: bool | None = None,
