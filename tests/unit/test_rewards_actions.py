@@ -375,3 +375,67 @@ def test_parse_reward_percentages_rejects_non_numeric_value() -> None:
 def test_parse_reward_percentages_rejects_bool_value() -> None:
     with pytest.raises(UnexpectedResponseError):
         parse_reward_percentages({"0xCOND1": True})
+
+
+@pytest.mark.parametrize("end_date", [None, "", "missing"])
+def test_reward_market_filters_survive_cursor_and_empty_rewards(end_date: str | None) -> None:
+    from polymarket._internal.actions.rewards import (
+        build_list_reward_markets_request,
+        parse_reward_markets_page,
+    )
+
+    path, params = build_list_reward_markets_request(
+        query="sports",
+        tag_slugs=("sports", "politics"),
+        market_id=12,
+        event_ids=(1, 2),
+        min_price=0.1,
+        max_price=0.9,
+        min_volume_24hr=1,
+        max_volume_24hr=100,
+        sort_direction="DESC",
+        order_by="volume_24hr",
+        cursor="MjU=",
+        page_size=25,
+    )
+    assert path == "/rewards/markets/multi"
+    assert params == {
+        "q": "sports",
+        "tag_slug": ("sports", "politics"),
+        "market_id": 12,
+        "event_id": (1, 2),
+        "min_price": 0.1,
+        "max_price": 0.9,
+        "min_volume_24hr": 1,
+        "max_volume_24hr": 100,
+        "position": "DESC",
+        "order_by": "volume_24hr",
+        "next_cursor": "MjU=",
+        "page_size": 25,
+    }
+    payload = dict(
+        _MARKET_REWARD_PAYLOAD,
+        market_id="12",
+        event_id="1",
+        created_at="2026-10-07T00:00:00Z",
+        end_date=end_date,
+        group_item_title="",
+        spread=0.1,
+        volume_24hr=1.5,
+        one_day_price_change=-0.2,
+        rewards_config=[],
+    )
+    if end_date == "missing":
+        del payload["end_date"]
+    page = parse_reward_markets_page({"data": [payload], "next_cursor": "LTE="})
+    assert page.items[0].rewards_config == ()
+    assert page.items[0].end_date is None
+    assert page.has_more is False
+    with pytest.raises(UserInputError):
+        build_list_reward_markets_request(min_price=float("nan"))
+    from typing import cast
+
+    from polymarket.models.clob.rewards import RewardMarketSort
+
+    with pytest.raises(UserInputError, match="Invalid reward market sort field"):
+        build_list_reward_markets_request(order_by=cast(RewardMarketSort, "volume24hr"))
