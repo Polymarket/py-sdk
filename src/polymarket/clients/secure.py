@@ -200,6 +200,7 @@ from polymarket.models.data import (
     PriceHistoryPoint,
     Resolution,
     SortDirection,
+    TokenReference,
     Trade,
     TradeFilterType,
     TraderLeaderboardEntry,
@@ -556,6 +557,30 @@ class SecureClient:
         return sync_paginate_keyset(
             self._ctx, spec, page_size=10000 if page_size is None else page_size
         )
+
+    def get_token_references(
+        self,
+        *,
+        asset_ids: str | Sequence[str] | None = None,
+        condition_ids: str | Sequence[str] | None = None,
+    ) -> tuple[TokenReference, ...]:
+        """Get outcome asset reference and settlement metadata as a direct tuple.
+
+        Provide exactly one selector family: up to 50 distinct decimal asset IDs,
+        or up to 10 distinct 31-byte or 32-byte hex condition selectors. A scalar
+        string denotes one ID. Elements are trimmed, blanks dropped, and duplicates
+        removed in first-seen order. Decimal IDs have leading zeros stripped and
+        at most 78 remaining digits. Conditions are lowercased without padding.
+
+        Unknown selectors contribute no rows. Asset lookups retain request order;
+        condition groups retain server order and can repeat assets when selectors
+        overlap. Nullable metadata is explicit. Outcome labels and settlement
+        metadata may lag by up to a minute. Transient rate limits are retried.
+        """
+        spec = _data_actions.build_get_token_references_spec(
+            asset_ids=asset_ids, condition_ids=condition_ids
+        )
+        return sync_dispatch(self._ctx, spec)
 
     def get_resolutions(
         self,
