@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.13.1](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.13.0...polymarket-client-v0.13.1) (2026-10-15)
+
+
+### Bug Fixes
+
+* **models:** accept datetime strings for new_market game_start_time ([72297f0](https://github.com/Polymarket/py-sdk/commit/72297f05d6d8137702dad09b43817fbbaf6071ba))
+* **models:** accept datetime strings for new_market game_start_time ([#341](https://github.com/Polymarket/py-sdk/issues/341)) ([72297f0](https://github.com/Polymarket/py-sdk/commit/72297f05d6d8137702dad09b43817fbbaf6071ba))
+* **models:** preserve stream date units and validation errors ([841c593](https://github.com/Polymarket/py-sdk/commit/841c593107873030cc3e5999014eb70b0803f662))
+
 ## [0.13.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.12.0...polymarket-client-v0.13.0) (2026-10-07)
 
 ### Features
