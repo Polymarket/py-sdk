@@ -6,7 +6,7 @@ from collections.abc import Callable
 from datetime import datetime
 from decimal import Decimal
 from types import CoroutineType
-from typing import TYPE_CHECKING, Any, assert_type
+from typing import TYPE_CHECKING, Any, Literal, assert_type
 
 from polymarket import AsyncPublicClient, AsyncSecureClient
 from polymarket.models.perps import (
@@ -27,6 +27,7 @@ from polymarket.models.perps import (
     PerpsInternalTransfer,
     PerpsInternalTransferId,
     PerpsOrderRequest,
+    PerpsPortfolio,
     PerpsPositionDeleveragedNotification,
     PerpsPostOrderAck,
 )
@@ -208,3 +209,18 @@ if TYPE_CHECKING:
         assert_type(await session.cancel_chase(chase_id=accepted.chase_id), None)
 
     _chase_typing_check = _check_chase_typing
+
+
+if TYPE_CHECKING:
+
+    async def _check_portfolio_risk_typing(session: PerpsSession) -> None:
+        portfolio = await session.fetch_portfolio()
+        assert_type(portfolio.margin.available_order_margin, Decimal)
+        assert_type(portfolio.fee_tier, int)
+        for position in portfolio.positions:
+            assert_type(position.adl_index, Literal[0, 1, 2, 3])
+        async for event in session:
+            if event.type == "portfolio":
+                assert_type(event.payload, PerpsPortfolio)
+
+    _portfolio_risk_typing_check = _check_portfolio_risk_typing

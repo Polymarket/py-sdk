@@ -1758,16 +1758,19 @@ def test_position_exits_keep_terms_captured_before_portfolio_read(
                                 "unrealized_pnl": "0",
                                 "return_on_equity": "0",
                                 "cumulative_funding": "0",
+                                "adl_index": 0,
                             }
                         ],
                         "margin": {
                             "total_account_value": "100",
+                            "available_order_margin": "0",
                             "total_initial_margin": "0",
                             "total_maintenance_margin": "0",
                             "total_position_value": "100",
                         },
                         "withdrawable": "0",
                         "in_liquidation": False,
+                        "fee_tier": 0,
                         "timestamp": 1751500000000,
                     },
                 )
