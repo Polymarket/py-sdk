@@ -312,6 +312,74 @@ def test_paginator_raises_when_has_more_without_cursor() -> None:
         list(paginator)
 
 
+@pytest.mark.parametrize(
+    ("initial_cursor", "next_cursors"),
+    [
+        (None, ["a", "a"]),
+        (None, ["a", "b", "a"]),
+        ("a", ["a"]),
+    ],
+    ids=["immediate-repeat", "two-cursor-cycle", "resume-at-repeated-cursor"],
+)
+def test_paginator_raises_on_repeated_cursor(
+    initial_cursor: str | None, next_cursors: list[str]
+) -> None:
+    requested: list[str | None] = []
+
+    def fetch(cursor: str | None) -> Page[int]:
+        requested.append(cursor)
+        return Page(
+            items=(len(requested),), has_more=True, next_cursor=next_cursors[len(requested) - 1]
+        )
+
+    paginator = (
+        Paginator[int](fetch=fetch).from_cursor(initial_cursor)
+        if initial_cursor
+        else Paginator[int](fetch=fetch)
+    )
+    pages: list[Page[int]] = []
+    with pytest.raises(UnexpectedResponseError, match="already requested"):
+        for page in paginator:
+            pages.append(page)
+
+    assert len(pages) == len(next_cursors)
+    assert requested == [initial_cursor, *next_cursors[:-1]]
+
+
+@pytest.mark.parametrize(
+    "terminal",
+    [
+        Page(items=(2,), has_more=False, next_cursor="a"),
+        Page(items=(2,), has_more=True, next_cursor="a", limit_reached=True),
+    ],
+    ids=["has-more-false", "limit-reached"],
+)
+def test_paginator_stops_normally_on_terminal_page_with_repeated_cursor(
+    terminal: Page[int],
+) -> None:
+    def fetch(cursor: str | None) -> Page[int]:
+        return Page(items=(1,), has_more=True, next_cursor="a") if cursor is None else terminal
+
+    paginator = Paginator[int](fetch=fetch)
+    assert [page.items for page in paginator] == [(1,), (2,)]
+
+
+def test_paginator_walks_do_not_share_requested_cursors() -> None:
+    requested: list[str | None] = []
+
+    def fetch(cursor: str | None) -> Page[int]:
+        requested.append(cursor)
+        return (
+            Page(items=(1,), has_more=True, next_cursor="a")
+            if cursor is None
+            else Page(items=(2,), has_more=False)
+        )
+
+    paginator = Paginator[int](fetch=fetch)
+    assert list(paginator) == list(paginator)
+    assert requested == [None, "a", None, "a"]
+
+
 def test_paginator_is_reusable() -> None:
     fetch_count = [0]
 
@@ -394,6 +462,83 @@ def test_async_paginator_raises_when_has_more_without_cursor() -> None:
 
     with pytest.raises(UnexpectedResponseError, match="without a next cursor"):
         asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    ("initial_cursor", "next_cursors"),
+    [
+        (None, ["a", "a"]),
+        (None, ["a", "b", "a"]),
+        ("a", ["a"]),
+    ],
+    ids=["immediate-repeat", "two-cursor-cycle", "resume-at-repeated-cursor"],
+)
+def test_async_paginator_raises_on_repeated_cursor(
+    initial_cursor: str | None, next_cursors: list[str]
+) -> None:
+    requested: list[str | None] = []
+    pages: list[Page[int]] = []
+
+    async def fetch(cursor: str | None) -> Page[int]:
+        requested.append(cursor)
+        return Page(
+            items=(len(requested),), has_more=True, next_cursor=next_cursors[len(requested) - 1]
+        )
+
+    async def run() -> None:
+        paginator = AsyncPaginator[int](fetch=fetch)
+        if initial_cursor:
+            paginator = paginator.from_cursor(initial_cursor)
+        async for page in paginator:
+            pages.append(page)
+
+    with pytest.raises(UnexpectedResponseError, match="already requested"):
+        asyncio.run(run())
+
+    assert len(pages) == len(next_cursors)
+    assert requested == [initial_cursor, *next_cursors[:-1]]
+
+
+@pytest.mark.parametrize(
+    "terminal",
+    [
+        Page(items=(2,), has_more=False, next_cursor="a"),
+        Page(items=(2,), has_more=True, next_cursor="a", limit_reached=True),
+    ],
+    ids=["has-more-false", "limit-reached"],
+)
+def test_async_paginator_stops_normally_on_terminal_page_with_repeated_cursor(
+    terminal: Page[int],
+) -> None:
+    async def fetch(cursor: str | None) -> Page[int]:
+        return Page(items=(1,), has_more=True, next_cursor="a") if cursor is None else terminal
+
+    async def run() -> list[tuple[int, ...]]:
+        return [page.items async for page in AsyncPaginator[int](fetch=fetch)]
+
+    assert asyncio.run(run()) == [(1,), (2,)]
+
+
+def test_async_paginator_walks_do_not_share_requested_cursors() -> None:
+    requested: list[str | None] = []
+
+    async def fetch(cursor: str | None) -> Page[int]:
+        requested.append(cursor)
+        return (
+            Page(items=(1,), has_more=True, next_cursor="a")
+            if cursor is None
+            else Page(items=(2,), has_more=False)
+        )
+
+    async def run() -> list[list[tuple[int, ...]]]:
+        paginator = AsyncPaginator[int](fetch=fetch)
+        first = [page.items async for page in paginator]
+        second = [page.items async for page in paginator]
+        return [first, second]
+
+    first, second = asyncio.run(run())
+    assert first == second
+    assert requested == [None, "a", None, "a"]
 
 
 def test_async_paginator_iter_items_flattens_pages() -> None:

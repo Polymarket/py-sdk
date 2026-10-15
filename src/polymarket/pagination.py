@@ -72,6 +72,25 @@ class Page(Generic[T]):
         return _frames_func("to_polars")(self, explode=explode)
 
 
+def _next_cursor(page: Page[Any], requested: set[str]) -> str:
+    """Return the cursor to request next, refusing one that cannot make progress.
+
+    A continuing page without a cursor would restart at the first page, and a
+    cursor already requested in this walk would loop forever.
+    """
+    cursor = page.next_cursor
+    if cursor is None:
+        raise UnexpectedResponseError(
+            "Paginated response reported more items without a next cursor."
+        )
+    if cursor in requested:
+        raise UnexpectedResponseError(
+            "Paginated response repeated a cursor that was already requested."
+        )
+    requested.add(cursor)
+    return cursor
+
+
 class Paginator(Generic[T]):
     def __init__(
         self,
@@ -106,16 +125,13 @@ class Paginator(Generic[T]):
 
     def _iter_pages(self) -> Iterator[Page[T]]:
         cursor = self._initial_cursor
+        requested: set[str] = {cursor} if cursor is not None else set()
         while True:
             page = self._fetch(cursor)
             yield page
             if page.limit_reached or not page.has_more:
                 return
-            if page.next_cursor is None:
-                raise UnexpectedResponseError(
-                    "Paginated response set has_more=True without a next cursor."
-                )
-            cursor = page.next_cursor
+            cursor = _next_cursor(page, requested)
 
     def to_arrow(self, *, limit: LimitArg) -> Any:
         items, truncated, limit_reached = _drain_paginator(self, limit)
@@ -184,16 +200,13 @@ class AsyncPaginator(Generic[T]):
 
     async def _iter_pages(self) -> AsyncIterator[Page[T]]:
         cursor = self._initial_cursor
+        requested: set[str] = {cursor} if cursor is not None else set()
         while True:
             page = await self._fetch(cursor)
             yield page
             if page.limit_reached or not page.has_more:
                 return
-            if page.next_cursor is None:
-                raise UnexpectedResponseError(
-                    "Paginated response set has_more=True without a next cursor."
-                )
-            cursor = page.next_cursor
+            cursor = _next_cursor(page, requested)
 
     async def _iter_items(self) -> AsyncIterator[T]:
         async for page in self._iter_pages():
