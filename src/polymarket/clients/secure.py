@@ -20,6 +20,7 @@ from polymarket._internal.actions import combo_rfq as _combo_rfq_actions
 from polymarket._internal.actions import combos as _combos_actions
 from polymarket._internal.actions import data as _data_actions
 from polymarket._internal.actions import gamma as _gamma_actions
+from polymarket._internal.actions import order_heartbeats as _order_heartbeat_actions
 from polymarket._internal.actions import rewards as _rewards_actions
 from polymarket._internal.actions import rfq as _rfq_actions
 from polymarket._internal.actions import session_keys as _session_key_actions
@@ -163,6 +164,7 @@ from polymarket.models import (
 )
 from polymarket.models.clob import BuilderApiKeyInfo, BuilderTrade
 from polymarket.models.clob.cancel import CancelOrdersResponse
+from polymarket.models.clob.order_heartbeats import OrderHeartbeat
 from polymarket.models.clob.order_response import AcceptedOrder, OrderResponse
 from polymarket.models.clob.orders import MarketOrderType, SignedOrder
 from polymarket.models.clob.relayer import RelayerTransactionType
@@ -1783,6 +1785,38 @@ class SecureClient:
             amount=amount,
             shares=shares,
             order_type=order_type,
+        )
+
+    def send_order_heartbeat(self, *, heartbeat_id: str = "") -> OrderHeartbeat:
+        """Send one authenticated order heartbeat and retain the returned ID.
+
+        The first accepted send enables timeout cancellation for ALL open orders
+        owned by this API key, across markets and processes. Only start when you
+        can keep sending every five seconds. After ten seconds without an accepted
+        send, the server attempts cancel-all; timing and success are not guaranteed.
+        Start with an empty ID, serialize sends per key, and retain every returned
+        ID. No timer or automatic retry starts. A lost response may follow an
+        accepted send, so failure does not prove registration is inactive.
+
+        There is no disarm operation. Stopping sends or closing the client leaves
+        the deadline active. On shutdown, stop placing orders and explicitly
+        cancel/verify orders you intend to remove. Expiry removes the registration;
+        later accepted sends register again. Separate from WebSocket keepalive.
+
+        Raises:
+            UserInputError: heartbeat_id is not a string.
+            OrderHeartbeatMismatchError: Retry explicitly with the error's
+                heartbeat_id. Rejected sends do not refresh the deadline.
+            RequestRejectedError: Authentication or another request rejection.
+            RateLimitError: The request was rate limited.
+            TransportError: The request failed; acceptance may be unknown.
+            UnexpectedResponseError: The response could not be parsed.
+        """
+        path, body = _order_heartbeat_actions.build_send_order_heartbeat_request(
+            heartbeat_id=heartbeat_id
+        )
+        return _order_heartbeat_actions.parse_order_heartbeat(
+            self._ctx.secure_clob.post_json(path, json=body)
         )
 
     def list_current_rewards(self, *, sponsored: bool | None = None) -> Paginator[CurrentReward]:

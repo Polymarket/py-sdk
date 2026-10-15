@@ -48,10 +48,12 @@ def _install_public_clob(client: AsyncPublicClient, handler: httpx.MockTransport
     client._ctx = dataclasses.replace(client._ctx, clob=transport)
 
 
-def _install_secure_clob(client: AsyncSecureClient, handler: httpx.MockTransport) -> None:
+def _install_secure_clob(
+    client: AsyncSecureClient, handler: httpx.MockTransport, *, base_url: str = "https://clob.test"
+) -> None:
     transport = AsyncTransport(
-        base_url="https://clob.test",
-        client=httpx.AsyncClient(base_url="https://clob.test", transport=handler),
+        base_url=base_url,
+        client=httpx.AsyncClient(base_url=base_url, transport=handler),
         header_resolver=client._ctx.secure_clob._header_resolver,
     )
     client._ctx = dataclasses.replace(client._ctx, secure_clob=transport)
@@ -442,3 +444,45 @@ def test_async_secure_list_user_earnings_for_day_rejects_bad_date() -> None:
 
     with pytest.raises(UserInputError):
         asyncio.run(run())
+
+
+@pytest.mark.parametrize("base_url", ["https://clob.test", "https://clob.test/prefix/"])
+@pytest.mark.parametrize("heartbeat_id", ["expected-id", ""])
+def test_async_order_heartbeat_rotation_and_explicit_mismatch_recovery(
+    base_url: str, heartbeat_id: str
+) -> None:
+    from polymarket import OrderHeartbeatMismatchError
+
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        if len(captured) == 2:
+            return httpx.Response(
+                400,
+                json={"error_msg": "Invalid Heartbeat ID", "heartbeat_id": heartbeat_id},
+                request=request,
+            )
+        return httpx.Response(200, json={"heartbeat_id": "next-id"}, request=request)
+
+    async def run() -> None:
+        client = await _make_secure_client()
+        try:
+            _install_secure_clob(client, httpx.MockTransport(handler), base_url=base_url)
+            assert (await client.send_order_heartbeat()).heartbeat_id == "next-id"
+            with pytest.raises(OrderHeartbeatMismatchError) as error:
+                await client.send_order_heartbeat(heartbeat_id="stale-id")
+            assert len(captured) == 2
+            assert (
+                await client.send_order_heartbeat(heartbeat_id=error.value.heartbeat_id)
+            ).heartbeat_id == "next-id"
+        finally:
+            await client.close()
+
+    asyncio.run(run())
+    assert [request.content for request in captured] == [
+        b'{"heartbeat_id":""}',
+        b'{"heartbeat_id":"stale-id"}',
+        f'{{"heartbeat_id":"{heartbeat_id}"}}'.encode(),
+    ]
+    assert all(request.headers.get("POLY_SIGNATURE") for request in captured)
