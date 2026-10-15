@@ -224,6 +224,7 @@ def _fills_update(*, sequence: int = 6) -> dict[str, Any]:
                 "pep": "0",
                 "pnl": "0",
                 "liq": False,
+                "adl": False,
                 "ts": 1751500000000,
             },
             {
@@ -240,6 +241,7 @@ def _fills_update(*, sequence: int = 6) -> dict[str, Any]:
                 "pep": "0.5",
                 "pnl": "0.2",
                 "liq": False,
+                "adl": False,
                 "ts": 1751500000001,
             },
         ],

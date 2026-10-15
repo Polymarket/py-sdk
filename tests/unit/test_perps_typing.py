@@ -6,7 +6,7 @@ from collections.abc import Callable
 from datetime import datetime
 from decimal import Decimal
 from types import CoroutineType
-from typing import TYPE_CHECKING, Any, assert_type
+from typing import TYPE_CHECKING, Any, Literal, assert_type
 
 from polymarket import AsyncPublicClient, AsyncSecureClient
 from polymarket.models.perps import (
@@ -24,8 +24,10 @@ from polymarket.models.perps import (
     PerpsCancelRetryOptions,
     PerpsChase,
     PerpsChaseAccepted,
+    PerpsFill,
     PerpsInternalTransfer,
     PerpsInternalTransferId,
+    PerpsLiquidationDetails,
     PerpsOrderRequest,
     PerpsPositionDeleveragedNotification,
     PerpsPostOrderAck,
@@ -208,3 +210,24 @@ if TYPE_CHECKING:
         assert_type(await session.cancel_chase(chase_id=accepted.chase_id), None)
 
     _chase_typing_check = _check_chase_typing
+
+
+if TYPE_CHECKING:
+
+    async def _check_fill_risk_typing(session: PerpsSession) -> None:
+        pages = session.list_fills(instrument_id=0)
+        assert_type(pages, AsyncPaginator[PerpsFill])
+        async for fill in pages.iter_items():
+            assert_type(fill.adl, bool)
+            assert_type(fill.liquidation_details, PerpsLiquidationDetails | None)
+            if fill.liquidation_details is not None:
+                assert_type(fill.liquidation_details.mark, Decimal)
+                assert_type(fill.liquidation_details.method, Literal["market", "backstop"])
+                assert_type(fill.liquidation_details.liquidated_user, str | None)
+        async for event in session:
+            if event.type == "fill":
+                for fill in event.payload:
+                    assert_type(fill.adl, bool)
+                    assert_type(fill.liquidation_details, PerpsLiquidationDetails | None)
+
+    _fill_risk_typing_check = _check_fill_risk_typing
