@@ -190,13 +190,18 @@ def parse_user_earnings_page(data: object) -> Page[UserEarning]:
 
 
 def build_total_user_earnings_for_day_request(
-    *, date: str, signature_type: int
+    *, date: str, signature_type: int, sponsored: bool | None = None
 ) -> tuple[str, dict[str, QueryParamValue]]:
     validated_date = _validate_date(date)
-    return "/rewards/user/total", {
+    params: dict[str, QueryParamValue] = {
         "date": validated_date,
         "signature_type": signature_type,
     }
+    if sponsored is not None:
+        if type(sponsored) is not bool:
+            raise UserInputError("sponsored must be a bool.")
+        params["sponsored"] = sponsored
+    return "/rewards/user/total", params
 
 
 def parse_total_user_earnings(data: object) -> tuple[TotalUserEarning, ...]:
