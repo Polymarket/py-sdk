@@ -202,8 +202,12 @@ class TotalUserEarning(BaseModel):
     date: datetime
     earnings: Decimal
     maker_address: str = Field(validation_alias="maker_address")
+    native_earnings: Decimal | None = None
+    sponsored_earnings: Decimal | None = None
 
-    @field_validator("asset_rate", "earnings", mode="before")
+    @field_validator(
+        "asset_rate", "earnings", "native_earnings", "sponsored_earnings", mode="before"
+    )
     @classmethod
     def _parse_decimals(cls, value: object) -> object:
         return _coerce_decimalish(value)
