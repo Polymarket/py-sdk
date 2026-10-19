@@ -134,6 +134,8 @@ from polymarket._internal.gateway_auth import (
     owner_api_key,
     parse_credentials,
     parse_tokens,
+    platform_headers,
+    resolve_api_keys,
     token_claims,
 )
 from polymarket._internal.gateway_session import (
@@ -154,7 +156,13 @@ from polymarket._internal.wallet import (
     signature_type_for,
     wrap_deposit_wallet_signature,
 )
-from polymarket.auth import ApiKey, BearerCredentials, BuilderApiKey
+from polymarket.auth import (
+    ApiKey,
+    BearerCredentials,
+    BuilderApiKey,
+    PlatformApiKey,
+    RemotePlatformApiKey,
+)
 from polymarket.clients._transport import AsyncTransport
 from polymarket.clients.async_public import AsyncPublicClient
 from polymarket.environments import PRODUCTION, Environment
@@ -792,7 +800,8 @@ class AsyncSecureClient:
         credentials: object | None = None,
         verification_token: str | None = None,
         on_credentials_changed: CredentialsCallback | None = None,
-        api_key: ApiKey | None = None,
+        api_key: ApiKey | PlatformApiKey | RemotePlatformApiKey | None = None,
+        legacy_api_key: ApiKey | None = None,
         nonce: int = 0,
         logger: logging.Logger | None = None,
         on_rate_limit_update: RateLimitUpdateListener | None = None,
@@ -809,7 +818,9 @@ class AsyncSecureClient:
             on_credentials_changed: Sync or async persistence callback receiving the
                 complete pair after refresh. Callback failures emit a redacted warning
                 without reverting accepted credentials. See docs/gateway-authentication.md.
-            api_key: Optional key for gasless wallet and relayed transaction workflows.
+            api_key: Platform attribution adapter, or a legacy builder/relayer key.
+            legacy_api_key: Optional legacy builder/relayer authorization alongside a
+                Platform adapter. Attribution alone does not replace those permissions.
             nonce: Credential derivation nonce. Cannot be combined with ``credentials``.
             on_rate_limit_update: Listener invoked whenever a response reports
                 per-signer rate-limit state, as order and cancellation responses
@@ -827,6 +838,7 @@ class AsyncSecureClient:
             verification_token=verification_token,
             on_credentials_changed=on_credentials_changed,
             api_key=api_key,
+            legacy_api_key=legacy_api_key,
             nonce=nonce,
             validate_credentials=True,
             logger=logger,
@@ -848,7 +860,8 @@ class AsyncSecureClient:
         credentials: object | None = None,
         verification_token: str | None = None,
         on_credentials_changed: CredentialsCallback | None = None,
-        api_key: ApiKey | None = None,
+        api_key: ApiKey | PlatformApiKey | RemotePlatformApiKey | None = None,
+        legacy_api_key: ApiKey | None = None,
         nonce: int = 0,
         validate_credentials: bool = True,
         logger: logging.Logger | None = None,
@@ -859,6 +872,7 @@ class AsyncSecureClient:
         _validate_nonce(nonce)
         if credentials is not None and nonce != 0:
             raise UserInputError("nonce cannot be combined with credentials.")
+        legacy_authorization, attribution = resolve_api_keys(api_key, legacy_api_key)
         config = get_environment_config(environment)
         try:
             signer = cast(LocalAccount, Account.from_key(private_key))
@@ -883,12 +897,22 @@ class AsyncSecureClient:
 
         session: AsyncGatewaySession | None = None
         if validate_credentials:
-            auth_transport = AsyncTransport(base_url=config.gateway_url, logger=logger)
+            auth_transport = AsyncTransport(
+                base_url=config.gateway_url,
+                logger=logger,
+                default_headers=platform_headers(attribution),
+                sensitive=True,
+            )
             try:
                 supplied = parse_credentials(credentials) if credentials is not None else None
                 if isinstance(supplied, BearerCredentials):
                     bearer = supplied
                 elif isinstance(supplied, ApiKeyCreds):
+                    if isinstance(attribution, RemotePlatformApiKey):
+                        raise UserInputError(
+                            "Remote Platform API Key supports challenge login only; "
+                            "migrate on your server with PlatformApiKey or log in again"
+                        )
                     bearer = parse_tokens(
                         await auth_transport.post_json(
                             "/v1/auth/migrate",
@@ -907,6 +931,7 @@ class AsyncSecureClient:
                         wallet=resolved_wallet,
                         verification_token=verification_token,
                         nonce=nonce,
+                        api_key=attribution,
                     )
                 claims = token_claims(bearer)
                 if (
@@ -914,7 +939,34 @@ class AsyncSecureClient:
                     or str(claims.get("wallet", "")).lower() != resolved_wallet.lower()
                 ):
                     raise UserInputError("Bearer credentials do not match the signer and wallet")
-                session = AsyncGatewaySession(bearer, auth_transport, on_credentials_changed)
+                await auth_transport.close()
+                auth_transport = AsyncTransport(
+                    base_url=config.gateway_url, logger=logger, sensitive=True
+                )
+
+                async def validate_restored_key(pair: BearerCredentials) -> None:
+                    identity = AsyncTransport(
+                        base_url=config.gateway_url,
+                        default_headers=platform_headers(attribution),
+                        sensitive=True,
+                    )
+                    try:
+                        await identity.get_json(
+                            "/v1/auth/identity",
+                            headers={"Authorization": "Bearer " + pair.access_token},
+                        )
+                    finally:
+                        await identity.close()
+
+                session = AsyncGatewaySession(
+                    bearer,
+                    auth_transport,
+                    on_credentials_changed,
+                    validate_initial=validate_restored_key
+                    if isinstance(supplied, BearerCredentials)
+                    and isinstance(attribution, PlatformApiKey)
+                    else None,
+                )
                 bearer = (
                     await session.refresh(bearer.access_token)
                     if isinstance(supplied, BearerCredentials)
@@ -958,7 +1010,8 @@ class AsyncSecureClient:
                 config=config,
                 credentials=resolved_credentials,
                 session=session,
-                api_key=api_key,
+                api_key=legacy_authorization,
+                platform_api_key=attribution,
                 logger=logger,
                 on_rate_limit_update=on_rate_limit_update,
             )
@@ -985,27 +1038,33 @@ class AsyncSecureClient:
         logger: logging.Logger | None,
         on_rate_limit_update: RateLimitUpdateListener | None,
         session: AsyncGatewaySession | None = None,
+        platform_api_key: PlatformApiKey | RemotePlatformApiKey | None = None,
     ) -> Self:
+        gateway_headers = platform_headers(platform_api_key)
         wallet_checksum = to_checksum_address(wallet)
         branded_wallet = cast(EvmAddress, wallet_checksum)
 
         gamma = AsyncTransport(
             session=session,
+            default_headers=gateway_headers,
             base_url=config.gateway_url if session is not None else config.gamma_url,
             logger=logger,
         )
         data = AsyncTransport(
             session=session,
+            default_headers=gateway_headers,
             base_url=config.gateway_url if session is not None else config.data_url,
             logger=logger,
         )
         rfq = AsyncTransport(
             session=session,
+            default_headers=gateway_headers,
             base_url=config.gateway_url if session is not None else config.rfq_url,
             logger=logger,
         )
         clob = AsyncTransport(
             session=session,
+            default_headers=gateway_headers,
             base_url=config.gateway_url if session is not None else config.clob_url,
             logger=logger,
             on_rate_limit_update=on_rate_limit_update,
@@ -1013,6 +1072,7 @@ class AsyncSecureClient:
         relayer_resolver = make_relayer_header_resolver(api_key) if api_key is not None else None
         relayer = AsyncTransport(
             session=session,
+            default_headers=gateway_headers,
             base_url=config.gateway_url if session is not None else config.relayer_url,
             logger=logger,
             header_resolver=relayer_resolver,
@@ -1031,6 +1091,7 @@ class AsyncSecureClient:
         )
         secure_clob = AsyncTransport(
             session=session,
+            default_headers=gateway_headers,
             base_url=config.gateway_url if session is not None else config.clob_url,
             logger=logger,
             header_resolver=None
@@ -1060,6 +1121,7 @@ class AsyncSecureClient:
             combos=combos,
             builder_gateway=builder_gateway,
             api_key=api_key,
+            platform_api_key=platform_api_key,
             rpc=rpc,
             order_metadata=AsyncOrderMetadataCache(),
         )
@@ -2540,7 +2602,7 @@ class AsyncSecureClient:
                     await transport.close()
         finally:
             await self.close()
-        return AsyncPublicClient(environment=environment)
+        return AsyncPublicClient(environment=environment, api_key=ctx.platform_api_key)
 
     async def get_closed_only_mode(self) -> bool:
         """Return whether the authenticated account is in closed-only mode."""

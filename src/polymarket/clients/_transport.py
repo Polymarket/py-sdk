@@ -56,6 +56,8 @@ class SyncTransport:
         header_resolver: SyncHeaderResolver | None = None,
         session: SyncGatewaySession | None = None,
         on_rate_limit_update: RateLimitUpdateListener | None = None,
+        default_headers: Mapping[str, str] | None = None,
+        sensitive: bool = False,
     ) -> None:
         opts = options or TransportOptions()
         self._owns_client = client is None
@@ -71,6 +73,8 @@ class SyncTransport:
         self._session = session
         self._on_rate_limit_update = on_rate_limit_update
         self._base_url = base_url
+        self._default_headers = dict(default_headers or {})
+        self._sensitive = sensitive
 
     def get_json(
         self,
@@ -188,7 +192,7 @@ class SyncTransport:
     ) -> httpx.Response:
         body_str: str | None = None
         content: bytes | None = None
-        merged_headers: dict[str, str] = dict(headers) if headers else {}
+        merged_headers: dict[str, str] = {**self._default_headers, **(headers or {})}
 
         if json is not None:
             body_str = _json.dumps(json, separators=(",", ":"))
@@ -215,7 +219,7 @@ class SyncTransport:
                 timeout=timeout if timeout is not None else USE_CLIENT_DEFAULT,
             )
         except httpx.HTTPError as error:
-            sensitive = self._session is not None or path.startswith("/v1/auth/")
+            sensitive = self._sensitive or self._session is not None or path.startswith("/v1/auth/")
             _log_failure(self._logger, method, path, error, started, sensitive=sensitive)
             if sensitive:
                 raise TransportError("Request failed") from None
@@ -224,7 +228,8 @@ class SyncTransport:
         _log_response(self._logger, method, path, response, started)
         _notify_rate_limit_update(self._on_rate_limit_update, self._logger, response)
         _raise_for_response_status(
-            response, sensitive=self._session is not None or path.startswith("/v1/auth/")
+            response,
+            sensitive=self._sensitive or self._session is not None or path.startswith("/v1/auth/"),
         )
         return response
 
@@ -240,6 +245,8 @@ class AsyncTransport:
         header_resolver: HeaderResolver | None = None,
         session: AsyncGatewaySession | None = None,
         on_rate_limit_update: RateLimitUpdateListener | None = None,
+        default_headers: Mapping[str, str] | None = None,
+        sensitive: bool = False,
     ) -> None:
         opts = options or TransportOptions()
         self._owns_client = client is None
@@ -255,6 +262,8 @@ class AsyncTransport:
         self._session = session
         self._on_rate_limit_update = on_rate_limit_update
         self._base_url = base_url
+        self._default_headers = dict(default_headers or {})
+        self._sensitive = sensitive
 
     async def get_json(
         self,
@@ -383,7 +392,7 @@ class AsyncTransport:
     ) -> httpx.Response:
         body_str: str | None = None
         content: bytes | None = None
-        merged_headers: dict[str, str] = dict(headers) if headers else {}
+        merged_headers: dict[str, str] = {**self._default_headers, **(headers or {})}
 
         if json is not None:
             body_str = _json.dumps(json, separators=(",", ":"))
@@ -410,7 +419,7 @@ class AsyncTransport:
                 timeout=timeout if timeout is not None else USE_CLIENT_DEFAULT,
             )
         except httpx.HTTPError as error:
-            sensitive = self._session is not None or path.startswith("/v1/auth/")
+            sensitive = self._sensitive or self._session is not None or path.startswith("/v1/auth/")
             _log_failure(self._logger, method, path, error, started, sensitive=sensitive)
             if sensitive:
                 raise TransportError("Request failed") from None
@@ -419,7 +428,8 @@ class AsyncTransport:
         _log_response(self._logger, method, path, response, started)
         _notify_rate_limit_update(self._on_rate_limit_update, self._logger, response)
         _raise_for_response_status(
-            response, sensitive=self._session is not None or path.startswith("/v1/auth/")
+            response,
+            sensitive=self._sensitive or self._session is not None or path.startswith("/v1/auth/"),
         )
         return response
 

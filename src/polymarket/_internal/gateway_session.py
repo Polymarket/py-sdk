@@ -69,11 +69,13 @@ class SyncGatewaySession:
         credentials: BearerCredentials,
         transport: SyncTransport,
         callback: CredentialsCallback | None = None,
+        validate_initial: Callable[[BearerCredentials], None] | None = None,
     ) -> None:
         token_claims(credentials)
         self.credentials = credentials
         self.transport = transport
         self._callback = callback
+        self._validate_initial = validate_initial
         self._condition = threading.Condition(threading.RLock())
         self._stop = threading.Event()
         self._refreshing = False
@@ -134,6 +136,9 @@ class SyncGatewaySession:
                         raise
                     if self._stop.wait(0.25 * 2**attempt):
                         raise RuntimeError("Authentication session is closed") from None
+            if self._validate_initial is not None:
+                self._validate_initial(updated)
+                self._validate_initial = None
             with self._condition:
                 self._assert_open()
                 self.credentials = updated
@@ -193,11 +198,13 @@ class AsyncGatewaySession:
         credentials: BearerCredentials,
         transport: AsyncTransport,
         callback: CredentialsCallback | None = None,
+        validate_initial: Callable[[BearerCredentials], Awaitable[None]] | None = None,
     ) -> None:
         token_claims(credentials)
         self.credentials = credentials
         self.transport = transport
         self._callback = callback
+        self._validate_initial = validate_initial
         self._closed = False
         self._error: Exception | None = None
         self._task: asyncio.Task[BearerCredentials] | None = None
@@ -273,6 +280,9 @@ class AsyncGatewaySession:
                     if not _transient(error) or attempt == MAX_ATTEMPTS - 1:
                         raise
                     await asyncio.sleep(0.25 * 2**attempt)
+            if self._validate_initial is not None:
+                await self._validate_initial(updated)
+                self._validate_initial = None
             self._assert_open()
             self.credentials = updated
             self.start()
