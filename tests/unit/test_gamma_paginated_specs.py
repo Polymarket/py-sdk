@@ -1,7 +1,13 @@
+import asyncio
+from collections.abc import Sequence
 from typing import Any, Literal
 
+import httpx
 import pytest
+import respx
+from eth_account import Account
 
+from polymarket import ApiKeyCreds, AsyncPublicClient, AsyncSecureClient, PublicClient, SecureClient
 from polymarket._internal.actions import gamma as gamma_actions
 from polymarket._internal.pagination import fingerprint_query
 from polymarket._internal.request import (
@@ -10,7 +16,7 @@ from polymarket._internal.request import (
     PageBasedSpec,
 )
 from polymarket.errors import UnexpectedResponseError, UserInputError
-from polymarket.models import Comment
+from polymarket.models import Comment, MarketResolutionStatus, ProtocolVersion
 
 
 def _minimal_market_payload(**overrides: object) -> dict[str, object]:
@@ -71,6 +77,160 @@ def test_list_markets_spec_default_has_no_params() -> None:
     assert spec.service == "gamma"
     assert spec.path == "/markets/keyset"
     assert spec.base_params is None
+
+
+def test_list_markets_spec_preserves_v2_filters_and_pagination_fingerprint() -> None:
+    spec = gamma_actions.list_markets_spec(
+        request_ids=["request-A", "request-B"],
+        onchain_event_ids="event-A",
+        resolution_status=MarketResolutionStatus.ACTIVE,
+        version=ProtocolVersion.V2,
+    )
+
+    assert spec.base_params == {
+        "request_ids": ("request-A", "request-B"),
+        "onchain_event_ids": ("event-A",),
+        "resolution_status": "active",
+        "version": "v2",
+    }
+    assert fingerprint_query(spec.base_params) != fingerprint_query(None)
+
+
+@pytest.mark.parametrize("name", ["request_ids", "onchain_event_ids"])
+def test_list_markets_spec_bounds_v2_filter_count(name: str) -> None:
+    accepted = (
+        gamma_actions.list_markets_spec(request_ids=["ID"] * 100)
+        if name == "request_ids"
+        else gamma_actions.list_markets_spec(onchain_event_ids=["ID"] * 100)
+    )
+    assert accepted.base_params is not None
+    assert accepted.base_params[name] == ("ID",) * 100
+    with pytest.raises(UserInputError, match="100"):
+        if name == "request_ids":
+            gamma_actions.list_markets_spec(request_ids=["ID"] * 101)
+        else:
+            gamma_actions.list_markets_spec(onchain_event_ids=["ID"] * 101)
+
+
+@pytest.mark.parametrize(
+    "version", [None, "v2", ["v1", "v2"], (ProtocolVersion.V2, ProtocolVersion.V1), ["v1", "v1"]]
+)
+@pytest.mark.parametrize("client_mode", ["sync", "async"])
+@pytest.mark.parametrize("secure", [False, True], ids=["public", "secure"])
+def test_market_lists_preserve_v2_filters_and_bounds_across_pages(
+    client_mode: str,
+    secure: bool,
+    version: ProtocolVersion
+    | Literal["v1", "v2"]
+    | Sequence[ProtocolVersion | Literal["v1", "v2"]]
+    | None,
+) -> None:
+    # Controlled responses isolate filter serialization and continuation while
+    # the live metadata API is unavailable in this environment.
+    request_ids = [f"request-{index}" for index in range(100)]
+    event_ids = [f"event-{index}" for index in range(100)]
+    # Synthetic signing material is used only with controlled transports.
+    test_key = "0x" + "01" * 32
+    wallet = Account.from_key(test_key).address
+    credentials = ApiKeyCreds(key="test-key", passphrase="test-passphrase", secret="dGVzdA==")
+    requests: list[httpx.Request] = []
+    responses = iter(
+        [
+            httpx.Response(200, json={"markets": [], "next_cursor": "page-2"}),
+            httpx.Response(200, json={"markets": []}),
+        ]
+    )
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return next(responses)
+
+    with respx.mock as router:
+        if secure:
+            router.get("https://clob.polymarket.com/auth/api-keys").respond(
+                json={"apiKeys": [credentials.key]},
+            )
+        route = router.get("https://gamma-api.polymarket.com/markets/keyset")
+        route.side_effect = respond
+
+        if client_mode == "sync":
+            client = (
+                SecureClient.create(private_key=test_key, wallet=wallet, credentials=credentials)
+                if secure
+                else PublicClient()
+            )
+            with client:
+                pages = list(
+                    client.list_markets(
+                        request_ids=request_ids,
+                        onchain_event_ids=event_ids,
+                        resolution_status="active",
+                        version=version,
+                        page_size=10,
+                    )
+                )
+                with pytest.raises(UserInputError, match="100"):
+                    client.list_markets(request_ids=request_ids + ["extra"])
+                with pytest.raises(UserInputError, match="100"):
+                    client.list_markets(onchain_event_ids=event_ids + ["extra"])
+        else:
+
+            async def collect() -> int:
+                client = (
+                    await AsyncSecureClient.create(
+                        private_key=test_key,
+                        wallet=wallet,
+                        credentials=credentials,
+                    )
+                    if secure
+                    else AsyncPublicClient()
+                )
+                async with client:
+                    pages = [
+                        page
+                        async for page in client.list_markets(
+                            request_ids=request_ids,
+                            onchain_event_ids=event_ids,
+                            resolution_status="active",
+                            version=version,
+                            page_size=10,
+                        )
+                    ]
+                    with pytest.raises(UserInputError, match="100"):
+                        client.list_markets(request_ids=request_ids + ["extra"])
+                    with pytest.raises(UserInputError, match="100"):
+                        client.list_markets(onchain_event_ids=event_ids + ["extra"])
+                    return len(pages)
+
+            assert asyncio.run(collect()) == 2
+            pages = []
+
+        if client_mode == "sync":
+            assert len(pages) == 2
+        assert len(requests) == 2
+        for request in requests:
+            query = request.url.params
+            assert query.get_list("request_ids") == request_ids
+            assert query.get_list("onchain_event_ids") == event_ids
+            assert query["resolution_status"] == "active"
+            assert query.get_list("version") == (
+                [] if version is None else [version] if isinstance(version, str) else list(version)
+            )
+        assert requests[1].url.params["after_cursor"] == "page-2"
+
+
+@pytest.mark.parametrize(
+    "filters",
+    [
+        {"resolution_status": "pending"},
+        {"version": "v3"},
+        {"resolution_status": []},
+        {"resolution_status": {}},
+    ],
+)
+def test_list_markets_spec_rejects_unsupported_v2_filter_enums(filters: dict[str, object]) -> None:
+    with pytest.raises(UserInputError):
+        gamma_actions.list_markets_spec(**filters)  # type: ignore[arg-type]
 
 
 def test_list_markets_spec_collects_array_params() -> None:
@@ -585,3 +745,18 @@ def test_list_specs_reject_invalid_closed(closed: Any) -> None:
     for build_spec in (gamma_actions.list_events_spec, gamma_actions.list_markets_spec):
         with pytest.raises(UserInputError, match="closed must be"):
             build_spec(closed=closed)
+
+
+@pytest.mark.parametrize(
+    "version", ["v3", "", 2, True, [], ["v1", "v2", "v1"], ["v2", None], b"v1", {"v1"}]
+)
+def test_list_markets_spec_rejects_malformed_protocol_selection(version: object) -> None:
+    with pytest.raises(UserInputError, match="version must be"):
+        gamma_actions.list_markets_spec(version=version)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("name", ["request_ids", "onchain_event_ids"])
+@pytest.mark.parametrize("invalid", [1.5, object(), {"ID": True}, {"ID"}, b"ID"])
+def test_list_markets_spec_rejects_malformed_id_filter_shapes(name: str, invalid: object) -> None:
+    with pytest.raises(UserInputError, match=name):
+        gamma_actions.list_markets_spec(**{name: invalid})  # type: ignore[arg-type]

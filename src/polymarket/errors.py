@@ -113,6 +113,19 @@ class RequestRejectedError(PolymarketError):
         self.restriction = restriction
 
 
+class OrderHeartbeatMismatchError(RequestRejectedError):
+    """An order heartbeat used a stale ID.
+
+    Retry explicitly with ``heartbeat_id`` and retain the next successful ID.
+    A rejected send does not refresh the deadline. The expected ID can be empty
+    after a legacy heartbeat.
+    """
+
+    def __init__(self, heartbeat_id: str) -> None:
+        super().__init__("Invalid Heartbeat ID", status=400)
+        self.heartbeat_id = heartbeat_id
+
+
 class AutoCancelDailyLimitError(RequestRejectedError):
     """Error raised when arming auto-cancel is rejected because the account
     reached its daily auto-cancel trigger limit.
