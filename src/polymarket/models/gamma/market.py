@@ -48,6 +48,15 @@ class ProtocolVersion(StrEnum):
     V2 = "v2"
 
 
+class FallbackResolutionType(StrEnum):
+    """Mechanism used when a market receives a scalar resolution."""
+
+    NONE = "none"
+    LFMP = "lfmp"
+    EQUAL_SPLIT = "equal_split"
+    MANUAL = "manual"
+
+
 class UmaResolutionStatus(StrEnum):
     """Resolution lifecycle state for a market."""
 
@@ -281,6 +290,10 @@ class MarketResolution(BaseModel):
     uma_resolution_status: UmaResolutionStatus | None = Field(
         default=None,
         validation_alias="umaResolutionStatus",
+    )
+    fallback_resolution_type: FallbackResolutionType | None = Field(
+        default=None,
+        validation_alias="fallbackResolutionType",
     )
     source: str | None = None
     resolved_by: EvmAddress | None = Field(
@@ -553,6 +566,7 @@ class Market(BaseModel):
                 "neg_risk_request_id": empty_string_to_none(data.get("negRiskRequestID")),
                 "uma_resolution_status": empty_string_to_none(data.get("umaResolutionStatus")),
                 "source": data.get("resolutionSource"),
+                "fallbackResolutionType": data.get("fallbackResolutionType"),
                 "resolved_by": empty_string_to_none(data.get("resolvedBy")),
             },
             "rewards": {
