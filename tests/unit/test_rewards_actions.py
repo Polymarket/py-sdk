@@ -377,6 +377,46 @@ def test_parse_reward_percentages_rejects_bool_value() -> None:
         parse_reward_percentages({"0xCOND1": True})
 
 
+def test_current_rebates_request_and_exact_response() -> None:
+    from datetime import date
+    from decimal import Decimal
+
+    from polymarket._internal.actions.rewards import (
+        build_get_current_rebates_request,
+        parse_current_rebates,
+    )
+
+    maker = "0x" + "ab" * 20
+    assert build_get_current_rebates_request(date="2024-02-29", maker_address=maker) == (
+        "/rebates/current",
+        {"date": "2024-02-29", "maker_address": maker},
+    )
+    amount = "9007199254740993.000000000000000001"
+    fees = parse_current_rebates(
+        [
+            {
+                "date": "2024-02-29",
+                "condition_id": _CONDITION_ID,
+                "asset_address": maker,
+                "maker_address": maker,
+                "rebated_fees_usdc": amount,
+            }
+        ]
+    )
+    assert fees[0].date == date(2024, 2, 29)
+    assert fees[0].rebated_fees_usdc == Decimal(amount)
+    assert parse_current_rebates([]) == ()
+    assert parse_current_rebates(None) == ()
+    for invalid_date in ("2023-02-29", "20240229", "2024-W09-4", "0000-01-01"):
+        with pytest.raises(UserInputError):
+            build_get_current_rebates_request(date=invalid_date, maker_address=maker)
+    for invalid_maker in ("0x" + "00" * 20, "bad"):
+        with pytest.raises(UserInputError):
+            build_get_current_rebates_request(date="2024-02-29", maker_address=invalid_maker)
+    with pytest.raises(UnexpectedResponseError):
+        parse_current_rebates({"data": []})
+
+
 @pytest.mark.parametrize("sponsored", [None, False, True])
 def test_total_earnings_sponsored_option_preserves_omission(sponsored: bool | None) -> None:
     _, params = build_total_user_earnings_for_day_request(
