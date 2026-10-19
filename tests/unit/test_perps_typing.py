@@ -8,7 +8,7 @@ from decimal import Decimal
 from types import CoroutineType
 from typing import TYPE_CHECKING, Any, Literal, assert_type
 
-from polymarket import AsyncPublicClient, AsyncSecureClient
+from polymarket import AsyncPublicClient, AsyncSecureClient, PerpsInstrumentLogo
 from polymarket.models.perps import (
     PerpsBuilderApproval,
     PerpsBuilderAttribution,
@@ -29,6 +29,7 @@ from polymarket.models.perps import (
     PerpsInternalTransferId,
     PerpsLiquidationDetails,
     PerpsOrderRequest,
+    PerpsPortfolio,
     PerpsPositionDeleveragedNotification,
     PerpsPostOrderAck,
 )
@@ -36,6 +37,16 @@ from polymarket.pagination import AsyncPaginator
 from polymarket.perps import PerpsOrderPlacement, PerpsSession
 
 if TYPE_CHECKING:
+
+    async def _check_instrument_presentation_typing(client: AsyncPublicClient) -> None:
+        for instrument in await client.fetch_perps_instruments():
+            assert_type(instrument.ui_live_time, datetime | None)
+            assert_type(instrument.logo, PerpsInstrumentLogo | None)
+            if instrument.logo:
+                assert_type(instrument.logo.light, str)
+                assert_type(instrument.logo.dark, str)
+
+    _instrument_presentation_typing_check = _check_instrument_presentation_typing
 
     async def _check_transfer_typing(session: PerpsSession) -> None:
         pages = session.list_internal_transfers(start=0)
@@ -231,3 +242,15 @@ if TYPE_CHECKING:
                     assert_type(fill.liquidation_details, PerpsLiquidationDetails | None)
 
     _fill_risk_typing_check = _check_fill_risk_typing
+
+    async def _check_portfolio_risk_typing(session: PerpsSession) -> None:
+        portfolio = await session.fetch_portfolio()
+        assert_type(portfolio.margin.available_order_margin, Decimal)
+        assert_type(portfolio.fee_tier, int)
+        for position in portfolio.positions:
+            assert_type(position.adl_index, Literal[0, 1, 2, 3])
+        async for event in session:
+            if event.type == "portfolio":
+                assert_type(event.payload, PerpsPortfolio)
+
+    _portfolio_risk_typing_check = _check_portfolio_risk_typing

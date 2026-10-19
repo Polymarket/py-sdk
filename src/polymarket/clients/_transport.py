@@ -15,12 +15,14 @@ from httpx import USE_CLIENT_DEFAULT
 
 from polymarket._internal.request import QueryParamValue
 from polymarket.errors import (
+    OrderHeartbeatMismatchError,
     RateLimitError,
     RequestRejectedError,
     TradingRestriction,
     TransportError,
     UnexpectedResponseError,
 )
+from polymarket.models.clob.order_heartbeats import OrderHeartbeatMismatchResponse
 from polymarket.rate_limit import RateLimitUpdate, RateLimitUpdateListener
 
 SyncHeaderResolver: TypeAlias = Callable[[str, str, str | None], Mapping[str, str]]
@@ -165,7 +167,7 @@ class SyncTransport:
 
         _log_response(self._logger, method, path, response, started)
         _notify_rate_limit_update(self._on_rate_limit_update, self._logger, response)
-        _raise_for_response_status(response)
+        _raise_for_response_status(response, path=path)
         return response
 
 
@@ -303,7 +305,7 @@ class AsyncTransport:
 
         _log_response(self._logger, method, path, response, started)
         _notify_rate_limit_update(self._on_rate_limit_update, self._logger, response)
-        _raise_for_response_status(response)
+        _raise_for_response_status(response, path=path)
         return response
 
 
@@ -396,7 +398,7 @@ def _notify_rate_limit_update(
             logger.warning("polymarket rate-limit update listener failed", exc_info=True)
 
 
-def _raise_for_response_status(response: httpx.Response) -> None:
+def _raise_for_response_status(response: httpx.Response, *, path: str) -> None:
     if response.is_success:
         return
 
@@ -406,6 +408,14 @@ def _raise_for_response_status(response: httpx.Response) -> None:
             retry_after=_extract_retry_after(response),
             rate_limit=_parse_rate_limit_headers(response.headers),
         )
+
+    if response.status_code == 400 and path == "/v1/heartbeats":
+        try:
+            mismatch = OrderHeartbeatMismatchResponse.model_validate(response.json())
+        except ValueError:
+            pass
+        else:
+            raise OrderHeartbeatMismatchError(mismatch.heartbeat_id)
 
     raise RequestRejectedError(
         _extract_response_error_message(response),

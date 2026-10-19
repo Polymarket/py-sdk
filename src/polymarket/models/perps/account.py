@@ -3,7 +3,7 @@
 from collections.abc import Sequence
 from datetime import datetime
 from decimal import Decimal
-from typing import cast
+from typing import Literal, cast
 
 from pydantic import AliasChoices, Field, field_validator, model_validator
 
@@ -101,6 +101,15 @@ class PerpsPosition(BaseModel):
     unrealized_pnl: Decimal
     return_on_equity: Decimal
     cumulative_funding: Decimal
+    adl_index: Literal[0, 1, 2, 3]
+    """Auto-deleveraging risk tier; higher values indicate higher risk."""
+
+    @field_validator("adl_index", mode="before")
+    @classmethod
+    def _parse_adl_index(cls, value: object) -> object:
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError("ADL index must be an integer tier")
+        return value
 
     @field_validator(
         "size",
@@ -123,12 +132,15 @@ class PerpsMarginSummary(BaseModel):
     """Account-wide margin totals."""
 
     total_account_value: Decimal
+    available_order_margin: Decimal
+    """Collateral available for additional order initial margin, in USD."""
     total_initial_margin: Decimal
     total_maintenance_margin: Decimal
     total_position_value: Decimal
 
     @field_validator(
         "total_account_value",
+        "available_order_margin",
         "total_initial_margin",
         "total_maintenance_margin",
         "total_position_value",
@@ -146,6 +158,8 @@ class PerpsPortfolio(BaseModel):
     margin: PerpsMarginSummary
     withdrawable: Decimal
     in_liquidation: bool
+    fee_tier: int = Field(strict=True)
+    """Zero-based index into the perpetual fee schedule's tiers."""
     timestamp: datetime
 
     @field_validator("withdrawable", mode="before")
