@@ -50,9 +50,11 @@ from polymarket.models import (
     LastTradePrice,
     LastTradePriceForAsset,
     Market,
+    MarketResolutionStatus,
     OrderBook,
     OrderSide,
     PriceRequest,
+    ProtocolVersion,
     PublicProfile,
     RelatedTag,
     SearchResults,
@@ -97,6 +99,7 @@ from polymarket.models.data import (
     PriceHistoryPoint,
     Resolution,
     SortDirection,
+    TokenReference,
     Trade,
     TradeFilterType,
     TraderLeaderboardEntry,
@@ -271,6 +274,12 @@ class AsyncPublicClient:
         mergeable one ``OPEN``. ``sort_by`` defaults to ``TOKENS`` for ``MERGEABLE``,
         ``REALIZED_PNL`` for ``CLOSED``, and ``CURRENT_VALUE`` for every other status.
 
+        For wallet-anchored ``CLOSED`` listings, ``TOKENS``, ``CURRENT_VALUE``, ``PRICE``
+        and ``UNREALIZED_PNL`` sort by realized PnL in the requested direction. Keep
+        the original filters and requested sort when resuming a cursor. If an older
+        cursor is rejected with HTTP 400 because the ordering changed, discard it
+        and explicitly fetch a new first page; the paginator does not restart.
+
         ``title`` filters by case-insensitive substring (max 200 Unicode characters).
         ``%`` and ``_`` remain wildcards. Blank input is ignored; other patterns are
         preserved unchanged on every page, including cursor replay.
@@ -440,6 +449,30 @@ class AsyncPublicClient:
         return async_paginate_keyset(
             self._ctx, spec, page_size=10000 if page_size is None else page_size
         )
+
+    async def get_token_references(
+        self,
+        *,
+        asset_ids: str | Sequence[str] | None = None,
+        condition_ids: str | Sequence[str] | None = None,
+    ) -> tuple[TokenReference, ...]:
+        """Get outcome asset reference and settlement metadata as a direct tuple.
+
+        Provide exactly one selector family: up to 50 distinct decimal asset IDs,
+        or up to 10 distinct 31-byte or 32-byte hex condition selectors. A scalar
+        string denotes one ID. Elements are trimmed, blanks dropped, and duplicates
+        removed in first-seen order. Decimal IDs have leading zeros stripped and
+        at most 78 remaining digits. Conditions are lowercased without padding.
+
+        Unknown selectors contribute no rows. Asset lookups retain request order;
+        condition groups retain server order and can repeat assets when selectors
+        overlap. Nullable metadata is explicit. Outcome labels and settlement
+        metadata may lag by up to a minute. Transient rate limits are retried.
+        """
+        spec = _data_actions.build_get_token_references_spec(
+            asset_ids=asset_ids, condition_ids=condition_ids
+        )
+        return await async_dispatch(self._ctx, spec)
 
     async def get_resolutions(
         self,
@@ -1118,9 +1151,14 @@ class AsyncPublicClient:
         locale: str | None = None,
         market_maker_addresses: str | Sequence[str] | None = None,
         order: str | None = None,
+        onchain_event_ids: str | Sequence[str] | None = None,
         position_ids: str | Sequence[str] | None = None,
         question_ids: str | Sequence[str] | None = None,
         related_tags: bool | None = None,
+        request_ids: str | Sequence[str] | None = None,
+        resolution_status: MarketResolutionStatus
+        | Literal["inactive", "active", "resolved"]
+        | None = None,
         rfq_enabled: bool | None = None,
         rewards_min_size: float | None = None,
         slug: str | Sequence[str] | None = None,
@@ -1130,11 +1168,23 @@ class AsyncPublicClient:
         tag_id: int | None = None,
         tag_match: TagMatch | None = None,
         uma_resolution_status: str | None = None,
+        version: ProtocolVersion
+        | Literal["v1", "v2"]
+        | Sequence[ProtocolVersion | Literal["v1", "v2"]]
+        | None = None,
         volume_num_max: float | None = None,
         volume_num_min: float | None = None,
         page_size: int = 20,
     ) -> AsyncPaginator[Market]:
         """List markets.
+
+        Omitting ``version`` uses the current server default of CTF markets (v1).
+        Pass one version or a sequence of one or two versions. Keep the same
+        selection when resuming a cursor.
+
+        V2 markets can be filtered by ``version``, ``resolution_status``,
+        ``request_ids``, and ``onchain_event_ids``. Each ID filter accepts at
+        most 100 values. V1 markets use ``uma_resolution_status`` separately.
 
         Markets that cannot be represented by the binary Market model are
         omitted from results.
@@ -1172,9 +1222,12 @@ class AsyncPublicClient:
             locale=locale,
             market_maker_addresses=market_maker_addresses,
             order=order,
+            onchain_event_ids=onchain_event_ids,
             position_ids=position_ids,
             question_ids=question_ids,
             related_tags=related_tags,
+            request_ids=request_ids,
+            resolution_status=resolution_status,
             rfq_enabled=rfq_enabled,
             rewards_min_size=rewards_min_size,
             slug=slug,
@@ -1184,6 +1237,7 @@ class AsyncPublicClient:
             tag_id=tag_id,
             tag_match=tag_match,
             uma_resolution_status=uma_resolution_status,
+            version=version,
             volume_num_max=volume_num_max,
             volume_num_min=volume_num_min,
         )

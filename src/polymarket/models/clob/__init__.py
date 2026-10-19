@@ -35,10 +35,13 @@ from polymarket.models.clob.notifications import (
     OrderNotificationPayload,
     RewardPayoutNotification,
     RewardPayoutNotificationPayload,
+    TakerTierUpgradedNotification,
+    TakerTierUpgradedNotificationPayload,
     YieldPayoutNotification,
     YieldPayoutNotificationPayload,
 )
 from polymarket.models.clob.order_book import OrderBook, OrderBookLevel
+from polymarket.models.clob.order_heartbeats import OrderHeartbeat
 from polymarket.models.clob.order_response import (
     AcceptedOrder,
     OrderPostStatus,
@@ -88,6 +91,7 @@ __all__ = [
     "TradeStatus",
     "RewardMarket",
     "RewardMarketSort",
+    "OrderHeartbeat",
     "CurrentReward",
     "CurrentRewardConfig",
     "EarningBreakdown",
@@ -132,6 +136,8 @@ __all__ = [
     "UserEarning",
     "UserRewardsConfig",
     "UserRewardsEarning",
+    "TakerTierUpgradedNotification",
+    "TakerTierUpgradedNotificationPayload",
     "YieldPayoutNotification",
     "YieldPayoutNotificationPayload",
 ]

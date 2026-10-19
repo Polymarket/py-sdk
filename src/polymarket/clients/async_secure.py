@@ -30,6 +30,7 @@ from polymarket._internal.actions import combo_rfq as _combo_rfq_actions
 from polymarket._internal.actions import combos as _combos_actions
 from polymarket._internal.actions import data as _data_actions
 from polymarket._internal.actions import gamma as _gamma_actions
+from polymarket._internal.actions import order_heartbeats as _order_heartbeat_actions
 from polymarket._internal.actions import rewards as _rewards_actions
 from polymarket._internal.actions import rfq as _rfq_actions
 from polymarket._internal.actions import session_keys as _session_key_actions
@@ -165,11 +166,13 @@ from polymarket.models import (
     LastTradePrice,
     LastTradePriceForAsset,
     Market,
+    MarketResolutionStatus,
     Notification,
     OpenOrder,
     OrderBook,
     OrderSide,
     PriceRequest,
+    ProtocolVersion,
     PublicProfile,
     RelatedTag,
     SearchResults,
@@ -184,6 +187,7 @@ from polymarket.models import (
 from polymarket.models.clob.api_key import BuilderApiKeyInfo
 from polymarket.models.clob.cancel import CancelOrdersResponse
 from polymarket.models.clob.market_events import MarketEvent
+from polymarket.models.clob.order_heartbeats import OrderHeartbeat
 from polymarket.models.clob.order_response import AcceptedOrder, OrderResponse
 from polymarket.models.clob.orders import MarketOrderType, SignedOrder
 from polymarket.models.clob.relayer import RelayerTransactionType
@@ -224,6 +228,7 @@ from polymarket.models.data import (
     PriceHistoryPoint,
     Resolution,
     SortDirection,
+    TokenReference,
     Trade,
     TradeFilterType,
     TraderLeaderboardEntry,
@@ -467,6 +472,12 @@ class AsyncSecureClient:
         one ``OPEN``. ``sort_by`` defaults to ``TOKENS`` for ``MERGEABLE``,
         ``REALIZED_PNL`` for ``CLOSED``, and ``CURRENT_VALUE`` for every other status.
 
+        For wallet-anchored ``CLOSED`` listings, ``TOKENS``, ``CURRENT_VALUE``, ``PRICE``
+        and ``UNREALIZED_PNL`` sort by realized PnL in the requested direction. Keep
+        the original filters and requested sort when resuming a cursor. If an older
+        cursor is rejected with HTTP 400 because the ordering changed, discard it
+        and explicitly fetch a new first page; the paginator does not restart.
+
         ``title`` filters by case-insensitive substring (max 200 Unicode characters).
         ``%`` and ``_`` remain wildcards. Blank input is ignored; other patterns are
         preserved unchanged on every page, including cursor replay.
@@ -650,6 +661,30 @@ class AsyncSecureClient:
         return async_paginate_keyset(
             self._ctx, spec, page_size=10000 if page_size is None else page_size
         )
+
+    async def get_token_references(
+        self,
+        *,
+        asset_ids: str | Sequence[str] | None = None,
+        condition_ids: str | Sequence[str] | None = None,
+    ) -> tuple[TokenReference, ...]:
+        """Get outcome asset reference and settlement metadata as a direct tuple.
+
+        Provide exactly one selector family: up to 50 distinct decimal asset IDs,
+        or up to 10 distinct 31-byte or 32-byte hex condition selectors. A scalar
+        string denotes one ID. Elements are trimmed, blanks dropped, and duplicates
+        removed in first-seen order. Decimal IDs have leading zeros stripped and
+        at most 78 remaining digits. Conditions are lowercased without padding.
+
+        Unknown selectors contribute no rows. Asset lookups retain request order;
+        condition groups retain server order and can repeat assets when selectors
+        overlap. Nullable metadata is explicit. Outcome labels and settlement
+        metadata may lag by up to a minute. Transient rate limits are retried.
+        """
+        spec = _data_actions.build_get_token_references_spec(
+            asset_ids=asset_ids, condition_ids=condition_ids
+        )
+        return await async_dispatch(self._ctx, spec)
 
     async def get_resolutions(
         self,
@@ -1982,9 +2017,14 @@ class AsyncSecureClient:
         locale: str | None = None,
         market_maker_addresses: str | Sequence[str] | None = None,
         order: str | None = None,
+        onchain_event_ids: str | Sequence[str] | None = None,
         position_ids: str | Sequence[str] | None = None,
         question_ids: str | Sequence[str] | None = None,
         related_tags: bool | None = None,
+        request_ids: str | Sequence[str] | None = None,
+        resolution_status: MarketResolutionStatus
+        | Literal["inactive", "active", "resolved"]
+        | None = None,
         rfq_enabled: bool | None = None,
         rewards_min_size: float | None = None,
         slug: str | Sequence[str] | None = None,
@@ -1994,11 +2034,23 @@ class AsyncSecureClient:
         tag_id: int | None = None,
         tag_match: TagMatch | None = None,
         uma_resolution_status: str | None = None,
+        version: ProtocolVersion
+        | Literal["v1", "v2"]
+        | Sequence[ProtocolVersion | Literal["v1", "v2"]]
+        | None = None,
         volume_num_max: float | None = None,
         volume_num_min: float | None = None,
         page_size: int = 20,
     ) -> AsyncPaginator[Market]:
         """List markets.
+
+        Omitting ``version`` uses the current server default of CTF markets (v1).
+        Pass one version or a sequence of one or two versions. Keep the same
+        selection when resuming a cursor.
+
+        V2 markets can be filtered by ``version``, ``resolution_status``,
+        ``request_ids``, and ``onchain_event_ids``. Each ID filter accepts at
+        most 100 values. V1 markets use ``uma_resolution_status`` separately.
 
         Markets that cannot be represented by the binary Market model are
         omitted from results.
@@ -2023,9 +2075,12 @@ class AsyncSecureClient:
             locale=locale,
             market_maker_addresses=market_maker_addresses,
             order=order,
+            onchain_event_ids=onchain_event_ids,
             position_ids=position_ids,
             question_ids=question_ids,
             related_tags=related_tags,
+            request_ids=request_ids,
+            resolution_status=resolution_status,
             rfq_enabled=rfq_enabled,
             rewards_min_size=rewards_min_size,
             slug=slug,
@@ -2035,6 +2090,7 @@ class AsyncSecureClient:
             tag_id=tag_id,
             tag_match=tag_match,
             uma_resolution_status=uma_resolution_status,
+            version=version,
             volume_num_max=volume_num_max,
             volume_num_min=volume_num_min,
         )
@@ -3765,6 +3821,38 @@ class AsyncSecureClient:
 
         return AsyncPaginator(fetch=fetch)
 
+    async def send_order_heartbeat(self, *, heartbeat_id: str = "") -> OrderHeartbeat:
+        """Send one authenticated order heartbeat and retain the returned ID.
+
+        The first accepted send enables timeout cancellation for ALL open orders
+        owned by this API key, across markets and processes. Only start when you
+        can keep sending every five seconds. After ten seconds without an accepted
+        send, the server attempts cancel-all; timing and success are not guaranteed.
+        Start with an empty ID, serialize sends per key, and retain every returned
+        ID. No timer or automatic retry starts. A lost response may follow an
+        accepted send, so failure does not prove registration is inactive.
+
+        There is no disarm operation. Stopping sends or closing the client leaves
+        the deadline active. On shutdown, stop placing orders and explicitly
+        cancel/verify orders you intend to remove. Expiry removes the registration;
+        later accepted sends register again. Separate from WebSocket keepalive.
+
+        Raises:
+            UserInputError: heartbeat_id is not a string.
+            OrderHeartbeatMismatchError: Retry explicitly with the error's
+                heartbeat_id. Rejected sends do not refresh the deadline.
+            RequestRejectedError: Authentication or another request rejection.
+            RateLimitError: The request was rate limited.
+            TransportError: The request failed; acceptance may be unknown.
+            UnexpectedResponseError: The response could not be parsed.
+        """
+        path, body = _order_heartbeat_actions.build_send_order_heartbeat_request(
+            heartbeat_id=heartbeat_id
+        )
+        return _order_heartbeat_actions.parse_order_heartbeat(
+            await self._ctx.secure_clob.post_json(path, json=body)
+        )
+
     def list_current_rewards(
         self, *, sponsored: bool | None = None
     ) -> AsyncPaginator[CurrentReward]:
@@ -3837,11 +3925,16 @@ class AsyncSecureClient:
         return AsyncPaginator(fetch=fetch)
 
     async def get_total_earnings_for_user_for_day(
-        self, *, date: str
+        self, *, date: str, sponsored: bool | None = None
     ) -> tuple[TotalUserEarning, ...]:
-        """Get total reward earnings for the authenticated user on a date."""
+        """Get total reward earnings for the authenticated user on a date.
+
+        Set ``sponsored=True`` to include sponsored rewards and the native/sponsored
+        breakdown. Omitted or false returns native rewards only. Absent breakdown
+        fields remain ``None``.
+        """
         path, params = _rewards_actions.build_total_user_earnings_for_day_request(
-            date=date, signature_type=signature_type_for(self._ctx.wallet_type)
+            date=date, signature_type=signature_type_for(self._ctx.wallet_type), sponsored=sponsored
         )
         return _rewards_actions.parse_total_user_earnings(
             await self._ctx.secure_clob.get_json(path, params=params)
