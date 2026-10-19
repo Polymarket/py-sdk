@@ -11,8 +11,10 @@ from polymarket import (
     ComboActivityType,
     ComboTradeActivity,
     ConditionId,
+    MergeActivity,
     PublicClient,
     RedeemActivity,
+    SplitActivity,
     TipActivity,
     TradeActivity,
     UnknownActivity,
@@ -154,6 +156,35 @@ def test_unknown_combo_outcomes_stay_unavailable(kind: str) -> None:
     assert isinstance(row, (ComboTradeActivity, RedeemActivity))
     assert row.outcome is None
     assert row.outcome_index is None
+
+
+@pytest.mark.parametrize("kind,model", [("SPLIT", SplitActivity), ("MERGE", MergeActivity)])
+@pytest.mark.parametrize("is_combo", [True, False, None])
+def test_split_merge_combo_flag(
+    kind: str, model: type[SplitActivity] | type[MergeActivity], is_combo: bool | None
+) -> None:
+    condition_id = _COMBO_CONDITION if is_combo else "0x03" + "cd" * 30 + "00"
+    payload = {**combo_row(kind, "", 999), "condition_id": condition_id}
+    if is_combo is None:
+        payload.pop("is_combo")
+    else:
+        payload["is_combo"] = is_combo
+    if not is_combo:
+        payload.update(title="A market", slug="a-market", event_slug="an-event")
+
+    rows = parse_activities([{**sample("activity")[0], "type": "REWARD"}, payload])
+    row = rows[1]
+    assert [item.type for item in rows] == ["REWARD", kind]
+    assert isinstance(row, model)
+    assert row.is_combo is (is_combo is True)
+    assert row.condition_id == condition_id
+    assert row.amount == Decimal("0.5")
+    assert model.parse_response(payload) == row
+    if is_combo:
+        assert row.slug is None and row.event_slug is None
+    else:
+        assert row.title == "A market"
+        assert row.slug == "a-market" and row.event_slug == "an-event"
 
 
 @pytest.mark.parametrize("is_combo", [False, None])

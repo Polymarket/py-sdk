@@ -216,10 +216,12 @@ class _MarketEventActivity(_KnownActivityBase):
 
 class SplitActivity(_MarketEventActivity):
     type: Literal[ActivityType.SPLIT]
+    is_combo: bool = False
 
 
 class MergeActivity(_MarketEventActivity):
     type: Literal[ActivityType.MERGE]
+    is_combo: bool = False
 
 
 class RedeemActivity(_MarketEventActivity):
