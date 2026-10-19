@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.13.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.12.0...polymarket-client-v0.13.0) (2026-10-07)
+
+### Features
+
+- **client:** Read indexed trading approvals from the configured environment, with no RPC fallback. Recent changes may lag; setup still checks on chain. ([b0aa248](https://github.com/Polymarket/py-sdk/commit/b0aa248))
+- **portfolio:** Add position title filters, price sorting, and first-acquisition times. ([2ee4cde](https://github.com/Polymarket/py-sdk/commit/2ee4cde))
+- **data:** Add earliest settlement estimates and their basis, not guaranteed deadlines. ([6a4e65e](https://github.com/Polymarket/py-sdk/commit/6a4e65e))
+- **streams:** Add 60-second equity TWAPs, Chainlink/Pyth provider selection, and price source metadata. ([b543c9d](https://github.com/Polymarket/py-sdk/commit/b543c9d))
+- **perps:** Add chase and TWAP execution lifecycles through async sessions. ([e4454a0](https://github.com/Polymarket/py-sdk/commit/e4454a0))
+- **perps:** Add GTD orders, partial position TP/SL exits, and trailing stops with activation events. ([017b976](https://github.com/Polymarket/py-sdk/commit/017b976))
+- **perps:** Add public and owner position snapshots and public registration lookup through async clients and sessions. ([ed8d04c](https://github.com/Polymarket/py-sdk/commit/ed8d04c))
+- **perps:** Add batch leverage updates with per-instrument results. ([59fcfb3](https://github.com/Polymarket/py-sdk/commit/59fcfb3))
+- **perps:** Add paginated internal transfer history. ([2a558df](https://github.com/Polymarket/py-sdk/commit/2a558df))
+- **perps:** Expose close-only state, settlement records, display labels, and settlement flags on trades and fills. ([e0b6f1b](https://github.com/Polymarket/py-sdk/commit/e0b6f1b))
+- **perps:** Add `position_deleveraged` notifications. Exhaustive handlers must handle this variant; Perps remains experimental. ([8c73c1f](https://github.com/Polymarket/py-sdk/commit/8c73c1f))
+
+### Bug Fixes
+
+- **perps:** Retry transient cancellations with bounded backoff and preserve earlier outcomes in `PerpsCancelRetryError` if a later attempt fails. ([ee8e0a2](https://github.com/Polymarket/py-sdk/commit/ee8e0a2))
+- **perps:** Accept current terminal order statuses. ([b3153b0](https://github.com/Polymarket/py-sdk/commit/b3153b0))
+- **perps:** Accept small numeric trailing activation prices. ([ab72096](https://github.com/Polymarket/py-sdk/commit/ab72096))
+- **perps:** Preserve command rejection errors and validate batch leverage response scalars. ([28de448](https://github.com/Polymarket/py-sdk/commit/28de448))
+- **client:** Correct return types for subscriptions combining three price topics. ([e6d7526](https://github.com/Polymarket/py-sdk/commit/e6d7526))
+- **errors:** Parse HTTP-date `Retry-After` headers into nonnegative whole seconds. Retry policy is unchanged. ([b49859d](https://github.com/Polymarket/py-sdk/commit/b49859d))
+
 ## [0.12.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.11.0...polymarket-client-v0.12.0) (2026-09-30)
 
 

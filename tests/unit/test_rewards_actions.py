@@ -415,3 +415,26 @@ def test_current_rebates_request_and_exact_response() -> None:
             build_get_current_rebates_request(date="2024-02-29", maker_address=invalid_maker)
     with pytest.raises(UnexpectedResponseError):
         parse_current_rebates({"data": []})
+
+
+@pytest.mark.parametrize("sponsored", [None, False, True])
+def test_total_earnings_sponsored_option_preserves_omission(sponsored: bool | None) -> None:
+    _, params = build_total_user_earnings_for_day_request(
+        date="2026-10-06",
+        signature_type=3,
+        sponsored=sponsored,
+    )
+    if sponsored is None:
+        assert "sponsored" not in params
+    else:
+        assert params["sponsored"] is sponsored
+
+
+@pytest.mark.parametrize("sponsored", ["true", 1])
+def test_total_earnings_rejects_non_bool_sponsored(sponsored: Any) -> None:
+    with pytest.raises(UserInputError, match="sponsored"):
+        build_total_user_earnings_for_day_request(
+            date="2026-10-06",
+            signature_type=3,
+            sponsored=sponsored,
+        )

@@ -1,6 +1,7 @@
 # pyright: reportPrivateUsage=false
 import asyncio
 import dataclasses
+from decimal import Decimal
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -50,10 +51,12 @@ def _install_public_clob(client: AsyncPublicClient, handler: httpx.MockTransport
     client._ctx = dataclasses.replace(client._ctx, clob=transport)
 
 
-def _install_secure_clob(client: AsyncSecureClient, handler: httpx.MockTransport) -> None:
+def _install_secure_clob(
+    client: AsyncSecureClient, handler: httpx.MockTransport, *, base_url: str = "https://clob.test"
+) -> None:
     transport = AsyncTransport(
-        base_url="https://clob.test",
-        client=httpx.AsyncClient(base_url="https://clob.test", transport=handler),
+        base_url=base_url,
+        client=httpx.AsyncClient(base_url=base_url, transport=handler),
         header_resolver=client._ctx.secure_clob._header_resolver,
     )
     client._ctx = dataclasses.replace(client._ctx, secure_clob=transport)
@@ -293,6 +296,8 @@ def test_async_secure_get_total_earnings_for_user_for_day() -> None:
             "date": 1700000000000,
             "earnings": "100",
             "maker_address": "0xMAKER",
+            "native_earnings": 7.5,
+            "sponsored_earnings": 2.5,
         }
     ]
 
@@ -303,7 +308,9 @@ def test_async_secure_get_total_earnings_for_user_for_day() -> None:
                 client,
                 _routed_handler(captured, {("GET", "/rewards/user/total"): response_body}),
             )
-            return await client.get_total_earnings_for_user_for_day(date="2026-04-16")
+            return await client.get_total_earnings_for_user_for_day(
+                date="2026-04-16", sponsored=True
+            )
         finally:
             await client.close()
 
@@ -312,6 +319,11 @@ def test_async_secure_get_total_earnings_for_user_for_day() -> None:
     qs = parse_qs(urlparse(str(captured[0].url)).query)
     assert qs.get("date") == ["2026-04-16"]
     assert qs.get("signature_type") == ["0"]
+
+    qs = parse_qs(urlparse(str(captured[0].url)).query)
+    assert qs.get("sponsored") == ["true"]
+    assert items[0].native_earnings == Decimal("7.5")
+    assert items[0].sponsored_earnings == Decimal("2.5")
 
 
 def test_async_secure_list_user_earnings_and_markets_config_passes_filters() -> None:
@@ -465,3 +477,45 @@ def test_async_public_current_rebates_uses_unsigned_read() -> None:
         "maker_address": [SIGNER_ADDRESS],
     }
     assert "POLY_SIGNATURE" not in captured[0].headers
+
+
+@pytest.mark.parametrize("base_url", ["https://clob.test", "https://clob.test/prefix/"])
+@pytest.mark.parametrize("heartbeat_id", ["expected-id", ""])
+def test_async_order_heartbeat_rotation_and_explicit_mismatch_recovery(
+    base_url: str, heartbeat_id: str
+) -> None:
+    from polymarket import OrderHeartbeatMismatchError
+
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        if len(captured) == 2:
+            return httpx.Response(
+                400,
+                json={"error_msg": "Invalid Heartbeat ID", "heartbeat_id": heartbeat_id},
+                request=request,
+            )
+        return httpx.Response(200, json={"heartbeat_id": "next-id"}, request=request)
+
+    async def run() -> None:
+        client = await _make_secure_client()
+        try:
+            _install_secure_clob(client, httpx.MockTransport(handler), base_url=base_url)
+            assert (await client.send_order_heartbeat()).heartbeat_id == "next-id"
+            with pytest.raises(OrderHeartbeatMismatchError) as error:
+                await client.send_order_heartbeat(heartbeat_id="stale-id")
+            assert len(captured) == 2
+            assert (
+                await client.send_order_heartbeat(heartbeat_id=error.value.heartbeat_id)
+            ).heartbeat_id == "next-id"
+        finally:
+            await client.close()
+
+    asyncio.run(run())
+    assert [request.content for request in captured] == [
+        b'{"heartbeat_id":""}',
+        b'{"heartbeat_id":"stale-id"}',
+        f'{{"heartbeat_id":"{heartbeat_id}"}}'.encode(),
+    ]
+    assert all(request.headers.get("POLY_SIGNATURE") for request in captured)

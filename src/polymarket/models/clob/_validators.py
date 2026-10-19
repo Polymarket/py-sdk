@@ -140,8 +140,8 @@ def _parse_epoch_or_iso_timestamp(value: object) -> object:
     else:
         msg = f"expected epoch or ISO timestamp, got {type(value).__name__}"
         raise ValueError(msg)
-    seconds = magnitude / 1000 if magnitude >= _EPOCH_MS_THRESHOLD else magnitude
     try:
+        seconds = magnitude / 1000 if magnitude >= _EPOCH_MS_THRESHOLD else magnitude
         return datetime.fromtimestamp(seconds, tz=UTC)
     except (OverflowError, OSError, ValueError) as error:
         msg = f"invalid epoch timestamp: {value!r}"
