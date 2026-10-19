@@ -7,6 +7,8 @@ from decimal import Decimal
 from types import TracebackType
 from typing import Literal, Self, overload
 
+from eth_account.signers.local import LocalAccount
+
 from polymarket._internal.actions import builders as _builders_actions
 from polymarket._internal.actions import clob as _clob_actions
 from polymarket._internal.actions import data as _data_actions
@@ -35,10 +37,13 @@ from polymarket._internal.dispatch import (
     sync_paginate_page_based,
 )
 from polymarket._internal.environment import get_environment_config
+from polymarket._internal.gateway_auth import build_migration_request, login_sync, parse_tokens
+from polymarket.auth import BearerCredentials
 from polymarket.clients._transport import SyncTransport
 from polymarket.environments import PRODUCTION, Environment
 from polymarket.errors import RequestRejectedError
 from polymarket.models import (
+    ApiKeyCreds,
     ComboMarket,
     Comment,
     Event,
@@ -465,6 +470,43 @@ class PublicClient:
         Interval ``all`` yields calendar-year buckets."""
         spec = _data_actions.get_builder_volumes_spec(interval=interval, bucket_limit=bucket_limit)
         return sync_dispatch(self._ctx, spec)
+
+    def login(
+        self,
+        *,
+        signer: LocalAccount,
+        wallet: str | None = None,
+        verification_token: str | None = None,
+    ) -> BearerCredentials:
+        """Sign a server challenge and return credentials for this signer and optional wallet."""
+        transport = SyncTransport(base_url=self._ctx.environment_config.gateway_url)
+        try:
+            return login_sync(
+                transport, signer=signer, wallet=wallet, verification_token=verification_token
+            )
+        finally:
+            transport.close()
+
+    def migrate_credentials(
+        self,
+        *,
+        credentials: ApiKeyCreds,
+        signer: str,
+        wallet: str | None = None,
+        verification_token: str | None = None,
+    ) -> BearerCredentials:
+        """Exchange saved L2 credentials for a bearer pair without a wallet signature."""
+        body = build_migration_request(
+            credentials=credentials,
+            signer=signer,
+            wallet=wallet,
+            verification_token=verification_token,
+        )
+        transport = SyncTransport(base_url=self._ctx.environment_config.gateway_url)
+        try:
+            return parse_tokens(transport.post_json("/v1/auth/migrate", json=body))
+        finally:
+            transport.close()
 
     def __init__(
         self,

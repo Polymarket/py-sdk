@@ -2,6 +2,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
+from polymarket.auth import BearerCredentials
 from polymarket.models import ApiKeyCreds
 from polymarket.models.clob.user_events import UserEvent
 
@@ -34,10 +35,14 @@ def derive_state(subs: Iterable[UserSubscription]) -> UserServerState:
     return UserServerState(include_all_markets=False, markets=tuple(sorted(markets)))
 
 
-def build_initial_frame(state: UserServerState, credentials: ApiKeyCreds) -> dict[str, Any]:
+def build_initial_frame(
+    state: UserServerState, credentials: ApiKeyCreds | BearerCredentials
+) -> dict[str, Any]:
     frame: dict[str, Any] = {
         "type": "user",
-        "auth": {
+        "auth": {"accessToken": credentials.access_token}
+        if isinstance(credentials, BearerCredentials)
+        else {
             "apiKey": credentials.key,
             "secret": credentials.secret,
             "passphrase": credentials.passphrase,

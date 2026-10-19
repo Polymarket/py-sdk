@@ -8,7 +8,7 @@ import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, TypeAlias
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 import httpx
 from httpx import USE_CLIENT_DEFAULT
@@ -22,6 +22,9 @@ from polymarket.errors import (
     UnexpectedResponseError,
 )
 from polymarket.rate_limit import RateLimitUpdate, RateLimitUpdateListener
+
+if TYPE_CHECKING:
+    from polymarket._internal.gateway_session import AsyncGatewaySession, SyncGatewaySession
 
 SyncHeaderResolver: TypeAlias = Callable[[str, str, str | None], Mapping[str, str]]
 HeaderResolver: TypeAlias = Callable[[str, str, str | None], Awaitable[Mapping[str, str]]]
@@ -51,6 +54,7 @@ class SyncTransport:
         logger: logging.Logger | None = None,
         client: httpx.Client | None = None,
         header_resolver: SyncHeaderResolver | None = None,
+        session: SyncGatewaySession | None = None,
         on_rate_limit_update: RateLimitUpdateListener | None = None,
     ) -> None:
         opts = options or TransportOptions()
@@ -64,6 +68,7 @@ class SyncTransport:
         )
         self._logger = logger
         self._header_resolver = header_resolver
+        self._session = session
         self._on_rate_limit_update = on_rate_limit_update
         self._base_url = base_url
 
@@ -86,6 +91,9 @@ class SyncTransport:
     ) -> bytes:
         response = self._request("GET", path, params=params, headers=headers)
         return response.content
+
+    def post(self, path: str, *, headers: Mapping[str, str] | None = None) -> None:
+        self._request("POST", path, headers=headers)
 
     def post_json(
         self,
@@ -136,6 +144,48 @@ class SyncTransport:
         headers: Mapping[str, str] | None = None,
         timeout: httpx.Timeout | None = None,
     ) -> httpx.Response:
+        session = self._session
+        credentials = session.ensure_valid() if session is not None else None
+        try:
+            return self._request_once(
+                method,
+                path,
+                params=params,
+                json=json,
+                headers=headers,
+                timeout=timeout,
+                access_token=credentials.access_token if credentials is not None else None,
+            )
+        except RequestRejectedError as error:
+            if (
+                session is None
+                or credentials is None
+                or error.status != 401
+                or error.code != "expired_access_token"
+            ):
+                raise
+            updated = session.refresh(credentials.access_token)
+            return self._request_once(
+                method,
+                path,
+                params=params,
+                json=json,
+                headers=headers,
+                timeout=timeout,
+                access_token=updated.access_token,
+            )
+
+    def _request_once(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: Mapping[str, QueryParamValue | None] | None = None,
+        json: object | None = None,
+        headers: Mapping[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
+        access_token: str | None = None,
+    ) -> httpx.Response:
         body_str: str | None = None
         content: bytes | None = None
         merged_headers: dict[str, str] = dict(headers) if headers else {}
@@ -149,6 +199,11 @@ class SyncTransport:
             resolved = self._header_resolver(method, path, body_str)
             merged_headers.update(resolved)
 
+        if self._session is not None:
+            merged_headers["Authorization"] = "Bearer " + (
+                access_token or self._session.credentials.access_token
+            )
+
         started = time.perf_counter()
         try:
             response = self._client.request(
@@ -160,12 +215,17 @@ class SyncTransport:
                 timeout=timeout if timeout is not None else USE_CLIENT_DEFAULT,
             )
         except httpx.HTTPError as error:
-            _log_failure(self._logger, method, path, error, started)
+            sensitive = self._session is not None or path.startswith("/v1/auth/")
+            _log_failure(self._logger, method, path, error, started, sensitive=sensitive)
+            if sensitive:
+                raise TransportError("Request failed") from None
             raise TransportError(str(error) or "Request failed") from error
 
         _log_response(self._logger, method, path, response, started)
         _notify_rate_limit_update(self._on_rate_limit_update, self._logger, response)
-        _raise_for_response_status(response)
+        _raise_for_response_status(
+            response, sensitive=self._session is not None or path.startswith("/v1/auth/")
+        )
         return response
 
 
@@ -178,6 +238,7 @@ class AsyncTransport:
         logger: logging.Logger | None = None,
         client: httpx.AsyncClient | None = None,
         header_resolver: HeaderResolver | None = None,
+        session: AsyncGatewaySession | None = None,
         on_rate_limit_update: RateLimitUpdateListener | None = None,
     ) -> None:
         opts = options or TransportOptions()
@@ -191,6 +252,7 @@ class AsyncTransport:
         )
         self._logger = logger
         self._header_resolver = header_resolver
+        self._session = session
         self._on_rate_limit_update = on_rate_limit_update
         self._base_url = base_url
 
@@ -213,6 +275,9 @@ class AsyncTransport:
     ) -> bytes:
         response = await self._request("GET", path, params=params, headers=headers)
         return response.content
+
+    async def post(self, path: str, *, headers: Mapping[str, str] | None = None) -> None:
+        await self._request("POST", path, headers=headers)
 
     async def post_json(
         self,
@@ -274,6 +339,48 @@ class AsyncTransport:
         headers: Mapping[str, str] | None = None,
         timeout: httpx.Timeout | None = None,
     ) -> httpx.Response:
+        session = self._session
+        credentials = await session.ensure_valid() if session is not None else None
+        try:
+            return await self._request_once(
+                method,
+                path,
+                params=params,
+                json=json,
+                headers=headers,
+                timeout=timeout,
+                access_token=credentials.access_token if credentials is not None else None,
+            )
+        except RequestRejectedError as error:
+            if (
+                session is None
+                or credentials is None
+                or error.status != 401
+                or error.code != "expired_access_token"
+            ):
+                raise
+            updated = await session.refresh(credentials.access_token)
+            return await self._request_once(
+                method,
+                path,
+                params=params,
+                json=json,
+                headers=headers,
+                timeout=timeout,
+                access_token=updated.access_token,
+            )
+
+    async def _request_once(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: Mapping[str, QueryParamValue | None] | None = None,
+        json: object | None = None,
+        headers: Mapping[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
+        access_token: str | None = None,
+    ) -> httpx.Response:
         body_str: str | None = None
         content: bytes | None = None
         merged_headers: dict[str, str] = dict(headers) if headers else {}
@@ -287,6 +394,11 @@ class AsyncTransport:
             resolved = await self._header_resolver(method, path, body_str)
             merged_headers.update(resolved)
 
+        if self._session is not None:
+            merged_headers["Authorization"] = "Bearer " + (
+                access_token or self._session.credentials.access_token
+            )
+
         started = time.perf_counter()
         try:
             response = await self._client.request(
@@ -298,12 +410,17 @@ class AsyncTransport:
                 timeout=timeout if timeout is not None else USE_CLIENT_DEFAULT,
             )
         except httpx.HTTPError as error:
-            _log_failure(self._logger, method, path, error, started)
+            sensitive = self._session is not None or path.startswith("/v1/auth/")
+            _log_failure(self._logger, method, path, error, started, sensitive=sensitive)
+            if sensitive:
+                raise TransportError("Request failed") from None
             raise TransportError(str(error) or "Request failed") from error
 
         _log_response(self._logger, method, path, response, started)
         _notify_rate_limit_update(self._on_rate_limit_update, self._logger, response)
-        _raise_for_response_status(response)
+        _raise_for_response_status(
+            response, sensitive=self._session is not None or path.startswith("/v1/auth/")
+        )
         return response
 
 
@@ -331,15 +448,17 @@ def _log_failure(
     path: str,
     error: Exception,
     started: float,
+    *,
+    sensitive: bool = False,
 ) -> None:
     if logger is None:
         return
     logger.warning(
-        "polymarket http %s %s failed in %.1fms: %s",
+        "polymarket http %s %s failed in %.1fms (%s)",
         method,
         path,
         (time.perf_counter() - started) * 1000,
-        error,
+        type(error).__name__ if sensitive else error,
     )
 
 
@@ -396,7 +515,7 @@ def _notify_rate_limit_update(
             logger.warning("polymarket rate-limit update listener failed", exc_info=True)
 
 
-def _raise_for_response_status(response: httpx.Response) -> None:
+def _raise_for_response_status(response: httpx.Response, *, sensitive: bool = False) -> None:
     if response.is_success:
         return
 
@@ -408,7 +527,9 @@ def _raise_for_response_status(response: httpx.Response) -> None:
         )
 
     raise RequestRejectedError(
-        _extract_response_error_message(response),
+        f"Authenticated request rejected (HTTP {response.status_code})"
+        if sensitive
+        else _extract_response_error_message(response),
         status=response.status_code,
         code=_extract_response_error_code(response),
         retry_after=_extract_retry_after(response),

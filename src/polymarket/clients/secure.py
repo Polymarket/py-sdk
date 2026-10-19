@@ -113,6 +113,15 @@ from polymarket._internal.dispatch import (
 from polymarket._internal.environment import EnvironmentConfig, get_environment_config
 from polymarket._internal.eoa.broadcast import broadcast_eoa_call_sync
 from polymarket._internal.eoa.rpc import SyncJsonRpcClient
+from polymarket._internal.gateway_auth import (
+    build_migration_request,
+    login_sync,
+    owner_api_key,
+    parse_credentials,
+    parse_tokens,
+    token_claims,
+)
+from polymarket._internal.gateway_session import CredentialsCallback, SyncGatewaySession
 from polymarket._internal.hmac import build_hmac_signature
 from polymarket._internal.l1_auth import sign_api_key_auth
 from polymarket._internal.wallet import (
@@ -124,7 +133,7 @@ from polymarket._internal.wallet import (
     signature_type_for,
     wrap_deposit_wallet_signature,
 )
-from polymarket.auth import ApiKey, BuilderApiKey
+from polymarket.auth import ApiKey, BearerCredentials, BuilderApiKey
 from polymarket.clients._transport import SyncHeaderResolver, SyncTransport
 from polymarket.environments import PRODUCTION, Environment
 from polymarket.errors import (
@@ -673,7 +682,9 @@ class SecureClient:
         private_key: str,
         wallet: str | None = None,
         environment: Environment = PRODUCTION,
-        credentials: ApiKeyCreds | None = None,
+        credentials: object | None = None,
+        verification_token: str | None = None,
+        on_credentials_changed: CredentialsCallback | None = None,
         api_key: ApiKey | None = None,
         nonce: int = 0,
         logger: logging.Logger | None = None,
@@ -684,8 +695,13 @@ class SecureClient:
         Args:
             private_key: EVM private key used for signing.
             wallet: Wallet address to act for. Defaults to the signer's Deposit Wallet.
-            credentials: Existing API credentials. When omitted, credentials are
-                derived during client creation.
+            credentials: Saved bearer pair or legacy L2 credentials. Bearer pairs
+                are validated by refreshing before return; legacy credentials migrate
+                without a wallet signature. Omit to sign a fresh login challenge.
+            verification_token: Optional first-party verification token.
+            on_credentials_changed: Sync or async persistence callback receiving the
+                complete pair after refresh. Callback failures emit a redacted warning
+                without reverting accepted credentials. See docs/gateway-authentication.md.
             api_key: Optional key for gasless wallet and relayed transaction workflows.
             nonce: Credential derivation nonce. Cannot be combined with ``credentials``.
             on_rate_limit_update: Listener invoked whenever a response reports
@@ -701,6 +717,8 @@ class SecureClient:
             wallet=wallet,
             environment=environment,
             credentials=credentials,
+            verification_token=verification_token,
+            on_credentials_changed=on_credentials_changed,
             api_key=api_key,
             nonce=nonce,
             validate_credentials=True,
@@ -720,7 +738,9 @@ class SecureClient:
         private_key: str,
         wallet: str | None = None,
         environment: Environment = PRODUCTION,
-        credentials: ApiKeyCreds | None = None,
+        credentials: object | None = None,
+        verification_token: str | None = None,
+        on_credentials_changed: CredentialsCallback | None = None,
         api_key: ApiKey | None = None,
         nonce: int = 0,
         validate_credentials: bool = True,
@@ -750,32 +770,94 @@ class SecureClient:
             config=config.wallet_derivation,
         )
 
-        bootstrap_clob = SyncTransport(base_url=config.clob_url, logger=logger)
-        try:
-            resolved_credentials = _bootstrap_credentials_sync(
-                config=config,
-                signer=signer,
-                clob=bootstrap_clob,
-                provided=credentials,
-                nonce=nonce,
-                validate=validate_credentials,
-                logger=logger,
-            )
-        finally:
-            bootstrap_clob.close()
+        session: SyncGatewaySession | None = None
+        if validate_credentials:
+            auth_transport = SyncTransport(base_url=config.gateway_url, logger=logger)
+            try:
+                supplied = parse_credentials(credentials) if credentials is not None else None
+                if isinstance(supplied, BearerCredentials):
+                    bearer = supplied
+                elif isinstance(supplied, ApiKeyCreds):
+                    bearer = parse_tokens(
+                        auth_transport.post_json(
+                            "/v1/auth/migrate",
+                            json=build_migration_request(
+                                credentials=supplied,
+                                signer=signer.address,
+                                wallet=resolved_wallet,
+                                verification_token=verification_token,
+                            ),
+                        )
+                    )
+                else:
+                    bearer = login_sync(
+                        auth_transport,
+                        signer=signer,
+                        wallet=resolved_wallet,
+                        verification_token=verification_token,
+                        nonce=nonce,
+                    )
+                claims = token_claims(bearer)
+                if (
+                    str(claims.get("sub", "")).lower() != signer.address.lower()
+                    or str(claims.get("wallet", "")).lower() != resolved_wallet.lower()
+                ):
+                    raise UserInputError("Bearer credentials do not match the signer and wallet")
+                session = SyncGatewaySession(bearer, auth_transport, on_credentials_changed)
+                bearer = (
+                    session.refresh(bearer.access_token)
+                    if isinstance(supplied, BearerCredentials)
+                    else session.ensure_valid()
+                )
+                claims = token_claims(bearer)
+                if (
+                    str(claims.get("sub", "")).lower() != signer.address.lower()
+                    or str(claims.get("wallet", "")).lower() != resolved_wallet.lower()
+                ):
+                    raise UserInputError("Bearer credentials do not match the signer and wallet")
+                resolved_credentials: ApiKeyCreds | BearerCredentials = bearer
+            except BaseException:
+                if session is not None:
+                    session.close()
+                else:
+                    auth_transport.close()
+                raise
+        else:
+            bootstrap_clob = SyncTransport(base_url=config.clob_url, logger=logger)
+            try:
+                resolved_credentials = _bootstrap_credentials_sync(
+                    config=config,
+                    signer=signer,
+                    clob=bootstrap_clob,
+                    provided=cast(ApiKeyCreds | None, credentials),
+                    nonce=nonce,
+                    validate=validate_credentials,
+                    logger=logger,
+                )
+            finally:
+                bootstrap_clob.close()
 
-        return cls._construct_for_wallet(
-            signer=signer,
-            wallet=resolved_wallet,
-            wallet_type=account.wallet_type,
-            signer_type=account.signer_type,
-            environment=environment,
-            config=config,
-            credentials=resolved_credentials,
-            api_key=api_key,
-            logger=logger,
-            on_rate_limit_update=on_rate_limit_update,
-        )
+        try:
+            client = cls._construct_for_wallet(
+                signer=signer,
+                wallet=resolved_wallet,
+                wallet_type=account.wallet_type,
+                signer_type=account.signer_type,
+                environment=environment,
+                config=config,
+                credentials=resolved_credentials,
+                session=session,
+                api_key=api_key,
+                logger=logger,
+                on_rate_limit_update=on_rate_limit_update,
+            )
+            if session is not None:
+                session.start()
+            return client
+        except BaseException:
+            if session is not None:
+                session.close()
+            raise
 
     @classmethod
     def _construct_for_wallet(
@@ -787,10 +869,11 @@ class SecureClient:
         signer_type: SignerType,
         environment: Environment,
         config: EnvironmentConfig,
-        credentials: ApiKeyCreds,
+        credentials: ApiKeyCreds | BearerCredentials,
         api_key: ApiKey | None,
         logger: logging.Logger | None,
         on_rate_limit_update: RateLimitUpdateListener | None,
+        session: SyncGatewaySession | None = None,
     ) -> Self:
         try:
             wallet_checksum = to_checksum_address(wallet)
@@ -798,11 +881,24 @@ class SecureClient:
             raise UserInputError(f"Invalid wallet address: {error}") from error
         branded_wallet = cast(EvmAddress, wallet_checksum)
 
-        gamma = SyncTransport(base_url=config.gamma_url, logger=logger)
-        data = SyncTransport(base_url=config.data_url, logger=logger)
-        rfq = SyncTransport(base_url=config.rfq_url, logger=logger)
+        gamma = SyncTransport(
+            session=session,
+            base_url=config.gateway_url if session is not None else config.gamma_url,
+            logger=logger,
+        )
+        data = SyncTransport(
+            session=session,
+            base_url=config.gateway_url if session is not None else config.data_url,
+            logger=logger,
+        )
+        rfq = SyncTransport(
+            session=session,
+            base_url=config.gateway_url if session is not None else config.rfq_url,
+            logger=logger,
+        )
         clob = SyncTransport(
-            base_url=config.clob_url,
+            session=session,
+            base_url=config.gateway_url if session is not None else config.clob_url,
             logger=logger,
             on_rate_limit_update=on_rate_limit_update,
         )
@@ -810,16 +906,19 @@ class SecureClient:
             make_relayer_header_resolver_sync(api_key) if api_key is not None else None
         )
         relayer = SyncTransport(
-            base_url=config.relayer_url,
+            session=session,
+            base_url=config.gateway_url if session is not None else config.relayer_url,
             logger=logger,
             header_resolver=relayer_resolver,
         )
         combos = SyncTransport(
+            session=session,
             base_url=config.collateral_return_url,
             logger=logger,
             header_resolver=relayer_resolver,
         )
         builder_gateway = SyncTransport(
+            session=session,
             base_url=config.builder_gateway_url,
             logger=logger,
             header_resolver=_make_builder_gateway_header_resolver_sync(
@@ -828,9 +927,12 @@ class SecureClient:
         )
         try:
             secure_clob = SyncTransport(
-                base_url=config.clob_url,
+                session=session,
+                base_url=config.gateway_url if session is not None else config.clob_url,
                 logger=logger,
-                header_resolver=_make_l2_header_resolver_sync(signer, credentials),
+                header_resolver=None
+                if session is not None
+                else _make_l2_header_resolver_sync(signer, cast(ApiKeyCreds, credentials)),
                 on_rate_limit_update=on_rate_limit_update,
             )
             rpc_transport = SyncTransport(base_url=config.rpc_url, logger=logger)
@@ -854,6 +956,7 @@ class SecureClient:
             clob=clob,
             signer=signer,
             credentials=credentials,
+            session=session,
             secure_clob=secure_clob,
             wallet=branded_wallet,
             wallet_type=wallet_type,
@@ -888,9 +991,12 @@ class SecureClient:
         return self._ctx.wallet_type
 
     @property
-    def credentials(self) -> ApiKeyCreds:
-        """API credentials used for authenticated requests."""
-        return self._ctx.credentials
+    def credentials(self) -> BearerCredentials:
+        """Current complete bearer pair. Persist both tokens after refresh."""
+        session = self._ctx.session
+        if session is None:
+            raise RuntimeError("Legacy test clients do not own a bearer session")
+        return session.credentials
 
     def authorize_session_key(
         self,
@@ -984,6 +1090,14 @@ class SecureClient:
     def close(self) -> None:
         """Close the underlying network transports."""
         ctx = self._ctx_inner
+        self._ended = True
+        try:
+            if ctx.session is not None:
+                ctx.session.close()
+        finally:
+            self._close_transports(ctx)
+
+    def _close_transports(self, ctx: SyncSecureClientContext) -> None:
         try:
             ctx.gamma.close()
         finally:
@@ -1852,18 +1966,31 @@ class SecureClient:
         _auth_actions.revoke_builder_api_key_sync(self._ctx.clob, builder_key)
 
     def end_authentication(self) -> "PublicClient":
-        """Delete current credentials, close this client, and return a public client."""
+        """End this session and close its resources. Issued Access Tokens may remain valid."""
         from polymarket.clients.public import PublicClient
 
-        environment = self._ctx.environment
+        ctx = self._ctx
+        environment = ctx.environment
         try:
-            self.delete_api_key()
-        except RequestRejectedError as error:
-            if error.status not in (401, 404):
-                raise
+            if ctx.session is None:
+                try:
+                    self.delete_api_key()
+                except RequestRejectedError as error:
+                    if error.status not in (401, 404):
+                        raise
+            else:
+                current = ctx.session.ensure_valid()
+                ctx.session.close()
+                transport = SyncTransport(base_url=ctx.environment_config.gateway_url)
+                try:
+                    transport.post(
+                        "/v1/auth/logout",
+                        headers={"Authorization": "Bearer " + current.access_token},
+                    )
+                finally:
+                    transport.close()
         finally:
             self.close()
-            self._ended = True
         return PublicClient(environment=environment)
 
     def get_closed_only_mode(self) -> bool:
@@ -2214,7 +2341,10 @@ class SecureClient:
     def post_order(self, signed_order: SignedOrder) -> OrderResponse:
         """Post a signed order for the authenticated account."""
         path, payload = _post_actions.build_post_order_request(
-            signed_order, owner_api_key=self._ctx.credentials.key
+            signed_order,
+            owner_api_key=owner_api_key(
+                self.credentials if self._ctx.session is not None else self._ctx.credentials
+            ),
         )
         return _post_actions.parse_order_response(
             self._ctx.secure_clob.post_json(path, json=payload)
@@ -2223,7 +2353,10 @@ class SecureClient:
     def post_orders(self, signed_orders: Sequence[SignedOrder]) -> tuple[OrderResponse, ...]:
         """Post multiple signed orders for the authenticated account."""
         path, payload = _post_actions.build_post_orders_request(
-            signed_orders, owner_api_key=self._ctx.credentials.key
+            signed_orders,
+            owner_api_key=owner_api_key(
+                self.credentials if self._ctx.session is not None else self._ctx.credentials
+            ),
         )
         return _post_actions.parse_order_responses(
             self._ctx.secure_clob.post_json(path, json=payload)
@@ -3330,12 +3463,16 @@ def _credentials_are_active_sync(
 
 
 def _make_builder_gateway_header_resolver_sync(
-    api_key: ApiKey | None, signer: LocalAccount, credentials: ApiKeyCreds
+    api_key: ApiKey | None, signer: LocalAccount, credentials: ApiKeyCreds | BearerCredentials
 ) -> SyncHeaderResolver:
-    l2_resolver = _make_l2_header_resolver_sync(signer, credentials)
+    l2_resolver = (
+        None
+        if isinstance(credentials, BearerCredentials)
+        else _make_l2_header_resolver_sync(signer, credentials)
+    )
 
     def resolver(method: str, path: str, body: str | None) -> Mapping[str, str]:
-        headers = dict(l2_resolver(method, path, body))
+        headers = dict(l2_resolver(method, path, body)) if l2_resolver is not None else {}
         # Status reads authenticate with account headers only; builder
         # headers are required on the mutating requests.
         if method != "GET" and isinstance(api_key, BuilderApiKey):

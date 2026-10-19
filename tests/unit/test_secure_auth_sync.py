@@ -114,7 +114,7 @@ def test_create_with_credentials_skips_auth_flow_when_validation_disabled() -> N
         credentials=FAKE_CREDS,
         validate_credentials=False,
     ) as client:
-        assert client.credentials is FAKE_CREDS
+        assert client._ctx.credentials is FAKE_CREDS
 
 
 def test_create_validates_credentials_via_fetch_api_keys_when_enabled() -> None:
@@ -170,7 +170,10 @@ def test_create_rejects_bool_nonce() -> None:
         )
 
 
-def test_create_defaults_wallet_to_current_deposit_wallet() -> None:
+def test_create_defaults_wallet_to_current_deposit_wallet(monkeypatch: pytest.MonkeyPatch) -> None:
+    from unittest.mock import Mock
+
+    monkeypatch.setattr("polymarket.clients.secure.fetch_deployed_sync", Mock(return_value=True))
     from eth_account import Account
 
     from polymarket._internal.wallet import derive_uups_deposit_wallet_address
