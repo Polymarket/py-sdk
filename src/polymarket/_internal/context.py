@@ -10,8 +10,9 @@ from polymarket._internal.actions.orders.cache import (
 )
 from polymarket._internal.environment import EnvironmentConfig, get_environment_config
 from polymarket._internal.eoa.rpc import JsonRpcClient, SyncJsonRpcClient
+from polymarket._internal.gateway_session import AsyncGatewaySession, SyncGatewaySession
 from polymarket._internal.wallet import SignerType, WalletType
-from polymarket.auth import ApiKey
+from polymarket.auth import ApiKey, BearerCredentials
 from polymarket.clients._transport import AsyncTransport, SyncTransport
 from polymarket.environments import Environment
 from polymarket.models.clob import ApiKeyCreds
@@ -36,7 +37,7 @@ class SyncClientContext:
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SyncSecureClientContext(SyncClientContext):
     signer: LocalAccount
-    credentials: ApiKeyCreds
+    credentials: ApiKeyCreds | BearerCredentials
     secure_clob: SyncTransport
     wallet: EvmAddress
     wallet_type: WalletType
@@ -46,6 +47,7 @@ class SyncSecureClientContext(SyncClientContext):
     builder_gateway: SyncTransport
     api_key: ApiKey | None
     rpc: SyncJsonRpcClient
+    session: SyncGatewaySession | None = None
     order_metadata: SyncOrderMetadataCache
 
 
@@ -68,7 +70,7 @@ class AsyncClientContext:
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AsyncSecureClientContext(AsyncClientContext):
     signer: LocalAccount
-    credentials: ApiKeyCreds
+    credentials: ApiKeyCreds | BearerCredentials
     secure_clob: AsyncTransport
     wallet: EvmAddress
     wallet_type: WalletType
@@ -78,6 +80,7 @@ class AsyncSecureClientContext(AsyncClientContext):
     builder_gateway: AsyncTransport
     api_key: ApiKey | None
     rpc: JsonRpcClient
+    session: AsyncGatewaySession | None = None
     order_metadata: AsyncOrderMetadataCache
 
 
