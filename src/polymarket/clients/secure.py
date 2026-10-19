@@ -121,7 +121,11 @@ from polymarket._internal.gateway_auth import (
     parse_tokens,
     token_claims,
 )
-from polymarket._internal.gateway_session import CredentialsCallback, SyncGatewaySession
+from polymarket._internal.gateway_session import (
+    CredentialsCallback,
+    SyncGatewaySession,
+    logout_sync,
+)
 from polymarket._internal.hmac import build_hmac_signature
 from polymarket._internal.l1_auth import sign_api_key_auth
 from polymarket._internal.wallet import (
@@ -1979,14 +1983,10 @@ class SecureClient:
                     if error.status not in (401, 404):
                         raise
             else:
-                current = ctx.session.ensure_valid()
                 ctx.session.close()
                 transport = SyncTransport(base_url=ctx.environment_config.gateway_url)
                 try:
-                    transport.post(
-                        "/v1/auth/logout",
-                        headers={"Authorization": "Bearer " + current.access_token},
-                    )
+                    logout_sync(transport, ctx.session.credentials)
                 finally:
                     transport.close()
         finally:

@@ -29,7 +29,7 @@ from polymarket import (
 from polymarket._internal.gateway_session import AsyncGatewaySession, SyncGatewaySession
 from polymarket._internal.socket_auth import SocketAuthentication
 from polymarket.clients._transport import AsyncTransport, SyncTransport
-from polymarket.errors import RequestRejectedError, UserInputError
+from polymarket.errors import RequestRejectedError, TransportError, UserInputError
 from polymarket.models import ApiKeyCreds
 
 GATEWAY = "https://api.defi.polymarket.com"
@@ -852,5 +852,360 @@ def test_user_socket_auth_failure_reconnects_are_bounded(
             await session.close()
             server.close()
             await server.wait_closed()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("async_client", [False, True])
+def test_logout_revokes_after_cached_proactive_refresh_failure(
+    async_client: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clock = [time.time()]
+    pair = credentials(expiry=clock[0] + 3600)
+    monkeypatch.setattr("polymarket._internal.gateway_session.time.time", lambda: clock[0])
+    callback = Mock()
+    with respx.mock as router:
+        router.post(GATEWAY + "/v1/auth/challenge").respond(201, json=CHALLENGE)
+        router.post(GATEWAY + "/v1/auth/login").respond(200, json=response(pair))
+        refresh = router.post(GATEWAY + "/v1/auth/refresh").respond(
+            503, json={"code": "identity_provider_unavailable"}
+        )
+        logout = router.post(GATEWAY + "/v1/auth/logout").mock(
+            side_effect=[httpx.Response(503), httpx.Response(204)]
+        )
+
+        async def run() -> None:
+            client = await AsyncSecureClient.create(
+                private_key=PRIVATE_KEY, wallet=SIGNER.address, on_credentials_changed=callback
+            )
+            session = client._ctx.session
+            assert session is not None
+            clock[0] += 3575  # still 25 seconds usable when the proactive timer fires
+            session._scheduled()
+            task = session._task
+            assert task is not None
+            with pytest.raises(RequestRejectedError):
+                await task
+            with pytest.raises(RequestRejectedError):
+                await session.ensure_valid()  # ordinary requests still see the cached failure
+            public = await client.end_authentication()
+            await public.close()
+            assert session._closed and session._timer is None and client._ended
+
+        if async_client:
+            asyncio.run(run())
+        else:
+            client = SecureClient.create(
+                private_key=PRIVATE_KEY, wallet=SIGNER.address, on_credentials_changed=callback
+            )
+            session = client._ctx.session
+            assert session is not None
+            clock[0] += 3575
+            with session._condition:
+                session._deadline = time.monotonic()
+                session._condition.notify_all()
+                assert session._condition.wait_for(
+                    lambda: session._error is not None and not session._refreshing, timeout=5
+                )
+            with pytest.raises(RequestRejectedError):
+                session.ensure_valid()
+            client.end_authentication().close()
+            assert client._ended and session._worker is not None
+            assert not session._worker.is_alive()
+        assert refresh.call_count == 3 and logout.call_count == 2
+        for index in range(logout.call_count):
+            request = cast(Call, logout.calls[index]).request
+            assert request.headers["Authorization"] == "Bearer " + pair.access_token
+            assert request.content == b"" and "X-API-Key" not in request.headers
+        callback.assert_not_called()
+
+
+@pytest.mark.parametrize("async_client", [False, True])
+@pytest.mark.parametrize("failure", ["unavailable", "invalid", "transport"])
+def test_logout_failures_are_bounded_and_reported_after_cleanup(
+    async_client: bool, failure: str
+) -> None:
+    pair = credentials()
+    with respx.mock as router:
+        router.post(GATEWAY + "/v1/auth/challenge").respond(201, json=CHALLENGE)
+        router.post(GATEWAY + "/v1/auth/login").respond(200, json=response(pair))
+        logout = router.post(GATEWAY + "/v1/auth/logout")
+        if failure == "transport":
+            logout.mock(side_effect=httpx.ConnectError("synthetic connection failure"))
+        else:
+            logout.respond(
+                503 if failure == "unavailable" else 401,
+                json={
+                    "code": "identity_provider_unavailable"
+                    if failure == "unavailable"
+                    else "invalid_access_token"
+                },
+            )
+        expected_error = TransportError if failure == "transport" else RequestRejectedError
+
+        async def run() -> None:
+            client = await AsyncSecureClient.create(private_key=PRIVATE_KEY, wallet=SIGNER.address)
+            session = client._ctx.session
+            assert session is not None
+            session._error = RequestRejectedError("Previous refresh failed", status=503)
+            with pytest.raises(expected_error) as error:
+                await client.end_authentication()
+            assert str(error.value) != "Previous refresh failed"
+            assert client._ended and session._closed and session._timer is None
+            with pytest.raises(RuntimeError):
+                await client.fetch_api_keys()
+
+        if async_client:
+            asyncio.run(run())
+        else:
+            client = SecureClient.create(private_key=PRIVATE_KEY, wallet=SIGNER.address)
+            session = client._ctx.session
+            assert session is not None
+            session._error = RequestRejectedError("Previous refresh failed", status=503)
+            with pytest.raises(expected_error) as error:
+                client.end_authentication()
+            assert str(error.value) != "Previous refresh failed"
+            assert client._ended and session._stop.is_set()
+            assert session._worker is not None and not session._worker.is_alive()
+            with pytest.raises(RuntimeError):
+                client.fetch_api_keys()
+        assert logout.call_count == (1 if failure == "invalid" else 3)
+
+
+@pytest.mark.parametrize("async_client", [False, True])
+@pytest.mark.parametrize("expiry", ["local", "server", "repeated_server", "during_retry"])
+def test_logout_expiry_recovery_is_once_without_adoption_or_callback(
+    async_client: bool, expiry: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clock = [time.time()]
+    before = credentials(expiry=clock[0] + 3600)
+    after = credentials(expiry=clock[0] + 7200, tag="logout-recovery")
+    monkeypatch.setattr("polymarket._internal.gateway_session.time.time", lambda: clock[0])
+    callback = Mock()
+    with respx.mock as router:
+        router.post(GATEWAY + "/v1/auth/challenge").respond(201, json=CHALLENGE)
+        router.post(GATEWAY + "/v1/auth/login").respond(200, json=response(before))
+        refresh = router.post(GATEWAY + "/v1/auth/refresh").mock(
+            side_effect=[httpx.Response(503), httpx.Response(200, json=response(after))]
+        )
+        logout = router.post(GATEWAY + "/v1/auth/logout")
+        if expiry == "local":
+            logout.respond(204)
+        elif expiry == "during_retry":
+            attempts = 0
+
+            def transient_then_expired(request: httpx.Request) -> httpx.Response:
+                nonlocal attempts
+                attempts += 1
+                if attempts == 1:
+                    clock[0] += 3601
+                    return httpx.Response(503)
+                return httpx.Response(204)
+
+            logout.mock(side_effect=transient_then_expired)
+        else:
+            logout.mock(
+                side_effect=[
+                    httpx.Response(401, json={"code": "expired_access_token"}),
+                    httpx.Response(401, json={"code": "expired_access_token"})
+                    if expiry == "repeated_server"
+                    else httpx.Response(204),
+                ]
+            )
+
+        async def run() -> None:
+            client = await AsyncSecureClient.create(
+                private_key=PRIVATE_KEY, wallet=SIGNER.address, on_credentials_changed=callback
+            )
+            session = client._ctx.session
+            assert session is not None
+            session._error = RequestRejectedError("Cached refresh failure", status=503)
+            if expiry == "local":
+                clock[0] += 3601
+            if expiry == "repeated_server":
+                with pytest.raises(RequestRejectedError) as error:
+                    await client.end_authentication()
+                assert error.value.code == "expired_access_token"
+            else:
+                public = await client.end_authentication()
+                await public.close()
+            assert session.credentials == before and session._closed and session._timer is None
+
+        if async_client:
+            asyncio.run(run())
+        else:
+            client = SecureClient.create(
+                private_key=PRIVATE_KEY, wallet=SIGNER.address, on_credentials_changed=callback
+            )
+            session = client._ctx.session
+            assert session is not None
+            session._error = RequestRejectedError("Cached refresh failure", status=503)
+            if expiry == "local":
+                clock[0] += 3601
+            if expiry == "repeated_server":
+                with pytest.raises(RequestRejectedError) as error:
+                    client.end_authentication()
+                assert error.value.code == "expired_access_token"
+            else:
+                client.end_authentication().close()
+            assert session.credentials == before and session._stop.is_set()
+        assert refresh.call_count == 2  # bounded transient recovery, not a refresh/retry loop
+        assert logout.call_count == (1 if expiry == "local" else 2)
+        assert (
+            cast(Call, logout.calls[-1]).request.headers["Authorization"]
+            == "Bearer " + after.access_token
+        )
+        assert json.loads(cast(Call, refresh.calls[0]).request.content) == {
+            "refresh_token": before.refresh_token
+        }
+        callback.assert_not_called()
+
+
+@pytest.mark.parametrize("async_client", [False, True])
+@pytest.mark.parametrize("unavailable", [False, True])
+def test_logout_cannot_refresh_expired_bearer_reports_rejection_and_closes(
+    async_client: bool, unavailable: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clock = [time.time()]
+    pair = credentials(expiry=clock[0] + 3600)
+    monkeypatch.setattr("polymarket._internal.gateway_session.time.time", lambda: clock[0])
+    with respx.mock as router:
+        router.post(GATEWAY + "/v1/auth/challenge").respond(201, json=CHALLENGE)
+        router.post(GATEWAY + "/v1/auth/login").respond(200, json=response(pair))
+        code = "identity_provider_unavailable" if unavailable else "invalid_refresh_token"
+        refresh = router.post(GATEWAY + "/v1/auth/refresh").respond(
+            503 if unavailable else 401, json={"code": code}
+        )
+
+        async def run() -> None:
+            client = await AsyncSecureClient.create(private_key=PRIVATE_KEY, wallet=SIGNER.address)
+            session = client._ctx.session
+            assert session is not None
+            clock[0] += 3601
+            session._error = RequestRejectedError("Cached refresh failure", status=503)
+            with pytest.raises(RequestRejectedError) as error:
+                await client.end_authentication()
+            assert error.value.code == code
+            assert client._ended and session._closed and session._timer is None
+
+        if async_client:
+            asyncio.run(run())
+        else:
+            client = SecureClient.create(private_key=PRIVATE_KEY, wallet=SIGNER.address)
+            session = client._ctx.session
+            assert session is not None
+            clock[0] += 3601
+            session._error = RequestRejectedError("Cached refresh failure", status=503)
+            with pytest.raises(RequestRejectedError) as error:
+                client.end_authentication()
+            assert error.value.code == code
+            assert client._ended and session._worker is not None and not session._worker.is_alive()
+        assert refresh.call_count == (3 if unavailable else 1)
+
+
+@pytest.mark.parametrize("async_client", [False, True])
+def test_logout_stops_inflight_refresh_before_using_last_adopted_bearer(
+    async_client: bool,
+) -> None:
+    before, after = credentials(), credentials(tag="late-refresh")
+    callback = Mock()
+    with respx.mock as router:
+        router.post(GATEWAY + "/v1/auth/challenge").respond(201, json=CHALLENGE)
+        router.post(GATEWAY + "/v1/auth/login").respond(200, json=response(before))
+        refresh = router.post(GATEWAY + "/v1/auth/refresh")
+        logout = router.post(GATEWAY + "/v1/auth/logout").respond(204)
+
+        async def run() -> None:
+            entered = asyncio.Event()
+
+            async def handle(request: httpx.Request) -> httpx.Response:
+                entered.set()
+                try:
+                    await asyncio.Future()
+                except asyncio.CancelledError:
+                    return httpx.Response(200, json=response(after))
+                raise AssertionError("Refresh must be cancelled")
+
+            refresh.mock(side_effect=handle)
+            client = await AsyncSecureClient.create(
+                private_key=PRIVATE_KEY, wallet=SIGNER.address, on_credentials_changed=callback
+            )
+            session = client._ctx.session
+            assert session is not None
+            pending = asyncio.create_task(session.refresh(before.access_token))
+            await entered.wait()
+            public = await client.end_authentication()
+            await public.close()
+            with pytest.raises(RuntimeError, match="closed"):
+                await pending
+            assert session.credentials == before and session._closed and session._timer is None
+
+        if async_client:
+            asyncio.run(run())
+        else:
+            entered, release = threading.Event(), threading.Event()
+
+            def handle(request: httpx.Request) -> httpx.Response:
+                entered.set()
+                assert release.wait(5)
+                return httpx.Response(200, json=response(after))
+
+            refresh.mock(side_effect=handle)
+            client = SecureClient.create(
+                private_key=PRIVATE_KEY, wallet=SIGNER.address, on_credentials_changed=callback
+            )
+            session = client._ctx.session
+            assert session is not None
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                pending = executor.submit(session.refresh, before.access_token)
+                assert entered.wait(5)
+                ending = executor.submit(client.end_authentication)
+                assert session._stop.wait(5)
+                with pytest.raises(RuntimeError, match="closed"):
+                    client.fetch_api_keys()
+                release.set()
+                ending.result(timeout=5).close()
+                with pytest.raises(RuntimeError, match="closed"):
+                    pending.result(timeout=5)
+            assert session.credentials == before and session._worker is not None
+            assert not session._worker.is_alive()
+        assert refresh.call_count == logout.call_count == 1
+        assert (
+            cast(Call, logout.calls[0]).request.headers["Authorization"]
+            == "Bearer " + before.access_token
+        )
+        callback.assert_not_called()
+
+
+def test_cancelling_logout_propagates_and_still_closes_local_client() -> None:
+    async def run() -> None:
+        pair = credentials()
+        entered = asyncio.Event()
+        attempts = 0
+
+        async def pending_logout(request: httpx.Request) -> httpx.Response:
+            nonlocal attempts
+            attempts += 1
+            entered.set()
+            await asyncio.Future()
+            raise AssertionError("Logout must be cancelled")
+
+        with respx.mock as router:
+            router.post(GATEWAY + "/v1/auth/challenge").respond(201, json=CHALLENGE)
+            router.post(GATEWAY + "/v1/auth/login").respond(200, json=response(pair))
+            router.post(GATEWAY + "/v1/auth/logout").mock(side_effect=pending_logout)
+            client = await AsyncSecureClient.create(private_key=PRIVATE_KEY, wallet=SIGNER.address)
+            session = client._ctx.session
+            assert session is not None
+            session._error = RequestRejectedError("Cached refresh failure", status=503)
+            ending = asyncio.create_task(client.end_authentication())
+            await entered.wait()
+            ending.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await ending
+            assert attempts == 1
+            assert client._ended and session._closed and session._timer is None
+            with pytest.raises(RuntimeError):
+                await client.fetch_api_keys()
 
     asyncio.run(run())

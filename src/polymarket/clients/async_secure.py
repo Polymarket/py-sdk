@@ -136,7 +136,11 @@ from polymarket._internal.gateway_auth import (
     parse_tokens,
     token_claims,
 )
-from polymarket._internal.gateway_session import AsyncGatewaySession, CredentialsCallback
+from polymarket._internal.gateway_session import (
+    AsyncGatewaySession,
+    CredentialsCallback,
+    logout_async,
+)
 from polymarket._internal.hmac import build_hmac_signature
 from polymarket._internal.l1_auth import sign_api_key_auth
 from polymarket._internal.rfq import RfqSessionContext
@@ -2528,14 +2532,10 @@ class AsyncSecureClient:
                     if error.status not in (401, 404):
                         raise
             else:
-                current = await ctx.session.ensure_valid()
                 await ctx.session.close()
                 transport = AsyncTransport(base_url=ctx.environment_config.gateway_url)
                 try:
-                    await transport.post(
-                        "/v1/auth/logout",
-                        headers={"Authorization": "Bearer " + current.access_token},
-                    )
+                    await logout_async(transport, ctx.session.credentials)
                 finally:
                     await transport.close()
         finally:

@@ -65,17 +65,24 @@ use resources bound to the caller's event loop. Irrecoverable refresh failures s
 renewal and surface on the next authenticated operation. Transient refresh failures
 have three attempts with bounded backoff.
 
-Only `401 expired_access_token` triggers one HTTP replay, with the same method,
-body, query and timeout. Unrelated 401s and replay failures propagate. Canceling one
-async request does not cancel another caller's refresh. Every async socket uses
-only an Access Token. Renewal waits for its protocol acknowledgement; failed
+For ordinary authenticated requests, only `401 expired_access_token` triggers one
+HTTP replay, with the same method, body, query and timeout. Unrelated 401s and
+replay failures propagate. Canceling one async request does not cancel another
+caller's refresh. Every async socket uses only an Access Token. Renewal waits for its protocol acknowledgement; failed
 renewals retain the previous accepted deadline and subscriptions. Reconnection uses
 the current shared session. The existing combo requester REST workflow remains
 available; external sessions do not gain first-party requester socket privileges.
 
 Always close clients, preferably with a context manager. `end_authentication()`
 logs out using the active Access Token, cleans up the client, and returns a public
-client. It does not claim to immediately revoke already-issued Access Tokens.
+client. It stops renewal before attempting server revocation, using the last
+adopted Access Token when it is still usable even if proactive refresh failed.
+Logout makes at most three revocation attempts for transient failures. If the
+bearer expires locally or logout returns `expired_access_token`, it can recover
+credentials once, with at most three refresh attempts. These recovery credentials
+are used only for revocation; they do not revive the client or invoke persistence
+callbacks. Revocation/refresh failures propagate even though local cleanup always
+runs. Logout does not immediately revoke already-issued Access Tokens.
 `close()` cleans up local resources without logging out, allowing persisted
 credentials to be restored later.
 

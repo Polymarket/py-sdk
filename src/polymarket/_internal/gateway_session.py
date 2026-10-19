@@ -307,3 +307,113 @@ class AsyncGatewaySession:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
         await self.transport.close()
+
+
+def logout_sync(transport: SyncTransport, credentials: BearerCredentials) -> None:
+    """Revoke a stopped session without consulting its cached refresh failure.
+
+    A still-usable bearer needs no refresh. Recovery credentials are used only
+    for revocation: they never revive the client or invoke persistence callbacks.
+    Logout is idempotent, including an uncertain 503 commit acknowledgement.
+    """
+    current = credentials
+    refreshed = False
+    refresh_requested = False
+    for attempt in range(MAX_ATTEMPTS):
+        if token_claims(current)["exp"] <= time.time():
+            if refreshed:
+                raise RequestRejectedError(
+                    "Access Token expired before logout", status=401, code="expired_access_token"
+                )
+            refresh_requested = True
+        if refresh_requested:
+            for refresh_attempt in range(MAX_ATTEMPTS):
+                try:
+                    updated = parse_tokens(
+                        transport.post_json(
+                            "/v1/auth/refresh", json={"refresh_token": current.refresh_token}
+                        )
+                    )
+                    _check_identity(current, updated)
+                    current = updated
+                    break
+                except Exception as error:
+                    if not _transient(error) or refresh_attempt == MAX_ATTEMPTS - 1:
+                        raise
+                    time.sleep(0.25 * 2**refresh_attempt)
+            refreshed = True
+            refresh_requested = False
+        try:
+            transport.post(
+                "/v1/auth/logout", headers={"Authorization": "Bearer " + current.access_token}
+            )
+            return
+        except Exception as error:
+            if attempt == MAX_ATTEMPTS - 1:
+                raise
+            if (
+                isinstance(error, RequestRejectedError)
+                and error.status == 401
+                and error.code == "expired_access_token"
+                and not refreshed
+            ):
+                refresh_requested = True
+                continue
+            if not _transient(error):
+                raise
+            time.sleep(0.25 * 2**attempt)
+
+
+async def logout_async(transport: AsyncTransport, credentials: BearerCredentials) -> None:
+    """Revoke a stopped session without consulting its cached refresh failure.
+
+    A still-usable bearer needs no refresh. Recovery credentials are used only
+    for revocation: they never revive the client or invoke persistence callbacks.
+    Logout is idempotent, including an uncertain 503 commit acknowledgement.
+    """
+    current = credentials
+    refreshed = False
+    refresh_requested = False
+    for attempt in range(MAX_ATTEMPTS):
+        if token_claims(current)["exp"] <= time.time():
+            if refreshed:
+                raise RequestRejectedError(
+                    "Access Token expired before logout", status=401, code="expired_access_token"
+                )
+            refresh_requested = True
+        if refresh_requested:
+            for refresh_attempt in range(MAX_ATTEMPTS):
+                try:
+                    updated = parse_tokens(
+                        await transport.post_json(
+                            "/v1/auth/refresh", json={"refresh_token": current.refresh_token}
+                        )
+                    )
+                    _check_identity(current, updated)
+                    current = updated
+                    break
+                except Exception as error:
+                    if not _transient(error) or refresh_attempt == MAX_ATTEMPTS - 1:
+                        raise
+                    await asyncio.sleep(0.25 * 2**refresh_attempt)
+            refreshed = True
+            refresh_requested = False
+        try:
+            await transport.post(
+                "/v1/auth/logout", headers={"Authorization": "Bearer " + current.access_token}
+            )
+            return
+        except Exception as error:
+            if attempt == MAX_ATTEMPTS - 1:
+                raise
+            if (
+                isinstance(error, RequestRejectedError)
+                and error.status == 401
+                and error.code == "expired_access_token"
+                and not refreshed
+            ):
+                refresh_requested = True
+                continue
+            if not _transient(error):
+                raise
+            await asyncio.sleep(0.25 * 2**attempt)
