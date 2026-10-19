@@ -22,7 +22,7 @@ from polymarket.errors import RateLimitError, RequestRejectedError
     ],
 )
 @pytest.mark.parametrize("mode", ["sync", "async"])
-@pytest.mark.parametrize("method", ["get_open_interests", "list_trades"])
+@pytest.mark.parametrize("method", ["get_open_interests", "get_token_references", "list_trades"])
 def test_retry_at_dispatch_boundary(
     monkeypatch: pytest.MonkeyPatch,
     status: int,
@@ -68,6 +68,8 @@ def test_retry_at_dispatch_boundary(
             )
             if method == "list_trades":
                 client.list_trades().first_page()
+            elif method == "get_token_references":
+                client.get_token_references(asset_ids="123")
             else:
                 client.get_open_interests()
 
@@ -84,6 +86,8 @@ def test_retry_at_dispatch_boundary(
             )
             if method == "list_trades":
                 await client.list_trades().first_page()
+            elif method == "get_token_references":
+                await client.get_token_references(asset_ids="123")
             else:
                 await client.get_open_interests()
 

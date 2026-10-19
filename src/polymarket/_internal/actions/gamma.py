@@ -28,6 +28,7 @@ from polymarket.models import (
     Comment,
     Event,
     Market,
+    MarketResolutionStatus,
     ProtocolVersion,
     PublicProfile,
     RelatedTag,
@@ -567,9 +568,14 @@ def list_markets_spec(
     locale: str | None = None,
     market_maker_addresses: str | Sequence[str] | None = None,
     order: str | None = None,
+    onchain_event_ids: str | Sequence[str] | None = None,
     position_ids: str | Sequence[str] | None = None,
     question_ids: str | Sequence[str] | None = None,
     related_tags: bool | None = None,
+    request_ids: str | Sequence[str] | None = None,
+    resolution_status: MarketResolutionStatus
+    | Literal["inactive", "active", "resolved"]
+    | None = None,
     rfq_enabled: bool | None = None,
     rewards_min_size: float | None = None,
     slug: str | Sequence[str] | None = None,
@@ -579,10 +585,32 @@ def list_markets_spec(
     tag_id: int | None = None,
     tag_match: TagMatch | None = None,
     uma_resolution_status: str | None = None,
+    version: ProtocolVersion
+    | Literal["v1", "v2"]
+    | Sequence[ProtocolVersion | Literal["v1", "v2"]]
+    | None = None,
     volume_num_max: float | None = None,
     volume_num_min: float | None = None,
 ) -> KeysetPaginatedSpec[Market]:
     _check_tag_match(tag_match)
+    if resolution_status is not None and (
+        not isinstance(cast(object, resolution_status), str)
+        or resolution_status not in {status.value for status in MarketResolutionStatus}
+    ):
+        raise UserInputError("resolution_status must be one of: inactive, active, resolved")
+    versions: tuple[str, ...] | None = None
+    if version is not None:
+        if isinstance(version, str):
+            versions = (version,)
+        elif isinstance(cast(object, version), Sequence) and not isinstance(version, bytes):
+            versions = tuple(version)
+        else:
+            raise UserInputError("version must be v1, v2, or a sequence of one or two values")
+        if not 1 <= len(versions) <= 2 or any(
+            not isinstance(cast(object, value), str) or value not in ("v1", "v2")
+            for value in versions
+        ):
+            raise UserInputError("version must be v1, v2, or a sequence of one or two values")
 
     params: dict[str, QueryParamValue] = {}
     _add_optional(params, "ascending", ascending)
@@ -601,6 +629,20 @@ def list_markets_spec(
     _add_optional(params, "locale", locale)
     _add_optional_seq(params, "market_maker_address", market_maker_addresses)
     _add_optional(params, "order", _normalize_market_order(order))
+    for key, value in (("onchain_event_ids", onchain_event_ids), ("request_ids", request_ids)):
+        if value is not None and (
+            not isinstance(cast(object, value), str | Sequence) or isinstance(value, bytes)
+        ):
+            raise UserInputError(f"{key} expects a string or sequence of strings")
+        _add_optional_seq(params, key, value)
+        values = cast(tuple[object, ...] | None, params.get(key))
+        if values is not None:
+            if len(values) > 100:
+                raise UserInputError(f"{key} accepts at most 100 values")
+            if any(not isinstance(value, str) for value in values):
+                raise UserInputError(f"{key} expects string values")
+    _add_optional(params, "resolution_status", resolution_status)
+    _add_optional(params, "version", version if isinstance(version, str) else versions)
     _add_optional_seq(params, "position_ids", position_ids)
     _add_optional_seq(params, "question_ids", question_ids)
     _add_optional(params, "related_tags", related_tags)
