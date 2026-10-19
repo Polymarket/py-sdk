@@ -37,11 +37,17 @@ from polymarket._internal.dispatch import (
     sync_paginate_page_based,
 )
 from polymarket._internal.environment import get_environment_config
-from polymarket._internal.gateway_auth import build_migration_request, login_sync, parse_tokens
-from polymarket.auth import BearerCredentials
+from polymarket._internal.gateway_auth import (
+    build_migration_request,
+    login_sync,
+    parse_tokens,
+    platform_headers,
+    validate_platform_api_key,
+)
+from polymarket.auth import BearerCredentials, PlatformApiKey, RemotePlatformApiKey
 from polymarket.clients._transport import SyncTransport
 from polymarket.environments import PRODUCTION, Environment
-from polymarket.errors import RequestRejectedError
+from polymarket.errors import RequestRejectedError, UserInputError
 from polymarket.models import (
     ApiKeyCreds,
     ComboMarket,
@@ -479,10 +485,18 @@ class PublicClient:
         verification_token: str | None = None,
     ) -> BearerCredentials:
         """Sign a server challenge and return credentials for this signer and optional wallet."""
-        transport = SyncTransport(base_url=self._ctx.environment_config.gateway_url)
+        transport = SyncTransport(
+            base_url=self._ctx.environment_config.gateway_url,
+            default_headers=platform_headers(self._api_key),
+            sensitive=True,
+        )
         try:
             return login_sync(
-                transport, signer=signer, wallet=wallet, verification_token=verification_token
+                transport,
+                signer=signer,
+                wallet=wallet,
+                verification_token=verification_token,
+                api_key=self._api_key,
             )
         finally:
             transport.close()
@@ -496,13 +510,22 @@ class PublicClient:
         verification_token: str | None = None,
     ) -> BearerCredentials:
         """Exchange saved L2 credentials for a bearer pair without a wallet signature."""
+        if isinstance(self._api_key, RemotePlatformApiKey):
+            raise UserInputError(
+                "Remote Platform API Key supports challenge login only; "
+                "migrate on your server with PlatformApiKey or log in again"
+            )
         body = build_migration_request(
             credentials=credentials,
             signer=signer,
             wallet=wallet,
             verification_token=verification_token,
         )
-        transport = SyncTransport(base_url=self._ctx.environment_config.gateway_url)
+        transport = SyncTransport(
+            base_url=self._ctx.environment_config.gateway_url,
+            default_headers=platform_headers(self._api_key),
+            sensitive=True,
+        )
         try:
             return parse_tokens(transport.post_json("/v1/auth/migrate", json=body))
         finally:
@@ -513,15 +536,37 @@ class PublicClient:
         environment: Environment = PRODUCTION,
         *,
         logger: logging.Logger | None = None,
+        api_key: PlatformApiKey | RemotePlatformApiKey | None = None,
     ) -> None:
+        self._api_key = validate_platform_api_key(api_key)
         config = get_environment_config(environment)
         self._ctx = SyncClientContext(
             environment=environment,
             _resolved_environment_config=config,
-            gamma=SyncTransport(base_url=config.gamma_url, logger=logger),
-            data=SyncTransport(base_url=config.data_url, logger=logger),
-            rfq=SyncTransport(base_url=config.rfq_url, logger=logger),
-            clob=SyncTransport(base_url=config.clob_url, logger=logger),
+            gamma=SyncTransport(
+                base_url=config.gateway_url if api_key is not None else config.gamma_url,
+                logger=logger,
+                default_headers=platform_headers(self._api_key),
+                sensitive=api_key is not None,
+            ),
+            data=SyncTransport(
+                base_url=config.gateway_url if api_key is not None else config.data_url,
+                logger=logger,
+                default_headers=platform_headers(self._api_key),
+                sensitive=api_key is not None,
+            ),
+            rfq=SyncTransport(
+                base_url=config.gateway_url if api_key is not None else config.rfq_url,
+                logger=logger,
+                default_headers=platform_headers(self._api_key),
+                sensitive=api_key is not None,
+            ),
+            clob=SyncTransport(
+                base_url=config.gateway_url if api_key is not None else config.clob_url,
+                logger=logger,
+                default_headers=platform_headers(self._api_key),
+                sensitive=api_key is not None,
+            ),
         )
 
     @property

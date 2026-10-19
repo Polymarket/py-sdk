@@ -1,5 +1,7 @@
 """Shared request construction for bearer authentication (no session ownership)."""
 
+from __future__ import annotations
+
 import base64
 import binascii
 import hashlib
@@ -7,14 +9,48 @@ import hmac
 import json
 import math
 import time
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from eth_account.signers.local import LocalAccount
 from eth_utils.address import to_checksum_address
 
-from polymarket.auth import BearerCredentials
+from polymarket.auth import (
+    ApiKey,
+    BearerCredentials,
+    BuilderApiKey,
+    PlatformApiKey,
+    RelayerApiKey,
+    RemotePlatformApiKey,
+)
 from polymarket.errors import SigningError, UnexpectedResponseError, UserInputError
 from polymarket.models import ApiKeyCreds
+
+if TYPE_CHECKING:
+    from polymarket.clients._transport import AsyncTransport, SyncTransport
+
+
+def validate_platform_api_key(api_key: object) -> PlatformApiKey | RemotePlatformApiKey | None:
+    if api_key is None or isinstance(api_key, PlatformApiKey | RemotePlatformApiKey):
+        return api_key
+    raise UserInputError("api_key must be a PlatformApiKey or RemotePlatformApiKey")
+
+
+def resolve_api_keys(
+    api_key: object, legacy_api_key: object
+) -> tuple[ApiKey | None, PlatformApiKey | RemotePlatformApiKey | None]:
+    if legacy_api_key is not None and not isinstance(legacy_api_key, BuilderApiKey | RelayerApiKey):
+        raise UserInputError("legacy_api_key must be a BuilderApiKey or RelayerApiKey")
+    if isinstance(api_key, BuilderApiKey | RelayerApiKey):
+        if legacy_api_key is not None:
+            raise UserInputError(
+                "Pass legacy authorization through api_key or legacy_api_key, not both"
+            )
+        return api_key, None
+    return legacy_api_key, validate_platform_api_key(api_key)
+
+
+def platform_headers(api_key: PlatformApiKey | RemotePlatformApiKey | None) -> dict[str, str]:
+    return {"X-API-Key": api_key.key} if isinstance(api_key, PlatformApiKey) else {}
 
 
 def token_claims(credentials: BearerCredentials) -> dict[str, Any]:
@@ -163,38 +199,54 @@ def owner_api_key(credentials: BearerCredentials | ApiKeyCreds) -> str:
 
 
 def login_sync(
-    transport: Any,
+    transport: SyncTransport,
     *,
     signer: LocalAccount,
     wallet: str | None = None,
     verification_token: str | None = None,
     nonce: int = 0,
+    api_key: PlatformApiKey | RemotePlatformApiKey | None = None,
 ) -> BearerCredentials:
-    challenge = transport.post_json(
-        "/v1/auth/challenge",
-        json=build_challenge_request(
-            signer=signer.address, wallet=wallet, verification_token=verification_token, nonce=nonce
-        ),
+    body = build_challenge_request(
+        signer=signer.address, wallet=wallet, verification_token=verification_token, nonce=nonce
     )
+    if isinstance(api_key, RemotePlatformApiKey):
+        from polymarket.clients._transport import SyncTransport
+
+        proxy = SyncTransport(base_url=api_key.url, sensitive=True)
+        try:
+            challenge = proxy.post_json(api_key.url, json=body)
+        finally:
+            proxy.close()
+    else:
+        challenge = transport.post_json("/v1/auth/challenge", json=body)
     return parse_tokens(
         transport.post_json("/v1/auth/login", json=build_login_request(signer, challenge))
     )
 
 
 async def login_async(
-    transport: Any,
+    transport: AsyncTransport,
     *,
     signer: LocalAccount,
     wallet: str | None = None,
     verification_token: str | None = None,
     nonce: int = 0,
+    api_key: PlatformApiKey | RemotePlatformApiKey | None = None,
 ) -> BearerCredentials:
-    challenge = await transport.post_json(
-        "/v1/auth/challenge",
-        json=build_challenge_request(
-            signer=signer.address, wallet=wallet, verification_token=verification_token, nonce=nonce
-        ),
+    body = build_challenge_request(
+        signer=signer.address, wallet=wallet, verification_token=verification_token, nonce=nonce
     )
+    if isinstance(api_key, RemotePlatformApiKey):
+        from polymarket.clients._transport import AsyncTransport
+
+        proxy = AsyncTransport(base_url=api_key.url, sensitive=True)
+        try:
+            challenge = await proxy.post_json(api_key.url, json=body)
+        finally:
+            await proxy.close()
+    else:
+        challenge = await transport.post_json("/v1/auth/challenge", json=body)
     return parse_tokens(
         await transport.post_json("/v1/auth/login", json=build_login_request(signer, challenge))
     )

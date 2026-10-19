@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import TypeAlias, cast
+from urllib.parse import urlsplit
 
 from eth_utils.address import to_checksum_address
 
@@ -25,6 +26,47 @@ class BearerCredentials:
 
     def __repr__(self) -> str:
         return "BearerCredentials(access_token=<redacted>, refresh_token=<redacted>)"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PlatformApiKey:
+    """Server-held application attribution key. Never place it in browser configuration."""
+
+    key: str = field(repr=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.key, str) or not self.key or any(c.isspace() for c in self.key):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise UserInputError("Platform API Key must be a non-empty key without whitespace")
+
+    def __repr__(self) -> str:
+        return "PlatformApiKey(key=<redacted>)"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RemotePlatformApiKey:
+    """Challenge-only proxy configuration; contains no application secret.
+
+    Python requires an absolute HTTP(S) URL. The URL is the complete endpoint;
+    no path is appended. Login, refresh and logout go directly to the gateway.
+    """
+
+    url: str
+
+    def __post_init__(self) -> None:
+        try:
+            parsed = urlsplit(self.url)
+            if (
+                parsed.scheme not in ("http", "https")
+                or not parsed.hostname
+                or parsed.username is not None
+                or parsed.password is not None
+                or parsed.fragment
+            ):
+                raise ValueError
+        except (ValueError, TypeError):
+            raise UserInputError(
+                "Challenge proxy URL must be absolute HTTP(S), without userinfo or fragment"
+            ) from None
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,4 +115,11 @@ class RelayerApiKey:
 ApiKey: TypeAlias = BuilderApiKey | RelayerApiKey
 
 
-__all__ = ["BearerCredentials", "ApiKey", "BuilderApiKey", "RelayerApiKey"]
+__all__ = [
+    "BearerCredentials",
+    "ApiKey",
+    "BuilderApiKey",
+    "RelayerApiKey",
+    "PlatformApiKey",
+    "RemotePlatformApiKey",
+]
