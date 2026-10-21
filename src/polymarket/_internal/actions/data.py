@@ -15,7 +15,7 @@ from polymarket._internal.data_params import (
     build_event_ids,
     to_epoch_seconds,
 )
-from polymarket._internal.request import KeysetPaginatedSpec, QueryParamValue, RequestSpec
+from polymarket._internal.request import KeysetPaginatedSpec, RequestSpec
 from polymarket._internal.retry import DATA_READ_RETRY
 from polymarket.errors import UserInputError
 from polymarket.models.data import (
@@ -653,11 +653,6 @@ def get_builder_volumes_spec(
         parse=lambda payload: parse_data_envelope(payload, BuilderVolumePoint.parse_response_list),
         retry=DATA_READ_RETRY,
     )
-
-
-def build_accounting_snapshot_request(*, user: str) -> tuple[str, dict[str, QueryParamValue]]:
-    _require_user(user)
-    return "/v1/accounting/snapshot", {"user": user}
 
 
 def _require_user(user: object) -> None:
