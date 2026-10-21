@@ -57,6 +57,7 @@ from polymarket.models.price_events import (
     CryptoTwapPriceEvent,
     CryptoTwapPriceSnapshotEvent,
     CryptoTwapPriceUpdateEvent,
+    EquityMarketStatus,
     EquityPriceEvent,
     EquityPriceSnapshotEvent,
     EquityPriceUpdateEvent,
@@ -66,6 +67,10 @@ from polymarket.models.price_events import (
     KnownPriceSource,
     PriceEvent,
     PriceSource,
+    RealtimeEquityPriceSnapshot,
+    RealtimeEquityPriceUpdate,
+    RealtimeEquityTwapSnapshot,
+    RealtimeEquityTwapUpdate,
     RealtimeErrorCode,
     RealtimePricePoint,
     RealtimePriceSnapshot,
@@ -138,6 +143,11 @@ from polymarket.streams._specs import (
 StreamEvent = MarketEvent | SportsEvent | RtdsEvent | UserEvent | PerpsMarketEvent | PriceEvent
 
 __all__ = [
+    "RealtimeEquityTwapSnapshot",
+    "RealtimeEquityTwapUpdate",
+    "RealtimeEquityPriceSnapshot",
+    "RealtimeEquityPriceUpdate",
+    "EquityMarketStatus",
     "CryptoPriceEvent",
     "CryptoPriceSnapshotEvent",
     "CryptoPriceSpec",
