@@ -35,8 +35,18 @@ from polymarket.models.perps import (
 )
 from polymarket.pagination import AsyncPaginator
 from polymarket.perps import PerpsOrderPlacement, PerpsSession
+from polymarket.streams import PerpsBookSpec
 
 if TYPE_CHECKING:
+
+    async def _check_event_horizon_typing(session: PerpsSession, client: AsyncPublicClient) -> None:
+        async for event in session:
+            assert_type(event.event_timestamp, datetime | None)
+        handle = await client.subscribe(PerpsBookSpec(instrument_id=1))
+        async for event in handle:
+            assert_type(event.event_timestamp, datetime | None)
+
+    _event_horizon_typing_check = _check_event_horizon_typing
 
     async def _check_instrument_presentation_typing(client: AsyncPublicClient) -> None:
         for instrument in await client.fetch_perps_instruments():
