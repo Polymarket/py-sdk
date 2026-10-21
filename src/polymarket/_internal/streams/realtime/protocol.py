@@ -9,11 +9,16 @@ from polymarket.models.price_events import (
     CryptoPriceUpdateEvent,
     CryptoTwapPriceSnapshotEvent,
     CryptoTwapPriceUpdateEvent,
+    EquityMarketStatus,
     EquityPriceSnapshotEvent,
     EquityPriceUpdateEvent,
     EquityTwapPriceSnapshotEvent,
     EquityTwapPriceUpdateEvent,
     PriceEvent,
+    RealtimeEquityPriceSnapshot,
+    RealtimeEquityPriceUpdate,
+    RealtimeEquityTwapSnapshot,
+    RealtimeEquityTwapUpdate,
     RealtimePricePoint,
     RealtimePriceSnapshot,
     RealtimePriceUpdate,
@@ -123,44 +128,73 @@ def parse_price_event(message: object) -> PriceEvent | None:
             type(payload.get("window_seconds")) is not int or payload["window_seconds"] != 60
         ):
             return None
+        market_status = None
+        if topic in ("prices.equity", "prices.equity.twap") and "market_status" in payload:
+            raw_status = payload["market_status"]
+            if not isinstance(raw_status, str):
+                return None
+            market_status = EquityMarketStatus(raw_status)
         if snapshot:
             raw_points = payload["data"]
             if not isinstance(raw_points, list):
                 return None
             points = tuple(_price_point(point) for point in cast(list[object], raw_points))
-            if topic in ("prices.crypto.twap", "prices.equity.twap"):
-                snapshot_type = (
-                    CryptoTwapPriceSnapshotEvent
-                    if topic == "prices.crypto.twap"
-                    else EquityTwapPriceSnapshotEvent
-                )
-                return snapshot_type(
+            if topic == "prices.crypto.twap":
+                return CryptoTwapPriceSnapshotEvent(
                     timestamp=timestamp,
                     seq=seq,
                     dropped=dropped,
                     payload=RealtimeTwapSnapshot(symbol=symbol, source=source, data=points),
                 )
-            history = RealtimePriceSnapshot(symbol=symbol, source=source, data=points)
+            if topic == "prices.equity.twap":
+                return EquityTwapPriceSnapshotEvent(
+                    timestamp=timestamp,
+                    seq=seq,
+                    dropped=dropped,
+                    payload=RealtimeEquityTwapSnapshot(
+                        symbol=symbol,
+                        source=source,
+                        data=points,
+                        market_status=market_status,
+                    ),
+                )
             if topic == "prices.crypto":
+                history = RealtimePriceSnapshot(symbol=symbol, source=source, data=points)
                 return CryptoPriceSnapshotEvent(
                     timestamp=timestamp, seq=seq, dropped=dropped, payload=history
                 )
             return EquityPriceSnapshotEvent(
-                timestamp=timestamp, seq=seq, dropped=dropped, payload=history
+                timestamp=timestamp,
+                seq=seq,
+                dropped=dropped,
+                payload=RealtimeEquityPriceSnapshot(
+                    symbol=symbol, source=source, data=points, market_status=market_status
+                ),
             )
         point = _price_point(payload)
-        if topic in ("prices.crypto.twap", "prices.equity.twap"):
-            update_type = (
-                CryptoTwapPriceUpdateEvent
-                if topic == "prices.crypto.twap"
-                else EquityTwapPriceUpdateEvent
-            )
-            return update_type(
+        if topic == "prices.crypto.twap":
+            return CryptoTwapPriceUpdateEvent(
                 timestamp=timestamp,
                 seq=seq,
                 dropped=dropped,
                 payload=RealtimeTwapUpdate(
-                    symbol=symbol, source=source, timestamp=point.timestamp, value=point.value
+                    symbol=symbol,
+                    source=source,
+                    timestamp=point.timestamp,
+                    value=point.value,
+                ),
+            )
+        if topic == "prices.equity.twap":
+            return EquityTwapPriceUpdateEvent(
+                timestamp=timestamp,
+                seq=seq,
+                dropped=dropped,
+                payload=RealtimeEquityTwapUpdate(
+                    symbol=symbol,
+                    source=source,
+                    timestamp=point.timestamp,
+                    value=point.value,
+                    market_status=market_status,
                 ),
             )
         received_at = (
@@ -171,19 +205,34 @@ def parse_price_event(message: object) -> PriceEvent | None:
         carried = payload.get("is_carried_forward")
         if "is_carried_forward" in payload and not isinstance(carried, bool):
             return None
-        update = RealtimePriceUpdate(
-            symbol=symbol,
-            source=source,
-            timestamp=point.timestamp,
-            value=point.value,
-            received_at=received_at,
-            is_carried_forward=cast(bool | None, carried),
-        )
         if topic == "prices.crypto":
             return CryptoPriceUpdateEvent(
-                timestamp=timestamp, seq=seq, dropped=dropped, payload=update
+                timestamp=timestamp,
+                seq=seq,
+                dropped=dropped,
+                payload=RealtimePriceUpdate(
+                    symbol=symbol,
+                    source=source,
+                    timestamp=point.timestamp,
+                    value=point.value,
+                    received_at=received_at,
+                    is_carried_forward=cast(bool | None, carried),
+                ),
             )
-        return EquityPriceUpdateEvent(timestamp=timestamp, seq=seq, dropped=dropped, payload=update)
+        return EquityPriceUpdateEvent(
+            timestamp=timestamp,
+            seq=seq,
+            dropped=dropped,
+            payload=RealtimeEquityPriceUpdate(
+                symbol=symbol,
+                source=source,
+                timestamp=point.timestamp,
+                value=point.value,
+                received_at=received_at,
+                is_carried_forward=cast(bool | None, carried),
+                market_status=market_status,
+            ),
+        )
     except (ValueError, TypeError, KeyError, ArithmeticError):
         return None
 
@@ -200,31 +249,64 @@ def refresh_snapshot(previous: PriceEvent | None, event: PriceEvent) -> PriceEve
     )
     timestamp = event.payload.timestamp
     if history and history[-1].timestamp > timestamp:
+        # Equity spot clocks can deliver a status on a price older than history.
+        if (
+            previous is not None
+            and previous.type == "subscribe"
+            and previous.topic == "prices.equity"
+            and event.topic == "prices.equity"
+        ):
+            return previous.model_copy(
+                update={
+                    "payload": previous.payload.model_copy(
+                        update={
+                            "market_status": event.payload.market_status,
+                        }
+                    ),
+                }
+            )
         return previous
     points = tuple(
         point for point in history if timestamp - timedelta(minutes=2) < point.timestamp < timestamp
     ) + (RealtimePricePoint(timestamp=timestamp, value=event.payload.value),)
-    if event.topic in ("prices.crypto.twap", "prices.equity.twap"):
-        snapshot_type = (
-            CryptoTwapPriceSnapshotEvent
-            if event.topic == "prices.crypto.twap"
-            else EquityTwapPriceSnapshotEvent
-        )
-        return snapshot_type(
+    if event.topic == "prices.crypto.twap":
+        return CryptoTwapPriceSnapshotEvent(
             timestamp=event.timestamp,
             seq=event.seq,
             dropped=event.dropped,
             payload=RealtimeTwapSnapshot(
-                symbol=event.payload.symbol, source=event.payload.source, data=points
+                symbol=event.payload.symbol,
+                source=event.payload.source,
+                data=points,
             ),
         )
-    payload = RealtimePriceSnapshot(
-        symbol=event.payload.symbol, source=event.payload.source, data=points
-    )
+    if event.topic == "prices.equity.twap":
+        return EquityTwapPriceSnapshotEvent(
+            timestamp=event.timestamp,
+            seq=event.seq,
+            dropped=event.dropped,
+            payload=RealtimeEquityTwapSnapshot(
+                symbol=event.payload.symbol,
+                source=event.payload.source,
+                data=points,
+                market_status=event.payload.market_status,
+            ),
+        )
     if event.topic == "prices.crypto":
+        payload = RealtimePriceSnapshot(
+            symbol=event.payload.symbol, source=event.payload.source, data=points
+        )
         return CryptoPriceSnapshotEvent(
             timestamp=event.timestamp, seq=event.seq, dropped=event.dropped, payload=payload
         )
     return EquityPriceSnapshotEvent(
-        timestamp=event.timestamp, seq=event.seq, dropped=event.dropped, payload=payload
+        timestamp=event.timestamp,
+        seq=event.seq,
+        dropped=event.dropped,
+        payload=RealtimeEquityPriceSnapshot(
+            symbol=event.payload.symbol,
+            source=event.payload.source,
+            data=points,
+            market_status=event.payload.market_status,
+        ),
     )
