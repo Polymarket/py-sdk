@@ -1,4 +1,5 @@
 import math
+import re
 from collections.abc import Sequence
 from datetime import date as _date
 from typing import cast, get_args
@@ -17,6 +18,7 @@ from polymarket.errors import UnexpectedResponseError, UserInputError
 from polymarket.models.clob.rewards import (
     CurrentReward,
     MarketReward,
+    RebatedFee,
     RewardMarket,
     RewardMarketSort,
     RewardsPercentages,
@@ -389,3 +391,22 @@ def parse_reward_markets_page(data: object) -> Page[RewardMarket]:
     items = RewardMarket.parse_response_list(payload.get("data"))
     next_cursor = next_cursor_or_none(payload.get("next_cursor"))
     return Page(items=items, has_more=next_cursor is not None, next_cursor=next_cursor)
+
+
+def build_get_current_rebates_request(
+    *, date: str, maker_address: str
+) -> tuple[str, dict[str, QueryParamValue]]:
+    if type(date) is not str or re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", date) is None:
+        raise UserInputError("date must be a calendar date in YYYY-MM-DD form.")
+    _validate_date(date)
+    if (
+        type(maker_address) is not str
+        or re.fullmatch(r"0x[0-9a-fA-F]{40}", maker_address) is None
+        or int(maker_address[2:], 16) == 0
+    ):
+        raise UserInputError("maker_address must be a nonzero EVM address.")
+    return "/rebates/current", {"date": date, "maker_address": maker_address}
+
+
+def parse_current_rebates(data: object) -> tuple[RebatedFee, ...]:
+    return RebatedFee.parse_response_list([] if data is None else data)
