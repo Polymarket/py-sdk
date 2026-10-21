@@ -1,11 +1,10 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated, Any, Literal, cast
+from typing import Annotated, Any, Literal, TypeAlias, cast
 
 from pydantic import (
     AliasChoices,
     Field,
-    StringConstraints,
     TypeAdapter,
     ValidationError,
     computed_field,
@@ -34,10 +33,21 @@ def _uppercase_string(value: object) -> object:
 _OrderEventType = Literal["PLACEMENT", "UPDATE", "CANCELLATION"]
 
 
-_OrderStatus = Literal["LIVE", "MATCHED", "DELAYED", "UNMATCHED", "CANCELED", "INVALID"]
-
-
-_CanceledWithReasonStatus = Annotated[str, StringConstraints(pattern=r"^CANCELED_")]
+KnownUserOrderStatus: TypeAlias = Literal[
+    "LIVE",
+    "MATCHED",
+    "DELAYED",
+    "UNMATCHED",
+    "CANCELED",
+    "CANCELED_MARKET_RESOLVED",
+    "CANCELED_NOT_ENOUGH_BALANCE",
+    "CANCELED_MARKET_NOT_FOUND",
+    "CANCELED_EXPIRED_ORDER",
+    "CANCELED_ORDER_TIMED_OUT",
+    "INVALID",
+]
+# Cancellation reasons and newly introduced statuses flow through as strings.
+UserOrderStatus: TypeAlias = KnownUserOrderStatus | str
 
 
 _OrderType = Literal["GTC", "FOK", "IOC", "GTD", "FAK"]
@@ -60,7 +70,7 @@ class UserOrderPayload(BaseModel):
     created_at: datetime | None = None
     expires_at: datetime | None = Field(default=None, validation_alias="expiration")
     order_type: _OrderType | None = None
-    status: _OrderStatus | _CanceledWithReasonStatus | None = None
+    status: UserOrderStatus | None = None
     maker_address: str | None = None
     order_owner: str | None = None
     associate_trades: tuple[str, ...] | None = None
@@ -250,9 +260,11 @@ def parse_user_events(raw: object) -> tuple[list[UserEvent], int]:
 
 
 __all__ = [
+    "KnownUserOrderStatus",
     "UserEvent",
     "UserOrderEvent",
     "UserOrderPayload",
+    "UserOrderStatus",
     "UserTradeEvent",
     "UserTradeMakerOrder",
     "UserTradePayload",

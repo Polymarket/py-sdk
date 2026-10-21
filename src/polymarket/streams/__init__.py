@@ -21,9 +21,11 @@ from polymarket.models.clob.market_events import (
     PriceChange,
 )
 from polymarket.models.clob.user_events import (
+    KnownUserOrderStatus,
     UserEvent,
     UserOrderEvent,
     UserOrderPayload,
+    UserOrderStatus,
     UserTradeEvent,
     UserTradeMakerOrder,
     UserTradePayload,
@@ -153,6 +155,7 @@ __all__ = [
     "EquityTwapPriceSpec",
     "EquityTwapPriceUpdateEvent",
     "KnownPriceSource",
+    "KnownUserOrderStatus",
     "PriceEvent",
     "PriceProviderInput",
     "PriceSource",
@@ -251,6 +254,7 @@ __all__ = [
     "UserEvent",
     "UserOrderEvent",
     "UserOrderPayload",
+    "UserOrderStatus",
     "UserSpec",
     "UserTradeEvent",
     "UserTradeMakerOrder",
