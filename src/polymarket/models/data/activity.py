@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Literal, cast
+from typing import Any, Literal, Self, cast
 
-from pydantic import Field, computed_field, field_validator
+from pydantic import Field, computed_field, field_validator, model_validator
 
 from polymarket.errors import UnexpectedResponseError
 from polymarket.models.base import BaseModel
@@ -174,8 +174,11 @@ class ComboTradeActivity(_KnownActivityBase):
     price: Decimal
     title: str | None = None
     icon: str | None = None
+    outcome: str | None = None
+    outcome_index: int | None = None
 
-    _display_text = field_validator("title", "icon", mode="before")(optional_text)
+    _display_text = field_validator("title", "icon", "outcome", mode="before")(optional_text)
+    _outcome_index = field_validator("outcome_index", mode="before")(optional_outcome_index)
 
     @field_validator("condition_id", mode="before")
     @classmethod
@@ -213,14 +216,33 @@ class _MarketEventActivity(_KnownActivityBase):
 
 class SplitActivity(_MarketEventActivity):
     type: Literal[ActivityType.SPLIT]
+    is_combo: bool = False
 
 
 class MergeActivity(_MarketEventActivity):
     type: Literal[ActivityType.MERGE]
+    is_combo: bool = False
 
 
 class RedeemActivity(_MarketEventActivity):
+    """Redeemed proceeds from a market or Combo token.
+
+    ``is_combo`` identifies a basket; its outcome names the basket token side.
+    """
+
     type: Literal[ActivityType.REDEEM]
+    is_combo: bool = False
+    outcome: str | None = None
+    outcome_index: int | None = None
+
+    _outcome = field_validator("outcome", mode="before")(optional_text)
+    _outcome_index = field_validator("outcome_index", mode="before")(optional_outcome_index)
+
+    @model_validator(mode="after")
+    def _validate_combo_condition(self) -> Self:
+        if self.is_combo:
+            validate_combo_condition_id(self.condition_id)
+        return self
 
 
 class ConversionActivity(_MarketEventActivity):

@@ -218,7 +218,10 @@ class AsyncPublicClient:
     ) -> AsyncPaginator[Activity]:
         """List wallet activity, including deposits and withdrawals.
 
-        Amounts are USDC and shares are outcome units.
+        Amounts are USDC and shares are outcome units. Combo trades and redemptions
+        expose available basket token outcomes. All redemptions return
+        ``RedeemActivity``; check ``is_combo`` to identify a basket.
+        A basket's outcome names its token side, not a selected leg.
 
         Resuming a cursor uses the page size stored by that cursor."""
         spec = _data_actions.list_activity_spec(
