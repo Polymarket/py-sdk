@@ -1032,11 +1032,6 @@ class AsyncPublicClient:
 
         return AsyncPaginator(fetch=fetch)
 
-    async def download_accounting_snapshot(self, *, user: str) -> bytes:
-        """Download the accounting snapshot archive for a user."""
-        path, params = _data_actions.build_accounting_snapshot_request(user=user)
-        return await self._ctx.data.get_bytes(path, params=params)
-
     def list_events(
         self,
         *,

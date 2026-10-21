@@ -127,10 +127,6 @@ def test_query_contracts() -> None:
     }
     assert data.list_trades_spec(filter_type="TOKENS").base_params == {"filter_type": "TOKENS"}
     assert data.list_trades_spec(filter_amount=0).base_params == {"filter_amount": 0}
-    assert data.build_accounting_snapshot_request(user=WALLET) == (
-        "/v1/accounting/snapshot",
-        {"user": WALLET},
-    )
 
 
 @pytest.mark.parametrize("anchor", [{"user": WALLET}, {"condition_id": CONDITION}])

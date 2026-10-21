@@ -58,11 +58,6 @@ def test_builder_volume_counts_buckets(sync_public_client: PublicClient) -> None
     assert len(points) > 2
 
 
-def test_accounting_snapshot(sync_public_client: PublicClient, data_reference_wallet: str) -> None:
-    archive = sync_public_client.download_accounting_snapshot(user=data_reference_wallet)
-    assert archive.startswith(b"PK") and len(archive) > 100
-
-
 @pytest.mark.anyio
 async def test_async_portfolio(
     public_client: AsyncPublicClient, data_reference_wallet: str
