@@ -1909,7 +1909,7 @@ class AsyncSecureClient:
         self,
         *,
         ascending: bool | None = None,
-        closed: bool = False,
+        closed: bool | Literal["any"] = False,
         cyom: bool | None = None,
         end_date_max: TimestampFilter | None = None,
         end_date_min: TimestampFilter | None = None,
@@ -1950,7 +1950,8 @@ class AsyncSecureClient:
     ) -> AsyncPaginator[Event]:
         """List events.
 
-        Defaults to open events. Pass ``closed=True`` to list settled events.
+        Defaults to open events. Pass ``closed=True`` to list settled events
+        or ``closed="any"`` to include both open and closed events.
 
         Returns:
             An async paginator over matching events.
@@ -2001,7 +2002,7 @@ class AsyncSecureClient:
         self,
         *,
         ascending: bool | None = None,
-        closed: bool | None = None,
+        closed: bool | Literal["any"] | None = None,
         clob_token_ids: str | Sequence[str] | None = None,
         condition_ids: str | Sequence[str] | None = None,
         cyom: bool | None = None,
@@ -2042,6 +2043,11 @@ class AsyncSecureClient:
         page_size: int = 20,
     ) -> AsyncPaginator[Market]:
         """List markets.
+
+        Omitted ``closed`` (or ``None``) lists open markets, as does ``False``.
+        Pass ``True`` for closed markets, or ``"any"`` for both. ``"any"`` requires
+        at least one of ``ids``, ``slug``, ``clob_token_ids``, ``condition_ids``,
+        ``position_ids``, or ``question_ids``.
 
         Omitting ``version`` uses the current server default of CTF markets (v1).
         Pass one version or a sequence of one or two versions. Keep the same

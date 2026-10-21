@@ -128,6 +128,7 @@ def _add_optional(
         params[key] = value
 
 
+ClosedFilter: TypeAlias = bool | Literal["any"]
 DateFilter: TypeAlias = str | date
 TimestampFilter: TypeAlias = str | datetime
 
@@ -198,6 +199,11 @@ def _add_optional_seq(
     if not coerced:
         return
     params[key] = coerced
+
+
+def _check_closed(value: ClosedFilter | None) -> None:
+    if value is not None and not isinstance(value, bool) and value != "any":
+        raise UserInputError('closed must be True, False, None, or "any"')
 
 
 def _check_recurrence(value: Recurrence | None) -> None:
@@ -410,6 +416,7 @@ def get_comment_thread_spec(
 
 
 __all__ = [
+    "ClosedFilter",
     "CommentParentEntityType",
     "DateFilter",
     "Recurrence",
@@ -443,7 +450,7 @@ __all__ = [
 def list_events_spec(
     *,
     ascending: bool | None = None,
-    closed: bool = False,
+    closed: ClosedFilter = False,
     cyom: bool | None = None,
     end_date_max: TimestampFilter | None = None,
     end_date_min: TimestampFilter | None = None,
@@ -483,6 +490,7 @@ def list_events_spec(
 ) -> KeysetPaginatedSpec[Event]:
     _check_recurrence(recurrence)
     _check_tag_match(tag_match)
+    _check_closed(closed)
 
     params: dict[str, QueryParamValue] = {}
     _add_optional(params, "ascending", ascending)
@@ -535,7 +543,7 @@ def list_events_spec(
 def list_markets_spec(
     *,
     ascending: bool | None = None,
-    closed: bool | None = None,
+    closed: ClosedFilter | None = None,
     clob_token_ids: str | Sequence[str] | None = None,
     condition_ids: str | Sequence[str] | None = None,
     cyom: bool | None = None,
@@ -575,6 +583,7 @@ def list_markets_spec(
     volume_num_min: float | None = None,
 ) -> KeysetPaginatedSpec[Market]:
     _check_tag_match(tag_match)
+    _check_closed(closed)
     if resolution_status is not None and (
         not isinstance(cast(object, resolution_status), str)
         or resolution_status not in {status.value for status in MarketResolutionStatus}
@@ -639,6 +648,12 @@ def list_markets_spec(
     _add_optional(params, "uma_resolution_status", uma_resolution_status)
     _add_optional(params, "volume_num_max", volume_num_max)
     _add_optional(params, "volume_num_min", volume_num_min)
+
+    if closed == "any" and not any(
+        key in params
+        for key in ("id", "slug", "clob_token_ids", "condition_ids", "position_ids", "question_ids")
+    ):
+        raise UserInputError('closed="any" requires at least one market identifier filter')
 
     return KeysetPaginatedSpec(
         service="gamma",
