@@ -24,8 +24,10 @@ from polymarket.models.perps import (
     PerpsCancelRetryOptions,
     PerpsChase,
     PerpsChaseAccepted,
+    PerpsFill,
     PerpsInternalTransfer,
     PerpsInternalTransferId,
+    PerpsLiquidationDetails,
     PerpsOrderRequest,
     PerpsPortfolio,
     PerpsPositionDeleveragedNotification,
@@ -222,6 +224,24 @@ if TYPE_CHECKING:
 
 
 if TYPE_CHECKING:
+
+    async def _check_fill_risk_typing(session: PerpsSession) -> None:
+        pages = session.list_fills(instrument_id=0)
+        assert_type(pages, AsyncPaginator[PerpsFill])
+        async for fill in pages.iter_items():
+            assert_type(fill.adl, bool)
+            assert_type(fill.liquidation_details, PerpsLiquidationDetails | None)
+            if fill.liquidation_details is not None:
+                assert_type(fill.liquidation_details.mark, Decimal)
+                assert_type(fill.liquidation_details.method, Literal["market", "backstop"])
+                assert_type(fill.liquidation_details.liquidated_user, str | None)
+        async for event in session:
+            if event.type == "fill":
+                for fill in event.payload:
+                    assert_type(fill.adl, bool)
+                    assert_type(fill.liquidation_details, PerpsLiquidationDetails | None)
+
+    _fill_risk_typing_check = _check_fill_risk_typing
 
     async def _check_portfolio_risk_typing(session: PerpsSession) -> None:
         portfolio = await session.fetch_portfolio()
