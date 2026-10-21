@@ -18,7 +18,7 @@ from polymarket.models.clob.user_events import (
     parse_user_events,
 )
 from polymarket.models.types import OrderSide
-from polymarket.streams import UserOrderStatus
+from polymarket.streams import KnownUserOrderStatus, UserOrderStatus
 
 _ORDER_PLACEMENT: dict[str, Any] = {
     "event_type": "order",
@@ -114,7 +114,7 @@ def test_order_placement_parses_with_normalized_envelope() -> None:
     assert event.payload.token_id == "token-1"
     assert event.payload.side == "BUY"
     assert event.payload.original_size == 100  # noqa: PLR2004
-    assert event.payload.status == "LIVE"
+    assert event.payload.status is KnownUserOrderStatus.LIVE
     assert event.payload.order_type == "GTC"
     assert event.payload.associate_trades == ("trade-1", "trade-2")
 
@@ -144,6 +144,8 @@ def test_parse_user_events_keeps_invalid_cancellation() -> None:
     )
     assert dropped == 0
     assert len(events) == 1
+    assert isinstance(events[0], UserOrderEvent)
+    assert events[0].payload.status is KnownUserOrderStatus.INVALID
 
 
 def test_parse_user_events_preserves_future_order_status() -> None:
