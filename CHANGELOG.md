@@ -1,5 +1,49 @@
 # Changelog
 
+## [0.14.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.13.0...polymarket-client-v0.14.0) (2026-10-21)
+
+
+### Features
+
+* **client:** add reward market discovery ([#346](https://github.com/Polymarket/py-sdk/issues/346)) ([db6111f](https://github.com/Polymarket/py-sdk/commit/db6111fe80dbd5a0cab87885eb2451c4d70242a4))
+* **client:** expose current maker rebates ([#345](https://github.com/Polymarket/py-sdk/issues/345)) ([860ac38](https://github.com/Polymarket/py-sdk/commit/860ac384931ea55ed08a92219c9d27c02f6966cf))
+* **client:** expose one-shot order heartbeats ([#347](https://github.com/Polymarket/py-sdk/issues/347)) ([a3ebd01](https://github.com/Polymarket/py-sdk/commit/a3ebd01cf30055f3d33d53e4fda7a0f1aea3ca85))
+* **data:** expose token reference lookup ([#353](https://github.com/Polymarket/py-sdk/issues/353)) ([71b02c1](https://github.com/Polymarket/py-sdk/commit/71b02c1e2a6ba5a46e6a1a07a07b78a4d3faa9a0))
+* **streams:** expose equity market status ([fa0323d](https://github.com/Polymarket/py-sdk/commit/fa0323dd1e6a85a269c65bd78d84312b431a82fb))
+* **streams:** expose equity market status ([8355840](https://github.com/Polymarket/py-sdk/commit/835584056944bfbc449d0524b4390944531b787e))
+
+
+### Bug Fixes
+
+* **client:** expose sponsored total earnings breakdowns ([#344](https://github.com/Polymarket/py-sdk/issues/344)) ([2a6f6fa](https://github.com/Polymarket/py-sdk/commit/2a6f6fa0f63c9c72f19211b18c87c460d432fc33))
+* **client:** retain taker tier upgrade notifications ([#343](https://github.com/Polymarket/py-sdk/issues/343)) ([3556303](https://github.com/Polymarket/py-sdk/commit/355630309eb33979d8da75c7d701b45bfdc1adac))
+* **data:** preserve combo activity outcomes ([2d43d4f](https://github.com/Polymarket/py-sdk/commit/2d43d4fac5bf239e568b957f6ae9f29dae289df5))
+* **data:** preserve combo split and merge flags ([1866772](https://github.com/Polymarket/py-sdk/commit/1866772590dd24443f5329a27532ea6905360cfe))
+* **data:** preserve redemption class compatibility ([ad2a473](https://github.com/Polymarket/py-sdk/commit/ad2a473803a01d11c18584d93363231c16d0fedd))
+* **gamma:** support event list protocol version filters ([#357](https://github.com/Polymarket/py-sdk/issues/357)) ([0704b59](https://github.com/Polymarket/py-sdk/commit/0704b592ab93548c654e2f21e52ab125b449898b))
+* **markets:** preserve v2 oracle metadata and filters ([#352](https://github.com/Polymarket/py-sdk/issues/352)) ([1ab318b](https://github.com/Polymarket/py-sdk/commit/1ab318bc71379d1c7cd9415c8faf1bb8eda2c588))
+* **models:** accept datetime strings for new_market game_start_time ([72297f0](https://github.com/Polymarket/py-sdk/commit/72297f05d6d8137702dad09b43817fbbaf6071ba))
+* **models:** accept datetime strings for new_market game_start_time ([#341](https://github.com/Polymarket/py-sdk/issues/341)) ([72297f0](https://github.com/Polymarket/py-sdk/commit/72297f05d6d8137702dad09b43817fbbaf6071ba))
+* **models:** accept INVALID and CANCELED_* order statuses ([#367](https://github.com/Polymarket/py-sdk/issues/367)) ([08b4eb7](https://github.com/Polymarket/py-sdk/commit/08b4eb7c151a95690b63da3884f6ad317f62561c))
+* **models:** expose known user order statuses and preserve future values ([a0745d1](https://github.com/Polymarket/py-sdk/commit/a0745d14d39706562285fd793d5316605b54fba9))
+* **models:** expose known user order statuses and preserve future values ([e87cff0](https://github.com/Polymarket/py-sdk/commit/e87cff09aa569b6fb7ddcb4ddc3b13faa88e0938))
+* **models:** expose known user order statuses as named enum constants ([92721a8](https://github.com/Polymarket/py-sdk/commit/92721a814816f1388c5538f7f8d23cf957d7003a))
+* **models:** expose known user order statuses as named enum constants ([3f07dc6](https://github.com/Polymarket/py-sdk/commit/3f07dc63a4657b890ce92bbc9cbd3916ed2b2436))
+* **models:** preserve stream date units and validation errors ([841c593](https://github.com/Polymarket/py-sdk/commit/841c593107873030cc3e5999014eb70b0803f662))
+* **pagination:** refuse repeated continuation cursors ([4b19579](https://github.com/Polymarket/py-sdk/commit/4b195792318e9c24629f71ac23a6bb2cd9dc9345))
+* **perps:** continue complete millisecond transfer history pages ([#342](https://github.com/Polymarket/py-sdk/issues/342)) ([bd58609](https://github.com/Polymarket/py-sdk/commit/bd58609a9134c2beced9cd4d18f43acc688a1109))
+* **perps:** expose instrument visibility and logo metadata ([#350](https://github.com/Polymarket/py-sdk/issues/350)) ([c68672b](https://github.com/Polymarket/py-sdk/commit/c68672b06a5461b841b2731c48622991ef3e5381))
+* **perps:** preserve portfolio margin and risk tiers ([#348](https://github.com/Polymarket/py-sdk/issues/348)) ([34be947](https://github.com/Polymarket/py-sdk/commit/34be9479468444db8fc1f7466855dd6dcf550a9a))
+* **perps:** preserve websocket event horizons ([#351](https://github.com/Polymarket/py-sdk/issues/351)) ([651a499](https://github.com/Polymarket/py-sdk/commit/651a49931acd7ef2d9cc36dd3cc206007d6cbae7))
+* **perps:** retain fill risk details and instrument filters ([#349](https://github.com/Polymarket/py-sdk/issues/349)) ([2a97316](https://github.com/Polymarket/py-sdk/commit/2a97316dce641e265d602f9e0d278f9958d74787))
+* **streams:** retain status on older unstated price frames ([75cdd6e](https://github.com/Polymarket/py-sdk/commit/75cdd6e367f83134b3ae2646658f5a23bdeb86cc))
+
+
+### Documentation
+
+* **data:** clarify closed-position cursor recovery ([#355](https://github.com/Polymarket/py-sdk/issues/355)) ([83a90aa](https://github.com/Polymarket/py-sdk/commit/83a90aa05c87485e24598872e02eaca826b363ac))
+* **data:** clarify resolution event provenance ([#356](https://github.com/Polymarket/py-sdk/issues/356)) ([351d634](https://github.com/Polymarket/py-sdk/commit/351d63417e9b62a15870c82574673d518465d04b))
+
 ## [0.13.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.12.0...polymarket-client-v0.13.0) (2026-10-07)
 
 ### Features
