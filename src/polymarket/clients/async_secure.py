@@ -1946,6 +1946,10 @@ class AsyncSecureClient:
         tag_match: TagMatch | None = None,
         tag_slug: str | None = None,
         title_search: str | None = None,
+        version: ProtocolVersion
+        | Literal["v1", "v2"]
+        | Sequence[ProtocolVersion | Literal["v1", "v2"]]
+        | None = None,
         volume_max: float | None = None,
         volume_min: float | None = None,
         page_size: int = 20,
@@ -1953,6 +1957,10 @@ class AsyncSecureClient:
         """List events.
 
         Defaults to open events. Pass ``closed=True`` to list settled events.
+        Pass ``version="v1"`` or ``version="v2"`` to filter by protocol; omitting
+        it uses the current server default of CTF events (v1). Pass a sequence
+        of one or two versions to include either or both protocols. Keep the
+        same selection when resuming a saved cursor.
 
         Returns:
             An async paginator over matching events.
@@ -1994,6 +2002,7 @@ class AsyncSecureClient:
             tag_match=tag_match,
             tag_slug=tag_slug,
             title_search=title_search,
+            version=version,
             volume_max=volume_max,
             volume_min=volume_min,
         )

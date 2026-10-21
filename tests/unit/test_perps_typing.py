@@ -24,8 +24,10 @@ from polymarket.models.perps import (
     PerpsCancelRetryOptions,
     PerpsChase,
     PerpsChaseAccepted,
+    PerpsFill,
     PerpsInternalTransfer,
     PerpsInternalTransferId,
+    PerpsLiquidationDetails,
     PerpsOrderRequest,
     PerpsPortfolio,
     PerpsPositionDeleveragedNotification,
@@ -33,8 +35,18 @@ from polymarket.models.perps import (
 )
 from polymarket.pagination import AsyncPaginator
 from polymarket.perps import PerpsOrderPlacement, PerpsSession
+from polymarket.streams import PerpsBookSpec
 
 if TYPE_CHECKING:
+
+    async def _check_event_horizon_typing(session: PerpsSession, client: AsyncPublicClient) -> None:
+        async for event in session:
+            assert_type(event.event_timestamp, datetime | None)
+        handle = await client.subscribe(PerpsBookSpec(instrument_id=1))
+        async for event in handle:
+            assert_type(event.event_timestamp, datetime | None)
+
+    _event_horizon_typing_check = _check_event_horizon_typing
 
     async def _check_instrument_presentation_typing(client: AsyncPublicClient) -> None:
         for instrument in await client.fetch_perps_instruments():
@@ -222,6 +234,24 @@ if TYPE_CHECKING:
 
 
 if TYPE_CHECKING:
+
+    async def _check_fill_risk_typing(session: PerpsSession) -> None:
+        pages = session.list_fills(instrument_id=0)
+        assert_type(pages, AsyncPaginator[PerpsFill])
+        async for fill in pages.iter_items():
+            assert_type(fill.adl, bool)
+            assert_type(fill.liquidation_details, PerpsLiquidationDetails | None)
+            if fill.liquidation_details is not None:
+                assert_type(fill.liquidation_details.mark, Decimal)
+                assert_type(fill.liquidation_details.method, Literal["market", "backstop"])
+                assert_type(fill.liquidation_details.liquidated_user, str | None)
+        async for event in session:
+            if event.type == "fill":
+                for fill in event.payload:
+                    assert_type(fill.adl, bool)
+                    assert_type(fill.liquidation_details, PerpsLiquidationDetails | None)
+
+    _fill_risk_typing_check = _check_fill_risk_typing
 
     async def _check_portfolio_risk_typing(session: PerpsSession) -> None:
         portfolio = await session.fetch_portfolio()
