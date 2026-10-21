@@ -255,6 +255,7 @@ def refresh_snapshot(previous: PriceEvent | None, event: PriceEvent) -> PriceEve
             and previous.type == "subscribe"
             and previous.topic == "prices.equity"
             and event.topic == "prices.equity"
+            and event.payload.market_status is not None
         ):
             return previous.model_copy(
                 update={

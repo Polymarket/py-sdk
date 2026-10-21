@@ -612,21 +612,25 @@ def test_market_status_reaches_subscribers_and_late_joiners(twap: bool) -> None:
                     assert len(history.payload.data) == (seq if twap else 1)
                     assert history.payload.data[-1].timestamp == update.payload.timestamp
                 if not twap:
-                    frame = price_frame(channel, "usdjpy", timestamp=TIMESTAMP - 1)
-                    frame["seq"] = 4
-                    frame["payload"].update(market_status="closed", is_carried_forward=True)
-                    await feed.connections[0].send(json.dumps(frame))
-                    update = await anext(first)
-                    assert update.topic == "prices.equity" and update.type == "update"
-                    assert update.payload.market_status is EquityMarketStatus.CLOSED
-                    latest = await manager.subscribe(spec)
-                    history = await anext(latest)
-                    assert history.topic == "prices.equity" and history.type == "subscribe"
-                    assert history.payload.market_status is EquityMarketStatus.CLOSED
-                    assert len(history.payload.data) == 1
-                    assert history.payload.data[0].timestamp == datetime.fromtimestamp(
-                        TIMESTAMP / 1000, UTC
-                    )
+                    for seq, status in enumerate((EquityMarketStatus.CLOSED, None), 4):
+                        frame = price_frame(channel, "usdjpy", timestamp=TIMESTAMP - 1)
+                        frame["seq"] = seq
+                        frame["payload"]["is_carried_forward"] = True
+                        if status is not None:
+                            frame["payload"]["market_status"] = status.value
+                        await feed.connections[0].send(json.dumps(frame))
+                        update = await anext(first)
+                        assert update.topic == "prices.equity" and update.type == "update"
+                        assert update.payload.market_status is status
+                        latest = await manager.subscribe(spec)
+                        history = await anext(latest)
+                        assert history.topic == "prices.equity" and history.type == "subscribe"
+                        # An older unstated frame must not clear the last stated status.
+                        assert history.payload.market_status is EquityMarketStatus.CLOSED
+                        assert len(history.payload.data) == 1
+                        assert history.payload.data[0].timestamp == datetime.fromtimestamp(
+                            TIMESTAMP / 1000, UTC
+                        )
                 assert len(feed.operations("subscribe")) == 1
             finally:
                 await manager.close()
