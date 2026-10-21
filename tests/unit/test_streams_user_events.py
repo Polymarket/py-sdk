@@ -18,6 +18,7 @@ from polymarket.models.clob.user_events import (
     parse_user_events,
 )
 from polymarket.models.types import OrderSide
+from polymarket.streams import UserOrderStatus
 
 _ORDER_PLACEMENT: dict[str, Any] = {
     "event_type": "order",
@@ -78,6 +79,7 @@ def test_user_payload_annotations_expose_canonical_types() -> None:
     assert order_hints["original_size"] is Decimal
     assert order_hints["timestamp"] == (datetime | None)
     assert order_hints["expires_at"] == (datetime | None)
+    assert order_hints["status"] == (UserOrderStatus | None)
     assert maker_hints["fee_rate_bps"] == (Decimal | None)
     assert trade_hints["status"] == TradeStatus
     assert trade_hints["trader_side"] == (Literal["TAKER", "MAKER"] | None)
@@ -124,6 +126,10 @@ def test_order_placement_parses_with_normalized_envelope() -> None:
         "INVALID",
         "CANCELED_MARKET_RESOLVED",
         "CANCELED_MARKET_NOT_READY",
+        "CANCELED_NOT_ENOUGH_BALANCE",
+        "CANCELED_MARKET_NOT_FOUND",
+        "CANCELED_EXPIRED_ORDER",
+        "CANCELED_ORDER_TIMED_OUT",
         "CANCELED_order couldn't be fully filled. FOK orders are fully filled or killed.",
     ],
 )
@@ -140,9 +146,12 @@ def test_parse_user_events_keeps_invalid_cancellation() -> None:
     assert len(events) == 1
 
 
-def test_order_unknown_status_rejected() -> None:
-    with pytest.raises(ValidationError):
-        parse_user_event({**_ORDER_PLACEMENT, "status": "NOT_A_STATUS"})
+def test_parse_user_events_preserves_future_order_status() -> None:
+    events, dropped = parse_user_events([{**_ORDER_PLACEMENT, "status": "FUTURE_STATUS"}])
+    assert dropped == 0
+    assert len(events) == 1
+    assert isinstance(events[0], UserOrderEvent)
+    assert events[0].payload.status == "FUTURE_STATUS"
 
 
 def test_order_side_normalized_to_upper() -> None:
