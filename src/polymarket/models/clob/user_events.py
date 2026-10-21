@@ -5,6 +5,7 @@ from typing import Annotated, Any, Literal, cast
 from pydantic import (
     AliasChoices,
     Field,
+    StringConstraints,
     TypeAdapter,
     ValidationError,
     computed_field,
@@ -33,7 +34,10 @@ def _uppercase_string(value: object) -> object:
 _OrderEventType = Literal["PLACEMENT", "UPDATE", "CANCELLATION"]
 
 
-_OrderStatus = Literal["LIVE", "MATCHED", "DELAYED", "UNMATCHED", "CANCELED"]
+_OrderStatus = Literal["LIVE", "MATCHED", "DELAYED", "UNMATCHED", "CANCELED", "INVALID"]
+
+
+_CanceledWithReasonStatus = Annotated[str, StringConstraints(pattern=r"^CANCELED_")]
 
 
 _OrderType = Literal["GTC", "FOK", "IOC", "GTD", "FAK"]
@@ -56,7 +60,7 @@ class UserOrderPayload(BaseModel):
     created_at: datetime | None = None
     expires_at: datetime | None = Field(default=None, validation_alias="expiration")
     order_type: _OrderType | None = None
-    status: _OrderStatus | None = None
+    status: _OrderStatus | _CanceledWithReasonStatus | None = None
     maker_address: str | None = None
     order_owner: str | None = None
     associate_trades: tuple[str, ...] | None = None
