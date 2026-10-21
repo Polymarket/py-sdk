@@ -117,6 +117,34 @@ def test_order_placement_parses_with_normalized_envelope() -> None:
     assert event.payload.associate_trades == ("trade-1", "trade-2")
 
 
+@pytest.mark.parametrize(
+    "status",
+    [
+        "CANCELED",
+        "INVALID",
+        "CANCELED_MARKET_RESOLVED",
+        "CANCELED_MARKET_NOT_READY",
+        "CANCELED_order couldn't be fully filled. FOK orders are fully filled or killed.",
+    ],
+)
+def test_order_cancellation_statuses_parse(status: str) -> None:
+    event = parse_user_event({**_ORDER_PLACEMENT, "type": "CANCELLATION", "status": status})
+    assert event.payload.status == status
+
+
+def test_parse_user_events_keeps_invalid_cancellation() -> None:
+    events, dropped = parse_user_events(
+        [{**_ORDER_PLACEMENT, "type": "CANCELLATION", "status": "INVALID"}]
+    )
+    assert dropped == 0
+    assert len(events) == 1
+
+
+def test_order_unknown_status_rejected() -> None:
+    with pytest.raises(ValidationError):
+        parse_user_event({**_ORDER_PLACEMENT, "status": "NOT_A_STATUS"})
+
+
 def test_order_side_normalized_to_upper() -> None:
     event = parse_user_event({**_ORDER_PLACEMENT, "side": "sell"})
     assert isinstance(event, UserOrderEvent)
