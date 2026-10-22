@@ -105,7 +105,7 @@ def test_list_candles_steps_forward_by_interval(
         if len(requests) == 1:
             candles = [
                 [start, "1", "2", "0.5", "1.5", "10", 1],
-                [start + 60_000, "1", "2", "0.5", "1.5", "10", 1],
+                [start + duration, "1", "2", "0.5", "1.5", "10", 1],
             ]
             return httpx.Response(200, json={"data": candles, "more": True})
         return httpx.Response(
@@ -120,7 +120,7 @@ def test_list_candles_steps_forward_by_interval(
                 instrument_id=1,
                 interval=interval,
                 start=1_000_000,
-                end=2_000_000,
+                end=1_000_000_000,
             )
             items = [item async for item in paginator.iter_items()]
             assert len(items) == 3
@@ -130,7 +130,7 @@ def test_list_candles_steps_forward_by_interval(
     asyncio.run(run())
     assert requests[0]["start_timestamp"] == "1000000"
     # The next window starts one interval after the last returned candle.
-    assert requests[1]["start_timestamp"] == str(1_000_000 + 60_000 + duration)
+    assert requests[1]["start_timestamp"] == str(1_000_000 + 2 * duration)
     assert all(request["interval"] == interval for request in requests)
 
 
