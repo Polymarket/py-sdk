@@ -12,12 +12,14 @@ from polymarket.models.gamma import (
     CommentProfile,
     Event,
     EventPartner,
+    FallbackResolutionType,
     Market,
     MarketResolutionStatus,
     ProtocolVersion,
     PublicProfile,
     Reaction,
     RelatedTag,
+    SearchResults,
     Series,
     SportsMarketTypes,
     SportsMetadata,
@@ -1000,3 +1002,36 @@ def test_tag_reference_parse_response_list_rejects_non_list() -> None:
 def test_market_parse_response_raises_unexpected_response_on_bad_payload() -> None:
     with pytest.raises(UnexpectedResponseError):
         Market.parse_response({"id": "MARKET-1"})
+
+
+@pytest.mark.parametrize("mode", list(FallbackResolutionType))
+def test_market_preserves_fallback_mode_across_response_surfaces(
+    mode: FallbackResolutionType,
+) -> None:
+    raw = _minimal_market_payload(fallbackResolutionType=mode.value)
+    event = {"id": "EVENT-1", "markets": [raw]}
+    search = SearchResults.parse_response({"events": [event]})
+    markets = [
+        Market.parse_response(raw),
+        *Event.parse_response(event).markets,
+        *search.events[0].markets,
+    ]
+    for market in markets:
+        assert market.resolution.fallback_resolution_type is mode
+
+
+def test_market_does_not_invent_fallback_mode() -> None:
+    assert (
+        Market.parse_response(_minimal_market_payload()).resolution.fallback_resolution_type is None
+    )
+    assert (
+        Market.parse_response(
+            _minimal_market_payload(fallbackResolutionType=None)
+        ).resolution.fallback_resolution_type
+        is None
+    )
+
+
+def test_market_rejects_unknown_fallback_mode() -> None:
+    with pytest.raises(UnexpectedResponseError):
+        Market.parse_response(_minimal_market_payload(fallbackResolutionType="invalid"))
