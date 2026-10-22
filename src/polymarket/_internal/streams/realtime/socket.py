@@ -9,12 +9,14 @@ from polymarket._internal.streams.realtime.heartbeat import PriceHeartbeat
 from polymarket._internal.streams.realtime.protocol import (
     PriceKey,
     build_wire_subscription,
+    parse_polymarket_price_event,
     parse_price_event,
 )
 from polymarket._internal.ws.connection import AsyncWebSocketConnection
 from polymarket.errors import ConnectionLostError, RequestRejectedError, TransportError
 from polymarket.models.clob.api_key import ApiKeyCreds
-from polymarket.models.price_events import PriceEvent, RealtimeErrorCode
+from polymarket.models.price_events import RealtimeErrorCode
+from polymarket.models.price_events import RealtimePriceEvent as PriceEvent
 
 Operation = Literal["subscribe", "unsubscribe"]
 ACK_TIMEOUT_S = 10.0
@@ -26,6 +28,7 @@ class _Pending:
     op: str
     channels: list[str | None]
     future: asyncio.Future[list[tuple[int, RequestRejectedError]]]
+    keys: Sequence[PriceKey] = ()
     rejected: list[tuple[int, RequestRejectedError]] = field(
         default_factory=list[tuple[int, RequestRejectedError]]
     )
@@ -38,7 +41,7 @@ class PriceConnection:
         self,
         *,
         url: str,
-        credentials: ApiKeyCreds,
+        credentials: ApiKeyCreds | None = None,
         headers: Mapping[str, str] | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
@@ -49,6 +52,7 @@ class PriceConnection:
             heartbeat=PriceHeartbeat(), logger=logger, close_timeout_s=1.0
         )
         self._pending: dict[str, _Pending] = {}
+        self._bbo_snapshots: list[str] = []
         self._rid = 0
         self._last_sent = float("-inf")
         self._send_lock = asyncio.Lock()
@@ -86,6 +90,8 @@ class PriceConnection:
         )
 
     async def authorize(self) -> None:
+        if self._credentials is None:
+            return
         await self._request(
             {
                 "op": "auth",
@@ -122,6 +128,7 @@ class PriceConnection:
                 {"op": operation, "subscriptions": batch},
                 "subscribed" if operation == "subscribe" else "unsubscribed",
                 [str(item["channel"]) for item in batch],
+                keys[offset : offset + len(batch)],
             )
             rejected.extend((keys[offset + index], error) for index, error in errors)
             offset += len(batch)
@@ -132,13 +139,14 @@ class PriceConnection:
         frame: dict[str, object],
         op: str,
         channels: list[str],
+        keys: Sequence[PriceKey] = (),
     ) -> list[tuple[int, RequestRejectedError]]:
         async with self._send_lock:
             self._rid += 1
             rid = str(self._rid)
             loop = asyncio.get_running_loop()
             future: asyncio.Future[list[tuple[int, RequestRejectedError]]] = loop.create_future()
-            pending = _Pending(op=op, channels=list(channels), future=future)
+            pending = _Pending(op=op, channels=list(channels), future=future, keys=keys)
             self._pending[rid] = pending
             try:
                 await asyncio.sleep(max(0, OPERATION_INTERVAL_S - (loop.time() - self._last_sent)))
@@ -200,13 +208,34 @@ class PriceConnection:
                 if pending.channels:
                     if channel is None or channel not in pending.channels:
                         return
-                    pending.channels[pending.channels.index(channel)] = None
+                    index = pending.channels.index(channel)
+                    pending.channels[index] = None
+                    if (
+                        op == "subscribed"
+                        and channel == "price.polymarket"
+                        and index < len(pending.keys)
+                    ):
+                        asset_id = pending.keys[index].asset_id
+                        if asset_id is not None:
+                            self._bbo_snapshots.append(asset_id)
             else:
                 return
             if all(channel is None for channel in pending.channels):
                 pending.future.set_result(pending.rejected)
             return
-        event = parse_price_event(frame)
+        # Cold snapshots omit the asset; acknowledgements identify the ordered filters.
+        snapshot_asset_id = (
+            self._bbo_snapshots.pop(0)
+            if frame.get("channel") == "price.polymarket"
+            and frame.get("snapshot") is True
+            and self._bbo_snapshots
+            else None
+        )
+        event = (
+            parse_polymarket_price_event(frame, snapshot_asset_id)
+            if frame.get("channel") == "price.polymarket"
+            else parse_price_event(frame)
+        )
         if event is not None:
             if self._event is not None:
                 self._event(event)
@@ -214,6 +243,7 @@ class PriceConnection:
                 self._dropped()
 
     def _cancel(self, error: Exception) -> None:
+        self._bbo_snapshots.clear()
         for pending in self._pending.values():
             if not pending.future.done():
                 pending.future.set_exception(error)

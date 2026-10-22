@@ -14,6 +14,11 @@ from polymarket.models.price_events import (
     EquityPriceUpdateEvent,
     EquityTwapPriceSnapshotEvent,
     EquityTwapPriceUpdateEvent,
+    PolymarketPriceEvent,
+    PolymarketPriceQuote,
+    PolymarketPriceSnapshot,
+    PolymarketPriceSnapshotEvent,
+    PolymarketPriceUpdateEvent,
     PriceEvent,
     RealtimeEquityPriceSnapshot,
     RealtimeEquityPriceUpdate,
@@ -25,11 +30,13 @@ from polymarket.models.price_events import (
     RealtimeTwapSnapshot,
     RealtimeTwapUpdate,
 )
+from polymarket.models.types import ClobAssetId, validate_condition_id_response
 from polymarket.streams._specs import (
     EquityPriceSpec,
     EquityTwapPriceSpec,
+    PolymarketPriceSpec,
     PriceProviderInput,
-    PriceSpec,
+    RealtimePriceSpec,
 )
 
 PriceTopic = Literal["prices.crypto", "prices.crypto.twap", "prices.equity", "prices.equity.twap"]
@@ -43,12 +50,15 @@ CHANNEL_TOPICS: dict[str, PriceTopic] = {
 
 @dataclass(frozen=True, slots=True)
 class PriceKey:
-    topic: PriceTopic
-    symbol: str
+    topic: PriceTopic | Literal["prices.polymarket"]
+    symbol: str = ""
     provider: PriceProviderInput | None = None
+    asset_id: str | None = None
 
 
-def subscriptions_for(spec: PriceSpec) -> tuple[PriceKey, ...]:
+def subscriptions_for(spec: RealtimePriceSpec) -> tuple[PriceKey, ...]:
+    if isinstance(spec, PolymarketPriceSpec):
+        return tuple(PriceKey(spec.topic, asset_id=asset_id) for asset_id in spec.asset_ids)
     symbols = (
         (spec.symbol,) if isinstance(spec, EquityPriceSpec | EquityTwapPriceSpec) else spec.symbols
     )
@@ -56,6 +66,8 @@ def subscriptions_for(spec: PriceSpec) -> tuple[PriceKey, ...]:
 
 
 def build_wire_subscription(key: PriceKey) -> dict[str, object]:
+    if key.topic == "prices.polymarket":
+        return {"channel": "price.polymarket", "filter": {"asset_id": key.asset_id}}
     price_filter: dict[str, object] = {"symbol": key.symbol}
     if key.topic in ("prices.crypto.twap", "prices.equity.twap"):
         price_filter["window_seconds"] = 60
@@ -311,3 +323,72 @@ def refresh_snapshot(previous: PriceEvent | None, event: PriceEvent) -> PriceEve
             market_status=event.payload.market_status,
         ),
     )
+
+
+def _quote_price(value: object) -> Decimal | None:
+    if value == "":
+        return None
+    if not isinstance(value, str):
+        raise ValueError("Expected a decimal string")
+    result = Decimal(value)
+    if not result.is_finite():
+        raise ValueError("Expected a finite price")
+    return result
+
+
+def parse_polymarket_price_event(
+    message: object, snapshot_asset_id: str | None = None
+) -> PolymarketPriceEvent | None:
+    """Parse public best bid and ask frames, correlating cold snapshots with their filter."""
+    try:
+        frame = _object(message)
+        if (
+            type(frame.get("v")) is not int
+            or frame["v"] != 1
+            or frame.get("channel") != "price.polymarket"
+        ):
+            return None
+        seq = _nonnegative_int(frame["seq"])
+        dropped = _nonnegative_int(frame["dropped"]) if "dropped" in frame else None
+        timestamp = datetime_from_epoch_milliseconds(frame["ts"])
+        snapshot = frame.get("snapshot", False)
+        if not isinstance(snapshot, bool):
+            return None
+        raw = frame["payload"]
+        if raw == []:
+            if not snapshot or snapshot_asset_id is None:
+                return None
+            quote = None
+            asset_id = snapshot_asset_id
+        else:
+            payload = _object(raw)
+            asset_id = payload["asset_id"]
+            if not isinstance(asset_id, str) or not asset_id.isascii() or not asset_id.isdecimal():
+                return None
+            book_hash = payload["hash"]
+            if not isinstance(book_hash, str):
+                return None
+            quote = PolymarketPriceQuote(
+                asset_id=cast(ClobAssetId, asset_id),
+                condition_id=validate_condition_id_response(payload["market"]),
+                best_bid=_quote_price(payload["best_bid"]),
+                best_ask=_quote_price(payload["best_ask"]),
+                hash=book_hash,
+                timestamp=datetime_from_epoch_milliseconds(payload["timestamp"]),
+            )
+        if snapshot:
+            return PolymarketPriceSnapshotEvent(
+                timestamp=timestamp,
+                seq=seq,
+                dropped=dropped,
+                payload=PolymarketPriceSnapshot(
+                    asset_id=cast(ClobAssetId, asset_id), data=(quote,) if quote else ()
+                ),
+            )
+        if quote is None:
+            return None
+        return PolymarketPriceUpdateEvent(
+            timestamp=timestamp, seq=seq, dropped=dropped, payload=quote
+        )
+    except (ValueError, TypeError, KeyError, ArithmeticError):
+        return None
