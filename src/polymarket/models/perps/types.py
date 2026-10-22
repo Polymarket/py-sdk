@@ -53,7 +53,9 @@ PerpsKnownWithdrawalStatus: TypeAlias = Literal["pending", "confirmed", "removed
 # The withdrawal status set can grow between SDK releases, so unknown values
 # flow through as plain strings instead of failing validation.
 PerpsWithdrawalStatus: TypeAlias = PerpsKnownWithdrawalStatus | str
-PerpsKlineInterval: TypeAlias = Literal["1s", "1m", "5m", "15m", "1h", "4h", "1d", "1w"]
+PerpsKlineInterval: TypeAlias = Literal[
+    "1s", "1m", "5m", "15m", "30m", "1h", "4h", "6h", "12h", "1d", "1w"
+]
 PerpsStreamCandleInterval: TypeAlias = Literal["1m", "5m", "15m", "1h", "4h", "1d", "1w"]
 PerpsPnlInterval: TypeAlias = Literal["1h", "4h", "1d", "1w"]
 PerpsSortDirection: TypeAlias = Literal["desc", "asc"]
