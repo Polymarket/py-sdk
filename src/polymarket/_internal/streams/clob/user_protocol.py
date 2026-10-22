@@ -83,7 +83,7 @@ def matcher_for(sub: UserSubscription) -> Callable[[UserEvent], bool]:
     allowed = frozenset(m.lower() for m in sub.markets)
 
     def matches(event: UserEvent) -> bool:
-        return event.payload.market.lower() in allowed
+        return event.payload.condition_id.lower() in allowed
 
     return matches
 
