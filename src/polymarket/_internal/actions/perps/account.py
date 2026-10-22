@@ -119,11 +119,16 @@ async def fetch_orders(
 def list_fills(
     api: AsyncTransport,
     *,
+    instrument_id: int | None = None,
     start: datetime | int | None = None,
     end: datetime | int | None = None,
     sort: PerpsSortDirection | None = None,
     cursor: str | None = None,
 ) -> AsyncPaginator[PerpsFill]:
+    if instrument_id is not None and (
+        type(instrument_id) is not int or not 0 <= instrument_id <= 4_294_967_295
+    ):
+        raise UserInputError("instrument_id must be an unsigned 32-bit integer")
     if sort is not None and sort not in _SORT_DIRECTIONS:
         raise UserInputError(f"sort must be one of {list(_SORT_DIRECTIONS)}, got {sort!r}")
     start_ms = to_epoch_ms("start", start)
@@ -134,6 +139,7 @@ def list_fills(
             await api.get_json(
                 "/v1/account/fills",
                 params={
+                    "instrument_id": instrument_id,
                     "start_timestamp": start_ms,
                     "end_timestamp": end_ms,
                     "sort": sort,
@@ -270,12 +276,30 @@ def list_internal_transfers(
         # Keep the full final millisecond: the service stores submillisecond timestamps.
         last_ms = round(transfers[-1].created_at.timestamp() * 1000)
         next_end = min(state["end_timestamp"], last_ms + 1)
-        if next_end == state["end_timestamp"] and not items:
-            raise UnexpectedResponseError(
-                "Perps internal-transfer history cannot continue within a full millisecond "
-                "without skipping records"
-            )
         boundary: set[str] = seen if next_end == state["end_timestamp"] else set()
+        if next_end == state["end_timestamp"] and not items:
+            # Check the whole overlap interval before moving its inclusive upper bound.
+            # The last row may lie exactly at that bound, so use end - 1, not last_ms.
+            data, more = parse_data_envelope(
+                await api.get_json(
+                    "/v1/account/internal-transfers",
+                    params={
+                        "start_timestamp": max(state["start_timestamp"], next_end - 1),
+                        "end_timestamp": next_end,
+                    },
+                )
+            )
+            transfers = tuple(PerpsInternalTransfer.parse_response(item) for item in data)
+            if more:
+                raise UnexpectedResponseError(
+                    "Perps internal-transfer history cannot continue within a full millisecond "
+                    "without skipping records"
+                )
+            items = tuple(item for item in transfers if str(item.transfer_id) not in seen)
+            next_end -= 1
+            boundary = set()
+            if next_end < state["start_timestamp"]:
+                return Page(items=items, has_more=False)
         for transfer in transfers:
             if round(transfer.created_at.timestamp() * 1000) >= next_end - 1:
                 boundary.add(str(transfer.transfer_id))

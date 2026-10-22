@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.14.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.13.0...polymarket-client-v0.14.0) (2026-10-21)
+
+### Features
+
+- **streams:** Add `EquityMarketStatus` and optional equity spot/TWAP `market_status` on updates and snapshots (`open`, `closed`, `unknown`; `None` means not stated, never open). Status describes the provider's instrument. Spot status-only updates may repeat the price timestamp with `is_carried_forward=True`; do not deduplicate by timestamp alone. Older unstated spot frames retain the last stated snapshot status. Snapshots carry status at batch level and may retain an older closing price; TWAP status changes with a new price. ([#366](https://github.com/Polymarket/py-sdk/pull/366))
+- **client:** Add filtered/sorted reward-market cursor pagination, current maker rebates by date/address, and outcome-asset reference lookup. ([#346](https://github.com/Polymarket/py-sdk/pull/346), [#345](https://github.com/Polymarket/py-sdk/pull/345), [#353](https://github.com/Polymarket/py-sdk/pull/353))
+- **client:** Add one-shot authenticated order heartbeats with mismatch-ID recovery. The first accepted send enables API-key-wide timeout cancellation with no disarm operation; callers own scheduling and ID serialization, and expiry cancellation is best effort. ([#347](https://github.com/Polymarket/py-sdk/pull/347))
+
+### Bug Fixes
+
+- **pagination:** Raise `UnexpectedResponseError` before requesting a continuation cursor already used in the same walk (including cycles and resumed cursors), after yielding pages fetched so far. Sync/async walks keep independent cursor sets; normal completion and `limit_reached` retain precedence. ([#358](https://github.com/Polymarket/py-sdk/pull/358))
+- **data:** Preserve Combo trade/redemption token `outcome` and `outcome_index` (zero is valid; blank labels/index `999` become `None`) and split/merge `is_combo` flags. Redemption retains the public `RedeemActivity` class and `ConditionId` annotation; use `is_combo` to identify baskets and check optional titles/URL fields before use. Automatic redemption remains REDEEM. ([#354](https://github.com/Polymarket/py-sdk/pull/354))
+- **client:** Expose native/sponsored total earnings breakdowns and sponsored queries without changing defaults; retain taker-tier upgrade notifications. ([#344](https://github.com/Polymarket/py-sdk/pull/344), [#343](https://github.com/Polymarket/py-sdk/pull/343))
+- **markets:** Preserve v2 oracle metadata and request-ID/event-ID/resolution-status/protocol filters; add scalar/sequence event protocol-version filtering retained across pagination. ([#352](https://github.com/Polymarket/py-sdk/pull/352), [#357](https://github.com/Polymarket/py-sdk/pull/357))
+- **models:** Accept new-market `game_start_time` datetime strings while preserving stream timestamp units and validation errors. Expose known user order statuses as named enum constants, accept `INVALID`/`CANCELED_*`, and preserve future values. ([#341](https://github.com/Polymarket/py-sdk/pull/341), [#367](https://github.com/Polymarket/py-sdk/pull/367), [#368](https://github.com/Polymarket/py-sdk/pull/368), [#369](https://github.com/Polymarket/py-sdk/pull/369), [841c593](https://github.com/Polymarket/py-sdk/commit/841c593))
+- **perps:** Continue complete millisecond transfer-history pages without duplicates/skips; retain fill risk details and instrument filters, portfolio margin/risk tiers, and instrument UI visibility/logos (advisory, not trading eligibility). Preserve exchange event horizons independently of send time; unknown zero horizons become `None`, and synthetic recovery invents no horizon. Perps remains experimental. ([#342](https://github.com/Polymarket/py-sdk/pull/342), [#348](https://github.com/Polymarket/py-sdk/pull/348), [#349](https://github.com/Polymarket/py-sdk/pull/349), [#350](https://github.com/Polymarket/py-sdk/pull/350), [#351](https://github.com/Polymarket/py-sdk/pull/351))
+
+### Documentation
+
+- **data:** Clarify realized-PnL ordering and manual restart for rejected obsolete closed-position cursors. UMA lifecycle rows retain the initial RequestPrice log index while the transaction hash may identify a later event; do not combine them as a log locator. Condition-resolution fallback rows use their own event metadata. ([#355](https://github.com/Polymarket/py-sdk/pull/355), [#356](https://github.com/Polymarket/py-sdk/pull/356))
+
 ## [0.13.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.12.0...polymarket-client-v0.13.0) (2026-10-07)
 
 ### Features

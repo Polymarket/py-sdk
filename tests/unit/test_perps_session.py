@@ -182,6 +182,7 @@ def _order_update(
     update: dict[str, Any] = {
         "ch": "orders",
         "ts": 1751500000000,
+        "ets": 1751499999000,
         "sq": sequence,
         "data": {
             "oid": order_id,
@@ -208,6 +209,7 @@ def _fills_update(*, sequence: int = 6) -> dict[str, Any]:
     return {
         "ch": "fills",
         "ts": 1751500000002,
+        "ets": 1751499999000,
         "sq": sequence,
         "data": [
             {
@@ -224,6 +226,7 @@ def _fills_update(*, sequence: int = 6) -> dict[str, Any]:
                 "pep": "0",
                 "pnl": "0",
                 "liq": False,
+                "adl": False,
                 "ts": 1751500000000,
             },
             {
@@ -240,6 +243,7 @@ def _fills_update(*, sequence: int = 6) -> dict[str, Any]:
                 "pep": "0.5",
                 "pnl": "0.2",
                 "liq": False,
+                "adl": False,
                 "ts": 1751500000001,
             },
         ],
@@ -1290,6 +1294,7 @@ def test_sequence_gap_emits_resync_event_before_update() -> None:
             assert second.channel == "orders"
             assert second.previous_sequence == 1
             assert second.sequence == 5
+            assert second.event_timestamp is None
             assert isinstance(third, PerpsOrderEvent)
 
     asyncio.run(asyncio.wait_for(run(), timeout=10.0))
@@ -1299,6 +1304,7 @@ def _notification_update(sequence: int, notification_id: str) -> dict[str, Any]:
     return {
         "ch": "notifications",
         "ts": 1751500000000,
+        "ets": 1751499999000,
         "sq": sequence,
         "data": {
             "id": notification_id,
@@ -1321,6 +1327,7 @@ def test_adl_notifications_arrive_on_existing_session_iterator() -> None:
                 {
                     "ch": "notifications",
                     "ts": 1751500000000,
+                    "ets": 1751499999000,
                     "sq": 42,
                     "data": {
                         "id": "6ab1e47f-9b8c-5eaf-8f9b-7c8d9e0f1a2b",
@@ -1406,7 +1413,15 @@ def test_server_notifications_resync_frame_emits_server_resync_event() -> None:
     async def handler(ws: ServerConnection) -> None:
         await _handshake(ws)
         await ws.send(
-            json.dumps({"ch": "notifications", "ts": 1751500000000, "sq": 77, "type": "resync"})
+            json.dumps(
+                {
+                    "ch": "notifications",
+                    "ts": 1751500000000,
+                    "ets": 1751499999000,
+                    "sq": 77,
+                    "type": "resync",
+                }
+            )
         )
         with contextlib.suppress(Exception):
             async for _ in ws:
@@ -1445,6 +1460,7 @@ def test_session_reconnects_reauthenticates_and_emits_resync() -> None:
             event = await asyncio.wait_for(session.__anext__(), timeout=10.0)
             assert isinstance(event, PerpsResyncEvent)
             assert event.reason == "reconnect"
+            assert event.event_timestamp is None
             await asyncio.wait_for(connected.wait(), timeout=10.0)
             assert connections == 2
 
@@ -1628,6 +1644,7 @@ def test_builder_fills_share_session_iterator_before_ack_and_after_reconnect() -
                                     {
                                         "ch": "builderFills",
                                         "ts": 1751500000000,
+                                        "ets": 1751499999000,
                                         "sq": sequence,
                                         "data": [],
                                     }
@@ -1640,7 +1657,13 @@ def test_builder_fills_share_session_iterator_before_ack_and_after_reconnect() -
                     else:
                         await ws.send(
                             json.dumps(
-                                {"ch": "builderFills", "ts": 1751500000000, "sq": 200, "data": []}
+                                {
+                                    "ch": "builderFills",
+                                    "ts": 1751500000000,
+                                    "ets": 1751499999000,
+                                    "sq": 200,
+                                    "data": [],
+                                }
                             )
                         )
                         await ws.wait_closed()
@@ -1758,16 +1781,19 @@ def test_position_exits_keep_terms_captured_before_portfolio_read(
                                 "unrealized_pnl": "0",
                                 "return_on_equity": "0",
                                 "cumulative_funding": "0",
+                                "adl_index": 0,
                             }
                         ],
                         "margin": {
                             "total_account_value": "100",
+                            "available_order_margin": "0",
                             "total_initial_margin": "0",
                             "total_maintenance_margin": "0",
                             "total_position_value": "100",
                         },
                         "withdrawable": "0",
                         "in_liquidation": False,
+                        "fee_tier": 0,
                         "timestamp": 1751500000000,
                     },
                 )
@@ -2103,6 +2129,7 @@ def test_activation_continues_existing_session_iterator() -> None:
                     {
                         "ch": "tpsl::1",
                         "ts": 1751500000000,
+                        "ets": 1751499999000,
                         "sq": sequence,
                         "data": {"oid": 44, "st": status},
                     }
