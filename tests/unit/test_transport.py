@@ -218,7 +218,7 @@ def _rejected_with_retry_after(
                 lambda request: httpx.Response(
                     status,
                     json={"error": "unavailable"} if body is None else body,
-                    headers={"Retry-After": header},
+                    headers=[(b"Retry-After", header.encode("latin-1"))],
                     request=request,
                 )
             ),
@@ -232,11 +232,22 @@ def _rejected_with_retry_after(
 @pytest.mark.parametrize(
     "header,expected",
     [
-        ("0", 0.0),
-        ("2.5", 2.5),
-        ("1e2", 100.0),
+        ("0", 0),
+        ("0017", 17),
+        (" \t17\t ", 17),
+        ("9007199254740991", 9007199254740991),
+        ("9007199254740992", None),
+        ("9" * 400, None),
+        ("", None),
         ("-1", None),
-        ("invalid", None),
+        ("-0", None),
+        ("+1", None),
+        ("1.5", None),
+        ("1e2", None),
+        ("Infinity", None),
+        ("NaN", None),
+        ("²", None),
+        ("\u00a017", None),
         ("Thu, 10 Sep 2026 06:02:00 GMT", None),
     ],
 )
@@ -248,38 +259,16 @@ def test_sync_transport_parses_retry_after_as_delay_seconds_only(
     assert error.retry_after == expected
 
 
-def test_sync_transport_uses_body_delay_for_http_date_header() -> None:
+@pytest.mark.parametrize("header", ["Thu, 10 Sep 2026 06:02:00 GMT", "9007199254740992"])
+def test_sync_transport_uses_body_delay_for_invalid_header(header: str) -> None:
     error = _rejected_with_retry_after(
-        "Thu, 10 Sep 2026 06:02:00 GMT",
+        header,
         body={"error": "post-only mode", "code": "post_only_mode", "retry_after_seconds": 79},
     )
     assert isinstance(error, RequestRejectedError)
     assert error.status == 503
     assert error.code == "post_only_mode"
     assert error.retry_after == 79.0
-
-
-@pytest.mark.parametrize("header_value", ["1e400", "inf", "nan"])
-def test_sync_transport_ignores_non_finite_retry_after_header(header_value: str) -> None:
-    transport = SyncTransport(
-        base_url="https://example.test",
-        client=httpx.Client(
-            base_url="https://example.test",
-            transport=httpx.MockTransport(
-                lambda request: httpx.Response(
-                    503,
-                    json={"error": "unavailable"},
-                    headers={"Retry-After": header_value},
-                    request=request,
-                )
-            ),
-        ),
-    )
-
-    with pytest.raises(RequestRejectedError) as exc_info:
-        transport.get_json("/markets/1")
-
-    assert exc_info.value.retry_after is None
 
 
 @pytest.mark.parametrize(

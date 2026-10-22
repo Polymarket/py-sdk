@@ -425,11 +425,13 @@ def _raise_for_response_status(response: httpx.Response, *, path: str) -> None:
 
 
 def _parse_retry_after_header(header: str) -> float | None:
-    try:
-        seconds = float(header.strip())
-    except ValueError:
+    value = header.strip(" \t")
+    if not value or not value.isascii() or not value.isdigit():
         return None
-    return seconds if math.isfinite(seconds) and seconds >= 0 else None
+    # Keep whole-second metadata exact in both Python floats and JavaScript numbers.
+    # Retry waits have their own smaller cap.
+    seconds = float(value)
+    return seconds if seconds <= 9_007_199_254_740_991 else None
 
 
 def _extract_retry_after(response: httpx.Response) -> float | None:

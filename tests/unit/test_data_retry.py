@@ -14,7 +14,7 @@ from polymarket.errors import RateLimitError, RequestRejectedError
 @pytest.mark.parametrize(
     "status,header,failures,attempts,delays",
     [
-        (429, "2", 1, 2, [2]),
+        (429, " \t2\t ", 1, 2, [2]),
         (429, None, 1, 2, [1]),
         (429, "Thu, 10 Sep 2026 06:02:00 GMT", 1, 2, [1]),
         (429, "120", 1, 1, []),
