@@ -125,6 +125,7 @@ from polymarket.models.perps.results import (
 from polymarket.models.perps.twaps import PerpsTwap, PerpsTwapAccepted
 from polymarket.models.perps.types import (
     PerpsDepositStatus,
+    PerpsKlineInterval,
     PerpsPnlInterval,
     PerpsSortDirection,
     PerpsTimeInForce,
@@ -1321,7 +1322,7 @@ class PerpsSession:
     def list_equity_history(
         self,
         *,
-        interval: PerpsPnlInterval,
+        interval: PerpsKlineInterval,
         start: datetime | int,
         end: datetime | int | None = None,
     ) -> AsyncPaginator[PerpsEquityPoint]:
