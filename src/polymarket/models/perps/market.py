@@ -3,6 +3,7 @@
 from collections.abc import Sequence
 from datetime import datetime
 from decimal import Decimal
+from enum import StrEnum
 from typing import Literal, cast
 
 from pydantic import AliasChoices, Field, field_validator, model_validator
@@ -115,12 +116,88 @@ class PerpsInstrument(BaseModel):
         return _coerce_decimalish(value)
 
 
+class PerpsPricingMode(StrEnum):
+    """Accepted pricing mode, independent of the retained index source."""
+
+    EXTERNAL = "external"
+    HOLD = "hold"
+    INTERNAL = "internal"
+    FROZEN = "frozen"
+    BOUNDED = "bounded"
+    RECOVERY_PENDING = "recovery_pending"
+
+
+class PerpsPricingReason(StrEnum):
+    """Reason for the current pricing mode."""
+
+    EXTERNAL_AVAILABLE = "external_available"
+    ALL_SOURCES_UNAVAILABLE = "all_sources_unavailable"
+    ACTIVATION_DELAY = "activation_delay"
+    MISSING_ORACLE_CONFIGURATION = "missing_oracle_configuration"
+    SOURCE_DISAGREEMENT = "source_disagreement"
+    UNKNOWN_SOURCE_STATE = "unknown_source_state"
+    EXPLICIT_HALT = "explicit_halt"
+    DISABLED = "disabled"
+    PROCESS_DISABLED = "process_disabled"
+    MANUAL_FREEZE = "manual_freeze"
+    INSUFFICIENT_BID_DEPTH = "insufficient_bid_depth"
+    INSUFFICIENT_ASK_DEPTH = "insufficient_ask_depth"
+    INVALID_BOOK = "invalid_book"
+    IMPACT_SPREAD_TOO_WIDE = "impact_spread_too_wide"
+    INVALID_PRECISION = "invalid_precision"
+    ARITHMETIC_FAILURE = "arithmetic_failure"
+    SESSION_BOUND = "session_bound"
+    RECOVERY_CONFIRMATION = "recovery_confirmation"
+    MATERIAL_RECOVERY_GAP = "material_recovery_gap"
+
+
+class PerpsPricingIndexSource(StrEnum):
+    """Source of the retained index price."""
+
+    UNKNOWN = "unknown"
+    EXTERNAL = "external"
+    INTERNAL = "internal"
+
+
+class PerpsPricingStatus(BaseModel):
+    """Pricing safety state. Missing status does not imply external pricing."""
+
+    mode: PerpsPricingMode
+    reason: PerpsPricingReason
+    index_source: PerpsPricingIndexSource
+    anchor_price: Decimal | None
+    anchor_timestamp: datetime | None
+    index_observed_timestamp: datetime | None
+    state_changed_timestamp: datetime
+    session_id: int | None = Field(strict=True, ge=0)
+    config_version: int | None = Field(strict=True, ge=0)
+    no_increase: bool = Field(strict=True)
+    at_lower_bound: bool = Field(strict=True)
+    at_upper_bound: bool = Field(strict=True)
+
+    @field_validator("anchor_price", mode="before")
+    @classmethod
+    def _parse_anchor_price(cls, value: object) -> object:
+        return _coerce_decimalish(value)
+
+    @field_validator("anchor_timestamp", "index_observed_timestamp", mode="before")
+    @classmethod
+    def _parse_optional_timestamp(cls, value: object) -> object:
+        return _parse_epoch_ms(value)
+
+    @field_validator("state_changed_timestamp", mode="before")
+    @classmethod
+    def _parse_timestamp(cls, value: object) -> object:
+        return _require_epoch_ms(value)
+
+
 class PerpsTicker(BaseModel):
     """Current prices and funding state for a Perps instrument."""
 
     instrument_id: PerpsInstrumentId
     symbol: str
     index_price: Decimal
+    pricing_status: PerpsPricingStatus | None = None
     mark_price: Decimal
     last_price: Decimal
     mid_price: Decimal
@@ -162,6 +239,7 @@ class PerpsTickerUpdate(BaseModel):
 
     instrument_id: PerpsInstrumentId = Field(validation_alias="iid")
     index_price: Decimal = Field(validation_alias="idx")
+    pricing_status: PerpsPricingStatus | None = None
     mark_price: Decimal = Field(validation_alias="mark")
     last_price: Decimal = Field(validation_alias="last")
     mid_price: Decimal = Field(validation_alias="mid")
@@ -412,6 +490,10 @@ __all__ = [
     "PerpsInstrumentLogo",
     "PerpsRiskTier",
     "PerpsStatistic",
+    "PerpsPricingMode",
+    "PerpsPricingReason",
+    "PerpsPricingIndexSource",
+    "PerpsPricingStatus",
     "PerpsTicker",
     "PerpsTickerUpdate",
     "PerpsTrade",
