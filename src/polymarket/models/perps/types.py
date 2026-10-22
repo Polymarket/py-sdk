@@ -30,6 +30,10 @@ class PerpsInternalTransferDirection(StrEnum):
     IN = "in"
     OUT = "out"
 
+PerpsInternalTransferDirectionFilter: TypeAlias = (
+    Literal["in", "out"] | PerpsInternalTransferDirection
+)
+
 
 PerpsInstrumentCategory: TypeAlias = Literal["equity", "commodity", "index", "crypto"]
 PerpsMarginType: TypeAlias = Literal["cross", "isolated"]
@@ -104,6 +108,7 @@ __all__ = [
     "PerpsInternalTransferType",
     "PerpsKnownInternalTransferType",
     "PerpsInternalTransferDirection",
+    "PerpsInternalTransferDirectionFilter",
     "PerpsBookDepth",
     "PerpsClientOrderId",
     "PerpsDepositStatus",
