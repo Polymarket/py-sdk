@@ -394,7 +394,7 @@ class PerpsCandleBatch(BaseModel):
     """Streaming candle batch for one instrument and interval."""
 
     instrument_id: PerpsInstrumentId
-    interval: Literal["1m", "5m", "15m", "1h", "4h", "1d", "1w"]
+    interval: Literal["1m", "5m", "15m", "30m", "1h", "4h", "6h", "12h", "1d", "1w"]
     candles: tuple[PerpsCandle, ...]
 
 

@@ -32,7 +32,7 @@ _BBO_CHANNEL = re.compile(r"^bbo::(\d+)$")
 _BOOK_CHANNEL = re.compile(r"^book::(\d+)$")
 _TICKERS_CHANNEL = re.compile(r"^tickers::(all|\d+)$")
 _STATISTICS_CHANNEL = re.compile(r"^statistics::(all|\d+)$")
-_CANDLES_CHANNEL = re.compile(r"^klines::(\d+)::(1m|5m|15m|1h|4h|1d|1w)$")
+_CANDLES_CHANNEL = re.compile(r"^klines::(\d+)::(1m|5m|15m|30m|1h|4h|6h|12h|1d|1w)$")
 _TPSL_CHANNEL = re.compile(r"^tpsl::\d+$")
 
 _SESSION_CHANNEL_TYPES: dict[str, str] = {
