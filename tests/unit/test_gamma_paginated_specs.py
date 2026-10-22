@@ -71,6 +71,19 @@ def test_list_events_spec_collects_filter_params() -> None:
     }
 
 
+@pytest.mark.parametrize("recurrence", ["annual", "hourly"])
+def test_recurrence_filters_preserve_annual_and_hourly_requests(
+    recurrence: Literal["annual", "hourly"],
+) -> None:
+    for spec in (
+        gamma_actions.list_events_spec(recurrence=recurrence),
+        gamma_actions.list_series_spec(recurrence=recurrence),
+        gamma_actions.search_spec(q="markets", recurrence=recurrence),
+    ):
+        assert spec.base_params is not None
+        assert spec.base_params["recurrence"] == recurrence
+
+
 def test_list_events_spec_rejects_invalid_recurrence() -> None:
     with pytest.raises(UserInputError, match="recurrence must be one of"):
         gamma_actions.list_events_spec(recurrence="yearly")  # type: ignore[arg-type]
