@@ -649,14 +649,15 @@ def test_list_fills_rejects_non_uint32_instrument_before_request(instrument_id: 
     asyncio.run(run())
 
 
-def test_deposits_keep_distinct_events_and_deduplicate_overlapping_pages() -> None:
+@pytest.mark.parametrize("start", [1000, 2000])
+def test_deposits_keep_distinct_events_and_deduplicate_overlapping_pages(start: int) -> None:
     tx_hash = "0x" + "1" * 64
     queries: list[dict[str, str]] = []
 
-    def deposit(log_index: int | None) -> dict[str, Any]:
+    def deposit(log_index: int | str | None) -> dict[str, Any]:
         return {
             "hash": tx_hash,
-            **({} if log_index is None else {"log_index": log_index}),
+            **({} if log_index == "absent" else {"log_index": log_index}),
             "asset": "USDC",
             "amount": "10",
             "status": "confirmed",
@@ -670,27 +671,31 @@ def test_deposits_keep_distinct_events_and_deduplicate_overlapping_pages() -> No
 
     def handler(request: httpx.Request) -> httpx.Response:
         queries.append(dict(request.url.params))
-        indices = [None, 0, 0] if len(queries) == 1 else [None, 0, 1, 1]
+        indices = ["absent", None, 0, 0] if len(queries) == 1 else ["absent", None, 0, 1, 1]
         return httpx.Response(
             200,
             json={
                 "data": [deposit(index) for index in indices],
-                "more": len(queries) == 1,
+                "more": len(queries) < 3 or start == 2000,
             },
         )
 
     async def run() -> None:
         transport = _transport(handler)
         try:
-            pages = perps_account.list_deposits(transport, start=1000, end=3000)
+            pages = perps_account.list_deposits(transport, start=start, end=3000)
             first = await pages.first_page()
             assert [item.log_index for item in first.items] == [None, 0]
             assert first.next_cursor is not None
             second = await pages.from_cursor(first.next_cursor).first_page()
             assert [item.log_index for item in second.items] == [1]
-            assert not second.has_more
+            assert second.has_more
+            assert second.next_cursor is not None
+            third = await pages.from_cursor(second.next_cursor).first_page()
+            assert not third.items
+            assert not third.has_more
         finally:
             await transport.close()
 
     asyncio.run(run())
-    assert [query["end_timestamp"] for query in queries] == ["3000", "2000"]
+    assert [query["end_timestamp"] for query in queries] == ["3000", "2000", "2000"]

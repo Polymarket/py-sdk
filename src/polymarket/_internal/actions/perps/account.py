@@ -513,7 +513,18 @@ def _descending_history(
             if raw_last is not None
             else None
         )
-        has_more = more and isinstance(cursor_ts, int) and cursor_ts > int(state["start_timestamp"])
+        has_more = (
+            more
+            and isinstance(cursor_ts, int)
+            and (
+                cursor_ts > int(state["start_timestamp"])
+                or (
+                    kind == "perpsDeposits"
+                    and cursor_ts == int(state["start_timestamp"])
+                    and last is not None
+                )
+            )
+        )
         if not has_more or not isinstance(cursor_ts, int):
             return Page(items=items, has_more=False)
         next_state: dict[str, Any]
