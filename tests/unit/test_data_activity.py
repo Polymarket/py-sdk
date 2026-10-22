@@ -227,14 +227,14 @@ def public_activity_types(client: PublicClient) -> None:
             assert_type(activity.outcome_index, int | None)
         if isinstance(activity, RedeemActivity):
             assert_type(activity.is_combo, bool)
-            assert_type(activity.condition_id, ConditionId)
+            assert_type(activity.condition_id, ConditionId | None)
 
 
 async def async_public_activity_types(client: AsyncPublicClient) -> None:
     page = await client.list_activity(user="0x" + "12" * 20).first_page()
     for activity in page.items:
         if isinstance(activity, RedeemActivity):
-            assert_type(activity.condition_id, ConditionId)
+            assert_type(activity.condition_id, ConditionId | None)
             assert_type(activity.outcome, str | None)
             assert_type(activity.outcome_index, int | None)
 
@@ -253,3 +253,16 @@ def test_combo_redemption_missing_presentation_keeps_mixed_feed(title: str | Non
     assert isinstance(rows[1], RedeemActivity)
     assert rows[1].title is None and rows[1].icon is None
     assert rows[1].outcome == "No" and rows[1].outcome_index == 1
+
+
+def test_empty_market_identifiers_preserve_mixed_activity() -> None:
+    ordinary = sample("activity")[0]
+    empty = {**ordinary, "type": "REDEEM", "condition_id": "", "transaction_hash": ""}
+    rows = parse_activities([ordinary, empty, ordinary])
+    assert len(rows) == 3
+    assert isinstance(rows[1], RedeemActivity)
+    assert rows[1].condition_id is None
+    assert rows[1].transaction_hash is None
+    assert rows[0] == rows[2]
+    with pytest.raises(UnexpectedResponseError):
+        parse_activity({**empty, "condition_id": "invalid"})
