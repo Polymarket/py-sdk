@@ -38,7 +38,7 @@ from polymarket.pagination import AsyncPaginator, Page
 
 _BOOK_DEPTHS = (10, 100, 500, 1000)
 _CATEGORIES = ("equity", "commodity", "index", "crypto")
-_KLINE_INTERVALS = ("1s", "1m", "5m", "15m", "1h", "4h", "1d", "1w")
+_KLINE_INTERVALS = ("1s", "1m", "5m", "15m", "30m", "1h", "4h", "6h", "12h", "1d", "1w")
 
 
 async def fetch_registration(perps: AsyncTransport, *, address: str) -> bool:
