@@ -44,7 +44,7 @@ from polymarket.models.gamma.common import parse_string_sequence
 
 CommentParentEntityType = Literal["Event", "Series"]
 TagMatch = Literal["any", "all"]
-Recurrence = Literal["daily", "weekly", "monthly"]
+Recurrence = Literal["daily", "weekly", "monthly", "annual", "hourly"]
 SearchSort = Literal[
     "volume",
     "volume_24hr",
@@ -201,8 +201,8 @@ def _add_optional_seq(
 
 
 def _check_recurrence(value: Recurrence | None) -> None:
-    if value is not None and value not in {"daily", "weekly", "monthly"}:
-        raise UserInputError("recurrence must be one of: daily, weekly, monthly")
+    if value is not None and value not in {"daily", "weekly", "monthly", "annual", "hourly"}:
+        raise UserInputError("recurrence must be one of: daily, weekly, monthly, annual, hourly")
 
 
 def _check_search_sort(value: SearchSort | None) -> None:
