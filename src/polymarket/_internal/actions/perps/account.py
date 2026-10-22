@@ -198,7 +198,11 @@ def list_deposits(
         default_window_ms=NINETY_DAYS_MS,
         start=start,
         end=end,
-        get_key=lambda item: str(item.get("hash")),
+        get_key=lambda item: (
+            str(item.get("hash"))
+            if item.get("log_index") is None
+            else f"{item.get('hash')}:{item['log_index']}"
+        ),
         get_timestamp=lambda item: item.get("confirmed_timestamp") or item.get("created_timestamp"),
         extra_params={"deposit_status": deposit_status, "hash": hash},
     )
@@ -498,6 +502,7 @@ def _descending_history(
             item = as_json_dict(raw_item)
             if item is not None and get_key(item) not in seen:
                 fresh.append(item)
+                seen.add(get_key(item))
         items = tuple(model.parse_response(item) for item in fresh)
         raw_last = as_json_dict(data[-1]) if data else None
         last = fresh[-1] if fresh else None
