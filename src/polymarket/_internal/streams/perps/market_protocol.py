@@ -26,7 +26,7 @@ def channel_for(spec: PerpsSpec) -> str:
     if isinstance(spec, PerpsBboSpec):
         return f"bbo::{spec.instrument_id}"
     if isinstance(spec, PerpsBookSpec):
-        return f"book::{spec.instrument_id}"
+        return f"book::{spec.instrument_id}" + ("::50" if spec.depth == 50 else "")
     if isinstance(spec, PerpsCandlesSpec):
         return f"klines::{spec.instrument_id}::{spec.interval}"
     if isinstance(spec, PerpsTickersSpec):
@@ -84,6 +84,15 @@ def match_for(spec: PerpsSpec) -> Callable[[PerpsMarketEvent], bool]:
             return event.topic == "perps.trades" and event.channel == channel
 
         return matches_trades
+    if isinstance(spec, PerpsBookSpec):
+        channel = channel_for(spec)
+
+        def matches_book(event: PerpsMarketEvent) -> bool:
+            return event.topic == "perps.book" and (
+                event.channel == channel or (spec.depth == 20 and event.channel == f"{channel}::20")
+            )
+
+        return matches_book
     if isinstance(spec, PerpsCandlesSpec):
         instrument_id = spec.instrument_id
         interval = spec.interval

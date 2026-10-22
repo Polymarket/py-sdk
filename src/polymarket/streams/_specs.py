@@ -374,10 +374,14 @@ class PerpsBookSpec:
     """
 
     instrument_id: int
+    depth: Literal[20, 50] = 20
+    """Number of price levels per side. Defaults to 20."""
     topic: Literal["perps.book"] = field(default="perps.book", init=False)
 
     def __post_init__(self) -> None:
         _validate_perps_instrument_id(self.instrument_id)
+        if isinstance(self.depth, bool) or self.depth not in (20, 50):
+            raise ValueError("depth must be 20 or 50")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
