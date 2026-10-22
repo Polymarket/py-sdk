@@ -207,11 +207,6 @@ def test_sync_transport_flags_cancel_only_restriction() -> None:
     assert exc_info.value.retry_after is None
 
 
-# 2026-09-10T06:02:00Z is 119.6 s after this clock, so a correct conversion
-# reports 120 whole seconds, never 119.
-_HTTP_DATE_NOW = 1_789_020_000.4
-
-
 def _rejected_with_retry_after(
     header: str, status: int = 503, body: dict[str, object] | None = None
 ) -> RequestRejectedError | RateLimitError:
@@ -223,7 +218,7 @@ def _rejected_with_retry_after(
                 lambda request: httpx.Response(
                     status,
                     json={"error": "unavailable"} if body is None else body,
-                    headers={"Retry-After": header},
+                    headers=[(b"Retry-After", header.encode("latin-1"))],
                     request=request,
                 )
             ),
@@ -235,108 +230,45 @@ def _rejected_with_retry_after(
 
 
 @pytest.mark.parametrize(
-    "header",
+    "header,expected",
     [
-        "Thu, 10 Sep 2026 06:02:00 GMT",
-        "Thursday, 10-Sep-26 06:02:00 GMT",
-        "Thu Sep 10 06:02:00 2026",
+        ("0", 0),
+        ("0017", 17),
+        (" \t17\t ", 17),
+        ("9007199254740991", 9007199254740991),
+        ("9007199254740992", None),
+        ("9" * 400, None),
+        ("", None),
+        ("-1", None),
+        ("-0", None),
+        ("+1", None),
+        ("1.5", None),
+        ("1e2", None),
+        ("Infinity", None),
+        ("NaN", None),
+        ("²", None),
+        ("\u00a017", None),
+        ("Thu, 10 Sep 2026 06:02:00 GMT", None),
     ],
-    ids=["imf-fixdate", "rfc850", "asctime"],
 )
-def test_sync_transport_converts_http_date_retry_after_to_seconds(
-    monkeypatch: pytest.MonkeyPatch, header: str
+def test_sync_transport_parses_retry_after_as_delay_seconds_only(
+    header: str, expected: float | None
 ) -> None:
-    monkeypatch.setattr("polymarket.clients._transport.time.time", lambda: _HTTP_DATE_NOW)
-
-    error = _rejected_with_retry_after(header)
-
-    assert isinstance(error, RequestRejectedError)
-    assert error.status == 503
-    assert error.retry_after == 120.0
-
-
-def test_sync_transport_converts_http_date_retry_after_on_rate_limit(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr("polymarket.clients._transport.time.time", lambda: _HTTP_DATE_NOW)
-
-    error = _rejected_with_retry_after("Thu, 10 Sep 2026 06:02:00 GMT", status=429)
-
+    error = _rejected_with_retry_after(header, status=429)
     assert isinstance(error, RateLimitError)
-    assert error.retry_after == 120.0
+    assert error.retry_after == expected
 
 
-@pytest.mark.parametrize(
-    "header",
-    ["Thu, 10 Sep 2026 05:00:00 GMT", "Thursday, 10-Sep-77 06:02:00 GMT"],
-    ids=["past-date", "two-digit-year-over-fifty-years-ahead"],
-)
-def test_sync_transport_clamps_past_http_date_retry_after_to_zero(
-    monkeypatch: pytest.MonkeyPatch, header: str
-) -> None:
-    monkeypatch.setattr("polymarket.clients._transport.time.time", lambda: _HTTP_DATE_NOW)
-
-    assert _rejected_with_retry_after(header).retry_after == 0.0
-
-
-def test_sync_transport_prefers_http_date_header_over_body_delay(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr("polymarket.clients._transport.time.time", lambda: _HTTP_DATE_NOW)
-
+@pytest.mark.parametrize("header", ["Thu, 10 Sep 2026 06:02:00 GMT", "9007199254740992"])
+def test_sync_transport_uses_body_delay_for_invalid_header(header: str) -> None:
     error = _rejected_with_retry_after(
-        "Thu, 10 Sep 2026 06:02:00 GMT",
+        header,
         body={"error": "post-only mode", "code": "post_only_mode", "retry_after_seconds": 79},
     )
-
-    assert error.retry_after == 120.0
-
-
-@pytest.mark.parametrize(
-    "header",
-    [
-        "not-a-date",
-        "Thu, 31 Feb 2026 06:02:00 GMT",
-        "Thu, 10 Sep 2026 23:59:60 GMT",
-        "10 Sep 2026",
-        "120, Thu, 10 Sep 2026 06:02:00 GMT",
-        "Thu, 10 Sep 2147483648 06:02:00 GMT",
-    ],
-    ids=["garbage", "impossible-day", "leap-second", "bare-date", "two-headers", "overflow-year"],
-)
-def test_sync_transport_falls_back_to_body_delay_for_malformed_http_dates(
-    monkeypatch: pytest.MonkeyPatch, header: str
-) -> None:
-    monkeypatch.setattr("polymarket.clients._transport.time.time", lambda: _HTTP_DATE_NOW)
-
-    error = _rejected_with_retry_after(
-        header, body={"error": "unavailable", "retry_after_seconds": 79}
-    )
-
+    assert isinstance(error, RequestRejectedError)
+    assert error.status == 503
+    assert error.code == "post_only_mode"
     assert error.retry_after == 79.0
-
-
-@pytest.mark.parametrize("header_value", ["1e400", "inf", "nan"])
-def test_sync_transport_ignores_non_finite_retry_after_header(header_value: str) -> None:
-    transport = SyncTransport(
-        base_url="https://example.test",
-        client=httpx.Client(
-            base_url="https://example.test",
-            transport=httpx.MockTransport(
-                lambda request: httpx.Response(
-                    503,
-                    json={"error": "unavailable"},
-                    headers={"Retry-After": header_value},
-                    request=request,
-                )
-            ),
-        ),
-    )
-
-    with pytest.raises(RequestRejectedError) as exc_info:
-        transport.get_json("/markets/1")
-
-    assert exc_info.value.retry_after is None
 
 
 @pytest.mark.parametrize(

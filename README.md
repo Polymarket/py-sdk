@@ -16,6 +16,18 @@ or:
 pip install polymarket-client
 ```
 
+## Retry delays
+
+`Retry-After` headers accept only ASCII whole-second values from 0 through
+9,007,199,254,740,991 (2^53 - 1). Both SDKs use this safe-integer limit to keep
+whole-second metadata exact.
+Leading zeros and surrounding ASCII spaces or tabs are allowed. Empty, signed,
+fractional, exponent, non-finite, oversized, and HTTP-date values are ignored.
+Missing or invalid headers retain the numeric `retry_after_seconds` response-body
+fallback. `RequestRejectedError.retry_after` and `RateLimitError.retry_after`
+expose the resulting delay, or `None` when no valid delay is available. Eligible
+rate-limit retries use their default wait when no valid delay is available.
+
 ## Usage
 
 Synchronous client:

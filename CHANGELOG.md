@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Intentionally accept only ASCII whole-second `Retry-After` headers, from 0 through 9,007,199,254,740,991, matching the TypeScript SDK. Leading zeros and surrounding ASCII spaces or tabs are allowed. Remove HTTP-date support and ignore signed, fractional, exponent, non-finite, and oversized values. Missing or invalid headers retain the existing numeric response-body delay fallback and retry/error behavior.
+
 ## [0.14.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.13.0...polymarket-client-v0.14.0) (2026-10-21)
 
 ### Features
