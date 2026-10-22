@@ -30,6 +30,7 @@ class PerpsInternalTransferDirection(StrEnum):
     IN = "in"
     OUT = "out"
 
+
 PerpsInternalTransferDirectionFilter: TypeAlias = (
     Literal["in", "out"] | PerpsInternalTransferDirection
 )
