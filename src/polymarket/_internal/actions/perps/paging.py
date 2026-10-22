@@ -133,6 +133,7 @@ def decode_perps_internal_transfers_cursor(cursor: str) -> dict[str, Any]:
     _require_non_negative_int(state, "start_timestamp")
     _require_non_negative_int(state, "end_timestamp")
     _require_str_list(state, "seen_keys")
+    _allow_optional_allowed_str(state, "direction", ("in", "out"))
     if state["start_timestamp"] > state["end_timestamp"]:
         raise _invalid_cursor()
     return state

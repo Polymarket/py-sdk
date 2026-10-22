@@ -10,6 +10,7 @@ import pytest
 from polymarket import (
     PerpsInternalTransfer,
     PerpsInternalTransferDirection,
+    PerpsInternalTransferDirectionFilter,
     PerpsKnownInternalTransferType,
 )
 from polymarket._internal.actions.perps.account import list_internal_transfers
@@ -26,8 +27,11 @@ from polymarket.errors import (
 _RECIPIENT = "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc"
 
 
+@pytest.mark.parametrize("direction", [None, "in", PerpsInternalTransferDirection.OUT])
 @pytest.mark.parametrize("truncated", [False, True])
-def test_history_advances_only_past_complete_millisecond_pages(truncated: bool) -> None:
+def test_history_advances_only_past_complete_millisecond_pages(
+    truncated: bool, direction: PerpsInternalTransferDirectionFilter | None
+) -> None:
     timestamps = [1_001_000_000] + list(range(1_000_000_498, 999_999_999, -1))
     if truncated:
         timestamps.insert(1, 1_000_500_000)
@@ -35,6 +39,7 @@ def test_history_advances_only_past_complete_millisecond_pages(truncated: bool) 
     reads: list[tuple[int, int]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params.get("direction") == direction
         start = int(request.url.params["start_timestamp"])
         end = int(request.url.params["end_timestamp"])
         reads.append((start, end))
@@ -68,7 +73,9 @@ def test_history_advances_only_past_complete_millisecond_pages(truncated: bool) 
             base_url="https://perps.test", transport=httpx.MockTransport(handler)
         ) as client:
             transport = AsyncTransport(base_url="https://perps.test", client=client)
-            first = await list_internal_transfers(transport, start=999, end=1001).first_page()
+            first = await list_internal_transfers(
+                transport, direction=direction, start=999, end=1001
+            ).first_page()
             assert len(first.items) == 500
             assert first.next_cursor is not None
             state = decode_perps_internal_transfers_cursor(first.next_cursor)
@@ -182,5 +189,33 @@ def test_history_rejects_invalid_cursor_before_transport(state: dict[str, Any]) 
             for cursor in (encode_perps_cursor(state), "not-base64"):
                 with pytest.raises(UserInputError):
                     await list_internal_transfers(transport, cursor=cursor).first_page()
+
+    asyncio.run(run())
+
+
+def test_invalid_transfer_direction_is_rejected_before_request_and_on_cursor() -> None:
+    from typing import cast
+
+    async def run() -> None:
+        async with httpx.AsyncClient(
+            base_url="https://perps.test",
+            transport=httpx.MockTransport(
+                lambda _: pytest.fail("invalid transfer direction reached transport")
+            ),
+        ) as client:
+            transport = AsyncTransport(base_url="https://perps.test", client=client)
+            with pytest.raises(UserInputError, match="direction"):
+                list_internal_transfers(transport, direction=cast(Any, "both"))
+            cursor = encode_perps_cursor(
+                {
+                    "kind": "perpsInternalTransfers",
+                    "direction": "both",
+                    "start_timestamp": 0,
+                    "end_timestamp": 1,
+                    "seen_keys": [],
+                }
+            )
+            with pytest.raises(UserInputError, match="cursor"):
+                await list_internal_transfers(transport, cursor=cursor).first_page()
 
     asyncio.run(run())

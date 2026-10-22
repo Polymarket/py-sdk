@@ -45,6 +45,7 @@ from polymarket.models.perps.orders import PerpsFill, PerpsOrder
 from polymarket.models.perps.requests import validate_client_order_id
 from polymarket.models.perps.types import (
     PerpsDepositStatus,
+    PerpsInternalTransferDirectionFilter,
     PerpsPnlInterval,
     PerpsSortDirection,
     PerpsWithdrawalStatus,
@@ -234,10 +235,13 @@ def list_withdrawals(
 def list_internal_transfers(
     api: AsyncTransport,
     *,
+    direction: PerpsInternalTransferDirectionFilter | None = None,
     start: datetime | int | None = None,
     end: datetime | int | None = None,
     cursor: str | None = None,
 ) -> AsyncPaginator[PerpsInternalTransfer]:
+    if direction is not None and direction not in ("in", "out"):
+        raise UserInputError("direction must be in or out")
     start_ms = to_epoch_ms("start", start)
     end_ms = to_epoch_ms("end", end)
     if start_ms is not None and end_ms is not None and start_ms > end_ms:
@@ -251,6 +255,7 @@ def list_internal_transfers(
                 "start_timestamp": start_ms if start_ms is not None else now - NINETY_DAYS_MS,
                 "end_timestamp": end_ms if end_ms is not None else now,
                 "seen_keys": [],
+                **({"direction": direction} if direction is not None else {}),
             }
         else:
             state = decode_perps_internal_transfers_cursor(page_cursor)
@@ -259,6 +264,7 @@ def list_internal_transfers(
                 "/v1/account/internal-transfers",
                 params={
                     "start_timestamp": state["start_timestamp"],
+                    "direction": state.get("direction"),
                     "end_timestamp": state["end_timestamp"],
                 },
             )
@@ -285,6 +291,7 @@ def list_internal_transfers(
                     "/v1/account/internal-transfers",
                     params={
                         "start_timestamp": max(state["start_timestamp"], next_end - 1),
+                        "direction": state.get("direction"),
                         "end_timestamp": next_end,
                     },
                 )
