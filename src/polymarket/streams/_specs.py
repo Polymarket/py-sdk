@@ -545,7 +545,33 @@ class EquityTwapPriceSpec:
         object.__setattr__(self, "provider", _normalize_price_provider(self.provider))
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PolymarketPriceSpec:
+    """Public best bid and ask snapshots and changes for explicit outcome assets.
+
+    Use with ``AsyncPublicClient.subscribe`` or ``AsyncSecureClient.subscribe``.
+    A snapshot carries zero or one quote; later updates carry the latest quote.
+    """
+
+    asset_ids: Sequence[str]
+    topic: Literal["prices.polymarket"] = field(default="prices.polymarket", init=False)
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.asset_ids, Sequence)
+            or isinstance(self.asset_ids, str | bytes)
+            or not self.asset_ids
+            or any(
+                not isinstance(value, str) or not value.isascii() or not value.isdecimal()
+                for value in self.asset_ids
+            )
+        ):
+            raise UserInputError("asset_ids must be a non-empty sequence of decimal strings")
+        object.__setattr__(self, "asset_ids", tuple(dict.fromkeys(self.asset_ids)))
+
+
 PriceSpec = CryptoPriceSpec | CryptoTwapPriceSpec | EquityPriceSpec | EquityTwapPriceSpec
+RealtimePriceSpec = PriceSpec | PolymarketPriceSpec
 RtdsSpec = CommentsSpec | CryptoPricesSpec | CryptoPricesChainlinkTwapSpec | EquityPricesSpec  # pyright: ignore[reportDeprecated]
 PerpsSpec = (
     PerpsTradesSpec
@@ -555,12 +581,13 @@ PerpsSpec = (
     | PerpsTickersSpec
     | PerpsStatisticsSpec
 )
-PublicSubscription = MarketSpec | SportsSpec | RtdsSpec | PerpsSpec
+PublicSubscription = MarketSpec | SportsSpec | RtdsSpec | PerpsSpec | PolymarketPriceSpec
 SecureSubscription = PublicSubscription | UserSpec | PriceSpec
 Subscription = SecureSubscription
 
 
 _SPEC_TYPES: tuple[type[Subscription], ...] = (
+    PolymarketPriceSpec,
     CryptoPriceSpec,
     CryptoTwapPriceSpec,
     EquityPriceSpec,
@@ -606,6 +633,7 @@ __all__ = [
     "EquityTwapPriceSpec",
     "PriceProviderInput",
     "PriceSpec",
+    "PolymarketPriceSpec",
     "PublicSubscription",
     "SecureSubscription",
     "CommentsEventType",

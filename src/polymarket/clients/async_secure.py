@@ -266,6 +266,7 @@ from polymarket.models.price_events import (
     CryptoTwapPriceEvent,
     EquityPriceEvent,
     EquityTwapPriceEvent,
+    PolymarketPriceEvent,
     PriceEvent,
 )
 from polymarket.models.rtds_events import (
@@ -305,6 +306,7 @@ from polymarket.streams._specs import (
     EquityTwapPriceSpec,
     MarketSpec,
     PerpsSpec,
+    PolymarketPriceSpec,
     PriceSpec,
     SecureSubscription,
     SportsSpec,
@@ -785,6 +787,7 @@ class AsyncSecureClient:
             raise RuntimeError("Use AsyncSecureClient.create(...) to create a secure client")
         self._ended = False
         self._ctx_inner = ctx
+        self._polymarket_price_manager: RealtimeStreamManager | None = None
         self._market_manager: ClobMarketStreamManager | None = None
         self._sports_manager: SportsStreamManager | None = None
         self._rtds_manager: RtdsStreamManager | None = None
@@ -1103,6 +1106,14 @@ class AsyncSecureClient:
         )
 
     @overload
+    async def subscribe(
+        self, specs: PolymarketPriceSpec, /
+    ) -> SubscriptionHandle[PolymarketPriceEvent]: ...
+    @overload
+    async def subscribe(
+        self, specs: Sequence[PolymarketPriceSpec], /
+    ) -> SubscriptionHandle[PolymarketPriceEvent]: ...
+    @overload
     async def subscribe(self, specs: MarketSpec, /) -> SubscriptionHandle[MarketEvent]: ...
     @overload
     async def subscribe(
@@ -1228,13 +1239,25 @@ class AsyncSecureClient:
     async def subscribe(
         self, specs: Sequence[SecureSubscription], /
     ) -> SubscriptionHandle[
-        MarketEvent | SportsEvent | RtdsEvent | PerpsMarketEvent | UserEvent | PriceEvent
+        MarketEvent
+        | SportsEvent
+        | RtdsEvent
+        | PerpsMarketEvent
+        | UserEvent
+        | PriceEvent
+        | PolymarketPriceEvent
     ]: ...
     async def subscribe(
         self,
         specs: SecureSubscription | Sequence[SecureSubscription],
     ) -> SubscriptionHandle[
-        MarketEvent | SportsEvent | RtdsEvent | PerpsMarketEvent | UserEvent | PriceEvent
+        MarketEvent
+        | SportsEvent
+        | RtdsEvent
+        | PerpsMarketEvent
+        | UserEvent
+        | PriceEvent
+        | PolymarketPriceEvent
     ]:
         """Subscribe to one or more public or authenticated realtime streams.
 
@@ -1267,7 +1290,9 @@ class AsyncSecureClient:
         handles: list[AsyncSubscriptionHandle[Any]] = []
         try:
             for spec in items:
-                if isinstance(spec, PriceSpec):
+                if isinstance(spec, PolymarketPriceSpec):
+                    handles.append(await self._get_polymarket_price_manager().subscribe(spec))
+                elif isinstance(spec, PriceSpec):
                     handles.append(await self._get_realtime_manager().subscribe(spec))
                 elif isinstance(spec, MarketSpec):
                     handles.append(
@@ -1306,6 +1331,7 @@ class AsyncSecureClient:
                     | PerpsMarketEvent
                     | UserEvent
                     | PriceEvent
+                    | PolymarketPriceEvent
                 ],
                 handles[0],
             )
@@ -1313,7 +1339,13 @@ class AsyncSecureClient:
 
         return cast(
             SubscriptionHandle[
-                MarketEvent | SportsEvent | RtdsEvent | PerpsMarketEvent | UserEvent | PriceEvent
+                MarketEvent
+                | SportsEvent
+                | RtdsEvent
+                | PerpsMarketEvent
+                | UserEvent
+                | PriceEvent
+                | PolymarketPriceEvent
             ],
             MergedSubscriptionHandle(handles),
         )
@@ -1329,6 +1361,17 @@ class AsyncSecureClient:
                 logger=self._streams_logger,
             )
         return self._realtime_manager
+
+    def _get_polymarket_price_manager(self) -> "RealtimeStreamManager":
+        if self._polymarket_price_manager is None:
+            from polymarket._internal.streams.realtime.manager import RealtimeStreamManager
+
+            self._polymarket_price_manager = RealtimeStreamManager(
+                url=self._ctx.environment_config.realtime_ws_url,
+                headers=self._ctx.environment_config.realtime_ws_headers,
+                logger=self._streams_logger,
+            )
+        return self._polymarket_price_manager
 
     def _get_market_manager(self) -> "ClobMarketStreamManager":
         if self._market_manager is None:
@@ -1622,6 +1665,7 @@ class AsyncSecureClient:
         ctx = self._ctx_inner
         await _close_all(
             ctx.order_metadata,
+            self._polymarket_price_manager,
             self._market_manager,
             self._sports_manager,
             self._rtds_manager,

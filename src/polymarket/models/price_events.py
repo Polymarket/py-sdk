@@ -1,4 +1,4 @@
-"""Authenticated price snapshots and updates."""
+"""Price snapshots and updates."""
 
 from datetime import datetime
 from decimal import Decimal
@@ -8,6 +8,7 @@ from typing import Literal, TypeAlias
 from pydantic import field_validator
 
 from polymarket.models.base import BaseModel
+from polymarket.models.types import ClobAssetId, ConditionId
 
 
 class KnownPriceSource(StrEnum):
@@ -148,6 +149,39 @@ class _PriceEventMetadata(BaseModel):
     dropped: int | None = None
 
 
+class PolymarketPriceQuote(BaseModel):
+    """Best bid and ask for one outcome asset; an empty book side is None."""
+
+    asset_id: ClobAssetId
+    condition_id: ConditionId
+    best_bid: Decimal | None
+    best_ask: Decimal | None
+    hash: str
+    timestamp: datetime
+
+
+class PolymarketPriceSnapshot(BaseModel):
+    """Latest quote on subscription or recovery, empty for a cold asset."""
+
+    asset_id: ClobAssetId
+    data: tuple[PolymarketPriceQuote, ...]
+
+
+class PolymarketPriceUpdateEvent(_PriceEventMetadata):
+    topic: Literal["prices.polymarket"] = "prices.polymarket"
+    type: Literal["update"] = "update"
+    payload: PolymarketPriceQuote
+
+
+class PolymarketPriceSnapshotEvent(_PriceEventMetadata):
+    topic: Literal["prices.polymarket"] = "prices.polymarket"
+    type: Literal["subscribe"] = "subscribe"
+    payload: PolymarketPriceSnapshot
+
+
+PolymarketPriceEvent = PolymarketPriceUpdateEvent | PolymarketPriceSnapshotEvent
+
+
 class CryptoPriceUpdateEvent(_PriceEventMetadata):
     """A cryptocurrency USD price update."""
 
@@ -217,8 +251,15 @@ CryptoTwapPriceEvent = CryptoTwapPriceUpdateEvent | CryptoTwapPriceSnapshotEvent
 EquityPriceEvent = EquityPriceUpdateEvent | EquityPriceSnapshotEvent
 EquityTwapPriceEvent = EquityTwapPriceUpdateEvent | EquityTwapPriceSnapshotEvent
 PriceEvent = CryptoPriceEvent | CryptoTwapPriceEvent | EquityPriceEvent | EquityTwapPriceEvent
+RealtimePriceEvent = PriceEvent | PolymarketPriceEvent
+
 
 __all__ = [
+    "PolymarketPriceQuote",
+    "PolymarketPriceSnapshot",
+    "PolymarketPriceEvent",
+    "PolymarketPriceSnapshotEvent",
+    "PolymarketPriceUpdateEvent",
     "RealtimeEquityTwapSnapshot",
     "RealtimeEquityTwapUpdate",
     "RealtimeEquityPriceSnapshot",
