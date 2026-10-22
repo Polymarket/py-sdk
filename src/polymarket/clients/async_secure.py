@@ -250,6 +250,7 @@ from polymarket.models.perps import (
     PerpsFundingRate,
     PerpsInstrument,
     PerpsInstrumentCategory,
+    PerpsInternalTransferId,
     PerpsKlineInterval,
     PerpsMarketEvent,
     PerpsTicker,
@@ -1545,6 +1546,29 @@ class AsyncSecureClient:
             token=self._ctx.environment_config.collateral_token,
             amount=amount,
             to=str(self._ctx.wallet),
+        )
+
+    async def transfer_perps_collateral(
+        self, *, recipient: str, amount: Decimal | int | float | str, label: str | None = None
+    ) -> PerpsInternalTransferId:
+        """Transfer Perps collateral to another account using the owner's signature.
+
+        Experimental: This API may change in a breaking way in any release,
+        including patch releases.
+
+        Amount is in decimalized token units. The optional label is unsigned
+        reconciliation metadata, limited to 64 UTF-8 bytes. Submission is attempted
+        once. After a timeout or server failure, reconcile transfer history before
+        submitting again because the outcome may be unknown.
+        """
+        return await _perps_funds.transfer_perps_collateral(
+            self._ctx.perps,
+            signer=self._ctx.signer,
+            chain_id=self._ctx.environment_config.chain_id,
+            token=self._ctx.environment_config.collateral_token,
+            recipient=recipient,
+            amount=amount,
+            label=label,
         )
 
     def open_rfq_session(self) -> "RfqSession":
