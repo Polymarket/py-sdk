@@ -60,6 +60,7 @@ class PerpsDeposit(BaseModel):
     """One deposit into the Perps account."""
 
     hash: str
+    log_index: int | None = Field(default=None, strict=True, ge=0)
     asset: str
     amount: Decimal
     status: PerpsDepositStatus
