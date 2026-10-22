@@ -98,7 +98,11 @@ from polymarket._internal.actions.relayer.calls import (
     erc1155_set_approval_for_all_call,
     merge_positions_call,
     merge_v2_call,
+    parse_neg_risk_condition_id,
     redeem_v2_call,
+    router_convert_call,
+    router_horizontal_merge_call,
+    router_horizontal_split_call,
     split_position_call,
     split_v2_call,
 )
@@ -3111,6 +3115,110 @@ class AsyncSecureClient:
             )
         handle = await submit_deposit_wallet_create(ctx, metadata="Deploy Deposit Wallet")
         await handle.wait()
+
+    async def convert(
+        self,
+        *,
+        condition_id: str,
+        amount: int,
+        metadata: str | None = None,
+    ) -> TransactionHandle:
+        """Convert NO into YES for every other condition in the complete event set.
+
+        Other is included unless converting NO for Other itself.
+
+        Requires PositionManager approval for Router; set up trading approvals
+        before submitting. Uses the configured protocol v2 Router.
+
+        Args:
+            condition_id: Protocol v2 neg-risk market condition ID as bytes31 hex
+                or bytes32 hex with a zero final byte. The event and index are derived locally.
+            amount: Positive integer base units with six decimals (1_000_000 = 1).
+
+        Returns:
+            A transaction handle. Await ``wait()`` to wait for a terminal outcome.
+        """
+        protocol_event_id, condition_index = parse_neg_risk_condition_id(condition_id)
+        call = router_convert_call(
+            router=cast(EvmAddress, self._ctx.environment_config.protocol_v2_router),
+            protocol_event_id=protocol_event_id,
+            condition_index=condition_index,
+            amount=amount,
+        )
+        resolved_metadata = (
+            metadata
+            if metadata is not None
+            else (
+                f"Convert {amount} positions for condition {protocol_event_id}{condition_index:04x}"
+            )
+        )
+        return await self._dispatch_single_call(call, metadata=resolved_metadata)
+
+    async def horizontal_split(
+        self,
+        *,
+        condition_id: str,
+        amount: int,
+        metadata: str | None = None,
+    ) -> TransactionHandle:
+        """Split pUSD into YES for every condition, including synthetic Other.
+
+        Requires pUSD approval for Router; set up trading approvals
+        before submitting. Uses the configured protocol v2 Router.
+
+        Args:
+            condition_id: Any market condition in the protocol v2 neg-risk event,
+                as bytes31 hex or bytes32 hex with a zero final byte.
+            amount: Positive integer base units with six decimals (1_000_000 = 1).
+
+        Returns:
+            A transaction handle. Await ``wait()`` to wait for a terminal outcome.
+        """
+        protocol_event_id, _ = parse_neg_risk_condition_id(condition_id)
+        call = router_horizontal_split_call(
+            router=cast(EvmAddress, self._ctx.environment_config.protocol_v2_router),
+            protocol_event_id=protocol_event_id,
+            amount=amount,
+        )
+        resolved_metadata = (
+            metadata
+            if metadata is not None
+            else f"Horizontal split {amount} positions for event {protocol_event_id}"
+        )
+        return await self._dispatch_single_call(call, metadata=resolved_metadata)
+
+    async def horizontal_merge(
+        self,
+        *,
+        condition_id: str,
+        amount: int,
+        metadata: str | None = None,
+    ) -> TransactionHandle:
+        """Merge equal YES amounts for every condition, including Other, into pUSD.
+
+        Requires PositionManager approval for Router; set up trading approvals
+        before submitting. Uses the configured protocol v2 Router.
+
+        Args:
+            condition_id: Any market condition in the protocol v2 neg-risk event,
+                as bytes31 hex or bytes32 hex with a zero final byte.
+            amount: Positive integer base units with six decimals (1_000_000 = 1).
+
+        Returns:
+            A transaction handle. Await ``wait()`` to wait for a terminal outcome.
+        """
+        protocol_event_id, _ = parse_neg_risk_condition_id(condition_id)
+        call = router_horizontal_merge_call(
+            router=cast(EvmAddress, self._ctx.environment_config.protocol_v2_router),
+            protocol_event_id=protocol_event_id,
+            amount=amount,
+        )
+        resolved_metadata = (
+            metadata
+            if metadata is not None
+            else f"Horizontal merge {amount} positions for event {protocol_event_id}"
+        )
+        return await self._dispatch_single_call(call, metadata=resolved_metadata)
 
     async def split_position(
         self,

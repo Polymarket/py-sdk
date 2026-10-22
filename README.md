@@ -72,6 +72,39 @@ handle = client.merge_multiple_positions(
 outcome = handle.wait()
 ```
 
+Neg-risk event operations (protocol v2):
+
+```python
+# client is an authenticated SecureClient. Wait for trading approvals before
+# submitting these operations; approval transactions are never added implicitly.
+client.setup_trading_approvals()
+
+# Use a protocol v2 neg-risk market's condition_id (0x-prefixed bytes31,
+# or bytes32 with a zero final byte). The event and index are derived locally.
+client.horizontal_split(condition_id=condition_id, amount=1_000_000).wait()
+client.horizontal_merge(condition_id=condition_id, amount=1_000_000).wait()
+# Requires an existing NO balance for this condition.
+client.convert(condition_id=condition_id, amount=1_000_000).wait()
+```
+
+`horizontal_split` spends pUSD to mint YES for every condition, including the
+synthetic Other condition. `horizontal_merge` burns equal YES amounts across
+that complete set for pUSD. `convert` burns NO for one condition to mint YES for
+every other condition. Horizontal operations use the entire event containing the
+supplied condition. Legacy, binary, combo, and nonzero-outcome position IDs are
+rejected. Amounts are explicit positive integers in six-decimal base
+units (`1_000_000` represents one token); these methods do not accept `"max"`.
+
+Splitting requires pUSD approval for Router; merging and conversion require
+PositionManager approval for Router. `setup_trading_approvals()` covers both.
+The same methods are available on `AsyncSecureClient` with `await` and support
+EOA and gasless wallets. For custom batches, use `router_convert_call`,
+`router_horizontal_split_call`, and `router_horizontal_merge_call` from
+`polymarket.calls` with `execute_transaction(calls=...)`. These low-level builders
+accept an explicit `protocol_event_id` (bytes29, or bytes32 with three trailing
+zero bytes); conversion also accepts `condition_index`, from zero through the
+event arity (the synthetic Other index).
+
 ## API Compatibility
 
 The SDK follows semantic versioning. Although minor releases on the 0.x line
