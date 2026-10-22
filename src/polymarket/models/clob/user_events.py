@@ -16,6 +16,7 @@ from polymarket.models.base import BaseModel
 from polymarket.models.clob._validators import (
     _coerce_decimalish,  # pyright: ignore[reportPrivateUsage]
     _coerce_optional_decimalish,  # pyright: ignore[reportPrivateUsage]
+    _parse_epoch_ms_timestamp,  # pyright: ignore[reportPrivateUsage]
     _parse_epoch_seconds_or_ms_timestamp,  # pyright: ignore[reportPrivateUsage]
     _parse_epoch_seconds_timestamp,  # pyright: ignore[reportPrivateUsage]
     _parse_expiration_timestamp,  # pyright: ignore[reportPrivateUsage]
@@ -24,7 +25,15 @@ from polymarket.models.clob.account import (
     TradeStatus,
     _normalize_trade_status,  # pyright: ignore[reportPrivateUsage]
 )
-from polymarket.models.types import ClobAssetId, ConditionId, OrderSide
+from polymarket.models.types import (
+    ClobAssetId,
+    ComboConditionId,
+    ConditionId,
+    OrderSide,
+    PositionId,
+    validate_combo_condition_id,
+)
+from polymarket.types import EvmAddress, TransactionHash
 
 
 def _uppercase_string(value: object) -> object:
@@ -237,7 +246,56 @@ class UserTradeEvent(BaseModel):
     payload: UserTradePayload
 
 
-UserEvent = Annotated[UserOrderEvent | UserTradeEvent, Field(discriminator="type")]
+class _AutoRedeemPayload(BaseModel):
+    """Automatic redemption proceeds, with amount in collateral units."""
+
+    owner: str
+    wallet: EvmAddress = Field(validation_alias="proxy_wallet")
+    transaction_hash: TransactionHash = Field(validation_alias="txn_hash")
+    amount: Decimal
+    question: str
+    image: str
+    slug: str
+    neg_risk: bool
+    timestamp: datetime
+
+    _amount = field_validator("amount", mode="before")(_coerce_decimalish)
+    _timestamp = field_validator("timestamp", mode="before")(_parse_epoch_ms_timestamp)
+
+
+class UserAutoRedeemPayload(_AutoRedeemPayload):
+    """Automatic redemption of a resolved position."""
+
+    condition_id: ConditionId
+
+
+class UserComboAutoRedeemPayload(_AutoRedeemPayload):
+    """Automatic redemption of a combination token."""
+
+    condition_id: ComboConditionId
+    position_id: PositionId
+    outcome_index: int
+    legs: int
+
+    _condition = field_validator("condition_id", mode="before")(validate_combo_condition_id)
+
+
+class UserAutoRedeemEvent(BaseModel):
+    topic: Literal["user"] = "user"
+    type: Literal["auto_redeem"]
+    payload: UserAutoRedeemPayload
+
+
+class UserComboAutoRedeemEvent(BaseModel):
+    topic: Literal["user"] = "user"
+    type: Literal["combo_auto_redeem"]
+    payload: UserComboAutoRedeemPayload
+
+
+UserEvent = Annotated[
+    UserOrderEvent | UserTradeEvent | UserAutoRedeemEvent | UserComboAutoRedeemEvent,
+    Field(discriminator="type"),
+]
 
 
 _USER_EVENT_ADAPTER: TypeAdapter[UserEvent] = TypeAdapter(UserEvent)
@@ -278,6 +336,10 @@ def parse_user_events(raw: object) -> tuple[list[UserEvent], int]:
 __all__ = [
     "KnownUserOrderStatus",
     "UserEvent",
+    "UserAutoRedeemEvent",
+    "UserAutoRedeemPayload",
+    "UserComboAutoRedeemEvent",
+    "UserComboAutoRedeemPayload",
     "UserOrderEvent",
     "UserOrderPayload",
     "UserOrderStatus",
