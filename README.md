@@ -16,6 +16,15 @@ or:
 pip install polymarket-client
 ```
 
+## Retry delays
+
+`Retry-After` headers are interpreted as finite, non-negative numeric delay seconds,
+including fractional seconds. HTTP-date values are ignored. Missing or invalid
+headers fall back to a numeric `retry_after_seconds` response-body field when
+available. `RequestRejectedError.retry_after` and `RateLimitError.retry_after`
+expose the resulting delay, or `None` when no valid delay is available. Eligible
+rate-limit retries use their default wait when no valid delay is available.
+
 ## Usage
 
 Synchronous client:

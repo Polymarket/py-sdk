@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Remove HTTP-date support from `Retry-After` parsing. Finite, non-negative numeric delay seconds (including fractions) remain supported. Missing or invalid headers retain the response-body delay fallback and existing retry/error metadata behavior.
+
 ## [0.14.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.13.0...polymarket-client-v0.14.0) (2026-10-21)
 
 ### Features
