@@ -381,7 +381,7 @@ class PerpsBookSpec:
     def __post_init__(self) -> None:
         _validate_perps_instrument_id(self.instrument_id)
         if isinstance(self.depth, bool) or self.depth not in (20, 50):
-            raise ValueError("depth must be 20 or 50")
+            raise UserInputError("depth must be 20 or 50")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

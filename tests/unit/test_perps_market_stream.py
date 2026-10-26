@@ -13,6 +13,7 @@ from websockets.asyncio.server import ServerConnection, serve
 
 from polymarket._internal.streams.perps.market import PerpsMarketStreamManager
 from polymarket._internal.streams.perps.market_protocol import derive_state, match_for
+from polymarket.errors import UserInputError
 from polymarket.models.perps.events import PerpsBookEvent, PerpsTradeEvent, parse_perps_market_event
 from polymarket.streams._specs import (
     PerpsBookSpec,
@@ -280,5 +281,5 @@ def test_book_depth_rejects_unsupported_channels() -> None:
     from typing import Any, cast
 
     for depth in [10, 100, True]:
-        with pytest.raises(ValueError, match="depth"):
+        with pytest.raises(UserInputError, match="depth"):
             PerpsBookSpec(instrument_id=7, depth=cast(Any, depth))
