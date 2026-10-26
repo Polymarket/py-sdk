@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Bug Fixes
+
+* **search:** accept compact event/market summaries and follow top-level search continuation.
+
 ## [0.14.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.13.0...polymarket-client-v0.14.0) (2026-10-21)
 
 ### Features

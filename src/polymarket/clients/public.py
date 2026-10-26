@@ -1228,6 +1228,11 @@ class PublicClient:
     ) -> Paginator[SearchResults]:
         """Search Polymarket content.
 
+        Compact results contain ``SearchEvent`` and ``SearchMarket`` summaries,
+        whose market IDs may be absent. Use ``isinstance(event, SearchEvent)``
+        to distinguish their direct fields (such as ``active`` and ``start_date``)
+        from the grouped fields on full ``Event`` results.
+
         Args:
             keep_closed_markets: Include markets closed within this many hours when
                 searching active events.

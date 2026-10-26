@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, cast
 
 from pydantic import Field, field_validator, model_validator
@@ -10,9 +11,15 @@ from pydantic import Field, field_validator, model_validator
 from polymarket._internal.request import PageBasedPagePayload
 from polymarket.errors import UnexpectedResponseError
 from polymarket.models.base import BaseModel
-from polymarket.models.gamma.common import ImageOptimization, parse_optional_datetime
+from polymarket.models.gamma.common import (
+    ImageOptimization,
+    parse_optional_datetime,
+    parse_optional_decimal,
+    parse_sequence,
+    parse_string_sequence,
+)
 from polymarket.models.gamma.event import Event
-from polymarket.models.types import TagId
+from polymarket.models.types import EventId, MarketId, TagId
 from polymarket.types import EvmAddress
 
 
@@ -90,8 +97,76 @@ class SearchTag(BaseModel):
     event_count: int | None = Field(default=None, validation_alias="event_count")
 
 
+class SearchMarket(BaseModel):
+    """A compact market search result; identifiers may be absent."""
+
+    id: MarketId | None = None
+    question: str | None = None
+    slug: str | None = None
+    group_item_title: str | None = Field(default=None, validation_alias="groupItemTitle")
+    active: bool | None = None
+    archived: bool | None = None
+    closed: bool | None = None
+    outcomes: tuple[str, ...] = ()
+    outcome_prices: tuple[Decimal, ...] = Field(default=(), validation_alias="outcomePrices")
+    best_bid: Decimal | None = Field(default=None, validation_alias="bestBid")
+    best_ask: Decimal | None = Field(default=None, validation_alias="bestAsk")
+    last_trade_price: Decimal | None = Field(default=None, validation_alias="lastTradePrice")
+    spread: Decimal | None = None
+
+    @field_validator("outcomes", mode="before")
+    @classmethod
+    def _parse_outcomes(cls, value: object) -> tuple[str, ...]:
+        return parse_string_sequence(value)
+
+    @field_validator("outcome_prices", mode="before")
+    @classmethod
+    def _parse_prices(cls, value: object) -> tuple[object, ...]:
+        return parse_sequence(value)
+
+    @field_validator("best_bid", "best_ask", "last_trade_price", "spread", mode="before")
+    @classmethod
+    def _parse_decimal(cls, value: object) -> Decimal | None:
+        return parse_optional_decimal(value)
+
+
+class SearchEvent(BaseModel):
+    """A compact event search result containing market summaries."""
+
+    id: EventId
+    title: str | None = None
+    slug: str | None = None
+    image: str | None = None
+    active: bool | None = None
+    archived: bool | None = None
+    closed: bool | None = None
+    ended: bool | None = None
+    neg_risk: bool | None = Field(default=None, validation_alias="negRisk")
+    start_date: datetime | None = Field(default=None, validation_alias="startDate")
+    end_date: datetime | None = Field(default=None, validation_alias="endDate")
+    markets: tuple[SearchMarket, ...] = ()
+
+    @field_validator("start_date", "end_date", mode="before")
+    @classmethod
+    def _parse_datetime(cls, value: object) -> datetime | None:
+        return parse_optional_datetime(value)
+
+
+def _parse_search_event(value: object) -> Event | SearchEvent:
+    if isinstance(value, dict):
+        data = cast(dict[str, Any], value)
+        markets = data.get("markets")
+        if isinstance(markets, list) and any(
+            isinstance(market, dict) and "id" not in market
+            for market in cast(list[object], markets)
+        ):
+            return SearchEvent.parse_response(data)
+        return Event.parse_response(data)
+    return Event.parse_response(value)
+
+
 class SearchResults(BaseModel):
-    events: tuple[Event, ...] = ()
+    events: tuple[Event | SearchEvent, ...] = ()
     tags: tuple[SearchTag, ...] = ()
     profiles: tuple[Profile, ...] = ()
 
@@ -112,7 +187,7 @@ class SearchResults(BaseModel):
             return tuple(cast(list[Any], raw))
 
         return {
-            "events": _array("events"),
+            "events": tuple(_parse_search_event(event) for event in _array("events")),
             "tags": _array("tags"),
             "profiles": _array("profiles"),
         }
@@ -158,6 +233,12 @@ class SearchResults(BaseModel):
                 f"'pagination' must be an object when present, got {type(raw_pagination).__name__}"
             )
 
+        if "hasMore" in payload:
+            raw_has_more = payload["hasMore"]
+            if not isinstance(raw_has_more, bool):
+                raise UnexpectedResponseError("'hasMore' must be a bool when present")
+            has_more = raw_has_more
+
         return PageBasedPagePayload(
             items=cls.parse_response(payload),
             has_more=has_more,
@@ -165,4 +246,4 @@ class SearchResults(BaseModel):
         )
 
 
-__all__ = ["Profile", "SearchResults", "SearchTag"]
+__all__ = ["Profile", "SearchEvent", "SearchMarket", "SearchResults", "SearchTag"]
