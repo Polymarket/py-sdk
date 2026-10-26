@@ -22,6 +22,7 @@ from polymarket.models.gamma.common import (
     TeamOrdering,
     TemplateReference,
 )
+from polymarket.models.gamma.crypto import CryptoMarketConfig
 from polymarket.models.gamma.event import (
     Event,
     EventCreator,
@@ -72,6 +73,7 @@ __all__ = [
     "ComboStatus",
     "CollectionReference",
     "Comment",
+    "CryptoMarketConfig",
     "CommentMedia",
     "CommentPosition",
     "CommentProfile",

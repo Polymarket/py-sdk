@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+* **markets:** expose the read-only crypto market configuration catalog.
+
 ## [0.14.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.13.0...polymarket-client-v0.14.0) (2026-10-21)
 
 ### Features

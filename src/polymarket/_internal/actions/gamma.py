@@ -26,6 +26,7 @@ from polymarket._internal.validation import require_nonempty
 from polymarket.errors import UnexpectedResponseError, UserInputError
 from polymarket.models import (
     Comment,
+    CryptoMarketConfig,
     Event,
     Market,
     MarketResolutionStatus,
@@ -369,6 +370,15 @@ def get_related_tag_resources_spec(
     )
 
 
+def get_crypto_market_configs_spec() -> RequestSpec[tuple[CryptoMarketConfig, ...]]:
+    return RequestSpec(
+        service="gamma",
+        method="GET",
+        path="/crypto-market-configs",
+        parse=CryptoMarketConfig.parse_response_list,
+    )
+
+
 def get_sports_spec() -> RequestSpec[tuple[SportsMetadata, ...]]:
     return RequestSpec(
         service="gamma",
@@ -427,6 +437,7 @@ __all__ = [
     "get_series_spec",
     "get_sports_market_types_spec",
     "get_sports_spec",
+    "get_crypto_market_configs_spec",
     "get_tag_spec",
     "list_comments_by_user_address_spec",
     "list_comments_keyset_spec",
