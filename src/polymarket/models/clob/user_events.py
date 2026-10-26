@@ -1,6 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated, Any, Literal, cast
+from enum import StrEnum
+from typing import Annotated, Any, Literal, TypeAlias, cast
 
 from pydantic import (
     AliasChoices,
@@ -33,7 +34,24 @@ def _uppercase_string(value: object) -> object:
 _OrderEventType = Literal["PLACEMENT", "UPDATE", "CANCELLATION"]
 
 
-_OrderStatus = Literal["LIVE", "MATCHED", "DELAYED", "UNMATCHED", "CANCELED"]
+class KnownUserOrderStatus(StrEnum):
+    """Known user order statuses; additional statuses are preserved as plain strings."""
+
+    LIVE = "LIVE"
+    MATCHED = "MATCHED"
+    DELAYED = "DELAYED"
+    UNMATCHED = "UNMATCHED"
+    CANCELED = "CANCELED"
+    CANCELED_MARKET_RESOLVED = "CANCELED_MARKET_RESOLVED"
+    CANCELED_NOT_ENOUGH_BALANCE = "CANCELED_NOT_ENOUGH_BALANCE"
+    CANCELED_MARKET_NOT_FOUND = "CANCELED_MARKET_NOT_FOUND"
+    CANCELED_EXPIRED_ORDER = "CANCELED_EXPIRED_ORDER"
+    CANCELED_ORDER_TIMED_OUT = "CANCELED_ORDER_TIMED_OUT"
+    INVALID = "INVALID"
+
+
+# Cancellation reasons and newly introduced statuses flow through as strings.
+UserOrderStatus: TypeAlias = KnownUserOrderStatus | str
 
 
 _OrderType = Literal["GTC", "FOK", "IOC", "GTD", "FAK"]
@@ -56,11 +74,23 @@ class UserOrderPayload(BaseModel):
     created_at: datetime | None = None
     expires_at: datetime | None = Field(default=None, validation_alias="expiration")
     order_type: _OrderType | None = None
-    status: _OrderStatus | None = None
+    status: UserOrderStatus | None = None
     maker_address: str | None = None
     order_owner: str | None = None
     associate_trades: tuple[str, ...] | None = None
     outcome: str | None = None
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _parse_status(cls, value: object) -> UserOrderStatus | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("User order status must be a string")
+        try:
+            return KnownUserOrderStatus(value)
+        except ValueError:
+            return value
 
     @computed_field
     @property
@@ -246,9 +276,11 @@ def parse_user_events(raw: object) -> tuple[list[UserEvent], int]:
 
 
 __all__ = [
+    "KnownUserOrderStatus",
     "UserEvent",
     "UserOrderEvent",
     "UserOrderPayload",
+    "UserOrderStatus",
     "UserTradeEvent",
     "UserTradeMakerOrder",
     "UserTradePayload",

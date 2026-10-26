@@ -736,6 +736,7 @@ def test_subscribe_routes_perps_specs_to_perps_stream() -> None:
                 {
                     "ch": "bbo::3",
                     "ts": 1751500000000,
+                    "ets": 1751499999000,
                     "sq": 1,
                     "data": {"iid": 3, "bp": "0.5", "bq": "10", "ap": "0.6", "aq": "4"},
                 }

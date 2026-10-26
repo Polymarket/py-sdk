@@ -1162,3 +1162,118 @@ def test_cancelling_logout_propagates_and_still_closes_local_client() -> None:
                 await client.fetch_api_keys()
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("failure", ["rejected", "cancelled"])
+def test_failed_rfq_bearer_open_releases_socket_and_session_listener(failure: str) -> None:
+    from dataclasses import replace
+
+    from websockets.asyncio.server import ServerConnection, serve
+
+    from polymarket._internal.environment import PRODUCTION_CONFIG, create_environment
+
+    async def run() -> None:
+        received, closed = asyncio.Event(), asyncio.Event()
+
+        async def handler(ws: ServerConnection) -> None:
+            try:
+                await ws.recv()
+                received.set()
+                if failure == "rejected":
+                    await ws.send(
+                        json.dumps({"type": "auth", "success": False, "code": "auth_invalid"})
+                    )
+                await ws.wait_closed()
+            finally:
+                closed.set()
+
+        async with serve(handler, "127.0.0.1", 0) as server:
+            port = next(iter(server.sockets)).getsockname()[1]
+            environment = create_environment(
+                name="synthetic",
+                config=replace(PRODUCTION_CONFIG, rfq_quoter_ws_url=f"ws://127.0.0.1:{port}"),
+            )
+            with respx.mock as router:
+                router.post(GATEWAY + "/v1/auth/challenge").respond(201, json=CHALLENGE)
+                router.post(GATEWAY + "/v1/auth/login").respond(200, json=response(credentials()))
+                async with await AsyncSecureClient.create(
+                    private_key=PRIVATE_KEY, wallet=SIGNER.address, environment=environment
+                ) as client:
+
+                    async def open_session() -> None:
+                        await client.open_rfq_session()
+
+                    opening = asyncio.create_task(open_session())
+                    await asyncio.wait_for(received.wait(), 5)
+                    if failure == "cancelled":
+                        opening.cancel()
+                    error = (
+                        asyncio.CancelledError if failure == "cancelled" else RequestRejectedError
+                    )
+                    with pytest.raises(error):
+                        await asyncio.wait_for(opening, 5)
+                    await asyncio.wait_for(closed.wait(), 5)
+                    session = client._ctx.session
+                    assert session is not None and not session._listeners
+                    assert client._rfq_session is None and client._rfq_session_connecting is None
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("failure", ["disconnect", "protocol"])
+def test_terminal_rfq_bearer_session_releases_authentication(failure: str) -> None:
+    from dataclasses import replace
+
+    from websockets.asyncio.server import ServerConnection, serve
+
+    from polymarket._internal.environment import PRODUCTION_CONFIG, create_environment
+    from polymarket.errors import ConnectionLostError
+
+    async def run() -> None:
+        release, closed = asyncio.Event(), asyncio.Event()
+
+        async def handler(ws: ServerConnection) -> None:
+            try:
+                await ws.recv()
+                await ws.send(json.dumps({"type": "auth", "success": True}))
+                await release.wait()
+                if failure == "disconnect":
+                    await ws.close(1011, "synthetic disconnect")
+                else:
+                    await ws.send(
+                        json.dumps(
+                            {"type": "RFQ_ERROR", "request_type": "RFQ_QUOTE", "code": "synthetic"}
+                        )
+                    )
+                await ws.wait_closed()
+            finally:
+                closed.set()
+
+        async with serve(handler, "127.0.0.1", 0) as server:
+            port = next(iter(server.sockets)).getsockname()[1]
+            environment = create_environment(
+                name="synthetic",
+                config=replace(PRODUCTION_CONFIG, rfq_quoter_ws_url=f"ws://127.0.0.1:{port}"),
+            )
+            with respx.mock as router:
+                router.post(GATEWAY + "/v1/auth/challenge").respond(201, json=CHALLENGE)
+                router.post(GATEWAY + "/v1/auth/login").respond(200, json=response(credentials()))
+                async with await AsyncSecureClient.create(
+                    private_key=PRIVATE_KEY, wallet=SIGNER.address, environment=environment
+                ) as client:
+                    stream = await client.open_rfq_session()
+                    authentication = stream._authentication
+                    assert authentication is not None
+                    release.set()
+                    error = ConnectionLostError if failure == "disconnect" else TransportError
+                    with pytest.raises(error):
+                        await asyncio.wait_for(anext(stream), 5)
+                    await asyncio.wait_for(closed.wait(), 5)
+                    await stream.close()
+                    session = client._ctx.session
+                    assert session is not None and not session._listeners
+                    assert authentication._closed and not authentication._connected
+                    assert authentication._deadline is None and not authentication._tasks
+                    assert client._rfq_session is None
+
+    asyncio.run(run())

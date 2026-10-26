@@ -187,6 +187,7 @@ class RfqQuoterSession:
         self._end_error: BaseException | None = None
         self._ended = False
         self._closed = False
+        self._disposed = False
 
     @property
     def closed(self) -> bool:
@@ -199,22 +200,24 @@ class RfqQuoterSession:
         return current().__await__()
 
     async def open(self) -> Self:
-        await self._connection.connect(
-            url=self._url,
-            headers=self._headers,
-            on_message=self._on_message,
-            on_connection_lost=self._on_connection_lost,
-            on_error=self._on_error,
-        )
-        if self._authentication is not None:
-            await self._authentication.initial()
-            return self
-        auth_future = self._wait_for("auth", "Timed out waiting for RFQ authentication.")
+        auth_future: asyncio.Future[Any] | None = None
         try:
-            await self._send(self._auth_message())
-            await auth_future
+            await self._connection.connect(
+                url=self._url,
+                headers=self._headers,
+                on_message=self._on_message,
+                on_connection_lost=self._on_connection_lost,
+                on_error=self._on_error,
+            )
+            if self._authentication is not None:
+                await self._authentication.initial()
+            else:
+                auth_future = self._wait_for("auth", "Timed out waiting for RFQ authentication.")
+                await self._send(self._auth_message())
+                await auth_future
         except BaseException:
-            self._remove_pending("auth", auth_future)
+            if auth_future is not None:
+                self._remove_pending("auth", auth_future)
             await self.close()
             raise
         return self
@@ -242,14 +245,16 @@ class RfqQuoterSession:
         await self.close()
 
     async def close(self) -> None:
-        if self._closed:
+        if self._disposed:
             return
+        self._disposed = True
+        was_closed = self._closed
         self._closed = True
         if self._authentication is not None:
             await self._authentication.close()
         self._reject_all_pending(TransportError("RFQ quoter websocket closed."))
         await self._connection.close()
-        if self._on_session_close is not None:
+        if not was_closed and self._on_session_close is not None:
             self._on_session_close()
         self._end()
 
@@ -526,6 +531,7 @@ class RfqQuoterSession:
         if not self._closed:
             self._closed = True
             self._end(ConnectionLostError("RFQ quoter connection lost.", code=code, reason=reason))
+            asyncio.create_task(self.close())
 
     def _on_error(self, exc: BaseException) -> None:
         self._logger.warning("RFQ quoter websocket error: %r", exc)
@@ -598,7 +604,7 @@ class RfqQuoterSession:
         self._end(error)
         if self._on_session_close is not None:
             self._on_session_close()
-        asyncio.create_task(self._connection.close())
+        asyncio.create_task(self.close())
 
     def _end(self, error: BaseException | None = None) -> None:
         if self._ended:

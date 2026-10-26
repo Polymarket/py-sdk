@@ -15,12 +15,14 @@ from httpx import USE_CLIENT_DEFAULT
 
 from polymarket._internal.request import QueryParamValue
 from polymarket.errors import (
+    OrderHeartbeatMismatchError,
     RateLimitError,
     RequestRejectedError,
     TradingRestriction,
     TransportError,
     UnexpectedResponseError,
 )
+from polymarket.models.clob.order_heartbeats import OrderHeartbeatMismatchResponse
 from polymarket.rate_limit import RateLimitUpdate, RateLimitUpdateListener
 
 if TYPE_CHECKING:
@@ -229,6 +231,7 @@ class SyncTransport:
         _notify_rate_limit_update(self._on_rate_limit_update, self._logger, response)
         _raise_for_response_status(
             response,
+            path=path,
             sensitive=self._sensitive or self._session is not None or path.startswith("/v1/auth/"),
         )
         return response
@@ -429,6 +432,7 @@ class AsyncTransport:
         _notify_rate_limit_update(self._on_rate_limit_update, self._logger, response)
         _raise_for_response_status(
             response,
+            path=path,
             sensitive=self._sensitive or self._session is not None or path.startswith("/v1/auth/"),
         )
         return response
@@ -525,7 +529,9 @@ def _notify_rate_limit_update(
             logger.warning("polymarket rate-limit update listener failed", exc_info=True)
 
 
-def _raise_for_response_status(response: httpx.Response, *, sensitive: bool = False) -> None:
+def _raise_for_response_status(
+    response: httpx.Response, *, path: str, sensitive: bool = False
+) -> None:
     if response.is_success:
         return
 
@@ -535,6 +541,14 @@ def _raise_for_response_status(response: httpx.Response, *, sensitive: bool = Fa
             retry_after=_extract_retry_after(response),
             rate_limit=_parse_rate_limit_headers(response.headers),
         )
+
+    if response.status_code == 400 and path == "/v1/heartbeats":
+        try:
+            mismatch = OrderHeartbeatMismatchResponse.model_validate(response.json())
+        except ValueError:
+            pass
+        else:
+            raise OrderHeartbeatMismatchError(mismatch.heartbeat_id)
 
     raise RequestRejectedError(
         f"Authenticated request rejected (HTTP {response.status_code})"
