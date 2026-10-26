@@ -29,7 +29,7 @@ from polymarket.models.perps.types import PerpsOrderId, PerpsTpSlLifecycleStatus
 
 _TRADES_CHANNEL = re.compile(r"^trades::(\d+)$")
 _BBO_CHANNEL = re.compile(r"^bbo::(\d+)$")
-_BOOK_CHANNEL = re.compile(r"^book::(\d+)$")
+_BOOK_CHANNEL = re.compile(r"^book::(\d+)(?:::(20|50))?$")
 _TICKERS_CHANNEL = re.compile(r"^tickers::(all|\d+)$")
 _STATISTICS_CHANNEL = re.compile(r"^statistics::(all|\d+)$")
 _CANDLES_CHANNEL = re.compile(r"^klines::(\d+)::(1m|5m|15m|1h|4h|1d|1w)$")

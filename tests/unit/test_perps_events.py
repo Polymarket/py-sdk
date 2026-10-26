@@ -59,10 +59,11 @@ def _order_update(order_id: int = 5) -> dict[str, object]:
     }
 
 
-def test_book_event_injects_instrument_id_from_channel() -> None:
+@pytest.mark.parametrize("suffix", ["", "::20", "::50"])
+def test_book_event_injects_instrument_id_from_channel(suffix: str) -> None:
     event = parse_perps_market_event(
         {
-            "ch": "book::7",
+            "ch": f"book::7{suffix}",
             "ts": 1751500000000,
             "ets": 1751499999000,
             "sq": 3,
