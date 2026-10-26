@@ -77,10 +77,6 @@ class TagReference(BaseModel):
     updated_at: datetime | None = Field(default=None, validation_alias="updatedAt")
     force_hide: bool | None = Field(default=None, validation_alias="forceHide")
     is_carousel: bool | None = Field(default=None, validation_alias="isCarousel")
-    requires_translation: bool | None = Field(
-        default=None,
-        validation_alias="requiresTranslation",
-    )
     active_events_count: int | None = Field(default=None, validation_alias="activeEventsCount")
 
     @field_validator("published_at", "created_at", "updated_at", mode="before")
@@ -159,10 +155,6 @@ class SeriesReference(BaseModel):
     cg_asset_name: str | None = Field(default=None, validation_alias="cgAssetName")
     score: int | None = None
     comment_count: int | None = Field(default=None, validation_alias="commentCount")
-    requires_translation: bool | None = Field(
-        default=None,
-        validation_alias="requiresTranslation",
-    )
 
     @field_validator("id", mode="before")
     @classmethod
