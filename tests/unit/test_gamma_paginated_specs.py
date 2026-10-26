@@ -144,6 +144,7 @@ def test_market_lists_preserve_v2_filters_and_bounds_across_pages(
 ) -> None:
     # Controlled responses isolate filter serialization and continuation while
     # the live metadata API is unavailable in this environment.
+    # Secure client setup skips authentication so these cases stay about pagination.
     request_ids = [f"request-{index}" for index in range(100)]
     event_ids = [f"event-{index}" for index in range(100)]
     # Synthetic signing material is used only with controlled transports.
@@ -163,16 +164,17 @@ def test_market_lists_preserve_v2_filters_and_bounds_across_pages(
         return next(responses)
 
     with respx.mock as router:
-        if secure:
-            router.get("https://clob.polymarket.com/auth/api-keys").respond(
-                json={"apiKeys": [credentials.key]},
-            )
         route = router.get("https://gamma-api.polymarket.com/markets/keyset")
         route.side_effect = respond
 
         if client_mode == "sync":
             client = (
-                SecureClient.create(private_key=test_key, wallet=wallet, credentials=credentials)
+                SecureClient._create(  # pyright: ignore[reportPrivateUsage]
+                    private_key=test_key,
+                    wallet=wallet,
+                    credentials=credentials,
+                    validate_credentials=False,
+                )
                 if secure
                 else PublicClient()
             )
@@ -194,10 +196,11 @@ def test_market_lists_preserve_v2_filters_and_bounds_across_pages(
 
             async def collect() -> int:
                 client = (
-                    await AsyncSecureClient.create(
+                    await AsyncSecureClient._create(  # pyright: ignore[reportPrivateUsage]
                         private_key=test_key,
                         wallet=wallet,
                         credentials=credentials,
+                        validate_credentials=False,
                     )
                     if secure
                     else AsyncPublicClient()
