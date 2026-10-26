@@ -5,6 +5,8 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Literal, cast
 
+from polymarket._internal.gateway_session import AsyncGatewaySession
+from polymarket._internal.socket_auth import SocketAuthentication
 from polymarket._internal.streams.realtime.heartbeat import PriceHeartbeat
 from polymarket._internal.streams.realtime.protocol import (
     PriceKey,
@@ -12,6 +14,7 @@ from polymarket._internal.streams.realtime.protocol import (
     parse_price_event,
 )
 from polymarket._internal.ws.connection import AsyncWebSocketConnection
+from polymarket.auth import BearerCredentials
 from polymarket.errors import ConnectionLostError, RequestRejectedError, TransportError
 from polymarket.models.clob.api_key import ApiKeyCreds
 from polymarket.models.price_events import PriceEvent, RealtimeErrorCode
@@ -38,7 +41,8 @@ class PriceConnection:
         self,
         *,
         url: str,
-        credentials: ApiKeyCreds,
+        credentials: ApiKeyCreds | BearerCredentials,
+        session: AsyncGatewaySession | None = None,
         headers: Mapping[str, str] | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
@@ -47,6 +51,17 @@ class PriceConnection:
         self._headers = headers
         self._connection = AsyncWebSocketConnection(
             heartbeat=PriceHeartbeat(), logger=logger, close_timeout_s=1.0
+        )
+        self._disconnected: Callable[[ConnectionLostError], None] | None = None
+        self._authentication = (
+            SocketAuthentication(
+                session=session,
+                protocol="polybolt",
+                send=self._connection.send,
+                expire=self._expired,
+            )
+            if session is not None
+            else None
         )
         self._pending: dict[str, _Pending] = {}
         self._rid = 0
@@ -63,6 +78,7 @@ class PriceConnection:
         dropped: Callable[[], None],
         disconnected: Callable[[ConnectionLostError], None],
     ) -> None:
+        self._disconnected = disconnected
         generation = self._generation
         self._event, self._dropped = event, dropped
 
@@ -70,6 +86,8 @@ class PriceConnection:
             if generation != self._generation:
                 return
             error = ConnectionLostError("Realtime connection closed", code=code, reason=reason)
+            if self._authentication is not None:
+                self._authentication.disconnected()
             self._cancel(error)
             disconnected(error)
 
@@ -86,6 +104,11 @@ class PriceConnection:
         )
 
     async def authorize(self) -> None:
+        if self._authentication is not None:
+            await self._authentication.initial()
+            return
+        if not isinstance(self._credentials, ApiKeyCreds):
+            raise RuntimeError("Bearer socket requires its shared session")
         await self._request(
             {
                 "op": "auth",
@@ -165,6 +188,8 @@ class PriceConnection:
                     future.cancel()
 
     def _message(self, value: object) -> None:
+        if self._authentication is not None and self._authentication.message(value):
+            return
         if not isinstance(value, dict):
             return
         frame = cast(dict[str, object], value)
@@ -218,8 +243,24 @@ class PriceConnection:
             if not pending.future.done():
                 pending.future.set_exception(error)
 
+    async def _expired(self) -> None:
+        await self._connection.close()
+        if self._disconnected is not None:
+            self._disconnected(
+                ConnectionLostError(
+                    "Realtime authentication expired", code=1008, reason="authentication expired"
+                )
+            )
+
     async def close(self) -> None:
+        if self._authentication is not None:
+            self._authentication.disconnected()
         self._generation += 1
         self._event = self._dropped = None
         self._cancel(TransportError("Realtime connection closed"))
         await self._connection.close()
+
+    async def dispose(self) -> None:
+        if self._authentication is not None:
+            await self._authentication.close()
+        await self.close()

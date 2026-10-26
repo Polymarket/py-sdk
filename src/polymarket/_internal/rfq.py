@@ -19,8 +19,11 @@ from polymarket._internal.actions.orders.typed_data import (
     build_order_typed_data,
 )
 from polymarket._internal.actions.orders.types import BYTES32_ZERO, UnsignedOrder
+from polymarket._internal.gateway_session import AsyncGatewaySession
+from polymarket._internal.socket_auth import SocketAuthentication
 from polymarket._internal.wallet import WalletType, signature_type_for
 from polymarket._internal.ws.connection import AsyncWebSocketConnection
+from polymarket.auth import BearerCredentials
 from polymarket.errors import (
     ConnectionLostError,
     SigningError,
@@ -150,7 +153,8 @@ class RfqQuoterSession:
         self,
         *,
         chain_id: int,
-        credentials: ApiKeyCreds,
+        credentials: ApiKeyCreds | BearerCredentials,
+        session: AsyncGatewaySession | None = None,
         exchange: EvmAddress,
         headers: Mapping[str, str] | None,
         logger: logging.Logger | None,
@@ -171,11 +175,19 @@ class RfqQuoterSession:
         self._wallet = wallet
         self._wallet_type: WalletType = wallet_type
         self._connection = AsyncWebSocketConnection(logger=self._logger)
+        self._authentication = (
+            SocketAuthentication(
+                session=session, protocol="combos", send=self._send, expire=self.close
+            )
+            if session is not None
+            else None
+        )
         self._queue: asyncio.Queue[RfqEvent | _EndSentinel] = asyncio.Queue(maxsize=_QUEUE_SIZE)
         self._pending: dict[str, deque[_PendingAck]] = {}
         self._end_error: BaseException | None = None
         self._ended = False
         self._closed = False
+        self._disposed = False
 
     @property
     def closed(self) -> bool:
@@ -188,19 +200,24 @@ class RfqQuoterSession:
         return current().__await__()
 
     async def open(self) -> Self:
-        await self._connection.connect(
-            url=self._url,
-            headers=self._headers,
-            on_message=self._on_message,
-            on_connection_lost=self._on_connection_lost,
-            on_error=self._on_error,
-        )
-        auth_future = self._wait_for("auth", "Timed out waiting for RFQ authentication.")
+        auth_future: asyncio.Future[Any] | None = None
         try:
-            await self._send(self._auth_message())
-            await auth_future
+            await self._connection.connect(
+                url=self._url,
+                headers=self._headers,
+                on_message=self._on_message,
+                on_connection_lost=self._on_connection_lost,
+                on_error=self._on_error,
+            )
+            if self._authentication is not None:
+                await self._authentication.initial()
+            else:
+                auth_future = self._wait_for("auth", "Timed out waiting for RFQ authentication.")
+                await self._send(self._auth_message())
+                await auth_future
         except BaseException:
-            self._remove_pending("auth", auth_future)
+            if auth_future is not None:
+                self._remove_pending("auth", auth_future)
             await self.close()
             raise
         return self
@@ -228,12 +245,16 @@ class RfqQuoterSession:
         await self.close()
 
     async def close(self) -> None:
-        if self._closed:
+        if self._disposed:
             return
+        self._disposed = True
+        was_closed = self._closed
         self._closed = True
+        if self._authentication is not None:
+            await self._authentication.close()
         self._reject_all_pending(TransportError("RFQ quoter websocket closed."))
         await self._connection.close()
-        if self._on_session_close is not None:
+        if not was_closed and self._on_session_close is not None:
             self._on_session_close()
         self._end()
 
@@ -324,6 +345,8 @@ class RfqQuoterSession:
             raise
 
     def _auth_message(self) -> dict[str, object]:
+        if not isinstance(self._credentials, ApiKeyCreds):
+            raise RuntimeError("Bearer socket requires its shared session")
         return {
             "type": "auth",
             "auth": {
@@ -449,6 +472,9 @@ class RfqQuoterSession:
             self._fail(error)
 
     def _handle_auth(self, raw: dict[str, object]) -> None:
+        if self._authentication is not None:
+            self._authentication.message(raw)
+            return
         if raw.get("success") is True:
             self._resolve("auth", None)
             return
@@ -505,6 +531,7 @@ class RfqQuoterSession:
         if not self._closed:
             self._closed = True
             self._end(ConnectionLostError("RFQ quoter connection lost.", code=code, reason=reason))
+            asyncio.create_task(self.close())
 
     def _on_error(self, exc: BaseException) -> None:
         self._logger.warning("RFQ quoter websocket error: %r", exc)
@@ -577,7 +604,7 @@ class RfqQuoterSession:
         self._end(error)
         if self._on_session_close is not None:
             self._on_session_close()
-        asyncio.create_task(self._connection.close())
+        asyncio.create_task(self.close())
 
     def _end(self, error: BaseException | None = None) -> None:
         if self._ended:

@@ -38,6 +38,7 @@ class _EnvironmentConfig:
     rtds_ws_url: str
     sports_ws_url: str
     rpc_url: str
+    gateway_url: str = "https://api.defi.polymarket.com"
     exchange_v3: str = "0xe3333700cA9d93003F00f0F71f8515005F6c00Aa"
     protocol_v2_router: str = "0x12121212006e4CD160D18e3f00711DA5c3372600"
     binary_module: str = "0x1000008dD9001B968442c1000017eaE6E0dA00Ba"
