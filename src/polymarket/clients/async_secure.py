@@ -1174,6 +1174,90 @@ class AsyncSecureClient:
     @overload
     async def subscribe(self, specs: Sequence[PriceSpec], /) -> SubscriptionHandle[PriceEvent]: ...
     @overload
+    async def subscribe(
+        self, specs: Sequence[PolymarketPriceSpec | CryptoPriceSpec], /
+    ) -> SubscriptionHandle[PolymarketPriceEvent | CryptoPriceEvent]: ...
+    @overload
+    async def subscribe(
+        self, specs: Sequence[PolymarketPriceSpec | CryptoTwapPriceSpec], /
+    ) -> SubscriptionHandle[PolymarketPriceEvent | CryptoTwapPriceEvent]: ...
+    @overload
+    async def subscribe(
+        self, specs: Sequence[PolymarketPriceSpec | EquityPriceSpec], /
+    ) -> SubscriptionHandle[PolymarketPriceEvent | EquityPriceEvent]: ...
+    @overload
+    async def subscribe(
+        self, specs: Sequence[PolymarketPriceSpec | EquityTwapPriceSpec], /
+    ) -> SubscriptionHandle[PolymarketPriceEvent | EquityTwapPriceEvent]: ...
+    @overload
+    async def subscribe(
+        self, specs: Sequence[PolymarketPriceSpec | CryptoPriceSpec | CryptoTwapPriceSpec], /
+    ) -> SubscriptionHandle[PolymarketPriceEvent | CryptoPriceEvent | CryptoTwapPriceEvent]: ...
+    @overload
+    async def subscribe(
+        self, specs: Sequence[PolymarketPriceSpec | CryptoPriceSpec | EquityPriceSpec], /
+    ) -> SubscriptionHandle[PolymarketPriceEvent | CryptoPriceEvent | EquityPriceEvent]: ...
+    @overload
+    async def subscribe(
+        self, specs: Sequence[PolymarketPriceSpec | CryptoTwapPriceSpec | EquityPriceSpec], /
+    ) -> SubscriptionHandle[PolymarketPriceEvent | CryptoTwapPriceEvent | EquityPriceEvent]: ...
+    @overload
+    async def subscribe(
+        self, specs: Sequence[PolymarketPriceSpec | CryptoPriceSpec | EquityTwapPriceSpec], /
+    ) -> SubscriptionHandle[PolymarketPriceEvent | CryptoPriceEvent | EquityTwapPriceEvent]: ...
+    @overload
+    async def subscribe(
+        self, specs: Sequence[PolymarketPriceSpec | CryptoTwapPriceSpec | EquityTwapPriceSpec], /
+    ) -> SubscriptionHandle[PolymarketPriceEvent | CryptoTwapPriceEvent | EquityTwapPriceEvent]: ...
+    @overload
+    async def subscribe(
+        self, specs: Sequence[PolymarketPriceSpec | EquityPriceSpec | EquityTwapPriceSpec], /
+    ) -> SubscriptionHandle[PolymarketPriceEvent | EquityPriceEvent | EquityTwapPriceEvent]: ...
+    @overload
+    async def subscribe(
+        self,
+        specs: Sequence[
+            PolymarketPriceSpec | CryptoPriceSpec | CryptoTwapPriceSpec | EquityPriceSpec
+        ],
+        /,
+    ) -> SubscriptionHandle[
+        PolymarketPriceEvent | CryptoPriceEvent | CryptoTwapPriceEvent | EquityPriceEvent
+    ]: ...
+    @overload
+    async def subscribe(
+        self,
+        specs: Sequence[
+            PolymarketPriceSpec | CryptoPriceSpec | CryptoTwapPriceSpec | EquityTwapPriceSpec
+        ],
+        /,
+    ) -> SubscriptionHandle[
+        PolymarketPriceEvent | CryptoPriceEvent | CryptoTwapPriceEvent | EquityTwapPriceEvent
+    ]: ...
+    @overload
+    async def subscribe(
+        self,
+        specs: Sequence[
+            PolymarketPriceSpec | CryptoPriceSpec | EquityPriceSpec | EquityTwapPriceSpec
+        ],
+        /,
+    ) -> SubscriptionHandle[
+        PolymarketPriceEvent | CryptoPriceEvent | EquityPriceEvent | EquityTwapPriceEvent
+    ]: ...
+    @overload
+    async def subscribe(
+        self,
+        specs: Sequence[
+            PolymarketPriceSpec | CryptoTwapPriceSpec | EquityPriceSpec | EquityTwapPriceSpec
+        ],
+        /,
+    ) -> SubscriptionHandle[
+        PolymarketPriceEvent | CryptoTwapPriceEvent | EquityPriceEvent | EquityTwapPriceEvent
+    ]: ...
+    @overload
+    async def subscribe(
+        self, specs: Sequence[PolymarketPriceSpec | PriceSpec], /
+    ) -> SubscriptionHandle[PolymarketPriceEvent | PriceEvent]: ...
+    @overload
     async def subscribe(self, specs: SportsSpec, /) -> SubscriptionHandle[SportsEvent]: ...
     @overload
     async def subscribe(self, specs: CommentsSpec, /) -> SubscriptionHandle[CommentsEvent]: ...

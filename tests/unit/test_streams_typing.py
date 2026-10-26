@@ -21,11 +21,101 @@ from polymarket.streams import (
     EquityTwapPriceEvent,
     EquityTwapPriceSpec,
     KnownPriceSource,
+    PolymarketPriceEvent,
+    PolymarketPriceSpec,
     PriceEvent,
     PriceProviderInput,
     PriceSource,
     SubscriptionHandle,
 )
+
+
+async def check_polymarket_price_typing(
+    public: AsyncPublicClient, secure: AsyncSecureClient
+) -> None:
+    bbo = PolymarketPriceSpec(asset_ids=["456"])
+    assert_type(await public.subscribe(bbo), SubscriptionHandle[PolymarketPriceEvent])
+    assert_type(await public.subscribe([bbo]), SubscriptionHandle[PolymarketPriceEvent])
+    assert_type(await secure.subscribe(bbo), SubscriptionHandle[PolymarketPriceEvent])
+    assert_type(await secure.subscribe([bbo]), SubscriptionHandle[PolymarketPriceEvent])
+    crypto = CryptoPriceSpec(symbols=["btcusd"])
+    crypto_twap = CryptoTwapPriceSpec(symbols=["btcusd"])
+    equity = EquityPriceSpec(symbol="aapl")
+    equity_twap = EquityTwapPriceSpec(symbol="aapl")
+    assert_type(
+        await secure.subscribe([bbo, crypto]),
+        SubscriptionHandle[PolymarketPriceEvent | CryptoPriceEvent],
+    )
+    assert_type(
+        await secure.subscribe([bbo, crypto_twap]),
+        SubscriptionHandle[PolymarketPriceEvent | CryptoTwapPriceEvent],
+    )
+    assert_type(
+        await secure.subscribe([bbo, equity]),
+        SubscriptionHandle[PolymarketPriceEvent | EquityPriceEvent],
+    )
+    assert_type(
+        await secure.subscribe([bbo, equity_twap]),
+        SubscriptionHandle[PolymarketPriceEvent | EquityTwapPriceEvent],
+    )
+    assert_type(
+        await secure.subscribe([bbo, crypto, crypto_twap]),
+        SubscriptionHandle[PolymarketPriceEvent | CryptoPriceEvent | CryptoTwapPriceEvent],
+    )
+    assert_type(
+        await secure.subscribe([bbo, crypto, equity]),
+        SubscriptionHandle[PolymarketPriceEvent | CryptoPriceEvent | EquityPriceEvent],
+    )
+    assert_type(
+        await secure.subscribe([bbo, crypto_twap, equity]),
+        SubscriptionHandle[PolymarketPriceEvent | CryptoTwapPriceEvent | EquityPriceEvent],
+    )
+    assert_type(
+        await secure.subscribe([bbo, crypto, equity_twap]),
+        SubscriptionHandle[PolymarketPriceEvent | CryptoPriceEvent | EquityTwapPriceEvent],
+    )
+    assert_type(
+        await secure.subscribe([bbo, crypto_twap, equity_twap]),
+        SubscriptionHandle[PolymarketPriceEvent | CryptoTwapPriceEvent | EquityTwapPriceEvent],
+    )
+    assert_type(
+        await secure.subscribe([bbo, equity, equity_twap]),
+        SubscriptionHandle[PolymarketPriceEvent | EquityPriceEvent | EquityTwapPriceEvent],
+    )
+    assert_type(
+        await secure.subscribe([bbo, crypto, crypto_twap, equity]),
+        SubscriptionHandle[
+            PolymarketPriceEvent | CryptoPriceEvent | CryptoTwapPriceEvent | EquityPriceEvent
+        ],
+    )
+    assert_type(
+        await secure.subscribe([bbo, crypto, crypto_twap, equity_twap]),
+        SubscriptionHandle[
+            PolymarketPriceEvent | CryptoPriceEvent | CryptoTwapPriceEvent | EquityTwapPriceEvent
+        ],
+    )
+    assert_type(
+        await secure.subscribe([bbo, crypto, equity, equity_twap]),
+        SubscriptionHandle[
+            PolymarketPriceEvent | CryptoPriceEvent | EquityPriceEvent | EquityTwapPriceEvent
+        ],
+    )
+    assert_type(
+        await secure.subscribe([bbo, crypto_twap, equity, equity_twap]),
+        SubscriptionHandle[
+            PolymarketPriceEvent | CryptoTwapPriceEvent | EquityPriceEvent | EquityTwapPriceEvent
+        ],
+    )
+    assert_type(
+        await secure.subscribe([bbo, crypto, crypto_twap, equity, equity_twap]),
+        SubscriptionHandle[
+            PolymarketPriceEvent
+            | CryptoPriceEvent
+            | CryptoTwapPriceEvent
+            | EquityPriceEvent
+            | EquityTwapPriceEvent
+        ],
+    )
 
 
 def check_price_source_typing(event: PriceEvent) -> None:
