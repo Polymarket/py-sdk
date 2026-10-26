@@ -1,6 +1,6 @@
 import asyncio
 from collections.abc import Sequence
-from typing import Literal
+from typing import Any, Literal
 
 import httpx
 import pytest
@@ -716,6 +716,59 @@ def test_comments_paginate_by_cursor_selects_supported_reads_only(
         )
         is expected
     )
+
+
+@pytest.mark.parametrize("closed", [False, True, "any"])
+def test_list_events_spec_preserves_closed_filter(closed: bool | Literal["any"]) -> None:
+    assert gamma_actions.list_events_spec(closed=closed).base_params == {"closed": closed}
+
+
+@pytest.mark.parametrize("closed", [None, False, True, "any"])
+def test_list_markets_spec_preserves_closed_filter(
+    closed: bool | Literal["any"] | None,
+) -> None:
+    spec = gamma_actions.list_markets_spec(closed=closed, ids=42)
+    expected: dict[str, object] = {"id": (42,)}
+    if closed is not None:
+        expected["closed"] = closed
+    assert spec.base_params == expected
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"ids": [42]},
+        {"slug": "market"},
+        {"clob_token_ids": "token"},
+        {"condition_ids": "condition"},
+        {"position_ids": "position"},
+        {"question_ids": "question"},
+        {"request_ids": "request"},
+        {"request_ids": ["request"]},
+        {"onchain_event_ids": "event"},
+        {"onchain_event_ids": ["event"]},
+    ],
+)
+def test_list_markets_any_accepts_each_identifier(kwargs: dict[str, Any]) -> None:
+    spec = gamma_actions.list_markets_spec(closed="any", **kwargs)
+    assert spec.base_params is not None
+    assert spec.base_params["closed"] == "any"
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [{}, {"ids": []}, {"slug": []}, {"request_ids": []}, {"onchain_event_ids": []}, {"tag_id": 1}],
+)
+def test_list_markets_any_requires_identifier(kwargs: dict[str, Any]) -> None:
+    with pytest.raises(UserInputError, match="requires at least one market identifier"):
+        gamma_actions.list_markets_spec(closed="any", **kwargs)
+
+
+@pytest.mark.parametrize("closed", ["invalid", 1, "false"])
+def test_list_specs_reject_invalid_closed(closed: Any) -> None:
+    for build_spec in (gamma_actions.list_events_spec, gamma_actions.list_markets_spec):
+        with pytest.raises(UserInputError, match="closed must be"):
+            build_spec(closed=closed)
 
 
 @pytest.mark.parametrize(
