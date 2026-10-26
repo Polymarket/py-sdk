@@ -59,7 +59,13 @@ from polymarket.models.gamma.market import (
     UmaResolutionStatus,
 )
 from polymarket.models.gamma.profile import PublicProfile, PublicProfileUser
-from polymarket.models.gamma.search import Profile, SearchResults, SearchTag
+from polymarket.models.gamma.search import (
+    Profile,
+    SearchEvent,
+    SearchMarket,
+    SearchResults,
+    SearchTag,
+)
 from polymarket.models.gamma.series import Series
 from polymarket.models.gamma.tag import RelatedTag, Tag
 
@@ -110,6 +116,8 @@ __all__ = [
     "PublicProfileUser",
     "Reaction",
     "RelatedTag",
+    "SearchEvent",
+    "SearchMarket",
     "SearchResults",
     "SearchTag",
     "Series",
