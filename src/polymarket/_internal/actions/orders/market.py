@@ -1,11 +1,12 @@
 import asyncio
+import math
 from dataclasses import dataclass
 from decimal import Decimal
 
 from polymarket._internal.actions.exchange_asset import resolve_asset_id
 from polymarket._internal.actions.orders._numeric import coerce_positive_decimal
 from polymarket._internal.actions.orders.context import (
-    MIN_SUPPORTED_TICK_SIZE,
+    RoundingConfig,
     resolve_order_exchange_address,
     resolve_rounding_config,
     validate_price_on_tick_grid,
@@ -28,6 +29,10 @@ from polymarket._internal.validation import validate_builder_code
 from polymarket.errors import UserInputError
 from polymarket.models.types import ClobAssetId, OrderSide
 from polymarket.types import EvmAddress, HexString
+
+_COLLATERAL_DECIMALS = 6
+# Smallest collateral amount, in base units, that a marketable BUY may spend.
+_MIN_MARKET_BUY_AMOUNT = 1_000_000
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -198,28 +203,6 @@ def _build_protected_market_order_draft(
         neg_risk=metadata.neg_risk,
         resolved_amount=resolved_amount,
     )
-    if params.side == "BUY":
-        if draft.offered_amount <= 0 or draft.requested_amount <= 0:
-            raise UserInputError(
-                "Protected BUY amount rounds to zero; increase amount and, if set, max_spend."
-            )
-        # Ticks may become finer after metadata is cached or the order is signed.
-        # Keep the encoded price strictly below the next possible resting ask on
-        # the finest supported grid, not merely below the next cached tick.
-        price_numerator, price_denominator = price.as_integer_ratio()
-        tick_numerator, tick_denominator = MIN_SUPPORTED_TICK_SIZE.as_integer_ratio()
-        next_price_numerator = (
-            price_numerator * tick_denominator + tick_numerator * price_denominator
-        )
-        next_price_denominator = price_denominator * tick_denominator
-        if (
-            draft.offered_amount * next_price_denominator
-            >= draft.requested_amount * next_price_numerator
-        ):
-            raise UserInputError(
-                "Cannot preserve max_price with this BUY amount and tick precision; "
-                "increase amount and, if set, max_spend, or choose a different max_price."
-            )
     return draft
 
 
@@ -373,20 +356,53 @@ def _compute_market_order_amounts(
 ) -> tuple[int, int]:
     config = resolve_rounding_config(tick_size)
     raw_price = round_down(price, config.price)
+    if side == "BUY":
+        return _compute_market_buy_amounts(amount=amount, price=raw_price, config=config)
     raw_maker = round_down(amount, config.size)
-    raw_taker = raw_maker / raw_price if side == "BUY" else raw_maker * raw_price
+    raw_taker = raw_maker * raw_price
     if decimal_places(raw_taker) > config.amount:
         raw_taker = round_up(raw_taker, config.amount + 4)
         if decimal_places(raw_taker) > config.amount:
-            # Always round the taker amount down. For a BUY the exchange derives the
-            # order price as maker / taker and only matches when it is at or above the
-            # ask, so rounding shares up (fewer dollars per share) would place the
-            # price a hair below ``price`` and an ask resting exactly there could
-            # never be lifted. Rounding down keeps the price at or fractionally above
-            # ``price``. Protected BUYs separately check that the final amounts cannot
-            # reach a higher ask even if the market's tick becomes finer.
             raw_taker = round_down(raw_taker, config.amount)
     return parse_amount(raw_maker), parse_amount(raw_taker)
+
+
+def _compute_market_buy_amounts(
+    *, amount: Decimal, price: Decimal, config: RoundingConfig
+) -> tuple[int, int]:
+    """Return the largest (collateral, shares) pair within ``amount`` whose ratio is
+    exactly ``price``, with collateral in whole ``config.size`` decimals and shares in
+    whole ``config.amount`` decimals.
+
+    The exchange reads the order price as collateral / shares, so the pair must encode
+    ``price`` exactly. Both amounts then move in fixed steps: the smallest share amount
+    that meets both precisions at this price.
+    """
+    collateral_unit = 10 ** (_COLLATERAL_DECIMALS - config.size)
+    share_unit = 10 ** (_COLLATERAL_DECIMALS - config.amount)
+    numerator, denominator = price.as_integer_ratio()
+    # collateral = shares * numerator / denominator must be a whole number of
+    # collateral units, and numerator / denominator is in lowest terms.
+    collateral_step_divisor = denominator * collateral_unit
+    share_step = math.lcm(
+        share_unit, collateral_step_divisor // math.gcd(collateral_step_divisor, numerator)
+    )
+    collateral_step = share_step * numerator // denominator
+    budget = parse_amount(round_down(amount, config.size))
+    steps = budget // collateral_step
+    collateral = steps * collateral_step
+    if collateral == 0 or (collateral < _MIN_MARKET_BUY_AMOUNT <= budget):
+        minimum_steps = -(-_MIN_MARKET_BUY_AMOUNT // collateral_step)
+        raise UserInputError(
+            f"BUY amount {amount} cannot be spent exactly at price {price}. At this price "
+            f"the amount is used in steps of {_format_collateral(collateral_step)}; use at "
+            f"least {_format_collateral(minimum_steps * collateral_step)}."
+        )
+    return collateral, steps * share_step
+
+
+def _format_collateral(atoms: int) -> str:
+    return f"{Decimal(atoms).scaleb(-_COLLATERAL_DECIMALS).normalize():f}"
 
 
 def _resolve_buy_amount_for_fees(

@@ -165,8 +165,8 @@ def test_limit_and_protected_market_orders_reuse_cached_metadata() -> None:
 
 
 @pytest.mark.parametrize("order_type", ["FAK", "FOK"])
-@pytest.mark.parametrize(("amount", "max_spend"), [("1", None), ("100", "1")])
-def test_protected_buy_refreshes_unsafe_cached_tick(
+@pytest.mark.parametrize(("amount", "max_spend"), [("1.4", None), ("100", "1.4")])
+def test_protected_buy_signs_max_price_exactly_after_tick_refinement(
     order_type: Literal["FAK", "FOK"], amount: str, max_spend: str | None
 ) -> None:
     captured: list[httpx.Request] = []
@@ -188,24 +188,24 @@ def test_protected_buy_refreshes_unsafe_cached_tick(
                 max_price="0.7",
                 order_type=order_type,
             )
-            assert signed.maker_amount == 1_000_000
-            assert signed.taker_amount == 1_428_571
+            # 1.40 USDC for exactly 2 shares encodes 0.7 on the cached and the refined
+            # tick, so the cached metadata is enough.
+            assert signed.maker_amount == 1_400_000
+            assert signed.taker_amount == 2_000_000
             assert signed.order_type == order_type
-            assert signed.maker_amount * 10 >= signed.taker_amount * 7
-            assert signed.maker_amount * 10_000 < signed.taker_amount * 7_001
         finally:
             await client.close()
 
     asyncio.run(run())
     paths = [request.url.path for request in captured]
     assert paths.count("/markets-by-token/8501497") == 1
-    assert paths.count(market_path) == 2
+    assert paths.count(market_path) == 1
     assert "/book" not in paths
 
 
 @pytest.mark.parametrize("order_type", ["FAK", "FOK"])
 @pytest.mark.parametrize(("amount", "max_spend"), [("1", None), ("100", "1")])
-def test_protected_buy_rejects_unsafe_tick_without_posting(
+def test_protected_buy_rejects_an_inexact_amount_without_posting(
     order_type: Literal["FAK", "FOK"], amount: str, max_spend: str | None
 ) -> None:
     captured: list[httpx.Request] = []
@@ -219,7 +219,7 @@ def test_protected_buy_rejects_unsafe_tick_without_posting(
             _install_clob(client, _routed_handler(captured, routes))
             _install_secure_clob(client, _routed_handler(captured, _secure_routes()))
             await client.create_limit_order(token_id="8501497", price="0.5", size="10", side="BUY")
-            with pytest.raises(UserInputError, match="max_price"):
+            with pytest.raises(UserInputError, match="cannot be spent exactly"):
                 await client.place_market_order(
                     token_id="8501497",
                     side="BUY",
@@ -253,12 +253,13 @@ def test_protected_buy_refresh_recalculates_max_spend_with_current_fees() -> Non
             routes[market_path]["mts"] = 0.0001
             routes[market_path]["fd"] = {"r": 0.07, "e": 0}
             signed = await client.create_market_order(
-                token_id="8501497", side="BUY", amount="100", max_spend="1.1", max_price="0.7"
+                token_id="8501497", side="BUY", amount="100", max_spend="1.64", max_price="0.75"
             )
-            # The refreshed fee consumes $0.10 of the $1.10 budget at a $0.70 share price.
-            assert signed.maker_amount == 1_000_000
-            assert signed.taker_amount == 1_428_571
-            assert signed.maker_amount * 10_000 < signed.taker_amount * 7_001
+            # 0.75 is off the cached 0.1 grid, so the order refreshes the market. The
+            # refreshed 7% fee on 2 shares consumes $0.14 of the $1.64 budget, and 1.50 USDC
+            # buys exactly 2 shares at 0.75.
+            assert signed.maker_amount == 1_500_000
+            assert signed.taker_amount == 2_000_000
         finally:
             await client.close()
 

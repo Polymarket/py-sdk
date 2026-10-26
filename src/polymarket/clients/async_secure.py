@@ -2719,15 +2719,16 @@ class AsyncSecureClient:
         number of shares to sell and may include ``min_price``.
 
         ``max_price`` and ``min_price`` bound the execution price: fills happen at
-        the resting order's price, never worse than the bound. Because order
-        amounts have fixed precision, the price encoded in a signed BUY may sit
-        fractionally above ``max_price``, but cannot reach a higher price on any
-        supported tick grid, even if the market's tick becomes finer. Metadata
-        is refreshed once if rounding is unsafe; if the cap still cannot be
-        preserved, ``UserInputError`` is raised before signing or posting.
-        Sub-cent digits of ``amount`` are dropped and the share count is floored
-        to the market's amount precision, so a fraction of a share's worth of
-        ``amount`` may go unspent.
+        the resting order's price, never worse than the bound.
+
+        A signed BUY encodes its price exactly: the spend divided by the share count
+        equals the order price. The spend is in whole cents and the share count uses
+        the market's share precision, so at a given price the spend moves in fixed
+        steps. The SDK signs the largest step that does not exceed ``amount`` (or the
+        fee-adjusted ``max_spend``), so part of ``amount`` may go unspent. If no step
+        fits, or the steps fall below the 1 USDC minimum for a marketable BUY,
+        ``UserInputError`` is raised before signing or posting, and names the
+        smallest amount that works.
 
         ``max_spend`` is an estimated all-in spend target based on recently
         resolved platform and builder fee rates. Actual fees may change before
@@ -2851,15 +2852,16 @@ class AsyncSecureClient:
         number of shares to sell and may include ``min_price``.
 
         ``max_price`` and ``min_price`` bound the execution price: fills happen at
-        the resting order's price, never worse than the bound. Because order
-        amounts have fixed precision, the price encoded in a signed BUY may sit
-        fractionally above ``max_price``, but cannot reach a higher price on any
-        supported tick grid, even if the market's tick becomes finer. Metadata
-        is refreshed once if rounding is unsafe; if the cap still cannot be
-        preserved, ``UserInputError`` is raised before signing or posting.
-        Sub-cent digits of ``amount`` are dropped and the share count is floored
-        to the market's amount precision, so a fraction of a share's worth of
-        ``amount`` may go unspent.
+        the resting order's price, never worse than the bound.
+
+        A signed BUY encodes its price exactly: the spend divided by the share count
+        equals the order price. The spend is in whole cents and the share count uses
+        the market's share precision, so at a given price the spend moves in fixed
+        steps. The SDK signs the largest step that does not exceed ``amount`` (or the
+        fee-adjusted ``max_spend``), so part of ``amount`` may go unspent. If no step
+        fits, or the steps fall below the 1 USDC minimum for a marketable BUY,
+        ``UserInputError`` is raised before signing or posting, and names the
+        smallest amount that works.
 
         ``max_spend`` is an estimated all-in spend target based on recently
         resolved platform and builder fee rates. Actual fees may change before
