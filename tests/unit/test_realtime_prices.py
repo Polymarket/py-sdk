@@ -1396,7 +1396,10 @@ def polymarket_frame(asset_id: str, *, snapshot: bool = False) -> dict[str, Any]
     }
 
 
-def test_public_polymarket_prices_route_cold_snapshots_updates_and_recovery() -> None:
+@pytest.mark.parametrize("asset_ids", [["123", "456"], ["00123", "00456", "456"]])
+def test_public_polymarket_prices_route_cold_snapshots_updates_and_recovery(
+    asset_ids: list[str],
+) -> None:
     async def run() -> None:
         feed = Feed()
         async with feed_server(feed) as url:
@@ -1404,7 +1407,7 @@ def test_public_polymarket_prices_route_cold_snapshots_updates_and_recovery() ->
                 name="test", config=replace(PRODUCTION_CONFIG, realtime_ws_url=url)
             )
             async with AsyncPublicClient(environment=environment) as client:
-                handle = await client.subscribe(PolymarketPriceSpec(asset_ids=["123", "456"]))
+                handle = await client.subscribe(PolymarketPriceSpec(asset_ids=asset_ids))
                 cold, warm = await anext(handle), await anext(handle)
                 assert cold.type == "subscribe" and cold.payload.asset_id == "123"
                 assert cold.payload.data == ()
@@ -1427,7 +1430,7 @@ def test_public_polymarket_prices_route_cold_snapshots_updates_and_recovery() ->
                 update = await anext(handle)
                 assert update.type == "update" and update.payload.asset_id == "456"
                 assert update.payload.best_bid == Decimal("0.51")
-                late = await client.subscribe(PolymarketPriceSpec(asset_ids=["456"]))
+                late = await client.subscribe(PolymarketPriceSpec(asset_ids=["000456"]))
                 replay = await anext(late)
                 assert replay.type == "subscribe" and replay.payload.data == (update.payload,)
                 assert len(feed.connections) == 1
@@ -1442,6 +1445,28 @@ def test_public_polymarket_prices_route_cold_snapshots_updates_and_recovery() ->
                     == feed.operations("subscribe")[0]["subscriptions"]
                 )
             await eventually(lambda: all(ws.close_code is not None for ws in feed.connections))
+
+    asyncio.run(asyncio.wait_for(run(), 5))
+
+
+def test_public_polymarket_prices_preserve_zero_asset_identity() -> None:
+    async def run() -> None:
+        feed = Feed()
+        async with feed_server(feed) as url:
+            environment = create_environment(
+                name="test", config=replace(PRODUCTION_CONFIG, realtime_ws_url=url)
+            )
+            async with AsyncPublicClient(environment=environment) as client:
+                handle = await client.subscribe(PolymarketPriceSpec(asset_ids=["000", "0"]))
+                snapshot = await anext(handle)
+                assert snapshot.type == "subscribe" and snapshot.payload.asset_id == "0"
+                assert snapshot.payload.data[0].asset_id == "0"
+                assert feed.operations("subscribe")[0]["subscriptions"] == [
+                    {"channel": "price.polymarket", "filter": {"asset_id": "0"}}
+                ]
+                await feed.connections[0].send(json.dumps(polymarket_frame("0")))
+                update = await anext(handle)
+                assert update.type == "update" and update.payload.asset_id == "0"
 
     asyncio.run(asyncio.wait_for(run(), 5))
 

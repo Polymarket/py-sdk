@@ -567,7 +567,8 @@ class PolymarketPriceSpec:
             )
         ):
             raise UserInputError("asset_ids must be a non-empty sequence of decimal strings")
-        object.__setattr__(self, "asset_ids", tuple(dict.fromkeys(self.asset_ids)))
+        canonical_ids = (value.lstrip("0") or "0" for value in self.asset_ids)
+        object.__setattr__(self, "asset_ids", tuple(dict.fromkeys(canonical_ids)))
 
 
 PriceSpec = CryptoPriceSpec | CryptoTwapPriceSpec | EquityPriceSpec | EquityTwapPriceSpec
