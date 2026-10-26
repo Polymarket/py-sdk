@@ -1198,6 +1198,7 @@ class PerpsSession:
     def list_fills(
         self,
         *,
+        instrument_id: int | None = None,
         start: datetime | int | None = None,
         end: datetime | int | None = None,
         sort: PerpsSortDirection | None = None,
@@ -1208,8 +1209,13 @@ class PerpsSession:
         Fills are returned newest first by default; pass ``sort="asc"`` for
         oldest first. ``cursor`` resumes from an opaque page cursor returned
         by a previous page.
+        ``instrument_id`` filters every page to that instrument, including
+        cursor resumes. Fill ``adl`` marks auto-deleveraging; optional
+        ``liquidation_details.mark`` is separate from the accounting fill price.
         """
-        return _account.list_fills(self._api, start=start, end=end, sort=sort, cursor=cursor)
+        return _account.list_fills(
+            self._api, instrument_id=instrument_id, start=start, end=end, sort=sort, cursor=cursor
+        )
 
     def list_funding_payments(
         self,

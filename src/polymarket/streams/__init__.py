@@ -21,9 +21,11 @@ from polymarket.models.clob.market_events import (
     PriceChange,
 )
 from polymarket.models.clob.user_events import (
+    KnownUserOrderStatus,
     UserEvent,
     UserOrderEvent,
     UserOrderPayload,
+    UserOrderStatus,
     UserTradeEvent,
     UserTradeMakerOrder,
     UserTradePayload,
@@ -55,6 +57,7 @@ from polymarket.models.price_events import (
     CryptoTwapPriceEvent,
     CryptoTwapPriceSnapshotEvent,
     CryptoTwapPriceUpdateEvent,
+    EquityMarketStatus,
     EquityPriceEvent,
     EquityPriceSnapshotEvent,
     EquityPriceUpdateEvent,
@@ -64,6 +67,10 @@ from polymarket.models.price_events import (
     KnownPriceSource,
     PriceEvent,
     PriceSource,
+    RealtimeEquityPriceSnapshot,
+    RealtimeEquityPriceUpdate,
+    RealtimeEquityTwapSnapshot,
+    RealtimeEquityTwapUpdate,
     RealtimeErrorCode,
     RealtimePricePoint,
     RealtimePriceSnapshot,
@@ -136,6 +143,11 @@ from polymarket.streams._specs import (
 StreamEvent = MarketEvent | SportsEvent | RtdsEvent | UserEvent | PerpsMarketEvent | PriceEvent
 
 __all__ = [
+    "RealtimeEquityTwapSnapshot",
+    "RealtimeEquityTwapUpdate",
+    "RealtimeEquityPriceSnapshot",
+    "RealtimeEquityPriceUpdate",
+    "EquityMarketStatus",
     "CryptoPriceEvent",
     "CryptoPriceSnapshotEvent",
     "CryptoPriceSpec",
@@ -153,6 +165,7 @@ __all__ = [
     "EquityTwapPriceSpec",
     "EquityTwapPriceUpdateEvent",
     "KnownPriceSource",
+    "KnownUserOrderStatus",
     "PriceEvent",
     "PriceProviderInput",
     "PriceSource",
@@ -251,6 +264,7 @@ __all__ = [
     "UserEvent",
     "UserOrderEvent",
     "UserOrderPayload",
+    "UserOrderStatus",
     "UserSpec",
     "UserTradeEvent",
     "UserTradeMakerOrder",

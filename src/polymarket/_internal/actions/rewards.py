@@ -1,6 +1,8 @@
+import math
+import re
 from collections.abc import Sequence
 from datetime import date as _date
-from typing import cast
+from typing import cast, get_args
 
 from pydantic import TypeAdapter, ValidationError
 
@@ -16,11 +18,15 @@ from polymarket.errors import UnexpectedResponseError, UserInputError
 from polymarket.models.clob.rewards import (
     CurrentReward,
     MarketReward,
+    RebatedFee,
+    RewardMarket,
+    RewardMarketSort,
     RewardsPercentages,
     TotalUserEarning,
     UserEarning,
     UserRewardsEarning,
 )
+from polymarket.models.data.common import SortDirection
 from polymarket.models.types import CtfConditionId, validate_ctf_condition_id
 from polymarket.pagination import Page
 
@@ -309,3 +315,98 @@ __all__ = [
     "parse_user_earnings_page",
     "parse_user_rewards_earnings_page",
 ]
+
+
+def build_list_reward_markets_request(
+    *,
+    query: str | None = None,
+    tag_slugs: Sequence[str] | None = None,
+    market_id: int | None = None,
+    event_ids: Sequence[int] | None = None,
+    event_title: str | None = None,
+    order_by: RewardMarketSort | None = None,
+    sort_direction: SortDirection | None = None,
+    min_volume_24hr: float | None = None,
+    max_volume_24hr: float | None = None,
+    min_spread: float | None = None,
+    max_spread: float | None = None,
+    min_price: float | None = None,
+    max_price: float | None = None,
+    page_size: int = 100,
+    cursor: str | None = None,
+) -> tuple[str, dict[str, QueryParamValue]]:
+    params: dict[str, QueryParamValue] = {}
+    if type(page_size) is not int or not 1 <= page_size <= 500:
+        raise UserInputError("page_size must be an integer between 1 and 500.")
+    params["page_size"] = page_size
+    for name, value in (("q", query), ("event_title", event_title)):
+        if value is not None:
+            if type(value) is not str:
+                raise UserInputError(f"{name} must be a string.")
+            params[name] = value
+    if tag_slugs is not None:
+        if isinstance(tag_slugs, str | bytes):
+            raise UserInputError("tag_slugs must be a sequence of strings.")
+        params["tag_slug"] = tuple(require_nonempty("tag_slug", item) for item in tag_slugs)
+    if market_id is not None:
+        if type(market_id) is not int or market_id <= 0:
+            raise UserInputError("market_id must be a positive integer.")
+        params["market_id"] = market_id
+    if event_ids is not None:
+        if isinstance(event_ids, str | bytes):
+            raise UserInputError("event_ids must be a sequence of positive integers.")
+        if any(type(item) is not int or item <= 0 for item in event_ids):
+            raise UserInputError("event_ids must be positive integers.")
+        params["event_id"] = tuple(event_ids)
+    if order_by is not None:
+        if order_by not in get_args(RewardMarketSort):
+            raise UserInputError("Invalid reward market sort field.")
+        params["order_by"] = order_by
+    if sort_direction is not None:
+        if sort_direction not in ("ASC", "DESC"):
+            raise UserInputError("sort_direction must be ASC or DESC.")
+        params["position"] = sort_direction
+    for name, bound in (
+        ("min_volume_24hr", min_volume_24hr),
+        ("max_volume_24hr", max_volume_24hr),
+        ("min_spread", min_spread),
+        ("max_spread", max_spread),
+        ("min_price", min_price),
+        ("max_price", max_price),
+    ):
+        if bound is not None:
+            if type(bound) not in (int, float) or not math.isfinite(bound) or bound < 0:
+                raise UserInputError(f"{name} must be a finite nonnegative number.")
+            params[name] = bound
+    validated_cursor = validate_cursor(cursor)
+    if validated_cursor is not None:
+        params["next_cursor"] = validated_cursor
+    return "/rewards/markets/multi", params
+
+
+def parse_reward_markets_page(data: object) -> Page[RewardMarket]:
+    if not isinstance(data, dict):
+        raise UnexpectedResponseError("reward markets response did not match expected shape")
+    payload = cast(dict[str, object], data)
+    items = RewardMarket.parse_response_list(payload.get("data"))
+    next_cursor = next_cursor_or_none(payload.get("next_cursor"))
+    return Page(items=items, has_more=next_cursor is not None, next_cursor=next_cursor)
+
+
+def build_get_current_rebates_request(
+    *, date: str, maker_address: str
+) -> tuple[str, dict[str, QueryParamValue]]:
+    if type(date) is not str or re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", date) is None:
+        raise UserInputError("date must be a calendar date in YYYY-MM-DD form.")
+    _validate_date(date)
+    if (
+        type(maker_address) is not str
+        or re.fullmatch(r"0x[0-9a-fA-F]{40}", maker_address) is None
+        or int(maker_address[2:], 16) == 0
+    ):
+        raise UserInputError("maker_address must be a nonzero EVM address.")
+    return "/rebates/current", {"date": date, "maker_address": maker_address}
+
+
+def parse_current_rebates(data: object) -> tuple[RebatedFee, ...]:
+    return RebatedFee.parse_response_list([] if data is None else data)

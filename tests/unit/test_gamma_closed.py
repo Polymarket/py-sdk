@@ -1,9 +1,10 @@
 # pyright: reportPrivateUsage=false
 import asyncio
 import dataclasses
-from typing import assert_type
+from typing import Literal, assert_type
 
 import httpx
+import pytest
 
 from polymarket import AsyncPublicClient, AsyncSecureClient, PublicClient, SecureClient
 from polymarket.clients._transport import AsyncTransport, SyncTransport
@@ -13,15 +14,24 @@ from polymarket.pagination import AsyncPaginator, Paginator
 
 def check_sync_types(client: PublicClient | SecureClient) -> None:
     assert_type(client.list_markets(closed="any", ids=42), Paginator[Market])
+    assert_type(client.list_markets(closed="any", request_ids="request"), Paginator[Market])
+    assert_type(client.list_markets(closed="any", onchain_event_ids="event"), Paginator[Market])
     assert_type(client.list_events(closed="any"), Paginator[Event])
 
 
 def check_async_types(client: AsyncPublicClient | AsyncSecureClient) -> None:
     assert_type(client.list_markets(closed="any", slug="market"), AsyncPaginator[Market])
+    assert_type(client.list_markets(closed="any", request_ids="request"), AsyncPaginator[Market])
+    assert_type(
+        client.list_markets(closed="any", onchain_event_ids="event"), AsyncPaginator[Market]
+    )
     assert_type(client.list_events(closed="any"), AsyncPaginator[Event])
 
 
-def test_closed_any_reaches_sync_and_async_keyset_requests() -> None:
+@pytest.mark.parametrize("selector", ["id", "request_ids", "onchain_event_ids"])
+def test_closed_any_reaches_sync_and_async_keyset_requests(
+    selector: Literal["id", "request_ids", "onchain_event_ids"],
+) -> None:
     captured: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -40,7 +50,17 @@ def test_closed_any_reaches_sync_and_async_keyset_requests() -> None:
                 ),
             ),
         )
-        assert client.list_markets(closed="any", ids=42).first_page().items == ()
+        assert (
+            client.list_markets(
+                closed="any",
+                ids=42 if selector == "id" else None,
+                request_ids="request" if selector == "request_ids" else None,
+                onchain_event_ids="event" if selector == "onchain_event_ids" else None,
+            )
+            .first_page()
+            .items
+            == ()
+        )
         assert client.list_events(closed="any").first_page().items == ()
 
     async def run() -> None:
@@ -55,7 +75,14 @@ def test_closed_any_reaches_sync_and_async_keyset_requests() -> None:
                     ),
                 ),
             )
-            assert (await client.list_markets(closed="any", ids=42).first_page()).items == ()
+            assert (
+                await client.list_markets(
+                    closed="any",
+                    ids=42 if selector == "id" else None,
+                    request_ids="request" if selector == "request_ids" else None,
+                    onchain_event_ids="event" if selector == "onchain_event_ids" else None,
+                ).first_page()
+            ).items == ()
             assert (await client.list_events(closed="any").first_page()).items == ()
 
     asyncio.run(run())
@@ -66,4 +93,5 @@ def test_closed_any_reaches_sync_and_async_keyset_requests() -> None:
         "/events/keyset",
     ]
     assert all(request.url.params["closed"] == "any" for request in captured)
-    assert captured[0].url.params["id"] == captured[2].url.params["id"] == "42"
+    expected = {"id": "42", "request_ids": "request", "onchain_event_ids": "event"}[selector]
+    assert captured[0].url.params[selector] == captured[2].url.params[selector] == expected

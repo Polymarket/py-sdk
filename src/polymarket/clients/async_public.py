@@ -69,7 +69,13 @@ from polymarket.models import (
 )
 from polymarket.models.clob.builder import BuilderTrade
 from polymarket.models.clob.market_events import MarketEvent
-from polymarket.models.clob.rewards import CurrentReward, MarketReward
+from polymarket.models.clob.rewards import (
+    CurrentReward,
+    MarketReward,
+    RebatedFee,
+    RewardMarket,
+    RewardMarketSort,
+)
 from polymarket.models.data import (
     Activity,
     ActivityTypeFilter,
@@ -213,7 +219,10 @@ class AsyncPublicClient:
     ) -> AsyncPaginator[Activity]:
         """List wallet activity, including deposits and withdrawals.
 
-        Amounts are USDC and shares are outcome units.
+        Amounts are USDC and shares are outcome units. Combo trades and redemptions
+        expose available basket token outcomes. All redemptions return
+        ``RedeemActivity``; check ``is_combo`` to identify a basket.
+        A basket's outcome names its token side, not a selected leg.
 
         Resuming a cursor uses the page size stored by that cursor."""
         spec = _data_actions.list_activity_spec(
@@ -1068,6 +1077,10 @@ class AsyncPublicClient:
         tag_match: TagMatch | None = None,
         tag_slug: str | None = None,
         title_search: str | None = None,
+        version: ProtocolVersion
+        | Literal["v1", "v2"]
+        | Sequence[ProtocolVersion | Literal["v1", "v2"]]
+        | None = None,
         volume_max: float | None = None,
         volume_min: float | None = None,
         page_size: int = 20,
@@ -1076,6 +1089,10 @@ class AsyncPublicClient:
 
         Defaults to open events. Pass ``closed=True`` to list settled events
         or ``closed="any"`` to include both open and closed events.
+        Pass ``version="v1"`` or ``version="v2"`` to filter by protocol; omitting
+        it uses the current server default of CTF events (v1). Pass a sequence
+        of one or two versions to include either or both protocols. Keep the
+        same selection when resuming a saved cursor.
 
         Returns:
             An async paginator over matching events.
@@ -1124,6 +1141,7 @@ class AsyncPublicClient:
             tag_match=tag_match,
             tag_slug=tag_slug,
             title_search=title_search,
+            version=version,
             volume_max=volume_max,
             volume_min=volume_min,
         )
@@ -1178,7 +1196,7 @@ class AsyncPublicClient:
         Omitted ``closed`` (or ``None``) lists open markets, as does ``False``.
         Pass ``True`` for closed markets, or ``"any"`` for both. ``"any"`` requires
         at least one of ``ids``, ``slug``, ``clob_token_ids``, ``condition_ids``,
-        ``position_ids``, or ``question_ids``.
+        ``position_ids``, ``question_ids``, ``request_ids``, or ``onchain_event_ids``.
 
         Omitting ``version`` uses the current server default of CTF markets (v1).
         Pass one version or a sequence of one or two versions. Keep the same
@@ -1622,6 +1640,68 @@ class AsyncPublicClient:
             amount=amount,
             shares=shares,
             order_type=order_type,
+        )
+
+    def list_reward_markets(
+        self,
+        *,
+        query: str | None = None,
+        tag_slugs: Sequence[str] | None = None,
+        market_id: int | None = None,
+        event_ids: Sequence[int] | None = None,
+        event_title: str | None = None,
+        order_by: RewardMarketSort | None = None,
+        sort_direction: SortDirection | None = None,
+        min_volume_24hr: float | None = None,
+        max_volume_24hr: float | None = None,
+        min_spread: float | None = None,
+        max_spread: float | None = None,
+        min_price: float | None = None,
+        max_price: float | None = None,
+        page_size: int = 100,
+    ) -> AsyncPaginator[RewardMarket]:
+        """List active markets and their reward configurations, which may be empty.
+
+        Pages default to 100 items, with a maximum of 500. Positive numeric bounds
+        are min-exclusive and max-inclusive; zero disables a bound. Without order_by
+        ordering is unspecified; otherwise sort_direction defaults to ASC.
+        """
+
+        async def fetch(cursor: str | None) -> Page[RewardMarket]:
+            path, params = _rewards_actions.build_list_reward_markets_request(
+                query=query,
+                tag_slugs=tag_slugs,
+                market_id=market_id,
+                event_ids=event_ids,
+                event_title=event_title,
+                order_by=order_by,
+                sort_direction=sort_direction,
+                min_volume_24hr=min_volume_24hr,
+                max_volume_24hr=max_volume_24hr,
+                min_spread=min_spread,
+                max_spread=max_spread,
+                min_price=min_price,
+                max_price=max_price,
+                page_size=page_size,
+                cursor=cursor,
+            )
+            return _rewards_actions.parse_reward_markets_page(
+                await self._ctx.clob.get_json(path, params=params)
+            )
+
+        return AsyncPaginator(fetch=fetch)
+
+    async def get_current_rebates(self, *, date: str, maker_address: str) -> tuple[RebatedFee, ...]:
+        """Get maker fee rebates for a YYYY-MM-DD calendar day without authentication.
+
+        Amounts retain exact precision as Decimal values in USDC units.
+        Returns an empty tuple when the maker has no rebates for the date.
+        """
+        path, params = _rewards_actions.build_get_current_rebates_request(
+            date=date, maker_address=maker_address
+        )
+        return _rewards_actions.parse_current_rebates(
+            await self._ctx.clob.get_json(path, params=params)
         )
 
     def list_current_rewards(

@@ -485,12 +485,29 @@ def list_events_spec(
     tag_match: TagMatch | None = None,
     tag_slug: str | None = None,
     title_search: str | None = None,
+    version: ProtocolVersion
+    | Literal["v1", "v2"]
+    | Sequence[ProtocolVersion | Literal["v1", "v2"]]
+    | None = None,
     volume_max: float | None = None,
     volume_min: float | None = None,
 ) -> KeysetPaginatedSpec[Event]:
     _check_recurrence(recurrence)
     _check_tag_match(tag_match)
     _check_closed(closed)
+    versions: tuple[str, ...] | None = None
+    if version is not None:
+        if isinstance(version, str):
+            versions = (version,)
+        elif isinstance(cast(object, version), Sequence) and not isinstance(version, bytes):
+            versions = tuple(version)
+        else:
+            raise UserInputError("version must be v1, v2, or a sequence of one or two values")
+        if not 1 <= len(versions) <= 2 or any(
+            not isinstance(cast(object, value), str) or value not in ("v1", "v2")
+            for value in versions
+        ):
+            raise UserInputError("version must be v1, v2, or a sequence of one or two values")
 
     params: dict[str, QueryParamValue] = {}
     _add_optional(params, "ascending", ascending)
@@ -529,6 +546,7 @@ def list_events_spec(
     _add_optional(params, "tag_match", tag_match)
     _add_optional(params, "tag_slug", tag_slug)
     _add_optional(params, "title_search", title_search)
+    _add_optional(params, "version", version if isinstance(version, str) else versions)
     _add_optional(params, "volume_max", volume_max)
     _add_optional(params, "volume_min", volume_min)
 
@@ -651,7 +669,16 @@ def list_markets_spec(
 
     if closed == "any" and not any(
         key in params
-        for key in ("id", "slug", "clob_token_ids", "condition_ids", "position_ids", "question_ids")
+        for key in (
+            "id",
+            "slug",
+            "clob_token_ids",
+            "condition_ids",
+            "position_ids",
+            "question_ids",
+            "request_ids",
+            "onchain_event_ids",
+        )
     ):
         raise UserInputError('closed="any" requires at least one market identifier filter')
 
