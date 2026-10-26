@@ -125,6 +125,7 @@ from polymarket.models.perps.results import (
 from polymarket.models.perps.twaps import PerpsTwap, PerpsTwapAccepted
 from polymarket.models.perps.types import (
     PerpsDepositStatus,
+    PerpsKlineInterval,
     PerpsPnlInterval,
     PerpsSortDirection,
     PerpsTimeInForce,
@@ -1321,11 +1322,15 @@ class PerpsSession:
     def list_equity_history(
         self,
         *,
-        interval: PerpsPnlInterval,
+        interval: PerpsKlineInterval,
         start: datetime | int,
         end: datetime | int | None = None,
     ) -> AsyncPaginator[PerpsEquityPoint]:
-        """List Perps equity history at the requested interval."""
+        """List Perps equity history at the requested interval.
+
+        Equity history has one-minute resolution, so ``interval="1s"`` is
+        served at the same resolution as ``"1m"``.
+        """
         return _account.list_equity_history(self._api, interval=interval, start=start, end=end)
 
     def list_pnl_history(
