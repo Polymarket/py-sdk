@@ -66,8 +66,9 @@ _TYPED_DATA_SIGN_FIELDS = [
 
 
 def build_order_typed_data(
-    order: UnsignedOrder, *, protocol_version: str = _PROTOCOL_VERSION
+    order: UnsignedOrder, *, protocol_version: str | None = None
 ) -> dict[str, Any]:
+    protocol_version = protocol_version or order.protocol_version
     standard = _build_standard_typed_data(order, protocol_version=protocol_version)
     if order.signature_type != _POLY_1271_SIGNATURE_TYPE:
         return standard
@@ -99,8 +100,9 @@ def build_order_signature(
     order: UnsignedOrder,
     signature: HexString,
     *,
-    protocol_version: str = _PROTOCOL_VERSION,
+    protocol_version: str | None = None,
 ) -> HexString:
+    protocol_version = protocol_version or order.protocol_version
     order_signature = signature
     if order.signature_type == _POLY_1271_SIGNATURE_TYPE:
         app_domain_separator = _app_domain_separator(order, protocol_version=protocol_version)

@@ -18,7 +18,7 @@ from polymarket._internal.actions.orders.market_data import (
 )
 from polymarket.clients._transport import AsyncTransport
 from polymarket.errors import UnexpectedResponseError, UserInputError
-from polymarket.models.types import CtfConditionId, TokenId
+from polymarket.models.types import ClobAssetId, CtfConditionId, TokenId
 
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 SIGNER_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
@@ -196,7 +196,7 @@ def test_fetch_platform_fee_info_parses_rate_and_exponent() -> None:
 
 
 def test_fetch_market_info_parses_order_metadata_and_tokens() -> None:
-    async def run() -> tuple[Decimal, bool, Decimal, frozenset[TokenId]]:
+    async def run() -> tuple[Decimal, bool, Decimal, frozenset[ClobAssetId]]:
         client = await _make_client()
         try:
             _install_public_clob(

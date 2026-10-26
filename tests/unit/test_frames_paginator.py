@@ -12,8 +12,9 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
-from polymarket.errors import UserInputError
-from polymarket.pagination import AsyncPaginator, Page, Paginator
+from polymarket.errors import PaginationLimitError, TransportError, UserInputError
+from polymarket.frames import to_arrow, to_pandas, to_polars
+from polymarket.pagination import AsyncPaginator, DecimalMode, Page, Paginator
 
 
 class _Item(BaseModel):
@@ -85,6 +86,93 @@ def test_page_to_arrow() -> None:
     page: Page[_Item] = Page(items=(_Item(n=1, v=Decimal("0.1")),), has_more=False)
     table = page.to_arrow()
     assert table.num_rows == 1
+
+
+@pytest.mark.parametrize("decimal", ["decimal", "float"])
+def test_page_frame_conversions_preserve_depth_limit(decimal: DecimalMode) -> None:
+    page = Page(
+        items=(_Item(n=1, v=Decimal("0.1")),),
+        has_more=True,
+        next_cursor="past-cap",
+        limit_reached=True,
+    )
+    for table in (page.to_arrow(), to_arrow(page)):
+        assert table.num_rows == 1
+        assert table.schema.metadata[b"polymarket_truncated"] == b"true"
+        assert table.schema.metadata[b"polymarket_limit_reached"] == b"true"
+    for df in (page.to_pandas(decimal=decimal), to_pandas(page, decimal=decimal)):
+        assert len(df) == 1
+        assert df.attrs["polymarket_truncated"] is True
+        assert df.attrs["polymarket_limit_reached"] is True
+    with pytest.warns(UserWarning, match="pagination depth limit.*completeness is unknown"):
+        assert page.to_polars().height == 1
+    with pytest.warns(UserWarning, match="pagination depth limit.*completeness is unknown"):
+        assert to_polars(page).height == 1
+
+
+@pytest.mark.parametrize("limit", [None, 1, 2, 3])
+@pytest.mark.parametrize("asynchronous", [False, True])
+def test_paginator_exports_mark_depth_limit(limit: int | None, asynchronous: bool) -> None:
+    fetched: list[str | None] = []
+
+    def fetch(cursor: str | None) -> Page[_Item]:
+        fetched.append(cursor)
+        assert cursor is None, "must not fetch past the depth limit"
+        return Page(
+            items=(_Item(n=1, v=Decimal("0.1")), _Item(n=2, v=Decimal("0.2"))),
+            has_more=True,
+            next_cursor="past-cap",
+            limit_reached=True,
+        )
+
+    async def async_fetch(cursor: str | None) -> Page[_Item]:
+        return fetch(cursor)
+
+    async def export() -> tuple[Any, Any, Any]:
+        if asynchronous:
+            paginator = AsyncPaginator(fetch=async_fetch)
+            table = await paginator.to_arrow(limit=limit)
+            df = await paginator.to_pandas(limit=limit)
+            with pytest.warns(UserWarning, match="pagination depth limit.*completeness is unknown"):
+                polars_df = await paginator.to_polars(limit=limit)
+            return table, df, polars_df
+        paginator = Paginator(fetch=fetch)
+        table = paginator.to_arrow(limit=limit)
+        df = paginator.to_pandas(limit=limit)
+        with pytest.warns(UserWarning, match="pagination depth limit.*completeness is unknown"):
+            polars_df = paginator.to_polars(limit=limit)
+        return table, df, polars_df
+
+    table, df, polars_df = asyncio.run(export())
+    expected_count = 2 if limit is None else min(limit, 2)
+    assert table.num_rows == len(df) == polars_df.height == expected_count
+    assert table.schema.metadata[b"polymarket_truncated"] == b"true"
+    assert table.schema.metadata[b"polymarket_limit_reached"] == b"true"
+    assert df.attrs["polymarket_truncated"] is True
+    assert df.attrs["polymarket_limit_reached"] is True
+    assert fetched == [None, None, None]
+
+
+@pytest.mark.parametrize("asynchronous", [False, True])
+@pytest.mark.parametrize(
+    "error", [TransportError("request failed"), PaginationLimitError("failed")]
+)
+def test_paginator_exports_propagate_errors(asynchronous: bool, error: Exception) -> None:
+
+    def fetch(cursor: str | None) -> Page[_Item]:
+        if cursor is None:
+            return Page(items=(_Item(n=1, v=Decimal("0.1")),), has_more=True, next_cursor="p2")
+        raise error
+
+    async def async_fetch(cursor: str | None) -> Page[_Item]:
+        return fetch(cursor)
+
+    with pytest.raises(type(error)) as caught:
+        if asynchronous:
+            asyncio.run(AsyncPaginator(fetch=async_fetch).to_pandas(limit=None))
+        else:
+            Paginator(fetch=fetch).to_pandas(limit=None)
+    assert caught.value is error
 
 
 def test_paginator_to_pandas_without_limit_raises_typeerror() -> None:

@@ -16,7 +16,7 @@ from polymarket import (
 )
 from polymarket._internal.environment import PRODUCTION_CONFIG
 
-_READ_ONLY_UNAPPROVED_WALLET = "0x0000000000000000000000000000000000000000"
+_READ_ONLY_UNAPPROVED_WALLET = "0x00000000000000000000000000000000000000aa"
 
 
 def _builder_auth(require_env: Callable[[str], str]) -> BuilderApiKey:
@@ -102,7 +102,7 @@ def test_public_client_reads_trading_approvals_without_a_signer() -> None:
 
     assert isinstance(state, TradingApprovalsState)
     assert len(state.missing.erc20) == 7
-    assert len(state.missing.erc1155) == 8
+    assert len(state.missing.erc1155) == 10
     assert state.is_fully_approved is False
 
 

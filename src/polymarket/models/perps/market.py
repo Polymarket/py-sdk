@@ -34,12 +34,44 @@ class PerpsRiskTier(BaseModel):
         return _coerce_decimalish(value)
 
 
+class PerpsInstrumentSettlement(BaseModel):
+    """Permanent instrument retirement record and unapplied-funding cutoff."""
+
+    sequence: int = Field(ge=0, strict=True)
+    timestamp: datetime
+    price: Decimal
+    insurance_debit: Decimal
+
+    @field_validator("price", "insurance_debit", mode="before")
+    @classmethod
+    def _parse_decimals(cls, value: object) -> object:
+        return _coerce_decimalish(value)
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def _parse_timestamp(cls, value: object) -> object:
+        return _require_epoch_ms(value)
+
+
+class PerpsInstrumentLogo(BaseModel):
+    """Immutable instrument logo URLs for light and dark themes."""
+
+    light: str
+    dark: str
+
+
 class PerpsInstrument(BaseModel):
     """A tradable Perps instrument and its trading limits."""
 
     id: PerpsInstrumentId = Field(validation_alias="instrument_id")
     category: PerpsInstrumentCategory
     symbol: str
+    display_symbol: str | None = None
+    """Presentation label; use the canonical symbol or instrument ID for identification."""
+    close_only: bool = False
+    """Whether new orders must reduce exposure. Defaults to false for older responses."""
+    settlement: PerpsInstrumentSettlement | None = None
+    """Present after permanent retirement; trading cannot resume."""
     base_asset: str
     quote_asset: str
     funding_interval: str
@@ -54,6 +86,21 @@ class PerpsInstrument(BaseModel):
     max_leverage: int
     isolated_only: bool
     risk_tiers: tuple[PerpsRiskTier, ...]
+    ui_live_time: datetime | None
+    """Advisory visibility time; None means hidden. Does not restrict trading."""
+    logo: PerpsInstrumentLogo | None = None
+    """Immutable theme logo URLs; absent until uploaded."""
+
+    @field_validator("ui_live_time", mode="before")
+    @classmethod
+    def _parse_ui_live_time(cls, value: object) -> object:
+        if (
+            isinstance(value, int)
+            and not isinstance(value, bool)
+            and not 0 <= value <= 253402300799000
+        ):
+            raise ValueError("ui_live_time must be within 0..253402300799000 epoch milliseconds")
+        return _parse_epoch_ms(value)
 
     @field_validator(
         "price_bounds",
@@ -276,6 +323,8 @@ class PerpsTrade(BaseModel):
     trade_id: PerpsTradeId = Field(validation_alias=AliasChoices("trade_id", "tid"))
     instrument_id: PerpsInstrumentId = Field(validation_alias=AliasChoices("instrument_id", "iid"))
     side: PerpsSide
+    settlement: bool = False
+    """Whether this trade closes a position at instrument settlement; false on older responses."""
     price: Decimal = Field(validation_alias=AliasChoices("price", "p"))
     quantity: Decimal = Field(validation_alias=AliasChoices("quantity", "qty"))
     timestamp: datetime = Field(validation_alias=AliasChoices("timestamp", "ts"))
@@ -360,6 +409,7 @@ __all__ = [
     "PerpsFeeTier",
     "PerpsFundingRate",
     "PerpsInstrument",
+    "PerpsInstrumentLogo",
     "PerpsRiskTier",
     "PerpsStatistic",
     "PerpsTicker",

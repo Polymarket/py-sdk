@@ -1,5 +1,147 @@
 # Changelog
 
+## [0.14.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.13.0...polymarket-client-v0.14.0) (2026-10-21)
+
+### Features
+
+- **streams:** Add `EquityMarketStatus` and optional equity spot/TWAP `market_status` on updates and snapshots (`open`, `closed`, `unknown`; `None` means not stated, never open). Status describes the provider's instrument. Spot status-only updates may repeat the price timestamp with `is_carried_forward=True`; do not deduplicate by timestamp alone. Older unstated spot frames retain the last stated snapshot status. Snapshots carry status at batch level and may retain an older closing price; TWAP status changes with a new price. ([#366](https://github.com/Polymarket/py-sdk/pull/366))
+- **client:** Add filtered/sorted reward-market cursor pagination, current maker rebates by date/address, and outcome-asset reference lookup. ([#346](https://github.com/Polymarket/py-sdk/pull/346), [#345](https://github.com/Polymarket/py-sdk/pull/345), [#353](https://github.com/Polymarket/py-sdk/pull/353))
+- **client:** Add one-shot authenticated order heartbeats with mismatch-ID recovery. The first accepted send enables API-key-wide timeout cancellation with no disarm operation; callers own scheduling and ID serialization, and expiry cancellation is best effort. ([#347](https://github.com/Polymarket/py-sdk/pull/347))
+
+### Bug Fixes
+
+- **pagination:** Raise `UnexpectedResponseError` before requesting a continuation cursor already used in the same walk (including cycles and resumed cursors), after yielding pages fetched so far. Sync/async walks keep independent cursor sets; normal completion and `limit_reached` retain precedence. ([#358](https://github.com/Polymarket/py-sdk/pull/358))
+- **data:** Preserve Combo trade/redemption token `outcome` and `outcome_index` (zero is valid; blank labels/index `999` become `None`) and split/merge `is_combo` flags. Redemption retains the public `RedeemActivity` class and `ConditionId` annotation; use `is_combo` to identify baskets and check optional titles/URL fields before use. Automatic redemption remains REDEEM. ([#354](https://github.com/Polymarket/py-sdk/pull/354))
+- **client:** Expose native/sponsored total earnings breakdowns and sponsored queries without changing defaults; retain taker-tier upgrade notifications. ([#344](https://github.com/Polymarket/py-sdk/pull/344), [#343](https://github.com/Polymarket/py-sdk/pull/343))
+- **markets:** Preserve v2 oracle metadata and request-ID/event-ID/resolution-status/protocol filters; add scalar/sequence event protocol-version filtering retained across pagination. ([#352](https://github.com/Polymarket/py-sdk/pull/352), [#357](https://github.com/Polymarket/py-sdk/pull/357))
+- **models:** Accept new-market `game_start_time` datetime strings while preserving stream timestamp units and validation errors. Expose known user order statuses as named enum constants, accept `INVALID`/`CANCELED_*`, and preserve future values. ([#341](https://github.com/Polymarket/py-sdk/pull/341), [#367](https://github.com/Polymarket/py-sdk/pull/367), [#368](https://github.com/Polymarket/py-sdk/pull/368), [#369](https://github.com/Polymarket/py-sdk/pull/369), [841c593](https://github.com/Polymarket/py-sdk/commit/841c593))
+- **perps:** Continue complete millisecond transfer-history pages without duplicates/skips; retain fill risk details and instrument filters, portfolio margin/risk tiers, and instrument UI visibility/logos (advisory, not trading eligibility). Preserve exchange event horizons independently of send time; unknown zero horizons become `None`, and synthetic recovery invents no horizon. Perps remains experimental. ([#342](https://github.com/Polymarket/py-sdk/pull/342), [#348](https://github.com/Polymarket/py-sdk/pull/348), [#349](https://github.com/Polymarket/py-sdk/pull/349), [#350](https://github.com/Polymarket/py-sdk/pull/350), [#351](https://github.com/Polymarket/py-sdk/pull/351))
+
+### Documentation
+
+- **data:** Clarify realized-PnL ordering and manual restart for rejected obsolete closed-position cursors. UMA lifecycle rows retain the initial RequestPrice log index while the transaction hash may identify a later event; do not combine them as a log locator. Condition-resolution fallback rows use their own event metadata. ([#355](https://github.com/Polymarket/py-sdk/pull/355), [#356](https://github.com/Polymarket/py-sdk/pull/356))
+
+## [0.13.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.12.0...polymarket-client-v0.13.0) (2026-10-07)
+
+### Features
+
+- **client:** Read indexed trading approvals from the configured environment, with no RPC fallback. Recent changes may lag; setup still checks on chain. ([b0aa248](https://github.com/Polymarket/py-sdk/commit/b0aa248))
+- **portfolio:** Add position title filters, price sorting, and first-acquisition times. ([2ee4cde](https://github.com/Polymarket/py-sdk/commit/2ee4cde))
+- **data:** Add earliest settlement estimates and their basis, not guaranteed deadlines. ([6a4e65e](https://github.com/Polymarket/py-sdk/commit/6a4e65e))
+- **streams:** Add 60-second equity TWAPs, Chainlink/Pyth provider selection, and price source metadata. ([b543c9d](https://github.com/Polymarket/py-sdk/commit/b543c9d))
+- **perps:** Add chase and TWAP execution lifecycles through async sessions. ([e4454a0](https://github.com/Polymarket/py-sdk/commit/e4454a0))
+- **perps:** Add GTD orders, partial position TP/SL exits, and trailing stops with activation events. ([017b976](https://github.com/Polymarket/py-sdk/commit/017b976))
+- **perps:** Add public and owner position snapshots and public registration lookup through async clients and sessions. ([ed8d04c](https://github.com/Polymarket/py-sdk/commit/ed8d04c))
+- **perps:** Add batch leverage updates with per-instrument results. ([59fcfb3](https://github.com/Polymarket/py-sdk/commit/59fcfb3))
+- **perps:** Add paginated internal transfer history. ([2a558df](https://github.com/Polymarket/py-sdk/commit/2a558df))
+- **perps:** Expose close-only state, settlement records, display labels, and settlement flags on trades and fills. ([e0b6f1b](https://github.com/Polymarket/py-sdk/commit/e0b6f1b))
+- **perps:** Add `position_deleveraged` notifications. Exhaustive handlers must handle this variant; Perps remains experimental. ([8c73c1f](https://github.com/Polymarket/py-sdk/commit/8c73c1f))
+
+### Bug Fixes
+
+- **perps:** Retry transient cancellations with bounded backoff and preserve earlier outcomes in `PerpsCancelRetryError` if a later attempt fails. ([ee8e0a2](https://github.com/Polymarket/py-sdk/commit/ee8e0a2))
+- **perps:** Accept current terminal order statuses. ([b3153b0](https://github.com/Polymarket/py-sdk/commit/b3153b0))
+- **perps:** Accept small numeric trailing activation prices. ([ab72096](https://github.com/Polymarket/py-sdk/commit/ab72096))
+- **perps:** Preserve command rejection errors and validate batch leverage response scalars. ([28de448](https://github.com/Polymarket/py-sdk/commit/28de448))
+- **client:** Correct return types for subscriptions combining three price topics. ([e6d7526](https://github.com/Polymarket/py-sdk/commit/e6d7526))
+- **errors:** Parse HTTP-date `Retry-After` headers into nonnegative whole seconds. Retry policy is unchanged. ([b49859d](https://github.com/Polymarket/py-sdk/commit/b49859d))
+
+## [0.12.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.11.0...polymarket-client-v0.12.0) (2026-09-30)
+
+
+### Features
+
+* **gamma:** add a cursor-paginated comments spec ([15deb48](https://github.com/Polymarket/py-sdk/commit/15deb48fa530ddd70887561b6fd96cdb4e343b5e))
+* **gamma:** page comments by server cursor past the offset cap ([a5d3d0d](https://github.com/Polymarket/py-sdk/commit/a5d3d0db1fff77d6fe27acebf335f3d02615d49d))
+* **gamma:** route comment reads through cursor pagination ([c8c615a](https://github.com/Polymarket/py-sdk/commit/c8c615a4c6921eae1c3a7cf505ac2ed07affcd55))
+* **perps:** add session-oriented builder codes ([#313](https://github.com/Polymarket/py-sdk/issues/313)) ([bbf6513](https://github.com/Polymarket/py-sdk/commit/bbf6513cfa6f1f0a5ff95de4dd5cd00a7de2f5a0))
+
+
+### Bug Fixes
+
+* **client:** honor market version in position routing ([#322](https://github.com/Polymarket/py-sdk/issues/322)) ([674c5b3](https://github.com/Polymarket/py-sdk/commit/674c5b384fe256cf819993157d3126d93c940fde))
+* **gamma:** clarify the comments pagination hard stop ([b7b11c3](https://github.com/Polymarket/py-sdk/commit/b7b11c3c8a1d75eb885e46b697dbf8da2432317e))
+* **gamma:** preserve sport name on SportsMetadata ([29b5390](https://github.com/Polymarket/py-sdk/commit/29b5390b319baa70d5a96c2235c7b8dd8c23f564))
+* **gamma:** stop comment pagination at the upstream offset cap ([4d547a4](https://github.com/Polymarket/py-sdk/commit/4d547a42f1bc769429c8393cd603753bf637c30f))
+* **models:** accept account trades without a transaction hash ([a03c685](https://github.com/Polymarket/py-sdk/commit/a03c685190ba2afa252400acd0fcd2941922d416))
+* **models:** accept account trades without a transaction hash ([714710c](https://github.com/Polymarket/py-sdk/commit/714710ca42afa250e1b2e548a63e95c5343d2a07))
+* **models:** accept the REDEEMABLE_LOST and MERGEABLE position filters ([#311](https://github.com/Polymarket/py-sdk/issues/311)) ([0e00e28](https://github.com/Polymarket/py-sdk/commit/0e00e28365f57ab8fa7c5a7f3f320e77bb36e356))
+* **pagination:** preserve depth-limit signals when iteration stops ([29d162e](https://github.com/Polymarket/py-sdk/commit/29d162e0fccb9cf8708e1315172ae92a1772a9f3))
+
+## [0.11.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.10.0...polymarket-client-v0.11.0) (2026-09-21)
+
+### Features
+
+* **streams:** add authenticated PolyBolt crypto, 60-second TWAP, and equity price streams with history snapshots, automatic reconnects, typed price events, and isolated filter rejections ([324783f](https://github.com/Polymarket/py-sdk/commit/324783f1fcdce9da37f77a8aeea229871425f2fb)). Crypto symbols use canonical USD pairs such as `btcusd`; equity prices use the instrument's quote currency. Legacy price topics remain deprecated. Migrating Binance prices changes the quote currency from USDT to USD; 30-second TWAP has no replacement. See the [migration guide](https://docs.polymarket.com/api-reference/live-data/migrating-from-rtds#migrate-sdks-to-polybolt).
+
+### Bug Fixes
+
+* **client:** preserve protected BUY caps across tick refinements ([1ed8b7c](https://github.com/Polymarket/py-sdk/commit/1ed8b7cdc3f9fa4065cce168019d4046d82c66bd)).
+* **client:** round protected market BUY shares down so the order can cross at `max_price` ([24e3463](https://github.com/Polymarket/py-sdk/commit/24e346374acef3e3a3da4e3c08a8981e0122ea81)).
+* **client:** sort `list_markets` numerically for `order="volume"` and `order="liquidity"` ([ac09e73](https://github.com/Polymarket/py-sdk/commit/ac09e7321867da768ab3eefb5f581355bc00ca89)). Restart pagination when upgrading: cursors issued by earlier releases with these sort fields no longer resume.
+
+## [0.10.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.9.0...polymarket-client-v0.10.0) (2026-09-10)
+
+
+### ⚠ BREAKING CHANGES
+
+* migrate data reads to the Data API v2 contract
+
+### Features
+
+* migrate data reads to the Data API v2 contract ([ac69106](https://github.com/Polymarket/py-sdk/commit/ac69106a92cf47136319ae07008d5245c2c7e5b2))
+
+
+### Bug Fixes
+
+* **data:** make date-only timestamps UTC and tighten event id checks ([e0cc564](https://github.com/Polymarket/py-sdk/commit/e0cc564eba29b8973288757341c37866f22541d5))
+* **data:** preserve identity and typed boundary errors ([407a3ab](https://github.com/Polymarket/py-sdk/commit/407a3ab0b95f0fe634b451cee0f76b0465edb5a0))
+* **data:** preserve payout round trips and align review rules ([d26d6e3](https://github.com/Polymarket/py-sdk/commit/d26d6e3ead2bb713d5db396e5a7a45b2d4d468d9))
+* **data:** tighten request validation and expose data vocabularies as enums ([e7452ef](https://github.com/Polymarket/py-sdk/commit/e7452efff69a8891bd5c007384b217bde156cf4e))
+* **data:** validate cursor inputs and normalize activity fields ([a045641](https://github.com/Polymarket/py-sdk/commit/a045641181e0c05c9def7c2947e257e08a9c5413))
+* **frames:** support mixed enum and string activity columns ([37addf2](https://github.com/Polymarket/py-sdk/commit/37addf297687d43494b6a63c16cb1813595223b4))
+* preserve full positions history and zero combo watermarks ([d8aaa92](https://github.com/Polymarket/py-sdk/commit/d8aaa92907a81eefcd5b483462ee2154f406c4d2))
+
+## [0.9.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.8.0...polymarket-client-v0.9.0) (2026-09-04)
+
+
+### Features
+
+* support Poly V2 identifiers and trading ([1f125cd](https://github.com/Polymarket/py-sdk/commit/1f125cdb2bb684aec7c9b044ac9991e383822498))
+
+
+### Bug Fixes
+
+* complete Poly V2 asset ID compatibility ([37105c2](https://github.com/Polymarket/py-sdk/commit/37105c2c4ff439b13553bdfa794470fcd5cd0521))
+
+## [0.8.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.7.1...polymarket-client-v0.8.0) (2026-09-03)
+
+
+### Features
+
+* **models:** expose market combo status ([2737586](https://github.com/Polymarket/py-sdk/commit/2737586a1a9cb0312bac7f793e25bff312a0fd05))
+* **models:** expose market combo status ([dfacd39](https://github.com/Polymarket/py-sdk/commit/dfacd394d5a6692dcebefed6fb4a92aa941c94e6))
+* **models:** expose market protocol versions ([75f5da3](https://github.com/Polymarket/py-sdk/commit/75f5da3443a8ac2ba3477f20f7459f5bd8dc1a86))
+* **models:** expose market protocol versions ([24d0dd1](https://github.com/Polymarket/py-sdk/commit/24d0dd127485518abbf61ae845d3054e508f16ab))
+
+
+### Bug Fixes
+
+* **client:** extend session-key relayer timeout ([828de8c](https://github.com/Polymarket/py-sdk/commit/828de8c9df8c3aab34f66ecb2710730de9380789))
+* **client:** extend session-key relayer timeout ([d4726ff](https://github.com/Polymarket/py-sdk/commit/d4726ffd5ebc3293786d920b95c63cff99f8c567))
+* **client:** omit revocation transaction handle ([85a633c](https://github.com/Polymarket/py-sdk/commit/85a633cdb467a0716a315a1c0c400be7d1bb916c))
+* **client:** retry missing session-key registry ([b15f321](https://github.com/Polymarket/py-sdk/commit/b15f321d92d4f90aa75586194d2e57d91eabccc0))
+* **client:** stop revocation after registry removal ([1269a79](https://github.com/Polymarket/py-sdk/commit/1269a792fe5c0581c36137598c622fdb6d7953c1))
+* **client:** stop revocation after registry removal ([059c80f](https://github.com/Polymarket/py-sdk/commit/059c80f4cd739e7fad5c04b48ad4cc35873927a3))
+* **gamma:** preserve team ordering ([bc395d6](https://github.com/Polymarket/py-sdk/commit/bc395d6bf4ab1fc947cf62b36f03535cfd3bac16))
+* **models:** align protocol version contracts ([508b550](https://github.com/Polymarket/py-sdk/commit/508b550e3283d531fb7a9a0ee468140d3379b4e2))
+* **models:** pass unknown combo statuses through ([7d7233e](https://github.com/Polymarket/py-sdk/commit/7d7233e3bc5478551a85d5a55dcf0e84848eb9b0))
+
+
+### Documentation
+
+* **client:** clarify revocation polling behavior ([8fc4539](https://github.com/Polymarket/py-sdk/commit/8fc4539e596a5a96e63565226834977ae55ec4b5))
+
 ## [0.7.1](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.7.0...polymarket-client-v0.7.1) (2026-08-28)
 
 

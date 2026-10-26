@@ -30,6 +30,7 @@ class _StubPaginator:
 def _make_market_stub(neg_risk: bool | None) -> SimpleNamespace:
     return SimpleNamespace(
         id="123",
+        version="v1",
         condition_id=_CONDITION_ID,
         state=SimpleNamespace(neg_risk=neg_risk),
         outcomes=SimpleNamespace(

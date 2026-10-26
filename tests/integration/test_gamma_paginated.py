@@ -1,5 +1,8 @@
+# pyright: reportPrivateUsage=false
 import asyncio
+from collections.abc import Iterator
 
+import httpx
 import pytest
 
 from polymarket import (
@@ -7,12 +10,87 @@ from polymarket import (
     Comment,
     Event,
     Market,
+    ProtocolVersion,
     PublicClient,
     SearchResults,
     Series,
     Tag,
     Team,
+    UserInputError,
 )
+
+_PROTOCOL_CASES = [
+    pytest.param(ProtocolVersion.V1, id="v1"),
+    pytest.param(ProtocolVersion.V2, id="v2"),
+    pytest.param((ProtocolVersion.V1, ProtocolVersion.V2), id="v1-and-v2"),
+]
+
+
+@pytest.fixture
+def event_request_urls(sync_public_client: PublicClient) -> Iterator[list[httpx.URL]]:
+    urls: list[httpx.URL] = []
+
+    def capture(request: httpx.Request) -> None:
+        if request.url.path == "/events/keyset":
+            urls.append(request.url)
+
+    hooks = sync_public_client._ctx.gamma._client.event_hooks["request"]
+    hooks.append(capture)
+    try:
+        yield urls
+    finally:
+        hooks.remove(capture)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("version", [pytest.param(None, id="omitted"), *_PROTOCOL_CASES])
+def test_list_events_retains_protocol_on_first_page_including_empty_results(
+    sync_public_client: PublicClient,
+    event_request_urls: list[httpx.URL],
+    version: ProtocolVersion | tuple[ProtocolVersion, ...] | None,
+) -> None:
+    first = sync_public_client.list_events(version=version, page_size=2).first_page()
+
+    assert len(first.items) <= 2
+    assert all(isinstance(event, Event) for event in first.items)
+    assert len(event_request_urls) == 1
+    expected = [] if version is None else [version] if isinstance(version, str) else list(version)
+    assert event_request_urls[0].params.get_list("version") == expected
+    assert "after_cursor" not in event_request_urls[0].params
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("version", _PROTOCOL_CASES)
+def test_list_events_retains_protocol_on_continuation_pages(
+    sync_public_client: PublicClient,
+    event_request_urls: list[httpx.URL],
+    version: ProtocolVersion | tuple[ProtocolVersion, ...],
+) -> None:
+    paginator = sync_public_client.list_events(version=version, page_size=2)
+    first = paginator.first_page()
+    expected = [version] if isinstance(version, str) else list(version)
+    assert len(event_request_urls) == 1
+    assert event_request_urls[0].params.get_list("version") == expected
+    assert "after_cursor" not in event_request_urls[0].params
+
+    cursor = first.next_cursor
+    if cursor is None:
+        pytest.skip(f"No continuation cursor for protocol {version}")
+
+    second = paginator.from_cursor(cursor).first_page()
+    assert len(second.items) <= 2
+    assert all(isinstance(event, Event) for event in second.items)
+    assert len(event_request_urls) == 2
+    assert event_request_urls[1].params.get_list("version") == expected
+    assert "after_cursor" in event_request_urls[1].params
+
+    changed = ProtocolVersion.V2 if version == ProtocolVersion.V1 else ProtocolVersion.V1
+    for other in (changed, None):
+        with pytest.raises(UserInputError):
+            sync_public_client.list_events(version=other, page_size=2).from_cursor(
+                cursor
+            ).first_page()
+    assert len(event_request_urls) == 2
 
 
 @pytest.mark.integration
@@ -28,7 +106,7 @@ def test_list_events_returns_paginator() -> None:
 @pytest.mark.integration
 def test_list_events_keyset_iterates_multiple_pages() -> None:
     with PublicClient() as client:
-        paginator = client.list_events(closed=False, page_size=5)
+        paginator = client.list_events(closed=False, version=ProtocolVersion.V1, page_size=5)
         pages: list[int] = []
         for page in paginator:
             pages.append(len(page.items))
@@ -251,3 +329,53 @@ def test_search_cursor_advances_to_next_page() -> None:
         page_one_ids = {event.id for event in bundle_one.events}
         page_two_ids = {event.id for event in bundle_two.events}
         assert page_one_ids != page_two_ids or not bundle_one.events
+
+
+def _root_created_at(page_items: tuple[Comment, ...]) -> list[float]:
+    return [
+        comment.created_at.timestamp()
+        for comment in page_items
+        if comment.parent_comment_id is None and comment.created_at is not None
+    ]
+
+
+@pytest.mark.integration
+def test_list_comments_continues_a_long_thread_by_server_cursor() -> None:
+    # A long-running thread; each page carries `page_size` top-level comments
+    # plus their replies, so assertions are on the top-level comments only.
+    with PublicClient() as client:
+        paginator = client.list_comments(
+            parent_entity_id="45915", parent_entity_type="Event", page_size=5
+        )
+        first = paginator.first_page()
+        second = paginator.from_cursor(first.next_cursor).first_page()
+
+        assert first.has_more is True
+        assert first.next_cursor and first.next_cursor != second.next_cursor
+        assert all(isinstance(comment, Comment) for comment in (*first.items, *second.items))
+
+        first_roots = {c.id for c in first.items if c.parent_comment_id is None}
+        second_roots = {c.id for c in second.items if c.parent_comment_id is None}
+        assert len(first_roots) == 5
+        assert first_roots.isdisjoint(second_roots)
+
+        created_at = _root_created_at(first.items) + _root_created_at(second.items)
+        assert created_at == sorted(created_at, reverse=True)
+
+
+@pytest.mark.integration
+def test_async_list_comments_continues_a_long_thread_by_server_cursor() -> None:
+    async def run() -> None:
+        async with AsyncPublicClient() as client:
+            paginator = client.list_comments(
+                parent_entity_id="45915", parent_entity_type="Event", page_size=5
+            )
+            first = await paginator.first_page()
+            second = await paginator.from_cursor(first.next_cursor).first_page()
+
+            first_roots = {c.id for c in first.items if c.parent_comment_id is None}
+            second_roots = {c.id for c in second.items if c.parent_comment_id is None}
+            assert first.has_more is True
+            assert first_roots.isdisjoint(second_roots)
+
+    asyncio.run(run())

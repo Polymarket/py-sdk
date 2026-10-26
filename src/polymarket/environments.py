@@ -40,6 +40,8 @@ class _EnvironmentConfig:
     rpc_url: str
     exchange_v3: str = "0xe3333700cA9d93003F00f0F71f8515005F6c00Aa"
     protocol_v2_router: str = "0x12121212006e4CD160D18e3f00711DA5c3372600"
+    binary_module: str = "0x1000008dD9001B968442c1000017eaE6E0dA00Ba"
+    neg_risk_module: str = "0x200000900045e3B6259600682756002200028933"
     combinatorial_module: str = "0x30000034706c7d8e12009dab006be20000c031a8"
     position_manager: str = "0x006F54F7f9A22e0000CC2AB60031000000ae9fEF"
     rfq_quoter_ws_url: str = "wss://combos-rfq-gateway-quoter.polymarket.com/ws/rfq"
@@ -48,6 +50,8 @@ class _EnvironmentConfig:
     collateral_return_url: str = "https://combos-rfq-collateral-return.polymarket.com"
     perps_url: str = "https://api.perpetuals.polymarket.com"
     perps_ws_url: str = "wss://ws.perpetuals.polymarket.com/v1/ws"
+    realtime_ws_url: str = "wss://ws-live-v2.polymarket.com/ws"
+    realtime_ws_headers: dict[str, str] | None = None
     perps_deposit_contract: str = "0xDCa4af75705dbB50f62437045afF9921947917d2"
     relayer_max_polls: int = 100
     relayer_poll_frequency_ms: int = 2000

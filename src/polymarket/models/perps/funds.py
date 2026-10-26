@@ -14,9 +14,46 @@ from polymarket.models.perps._validators import (
 )
 from polymarket.models.perps.types import (
     PerpsDepositStatus,
+    PerpsInternalTransferDirection,
+    PerpsInternalTransferId,
+    PerpsInternalTransferType,
+    PerpsKnownInternalTransferType,
     PerpsWithdrawalId,
     PerpsWithdrawalStatus,
 )
+
+
+class PerpsInternalTransfer(BaseModel):
+    """One settled collateral transfer, with an exact amount in token units."""
+
+    transfer_id: PerpsInternalTransferId = Field(strict=True, ge=0)
+    type: PerpsInternalTransferType
+    asset: str
+    amount: Decimal
+    direction: PerpsInternalTransferDirection
+    counterparty: str
+    label: str | None = None
+    created_at: datetime = Field(validation_alias="created_timestamp")
+
+    @field_validator("type", mode="before")
+    @classmethod
+    def _parse_type(cls, value: object) -> object:
+        if not isinstance(value, str) or not value:
+            raise ValueError("expected a nonempty transfer classification")
+        try:
+            return PerpsKnownInternalTransferType(value)
+        except ValueError:
+            return value
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def _parse_amount(cls, value: object) -> object:
+        return _coerce_decimalish(value)
+
+    @field_validator("created_at", mode="before")
+    @classmethod
+    def _parse_created_at(cls, value: object) -> object:
+        return _require_epoch_ms(value)
 
 
 class PerpsDeposit(BaseModel):
@@ -127,6 +164,7 @@ class PerpsWithdrawalUpdate(BaseModel):
 
 
 __all__ = [
+    "PerpsInternalTransfer",
     "PerpsDeposit",
     "PerpsDepositUpdate",
     "PerpsWithdrawal",

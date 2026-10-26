@@ -1,8 +1,16 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated, Any, Literal, cast
+from enum import StrEnum
+from typing import Annotated, Any, Literal, TypeAlias, cast
 
-from pydantic import AliasChoices, Field, TypeAdapter, ValidationError, field_validator
+from pydantic import (
+    AliasChoices,
+    Field,
+    TypeAdapter,
+    ValidationError,
+    computed_field,
+    field_validator,
+)
 
 from polymarket.models.base import BaseModel
 from polymarket.models.clob._validators import (
@@ -16,7 +24,7 @@ from polymarket.models.clob.account import (
     TradeStatus,
     _normalize_trade_status,  # pyright: ignore[reportPrivateUsage]
 )
-from polymarket.models.types import OrderSide, TokenId
+from polymarket.models.types import ClobAssetId, ConditionId, OrderSide
 
 
 def _uppercase_string(value: object) -> object:
@@ -26,7 +34,24 @@ def _uppercase_string(value: object) -> object:
 _OrderEventType = Literal["PLACEMENT", "UPDATE", "CANCELLATION"]
 
 
-_OrderStatus = Literal["LIVE", "MATCHED", "DELAYED", "UNMATCHED", "CANCELED"]
+class KnownUserOrderStatus(StrEnum):
+    """Known user order statuses; additional statuses are preserved as plain strings."""
+
+    LIVE = "LIVE"
+    MATCHED = "MATCHED"
+    DELAYED = "DELAYED"
+    UNMATCHED = "UNMATCHED"
+    CANCELED = "CANCELED"
+    CANCELED_MARKET_RESOLVED = "CANCELED_MARKET_RESOLVED"
+    CANCELED_NOT_ENOUGH_BALANCE = "CANCELED_NOT_ENOUGH_BALANCE"
+    CANCELED_MARKET_NOT_FOUND = "CANCELED_MARKET_NOT_FOUND"
+    CANCELED_EXPIRED_ORDER = "CANCELED_EXPIRED_ORDER"
+    CANCELED_ORDER_TIMED_OUT = "CANCELED_ORDER_TIMED_OUT"
+    INVALID = "INVALID"
+
+
+# Cancellation reasons and newly introduced statuses flow through as strings.
+UserOrderStatus: TypeAlias = KnownUserOrderStatus | str
 
 
 _OrderType = Literal["GTC", "FOK", "IOC", "GTD", "FAK"]
@@ -35,8 +60,11 @@ _OrderType = Literal["GTC", "FOK", "IOC", "GTD", "FAK"]
 class UserOrderPayload(BaseModel):
     id: str
     owner: str
-    market: str
-    token_id: TokenId = Field(validation_alias="asset_id")
+    condition_id: ConditionId = Field(validation_alias="market")
+    market: ConditionId = Field(
+        validation_alias="market", description="Deprecated: use condition_id."
+    )
+    asset_id: ClobAssetId = Field(validation_alias=AliasChoices("asset_id", "token_id"))
     side: OrderSide
     original_size: Decimal
     size_matched: Decimal
@@ -46,11 +74,30 @@ class UserOrderPayload(BaseModel):
     created_at: datetime | None = None
     expires_at: datetime | None = Field(default=None, validation_alias="expiration")
     order_type: _OrderType | None = None
-    status: _OrderStatus | None = None
+    status: UserOrderStatus | None = None
     maker_address: str | None = None
     order_owner: str | None = None
     associate_trades: tuple[str, ...] | None = None
     outcome: str | None = None
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _parse_status(cls, value: object) -> UserOrderStatus | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("User order status must be a string")
+        try:
+            return KnownUserOrderStatus(value)
+        except ValueError:
+            return value
+
+    @computed_field
+    @property
+    def token_id(self) -> ClobAssetId:
+        """Deprecated alias for :attr:`asset_id`."""
+
+        return self.asset_id
 
     @field_validator("side", mode="before")
     @classmethod
@@ -85,10 +132,17 @@ class UserTradeMakerOrder(BaseModel):
     matched_amount: Decimal
     price: Decimal
     fee_rate_bps: Decimal | None = None
-    token_id: TokenId = Field(validation_alias="asset_id")
+    asset_id: ClobAssetId = Field(validation_alias=AliasChoices("asset_id", "token_id"))
     side: OrderSide
     outcome: str | None = None
     outcome_index: int | None = None
+
+    @computed_field
+    @property
+    def token_id(self) -> ClobAssetId:
+        """Deprecated alias for :attr:`asset_id`."""
+
+        return self.asset_id
 
     @field_validator("matched_amount", "price", mode="before")
     @classmethod
@@ -109,8 +163,11 @@ class UserTradeMakerOrder(BaseModel):
 class UserTradePayload(BaseModel):
     id: str
     taker_order_id: str
-    market: str
-    token_id: TokenId = Field(validation_alias="asset_id")
+    condition_id: ConditionId = Field(validation_alias="market")
+    market: ConditionId = Field(
+        validation_alias="market", description="Deprecated: use condition_id."
+    )
+    asset_id: ClobAssetId = Field(validation_alias=AliasChoices("asset_id", "token_id"))
     side: OrderSide
     size: Decimal
     price: Decimal
@@ -129,6 +186,13 @@ class UserTradePayload(BaseModel):
     maker_orders: tuple[UserTradeMakerOrder, ...] | None = None
     trader_side: Literal["TAKER", "MAKER"] | None = None
     outcome: str | None = None
+
+    @computed_field
+    @property
+    def token_id(self) -> ClobAssetId:
+        """Deprecated alias for :attr:`asset_id`."""
+
+        return self.asset_id
 
     @field_validator("side", "trader_side", mode="before")
     @classmethod
@@ -212,9 +276,11 @@ def parse_user_events(raw: object) -> tuple[list[UserEvent], int]:
 
 
 __all__ = [
+    "KnownUserOrderStatus",
     "UserEvent",
     "UserOrderEvent",
     "UserOrderPayload",
+    "UserOrderStatus",
     "UserTradeEvent",
     "UserTradeMakerOrder",
     "UserTradePayload",

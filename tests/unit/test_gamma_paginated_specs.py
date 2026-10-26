@@ -1,12 +1,22 @@
-import pytest
+import asyncio
+from collections.abc import Sequence
+from typing import Literal
 
+import httpx
+import pytest
+import respx
+from eth_account import Account
+
+from polymarket import ApiKeyCreds, AsyncPublicClient, AsyncSecureClient, PublicClient, SecureClient
 from polymarket._internal.actions import gamma as gamma_actions
+from polymarket._internal.pagination import fingerprint_query
 from polymarket._internal.request import (
     KeysetPaginatedSpec,
     OffsetPaginatedSpec,
     PageBasedSpec,
 )
 from polymarket.errors import UnexpectedResponseError, UserInputError
+from polymarket.models import Comment, MarketResolutionStatus, ProtocolVersion
 
 
 def _minimal_market_payload(**overrides: object) -> dict[str, object]:
@@ -28,6 +38,23 @@ def test_list_events_spec_defaults_to_open_events() -> None:
     assert spec.service == "gamma"
     assert spec.path == "/events/keyset"
     assert spec.base_params == {"closed": False}
+
+
+@pytest.mark.parametrize("version", ["v1", "v2", ProtocolVersion.V1, ProtocolVersion.V2])
+def test_list_events_spec_sends_scalar_protocol_version(
+    version: ProtocolVersion | Literal["v1", "v2"],
+) -> None:
+    spec = gamma_actions.list_events_spec(version=version)
+
+    assert spec.base_params == {"closed": False, "version": version}
+
+
+@pytest.mark.parametrize(
+    "version", ["v3", "V2", "", 2, True, [], ["v1", "v2", "v1"], ["v2", None], b"v1", {"v1"}]
+)
+def test_list_events_spec_rejects_invalid_protocol_version(version: object) -> None:
+    with pytest.raises(UserInputError, match="version must be"):
+        gamma_actions.list_events_spec(version=version)  # type: ignore[arg-type]
 
 
 def test_list_events_spec_collects_filter_params() -> None:
@@ -68,6 +95,160 @@ def test_list_markets_spec_default_has_no_params() -> None:
     assert spec.base_params is None
 
 
+def test_list_markets_spec_preserves_v2_filters_and_pagination_fingerprint() -> None:
+    spec = gamma_actions.list_markets_spec(
+        request_ids=["request-A", "request-B"],
+        onchain_event_ids="event-A",
+        resolution_status=MarketResolutionStatus.ACTIVE,
+        version=ProtocolVersion.V2,
+    )
+
+    assert spec.base_params == {
+        "request_ids": ("request-A", "request-B"),
+        "onchain_event_ids": ("event-A",),
+        "resolution_status": "active",
+        "version": "v2",
+    }
+    assert fingerprint_query(spec.base_params) != fingerprint_query(None)
+
+
+@pytest.mark.parametrize("name", ["request_ids", "onchain_event_ids"])
+def test_list_markets_spec_bounds_v2_filter_count(name: str) -> None:
+    accepted = (
+        gamma_actions.list_markets_spec(request_ids=["ID"] * 100)
+        if name == "request_ids"
+        else gamma_actions.list_markets_spec(onchain_event_ids=["ID"] * 100)
+    )
+    assert accepted.base_params is not None
+    assert accepted.base_params[name] == ("ID",) * 100
+    with pytest.raises(UserInputError, match="100"):
+        if name == "request_ids":
+            gamma_actions.list_markets_spec(request_ids=["ID"] * 101)
+        else:
+            gamma_actions.list_markets_spec(onchain_event_ids=["ID"] * 101)
+
+
+@pytest.mark.parametrize(
+    "version", [None, "v2", ["v1", "v2"], (ProtocolVersion.V2, ProtocolVersion.V1), ["v1", "v1"]]
+)
+@pytest.mark.parametrize("client_mode", ["sync", "async"])
+@pytest.mark.parametrize("secure", [False, True], ids=["public", "secure"])
+def test_market_lists_preserve_v2_filters_and_bounds_across_pages(
+    client_mode: str,
+    secure: bool,
+    version: ProtocolVersion
+    | Literal["v1", "v2"]
+    | Sequence[ProtocolVersion | Literal["v1", "v2"]]
+    | None,
+) -> None:
+    # Controlled responses isolate filter serialization and continuation while
+    # the live metadata API is unavailable in this environment.
+    request_ids = [f"request-{index}" for index in range(100)]
+    event_ids = [f"event-{index}" for index in range(100)]
+    # Synthetic signing material is used only with controlled transports.
+    test_key = "0x" + "01" * 32
+    wallet = Account.from_key(test_key).address
+    credentials = ApiKeyCreds(key="test-key", passphrase="test-passphrase", secret="dGVzdA==")
+    requests: list[httpx.Request] = []
+    responses = iter(
+        [
+            httpx.Response(200, json={"markets": [], "next_cursor": "page-2"}),
+            httpx.Response(200, json={"markets": []}),
+        ]
+    )
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return next(responses)
+
+    with respx.mock as router:
+        if secure:
+            router.get("https://clob.polymarket.com/auth/api-keys").respond(
+                json={"apiKeys": [credentials.key]},
+            )
+        route = router.get("https://gamma-api.polymarket.com/markets/keyset")
+        route.side_effect = respond
+
+        if client_mode == "sync":
+            client = (
+                SecureClient.create(private_key=test_key, wallet=wallet, credentials=credentials)
+                if secure
+                else PublicClient()
+            )
+            with client:
+                pages = list(
+                    client.list_markets(
+                        request_ids=request_ids,
+                        onchain_event_ids=event_ids,
+                        resolution_status="active",
+                        version=version,
+                        page_size=10,
+                    )
+                )
+                with pytest.raises(UserInputError, match="100"):
+                    client.list_markets(request_ids=request_ids + ["extra"])
+                with pytest.raises(UserInputError, match="100"):
+                    client.list_markets(onchain_event_ids=event_ids + ["extra"])
+        else:
+
+            async def collect() -> int:
+                client = (
+                    await AsyncSecureClient.create(
+                        private_key=test_key,
+                        wallet=wallet,
+                        credentials=credentials,
+                    )
+                    if secure
+                    else AsyncPublicClient()
+                )
+                async with client:
+                    pages = [
+                        page
+                        async for page in client.list_markets(
+                            request_ids=request_ids,
+                            onchain_event_ids=event_ids,
+                            resolution_status="active",
+                            version=version,
+                            page_size=10,
+                        )
+                    ]
+                    with pytest.raises(UserInputError, match="100"):
+                        client.list_markets(request_ids=request_ids + ["extra"])
+                    with pytest.raises(UserInputError, match="100"):
+                        client.list_markets(onchain_event_ids=event_ids + ["extra"])
+                    return len(pages)
+
+            assert asyncio.run(collect()) == 2
+            pages = []
+
+        if client_mode == "sync":
+            assert len(pages) == 2
+        assert len(requests) == 2
+        for request in requests:
+            query = request.url.params
+            assert query.get_list("request_ids") == request_ids
+            assert query.get_list("onchain_event_ids") == event_ids
+            assert query["resolution_status"] == "active"
+            assert query.get_list("version") == (
+                [] if version is None else [version] if isinstance(version, str) else list(version)
+            )
+        assert requests[1].url.params["after_cursor"] == "page-2"
+
+
+@pytest.mark.parametrize(
+    "filters",
+    [
+        {"resolution_status": "pending"},
+        {"version": "v3"},
+        {"resolution_status": []},
+        {"resolution_status": {}},
+    ],
+)
+def test_list_markets_spec_rejects_unsupported_v2_filter_enums(filters: dict[str, object]) -> None:
+    with pytest.raises(UserInputError):
+        gamma_actions.list_markets_spec(**filters)  # type: ignore[arg-type]
+
+
 def test_list_markets_spec_collects_array_params() -> None:
     spec = gamma_actions.list_markets_spec(
         clob_token_ids=["A", "B"],
@@ -80,6 +261,52 @@ def test_list_markets_spec_collects_array_params() -> None:
         "id": (1, 2),
         "position_ids": ("P1", "P2"),
     }
+
+
+@pytest.mark.parametrize(
+    ("order", "expected"),
+    [
+        ("volume", "volumeNum"),
+        ("liquidity", "liquidityNum"),
+        ("volume,id", "volumeNum,id"),
+        ("createdAt, volume", "createdAt,volumeNum"),
+    ],
+)
+def test_list_markets_spec_sends_numeric_twins_for_text_sorted_fields(
+    order: str, expected: str
+) -> None:
+    spec = gamma_actions.list_markets_spec(order=order)
+
+    assert spec.base_params == {"order": expected}
+
+
+@pytest.mark.parametrize("order", ["volumeNum", "liquidityNum", "volume24hr", "startDate", "id"])
+def test_list_markets_spec_forwards_other_order_fields_unchanged(order: str) -> None:
+    spec = gamma_actions.list_markets_spec(order=order, ascending=False)
+
+    assert spec.base_params == {"ascending": False, "order": order}
+
+
+def test_list_markets_spec_order_alias_keeps_cursors_interchangeable() -> None:
+    # Pagination cursors carry a fingerprint of the query; a cursor issued while
+    # ordering by "volume" must resume when the caller spells it "volumeNum".
+    aliased = gamma_actions.list_markets_spec(order="volume", closed=False)
+    explicit = gamma_actions.list_markets_spec(order="volumeNum", closed=False)
+
+    assert fingerprint_query(aliased.base_params) == fingerprint_query(explicit.base_params)
+
+
+def test_list_markets_spec_order_alias_leaves_empty_tokens_alone() -> None:
+    spec = gamma_actions.list_markets_spec(order="volume,")
+
+    assert spec.base_params == {"order": "volumeNum,"}
+
+
+def test_list_events_spec_does_not_alias_order() -> None:
+    # Events store volume as a number upstream, so the alias is markets-only.
+    spec = gamma_actions.list_events_spec(order="volume")
+
+    assert spec.base_params == {"closed": False, "order": "volume"}
 
 
 def test_list_markets_parser_skips_non_binary_markets_and_keeps_cursor() -> None:
@@ -195,11 +422,11 @@ def test_list_comments_spec_builds_base_params() -> None:
 
 
 def test_list_comments_by_user_address_spec_builds_path_from_address() -> None:
-    spec = gamma_actions.list_comments_by_user_address_spec(address="0xUSER", order="DESC")
+    spec = gamma_actions.list_comments_by_user_address_spec(address="0xUSER", order="createdAt")
 
     assert isinstance(spec, OffsetPaginatedSpec)
     assert spec.path == "/comments/user_address/0xUSER"
-    assert spec.base_params == {"order": "DESC"}
+    assert spec.base_params == {"order": "createdAt"}
 
 
 def test_list_comments_by_user_address_spec_rejects_empty_address() -> None:
@@ -339,3 +566,165 @@ def test_offset_specs_cap_page_size_at_server_limit(spec: object, expected_max: 
     # misbehaving.
     assert isinstance(spec, OffsetPaginatedSpec)
     assert spec.max_page_size == expected_max
+
+
+@pytest.mark.parametrize(
+    ("spec", "expected_max_offset"),
+    [
+        (gamma_actions.list_series_spec(), None),
+        (gamma_actions.list_tags_spec(), None),
+        (gamma_actions.list_teams_spec(), None),
+        (
+            gamma_actions.list_comments_spec(parent_entity_id="1", parent_entity_type="Event"),
+            200,
+        ),
+        (gamma_actions.list_comments_by_user_address_spec(address="0x" + "a" * 40), 200),
+    ],
+    ids=["series", "tags", "teams", "comments", "comments-by-user-address"],
+)
+def test_offset_specs_cap_offset_at_server_limit(
+    spec: object, expected_max_offset: int | None
+) -> None:
+    # Only the comments listings reject deep offsets upstream; the cap here
+    # must match so the SDK fails before the request rather than after it.
+    assert isinstance(spec, OffsetPaginatedSpec)
+    assert spec.max_offset == expected_max_offset
+
+
+def test_list_comments_spec_counts_only_root_comments_as_page_fill() -> None:
+    # A comments page holds `limit` top-level comments plus their replies, so
+    # replies must not make a short page of roots look full.
+    spec = gamma_actions.list_comments_spec(parent_entity_id="1", parent_entity_type="Event")
+    assert spec.page_fill is not None
+
+    root = Comment.parse_response({"id": "1", "body": "root"})
+    reply = Comment.parse_response({"id": "2", "body": "reply", "parentCommentID": "1"})
+
+    assert spec.page_fill((root, reply, reply)) == 1
+    assert spec.page_fill((root, root)) == 2
+    assert spec.page_fill(()) == 0
+
+
+def test_list_comments_by_user_address_spec_counts_every_row_as_page_fill() -> None:
+    # The by-address listing is flat: authored replies are rows of their own.
+    spec = gamma_actions.list_comments_by_user_address_spec(address="0x" + "a" * 40)
+    assert spec.page_fill is None
+
+
+_KEYSET_DEFAULTS = {
+    "parent_entity_id": "123",
+    "parent_entity_type": "Event",
+    "order": "createdAt",
+    "ascending": False,
+}
+
+
+def test_list_comments_keyset_spec_pins_newest_first_by_default() -> None:
+    spec = gamma_actions.list_comments_keyset_spec(
+        parent_entity_id="123", parent_entity_type="Event"
+    )
+
+    assert isinstance(spec, KeysetPaginatedSpec)
+    assert spec.path == "/comments/keyset"
+    assert spec.cursor_param == "after_cursor"
+    assert spec.max_page_size == 100
+    assert spec.base_params == _KEYSET_DEFAULTS
+
+
+def test_list_comments_keyset_spec_ignores_ascending_without_order() -> None:
+    # The offset listing ignores `ascending` unless `order` is given; the
+    # cursor listing keeps that behaviour so the two stay interchangeable.
+    spec = gamma_actions.list_comments_keyset_spec(
+        parent_entity_id="123", parent_entity_type="Event", ascending=True
+    )
+
+    assert spec.base_params == _KEYSET_DEFAULTS
+
+
+@pytest.mark.parametrize(
+    ("order", "ascending", "expected_ascending"),
+    [("createdAt", None, True), ("id", None, True), ("id", False, False), ("id", True, True)],
+)
+def test_list_comments_keyset_spec_defaults_to_ascending_with_an_order(
+    order: str, ascending: bool | None, expected_ascending: bool
+) -> None:
+    spec = gamma_actions.list_comments_keyset_spec(
+        parent_entity_id="123", parent_entity_type="Event", order=order, ascending=ascending
+    )
+
+    assert spec.base_params is not None
+    assert spec.base_params["order"] == order
+    assert spec.base_params["ascending"] is expected_ascending
+
+
+def test_list_comments_keyset_spec_rejects_unsupported_order() -> None:
+    with pytest.raises(UserInputError, match="order must be one of: id, createdAt"):
+        gamma_actions.list_comments_keyset_spec(
+            parent_entity_id="123", parent_entity_type="Event", order="reactionCount"
+        )
+
+
+def test_list_comments_keyset_spec_validates_parent() -> None:
+    with pytest.raises(UserInputError, match="parent_entity_id is required"):
+        gamma_actions.list_comments_keyset_spec(parent_entity_id="", parent_entity_type="Event")
+    with pytest.raises(UserInputError, match="parent_entity_type must be one of"):
+        gamma_actions.list_comments_keyset_spec(
+            parent_entity_id="123",
+            parent_entity_type="Other",  # type: ignore[arg-type]
+        )
+
+
+def test_list_comments_keyset_spec_parses_envelope_and_terminal_pages() -> None:
+    spec = gamma_actions.list_comments_keyset_spec(
+        parent_entity_id="123", parent_entity_type="Event"
+    )
+
+    page = spec.parse_page(
+        {"$schema": "x", "comments": [{"id": "1", "body": "root"}], "next_cursor": "tok"}
+    )
+    assert len(page.items) == 1
+    assert isinstance(page.items[0], Comment)
+    assert page.server_next_cursor == "tok"
+
+    assert spec.parse_page({"comments": []}).server_next_cursor is None
+    assert spec.parse_page({"comments": [], "next_cursor": None}).server_next_cursor is None
+
+
+@pytest.mark.parametrize(
+    ("get_positions", "holders_only", "order", "expected"),
+    [
+        (None, None, None, True),
+        (False, False, "createdAt", True),
+        (None, None, "id", True),
+        (True, None, None, False),
+        (None, True, None, False),
+        (None, None, "reactionCount", False),
+        (None, None, "", False),
+        (None, None, " createdAt ", False),
+        (None, None, "createdAt,id", False),
+    ],
+)
+def test_comments_paginate_by_cursor_selects_supported_reads_only(
+    get_positions: bool | None, holders_only: bool | None, order: str | None, expected: bool
+) -> None:
+    assert (
+        gamma_actions.comments_paginate_by_cursor(
+            get_positions=get_positions, holders_only=holders_only, order=order
+        )
+        is expected
+    )
+
+
+@pytest.mark.parametrize(
+    "version", ["v3", "", 2, True, [], ["v1", "v2", "v1"], ["v2", None], b"v1", {"v1"}]
+)
+def test_list_markets_spec_rejects_malformed_protocol_selection(version: object) -> None:
+    with pytest.raises(UserInputError, match="version must be"):
+        gamma_actions.list_markets_spec(version=version)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("name", ["request_ids", "onchain_event_ids"])
+@pytest.mark.parametrize("invalid", [1.5, object(), {"ID": True}, {"ID"}, b"ID"])
+def test_list_markets_spec_rejects_malformed_id_filter_shapes(name: str, invalid: object) -> None:
+    with pytest.raises(UserInputError, match=name):
+        gamma_actions.list_markets_spec(**{name: invalid})  # type: ignore[arg-type]

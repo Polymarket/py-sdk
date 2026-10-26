@@ -139,12 +139,31 @@ class PerpsPositionLiquidatedNotification(BaseModel):
         return _coerce_decimalish(value)
 
 
+class PerpsPositionDeleveragedNotification(BaseModel):
+    """A profitable position was reduced or closed by auto-deleveraging."""
+
+    id: PerpsNotificationId
+    type: Literal["position_deleveraged"]
+    instrument_id: PerpsInstrumentId
+    side: PerpsSide
+    size_closed: Decimal
+    price: Decimal
+    pnl: Decimal
+    margin_type: PerpsMarginType
+
+    @field_validator("size_closed", "price", "pnl", mode="before")
+    @classmethod
+    def _validate_decimals(cls, value: object) -> object:
+        return _coerce_decimalish(value)
+
+
 PerpsNotification = Annotated[
     PerpsPositionChangeNotification
     | PerpsPositionClosedNotification
     | PerpsLimitOrderCanceledNotification
     | PerpsLiquidationWarningNotification
-    | PerpsPositionLiquidatedNotification,
+    | PerpsPositionLiquidatedNotification
+    | PerpsPositionDeleveragedNotification,
     Field(discriminator="type"),
 ]
 
@@ -229,5 +248,6 @@ __all__ = [
     "PerpsNotificationsPaginator",
     "PerpsPositionChangeNotification",
     "PerpsPositionClosedNotification",
+    "PerpsPositionDeleveragedNotification",
     "PerpsPositionLiquidatedNotification",
 ]

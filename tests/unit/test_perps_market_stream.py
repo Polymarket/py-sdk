@@ -46,6 +46,7 @@ def _book_frame(instrument_id: int) -> dict[str, Any]:
     return {
         "ch": f"book::{instrument_id}",
         "ts": 1751500000000,
+        "ets": 1751499999000,
         "sq": 1,
         "data": {"b": [["0.5", "10"]], "a": [["0.6", "4"]]},
     }
@@ -55,6 +56,7 @@ def _trade_frame(instrument_id: int, *, sequence: int = 2) -> dict[str, Any]:
     return {
         "ch": f"trades::{instrument_id}",
         "ts": 1751500000000,
+        "ets": 1751499999000,
         "sq": sequence,
         "data": [
             {

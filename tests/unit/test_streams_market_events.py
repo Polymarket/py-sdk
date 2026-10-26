@@ -83,6 +83,7 @@ _NEW_MARKET: dict[str, Any] = {
     "event_type": "new_market",
     "id": "evt-1",
     "market": "0xmarket",
+    "condition_id": "0x" + "11" * 32,
     "question": "Will X happen?",
     "assets_ids": ["token-a", "token-b"],
     "active": True,
@@ -176,6 +177,8 @@ def test_best_bid_ask_event_parses() -> None:
 def test_new_market_event_parses_with_assets_ids_aliased() -> None:
     event = parse_market_event(_NEW_MARKET)
     assert isinstance(event, NewMarketEvent)
+    assert event.payload.market == "0xmarket"
+    assert event.payload.condition_id == "0x" + "11" * 32
     assert event.payload.token_ids == ("token-a", "token-b")
     assert event.payload.active is True
 
@@ -271,6 +274,72 @@ def test_new_market_game_start_time_parsed_to_datetime() -> None:
     event = parse_market_event(payload)
     assert isinstance(event, NewMarketEvent)
     assert event.payload.game_start_time == datetime.fromtimestamp(1710000000, tz=UTC)
+
+
+@pytest.mark.parametrize("game_start_time", ["0", "1", "1710000000", "99999999999"])
+def test_new_market_numeric_game_start_time_preserves_millisecond_units(
+    game_start_time: str,
+) -> None:
+    from datetime import UTC, datetime
+
+    event = parse_market_event(dict(_NEW_MARKET) | {"game_start_time": game_start_time})
+    assert isinstance(event, NewMarketEvent)
+    assert event.payload.game_start_time == datetime.fromtimestamp(
+        int(game_start_time) / 1000, tz=UTC
+    )
+
+
+@pytest.mark.parametrize("game_start_time", ["9" * 1000, 10**1000], ids=["string", "integer"])
+def test_new_market_out_of_range_game_start_time_is_validation_error(
+    game_start_time: object,
+) -> None:
+    with pytest.raises(ValidationError):
+        parse_market_event(dict(_NEW_MARKET) | {"game_start_time": game_start_time})
+
+
+@pytest.mark.parametrize(
+    "game_start_time",
+    [
+        "2026-10-17 23:30:00+00",  # as sent on the stream
+        "2026-10-17 23:30:00+00:00",
+        "2026-10-17T23:30:00Z",
+        "2026-10-17T23:30:00+00:00",
+        "2026-10-17 23:30:00",  # naive is read as UTC
+    ],
+)
+def test_new_market_game_start_time_accepts_datetime_strings(game_start_time: str) -> None:
+    from datetime import UTC, datetime
+
+    payload = dict(_NEW_MARKET) | {"game_start_time": game_start_time}
+    event = parse_market_event(payload)
+    assert isinstance(event, NewMarketEvent)
+    assert event.payload.game_start_time == datetime(2026, 10, 17, 23, 30, tzinfo=UTC)
+
+
+def test_new_market_game_start_time_keeps_explicit_offset() -> None:
+    from datetime import UTC, datetime, timedelta, timezone
+
+    payload = dict(_NEW_MARKET) | {"game_start_time": "2026-10-17 23:30:00.123456-05"}
+    event = parse_market_event(payload)
+    assert isinstance(event, NewMarketEvent)
+    expected = datetime(2026, 10, 17, 23, 30, 0, 123456, tzinfo=timezone(timedelta(hours=-5)))
+    start = event.payload.game_start_time
+    assert start == expected
+    assert start is not None
+    assert start.astimezone(UTC) == datetime(2026, 10, 18, 4, 30, 0, 123456, tzinfo=UTC)
+
+
+def test_new_market_empty_game_start_time_normalized_to_none() -> None:
+    payload = dict(_NEW_MARKET) | {"game_start_time": ""}
+    event = parse_market_event(payload)
+    assert isinstance(event, NewMarketEvent)
+    assert event.payload.game_start_time is None
+
+
+def test_new_market_timestamp_still_rejects_datetime_strings() -> None:
+    payload = dict(_NEW_MARKET) | {"timestamp": "2026-10-17 23:30:00+00"}
+    with pytest.raises(ValidationError):
+        parse_market_event(payload)
 
 
 def test_last_trade_empty_string_fee_rate_bps_parsed_as_none() -> None:

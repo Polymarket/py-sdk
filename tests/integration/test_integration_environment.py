@@ -24,6 +24,8 @@ def test_load_integration_environment_accepts_typescript_fork_shape() -> None:
                 "contracts": {
                     "collateralToken": "0x0000000000000000000000000000000000000002",
                     "exchangeV3": "0x0000000000000000000000000000000000000003",
+                    "binaryModule": "0x0000000000000000000000000000000000000004",
+                    "negRiskModule": "0x0000000000000000000000000000000000000005",
                 },
                 "clob": {
                     "rest": "https://clob.stage.example",
@@ -62,6 +64,8 @@ def test_load_integration_environment_accepts_typescript_fork_shape() -> None:
     )
     assert config.collateral_token == "0x0000000000000000000000000000000000000002"
     assert config.exchange_v3 == "0x0000000000000000000000000000000000000003"
+    assert config.binary_module == "0x0000000000000000000000000000000000000004"
+    assert config.neg_risk_module == "0x0000000000000000000000000000000000000005"
     assert config.clob_url == "https://clob.stage.example"
     assert config.clob_market_ws_url == "wss://market.stage.example"
     assert config.clob_user_ws_url == "wss://user.stage.example"

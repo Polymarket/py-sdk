@@ -5,6 +5,7 @@ import time
 from datetime import datetime
 from typing import Any, cast
 
+from polymarket._internal.actions.perps.builders import validate_address
 from polymarket._internal.actions.perps.paging import (
     ONE_DAY_MS,
     as_json_dict,
@@ -38,6 +39,14 @@ from polymarket.pagination import AsyncPaginator, Page
 _BOOK_DEPTHS = (10, 100, 500, 1000)
 _CATEGORIES = ("equity", "commodity", "index", "crypto")
 _KLINE_INTERVALS = ("1s", "1m", "5m", "15m", "1h", "4h", "1d", "1w")
+
+
+async def fetch_registration(perps: AsyncTransport, *, address: str) -> bool:
+    address = validate_address("address", address)
+    payload = as_json_dict(await perps.get_json("/v1/info/registered", params={"address": address}))
+    if payload is None or not isinstance(payload.get("registered"), bool):
+        raise UnexpectedResponseError("Perps registration response did not match expected shape")
+    return payload["registered"]
 
 
 def _validate_instrument_id(instrument_id: object, *, optional: bool = False) -> int | None:
@@ -289,6 +298,7 @@ def _tuple_timestamp(item: object) -> int | None:
 
 
 __all__ = [
+    "fetch_registration",
     "fetch_book",
     "fetch_fees",
     "fetch_instruments",

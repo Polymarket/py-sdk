@@ -1,5 +1,6 @@
 """Perps model-specific domain types."""
 
+from enum import StrEnum
 from typing import Literal, NewType, TypeAlias
 
 PerpsInstrumentId = NewType("PerpsInstrumentId", int)
@@ -9,7 +10,26 @@ PerpsNotificationId = NewType("PerpsNotificationId", str)
 PerpsFundingPaymentId = NewType("PerpsFundingPaymentId", int)
 PerpsTradeId = NewType("PerpsTradeId", int)
 PerpsWithdrawalId = NewType("PerpsWithdrawalId", int)
+PerpsInternalTransferId = NewType("PerpsInternalTransferId", int)
 PerpsEntityId = NewType("PerpsEntityId", int)
+
+
+class PerpsKnownInternalTransferType(StrEnum):
+    """Known classifications of settled internal transfers."""
+
+    TRANSFER = "transfer"
+    REFERRAL_PAYOUT = "referral_payout"
+
+
+PerpsInternalTransferType: TypeAlias = PerpsKnownInternalTransferType | str
+
+
+class PerpsInternalTransferDirection(StrEnum):
+    """Movement relative to the authenticated account."""
+
+    IN = "in"
+    OUT = "out"
+
 
 PerpsInstrumentCategory: TypeAlias = Literal["equity", "commodity", "index", "crypto"]
 PerpsMarginType: TypeAlias = Literal["cross", "isolated"]
@@ -22,9 +42,10 @@ PerpsNotificationType: TypeAlias = Literal[
     "limit_order_canceled",
     "liquidation_warning",
     "position_liquidated",
+    "position_deleveraged",
 ]
 PerpsSide: TypeAlias = Literal["long", "short"]
-PerpsTimeInForce: TypeAlias = Literal["gtc", "ioc", "fok"]
+PerpsTimeInForce: TypeAlias = Literal["gtc", "ioc", "fok", "gtd"]
 PerpsTpSlKind: TypeAlias = Literal["tp", "sl"]
 PerpsTpSlScope: TypeAlias = Literal["order", "position"]
 PerpsDepositStatus: TypeAlias = Literal["pending", "confirmed", "removed"]
@@ -37,7 +58,9 @@ PerpsStreamCandleInterval: TypeAlias = Literal["1m", "5m", "15m", "1h", "4h", "1
 PerpsPnlInterval: TypeAlias = Literal["1h", "4h", "1d", "1w"]
 PerpsSortDirection: TypeAlias = Literal["desc", "asc"]
 PerpsBookDepth: TypeAlias = Literal[10, 100, 500, 1000]
-PerpsTpSlLifecycleStatus: TypeAlias = Literal["untriggered", "armed", "cancelled", "expired"]
+PerpsTpSlLifecycleStatus: TypeAlias = Literal[
+    "untriggered", "armed", "activated", "cancelled", "expired"
+]
 
 PerpsOrderStatus: TypeAlias = Literal[
     "accepted",
@@ -54,9 +77,18 @@ PerpsOrderStatus: TypeAlias = Literal[
     "zero_quantity",
     "duplicate_order",
     "order_not_found",
+    "order_already_terminal",
     "reduce_only_invalid",
     "reduce_only_expired",
     "order_expired",
+    "sweep_cap_exceeded",
+    "resting_order_limit_exceeded",
+    "below_min_notional",
+    "instrument_disabled",
+    "instrument_close_only",
+    "instrument_settled",
+    "insufficient_margin_at_fill",
+    "mark_price_unavailable",
     "untriggered",
     "armed",
     "triggered",
@@ -68,6 +100,10 @@ PerpsOrderStatus: TypeAlias = Literal[
 ]
 
 __all__ = [
+    "PerpsInternalTransferId",
+    "PerpsInternalTransferType",
+    "PerpsKnownInternalTransferType",
+    "PerpsInternalTransferDirection",
     "PerpsBookDepth",
     "PerpsClientOrderId",
     "PerpsDepositStatus",

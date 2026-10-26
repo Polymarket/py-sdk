@@ -10,6 +10,7 @@ SIGNER = EvmAddress("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
 WALLET = EvmAddress("0x7754536ecd85c00b2e0cf9c1aa679340d8550756")
 DEPOSIT_WALLET = EvmAddress("0x57ffbc34de23124faeb8387fcd689d314e57accd")
 EXCHANGE = EvmAddress("0xE111180000d2663C0091e4f400237545B87B996B")
+_CTF_ASSET_ID = TokenId(str((1 << 40) + 8_501_497))
 
 
 def _draft(**overrides: object) -> OrderDraft:
@@ -23,7 +24,7 @@ def _draft(**overrides: object) -> OrderDraft:
         "side": "BUY",
         "signer": SIGNER,
         "requested_amount": 500_000,
-        "token_id": TokenId("8501497"),
+        "asset_id": _CTF_ASSET_ID,
     }
     base.update(overrides)
     return OrderDraft(**base)  # type: ignore[arg-type]
@@ -61,7 +62,8 @@ def test_create_unsigned_order_propagates_draft_fields() -> None:
     assert order.maker_amount == 1_000_000
     assert order.taker_amount == 500_000
     assert order.side == "BUY"
-    assert order.token_id == TokenId("8501497")
+    assert order.token_id == _CTF_ASSET_ID
+    assert order.protocol_version == "2"
 
 
 def test_create_unsigned_order_generates_53_bit_salt() -> None:

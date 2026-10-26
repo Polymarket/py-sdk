@@ -17,10 +17,10 @@ from polymarket.models.rtds_events import (
 )
 from polymarket.streams._specs import (
     CommentsSpec,
-    CryptoPricesChainlinkTwapSpec,
+    CryptoPricesChainlinkTwapSpec,  # pyright: ignore[reportDeprecated]
     CryptoPricesChainlinkTwapWindowSeconds,
-    CryptoPricesSpec,
-    EquityPricesSpec,
+    CryptoPricesSpec,  # pyright: ignore[reportDeprecated]
+    EquityPricesSpec,  # pyright: ignore[reportDeprecated]
     RtdsSpec,
 )
 
@@ -41,14 +41,14 @@ def server_subscriptions_for(spec: RtdsSpec) -> tuple[RtdsServerSubscription, ..
     if isinstance(spec, CommentsSpec):
         types = spec.types if spec.types else _DEFAULT_COMMENT_TYPES
         return tuple(RtdsServerSubscription(topic="comments", type=t) for t in types)
-    if isinstance(spec, CryptoPricesChainlinkTwapSpec):
+    if isinstance(spec, CryptoPricesChainlinkTwapSpec):  # pyright: ignore[reportDeprecated]
         return (
             RtdsServerSubscription(
                 topic=_twap_wire_topic(spec.window_seconds),
                 type="update",
             ),
         )
-    if isinstance(spec, CryptoPricesSpec | EquityPricesSpec):  # pyright: ignore[reportUnnecessaryIsInstance]
+    if isinstance(spec, CryptoPricesSpec | EquityPricesSpec):  # pyright: ignore[reportUnnecessaryIsInstance, reportDeprecated]
         wire = api_topic_to_wire(spec.topic)
         return (RtdsServerSubscription(topic=wire, type="update"),)
     assert_never(spec)
@@ -101,9 +101,9 @@ def diff_state_frames(
 def matcher_for(spec: RtdsSpec) -> Callable[[RtdsEvent], bool]:
     if isinstance(spec, CommentsSpec):
         return _comments_matcher(spec)
-    if isinstance(spec, CryptoPricesChainlinkTwapSpec):
+    if isinstance(spec, CryptoPricesChainlinkTwapSpec):  # pyright: ignore[reportDeprecated]
         return _twap_matcher(spec)
-    if isinstance(spec, CryptoPricesSpec):
+    if isinstance(spec, CryptoPricesSpec):  # pyright: ignore[reportDeprecated]
         return _crypto_matcher(spec)
     return _equity_matcher(spec)
 
@@ -137,7 +137,7 @@ def _comments_matcher(spec: CommentsSpec) -> Callable[[RtdsEvent], bool]:
     return matches
 
 
-def _crypto_matcher(spec: CryptoPricesSpec) -> Callable[[RtdsEvent], bool]:
+def _crypto_matcher(spec: CryptoPricesSpec) -> Callable[[RtdsEvent], bool]:  # pyright: ignore[reportDeprecated]
     expected_topic = spec.topic
     allowed_symbols = frozenset(spec.symbols) if spec.symbols else None
 
@@ -151,7 +151,7 @@ def _crypto_matcher(spec: CryptoPricesSpec) -> Callable[[RtdsEvent], bool]:
     return matches
 
 
-def _twap_matcher(spec: CryptoPricesChainlinkTwapSpec) -> Callable[[RtdsEvent], bool]:
+def _twap_matcher(spec: CryptoPricesChainlinkTwapSpec) -> Callable[[RtdsEvent], bool]:  # pyright: ignore[reportDeprecated]
     expected_window = spec.window_seconds
     allowed_symbols = frozenset(spec.symbols) if spec.symbols else None
 
@@ -165,7 +165,7 @@ def _twap_matcher(spec: CryptoPricesChainlinkTwapSpec) -> Callable[[RtdsEvent], 
     return matches
 
 
-def _equity_matcher(spec: EquityPricesSpec) -> Callable[[RtdsEvent], bool]:
+def _equity_matcher(spec: EquityPricesSpec) -> Callable[[RtdsEvent], bool]:  # pyright: ignore[reportDeprecated]
     expected_symbol = spec.symbol.lower()
     allowed_types = frozenset(spec.types) if spec.types else None
 

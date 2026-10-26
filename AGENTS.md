@@ -36,6 +36,7 @@
 - Name request/path construction helpers with `build_*`.
 - Do not rename existing variables, functions, or classes unless the operator explicitly asks for it in the prompt. Keep PRs lean; if a name looks wrong, propose the rename as a separate change instead of bundling it.
 - Avoid reuse that does not carry semantic or domain-specific value. Do not add boolean mode flags or generic helpers that hide distinct behavior behind one function; prefer separate explicit helpers whose names describe the behavior they implement.
+- Narrow exception: retain the existing `full_history` keyword on `list_trades`, `list_activity`, `list_positions`, and `get_user_volume`, together with their request construction support. It complements the existing `start`/`end` keywords without introducing a second time-window input shape. Keep endpoint-specific semantics explicit; this exception does not authorize new boolean mode flags. See `docs/sdk-direction.md`.
 
 ## Public Model Types
 

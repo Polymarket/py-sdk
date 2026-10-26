@@ -11,18 +11,25 @@ import secrets
 from collections.abc import Sequence
 from dataclasses import replace
 from datetime import datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any, cast
 
 from polymarket.errors import RequestRejectedError, UserInputError
+from polymarket.models.perps.builders import PerpsBuilderAttribution
 from polymarket.models.perps.events import PerpsOrderEvent, PerpsSessionEvent
 from polymarket.models.perps.orders import PerpsOrder, PerpsPostOrderAck
 from polymarket.models.perps.requests import (
     DecimalInput,
+    PerpsLeverageUpdate,
     PerpsOrderRequest,
     PerpsPositionTpSlTrigger,
+    PerpsPositionTrailingStop,
     PerpsTpSlTrigger,
+    PerpsTrailingStop,
     to_decimal_string,
+    to_position_tp_sl_quantity,
     validate_client_order_id,
+    validate_gtd_expiry,
 )
 from polymarket.models.perps.results import (
     PerpsOrderPlacement,
@@ -39,7 +46,7 @@ _ORDER_PLACEMENT_UPDATE_TIMEOUT_S = 2.0
 
 RawPerpsOrder = list[Any]
 """Positional order row: [iid, buy, price?, qty, tif?, post_only, reduce_only?,
-client_order_id?, trigger?]. ``None`` holes are compacted before signing."""
+client_order_id?, trigger?, gtd_expiry?, builder?]. ``None`` holes are compacted before signing."""
 
 
 async def place_order(
@@ -47,9 +54,14 @@ async def place_order(
     request: PerpsOrderRequest,
     *,
     take_profit: PerpsTpSlTrigger | None,
-    stop_loss: PerpsTpSlTrigger | None,
+    stop_loss: PerpsTpSlTrigger | PerpsTrailingStop | None,
     expires_at: datetime | int | None,
 ) -> PerpsOrderPlacement:
+    if take_profit is not None and not isinstance(take_profit, PerpsTpSlTrigger):  # pyright: ignore[reportUnnecessaryIsInstance]
+        raise UserInputError("take_profit requires a fixed-price trigger")
+    if stop_loss is not None and not isinstance(stop_loss, (PerpsTpSlTrigger, PerpsTrailingStop)):  # pyright: ignore[reportUnnecessaryIsInstance]
+        raise UserInputError("stop_loss requires an order trigger")
+    builder_attribution = session.builder_attribution
     if request.client_order_id is None:
         request = replace(request, client_order_id=secrets.token_hex(16))
     client_order_id = request.client_order_id
@@ -58,14 +70,14 @@ async def place_order(
     if take_profit is None and stop_loss is None:
         _, order = await _place_orders_and_wait_for_update(
             session,
-            [to_raw_order(request)],
+            [to_raw_order(request, builder_attribution)],
             client_order_id=client_order_id,
             group=None,
             expires_at=expires_at,
         )
         return PerpsOrderPlacement(order=order)
 
-    rows: list[RawPerpsOrder] = [to_raw_order(request)]
+    rows: list[RawPerpsOrder] = [to_raw_order(request, builder_attribution)]
     exit_buy = request.side == "SELL"
     quantity_string = to_decimal_string("quantity", request.quantity)
     if take_profit is not None:
@@ -75,6 +87,7 @@ async def place_order(
                 instrument_id=request.instrument_id,
                 kind="tp",
                 quantity=quantity_string,
+                builder_attribution=builder_attribution,
                 trigger=take_profit,
             )
         )
@@ -85,6 +98,7 @@ async def place_order(
                 instrument_id=request.instrument_id,
                 kind="sl",
                 quantity=quantity_string,
+                builder_attribution=builder_attribution,
                 trigger=stop_loss,
             )
         )
@@ -118,10 +132,11 @@ async def post_orders(
     *,
     expires_at: datetime | int | None,
 ) -> tuple[PerpsPostOrderAck, ...]:
+    builder_attribution = session.builder_attribution
     if not orders:
         raise UserInputError("orders must be non-empty")
     acks = await session._send_create_orders(  # pyright: ignore[reportPrivateUsage]
-        [to_raw_order(order) for order in orders],
+        [to_raw_order(order, builder_attribution) for order in orders],
         group=None,
         expires_at=expires_at,
     )
@@ -133,11 +148,18 @@ async def place_position_tp_sl(
     *,
     instrument_id: int,
     take_profit: PerpsPositionTpSlTrigger | None,
-    stop_loss: PerpsPositionTpSlTrigger | None,
+    stop_loss: PerpsPositionTpSlTrigger | PerpsPositionTrailingStop | None,
     expires_at: datetime | int | None,
 ) -> PerpsPlacedTpSlOrders:
+    builder_attribution = session.builder_attribution
     if take_profit is None and stop_loss is None:
         raise UserInputError("Provide take_profit, stop_loss, or both")
+    if take_profit is not None and not isinstance(take_profit, PerpsPositionTpSlTrigger):  # pyright: ignore[reportUnnecessaryIsInstance]
+        raise UserInputError("take_profit requires a fixed-price position trigger")
+    if stop_loss is not None and not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
+        stop_loss, (PerpsPositionTpSlTrigger, PerpsPositionTrailingStop)
+    ):
+        raise UserInputError("stop_loss requires a position trigger")
     exit_buy = await _position_exit_buy(session, instrument_id)
     rows: list[RawPerpsOrder] = []
     if take_profit is not None:
@@ -146,7 +168,10 @@ async def place_position_tp_sl(
                 buy=exit_buy,
                 instrument_id=instrument_id,
                 kind="tp",
-                quantity="0",
+                quantity="0"
+                if take_profit.quantity is None
+                else to_position_tp_sl_quantity(take_profit.quantity),
+                builder_attribution=builder_attribution,
                 trigger=take_profit,
             )
         )
@@ -156,7 +181,10 @@ async def place_position_tp_sl(
                 buy=exit_buy,
                 instrument_id=instrument_id,
                 kind="sl",
-                quantity="0",
+                quantity="0"
+                if stop_loss.quantity is None
+                else to_position_tp_sl_quantity(stop_loss.quantity),
+                builder_attribution=builder_attribution,
                 trigger=stop_loss,
             )
         )
@@ -228,8 +256,11 @@ def _expect_ok_ack(ack: PerpsPostOrderAck) -> PerpsOrderId:
     return cast(PerpsOrderId, ack.order_id)
 
 
-def to_raw_order(request: PerpsOrderRequest) -> RawPerpsOrder:
-    return [
+def to_raw_order(
+    request: PerpsOrderRequest, builder_attribution: PerpsBuilderAttribution | None = None
+) -> RawPerpsOrder:
+    expiry_ms = validate_gtd_expiry(request.time_in_force, request.gtd_expiry)
+    row: RawPerpsOrder = [
         request.instrument_id,
         request.side == "BUY",
         None if request.price is None else to_decimal_string("price", request.price),
@@ -241,6 +272,12 @@ def to_raw_order(request: PerpsOrderRequest) -> RawPerpsOrder:
         None,
     ]
 
+    if expiry_ms is not None or builder_attribution is not None:
+        row.append(expiry_ms)
+    if builder_attribution is not None:
+        row.append([builder_attribution.address, format(builder_attribution.fee_rate, "f")])
+    return row
+
 
 def to_raw_tp_sl_order(
     *,
@@ -248,10 +285,35 @@ def to_raw_tp_sl_order(
     instrument_id: int,
     kind: PerpsTpSlKind,
     quantity: str,
-    trigger: PerpsTpSlTrigger | PerpsPositionTpSlTrigger,
+    trigger: PerpsTpSlTrigger
+    | PerpsPositionTpSlTrigger
+    | PerpsTrailingStop
+    | PerpsPositionTrailingStop,
+    builder_attribution: PerpsBuilderAttribution | None = None,
 ) -> RawPerpsOrder:
+    trailing = isinstance(trigger, (PerpsTrailingStop, PerpsPositionTrailingStop))
+    if trailing and kind != "sl":
+        raise UserInputError("Trailing stops are only supported for stop_loss")
     limit_price = getattr(trigger, "limit_price", None)
-    return [
+    if isinstance(trigger, (PerpsTrailingStop, PerpsPositionTrailingStop)):
+        trigger_row: list[Any] = [
+            True,
+            None,
+            kind,
+            trigger.trailing_bps,
+            None
+            if trigger.activation_price is None
+            else format(
+                Decimal(to_decimal_string("activation_price", trigger.activation_price)), "f"
+            ),
+        ]
+    else:
+        trigger_row = [
+            True if limit_price is None else None,
+            to_decimal_string("trigger_price", trigger.trigger_price),
+            kind,
+        ]
+    row: RawPerpsOrder = [
         instrument_id,
         buy,
         None if limit_price is None else to_decimal_string("limit_price", limit_price),
@@ -260,12 +322,12 @@ def to_raw_tp_sl_order(
         False,
         True,
         None,
-        [
-            True if limit_price is None else None,
-            to_decimal_string("trigger_price", trigger.trigger_price),
-            kind,
-        ],
+        trigger_row,
     ]
+
+    if builder_attribution is not None:
+        row.extend([None, [builder_attribution.address, format(builder_attribution.fee_rate, "f")]])
+    return row
 
 
 def create_orders_op(
@@ -282,6 +344,8 @@ def cancel_orders_op(order_ids: Sequence[int]) -> list[Any]:
     for order_id in order_ids:
         if isinstance(order_id, bool) or not isinstance(order_id, int):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise UserInputError("order_ids must contain ints")
+        if order_id < 0:
+            raise UserInputError("order_ids must be non-negative")
         ids.append(order_id)
     if not ids:
         raise UserInputError("order_ids must be non-empty")
@@ -324,6 +388,26 @@ def update_leverage_op(*, instrument_id: int, leverage: int, cross_margin: bool)
     return ["updateLeverage", [instrument_id, leverage, cross_margin]]
 
 
+def update_leverages_op(updates: Sequence[PerpsLeverageUpdate]) -> list[Any]:
+    items = list(updates)
+    if not 1 <= len(items) <= 100:
+        raise UserInputError("updates must contain between 1 and 100 items")
+
+    rows: list[list[int | bool]] = []
+    instrument_ids: set[int] = set()
+    for update in items:
+        if not isinstance(update, PerpsLeverageUpdate):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise UserInputError("updates must contain PerpsLeverageUpdate values")
+        if update.instrument_id in instrument_ids:
+            raise UserInputError(
+                f"updates must contain unique instrument IDs; duplicate {update.instrument_id}"
+            )
+        instrument_ids.add(update.instrument_id)
+        rows.append([update.instrument_id, update.leverage, update.cross_margin])
+
+    return ["updateLeverages", rows]
+
+
 def update_margin_op(*, instrument_id: int, amount: DecimalInput) -> list[Any]:
     if isinstance(instrument_id, bool) or not isinstance(instrument_id, int):  # pyright: ignore[reportUnnecessaryIsInstance]
         raise UserInputError("instrument_id must be an int")
@@ -361,6 +445,14 @@ def to_command_body_op(op: Sequence[Any]) -> dict[str, Any]:
             "type": op_type,
             "args": {"cross": cross_margin, "iid": instrument_id, "lev": leverage},
         }
+    if op_type == "updateLeverages":
+        return {
+            "type": op_type,
+            "args": [
+                {"cross": cross_margin, "iid": instrument_id, "lev": leverage}
+                for instrument_id, leverage, cross_margin in op[1]
+            ],
+        }
     if op_type == "updateMargin":
         instrument_id, amount = op[1]
         return {"type": op_type, "args": {"amt": amount, "iid": instrument_id}}
@@ -379,11 +471,21 @@ def _to_order_body(row: RawPerpsOrder) -> dict[str, Any]:
         body["c"] = row[7]
     if row[8] is not None:
         body["tr"] = _to_trigger_body(row[8])
+    if len(row) > 9 and row[9] is not None:
+        body["gtd_expiry"] = row[9]
+    if len(row) > 10 and row[10] is not None:
+        body["builder"] = {"address": row[10][0], "fee_rate": row[10][1]}
     return body
 
 
 def _to_trigger_body(trigger: list[Any]) -> dict[str, Any]:
-    body: dict[str, Any] = {"tpsl": trigger[2], "trp": trigger[1]}
+    body: dict[str, Any] = {"tpsl": trigger[2]}
+    if trigger[1] is not None:
+        body["trp"] = trigger[1]
+    if len(trigger) > 3 and trigger[3] is not None:
+        body["trail_bps"] = trigger[3]
+    if len(trigger) > 4 and trigger[4] is not None:
+        body["act"] = trigger[4]
     if trigger[0] is not None:
         body["market"] = trigger[0]
     return body

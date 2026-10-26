@@ -29,12 +29,27 @@ def _parse_epoch_ms(value: object) -> object:
         raise ValueError(msg) from error
 
 
+def _parse_event_horizon(value: object) -> object:
+    # Zero attests no event horizon; it is not an event at the Unix epoch.
+    if isinstance(value, int) and not isinstance(value, bool) and value == 0:
+        return None
+    return _require_epoch_ms(value)
+
+
 def _require_epoch_ms(value: object) -> object:
     parsed = _parse_epoch_ms(value)
     if parsed is None:
         msg = "expected epoch-ms timestamp, got None"
         raise ValueError(msg)
     return parsed
+
+
+def _require_builder_fee_rate(value: Decimal) -> Decimal:
+    if not value.is_finite() or value.is_signed():
+        raise ValueError("fee_rate must be a non-negative finite decimal")
+    if int(value.as_tuple().exponent) < -28:
+        raise ValueError("fee_rate must have at most 28 decimal places")
+    return value
 
 
 # The API reports an unarmed auto-cancel schedule as a `0` deadline.
@@ -54,6 +69,8 @@ __all__ = [
     "_coerce_decimalish",
     "_parse_auto_cancel_deadline",
     "_parse_epoch_ms",
+    "_parse_event_horizon",
     "_parse_tx_hash",
+    "_require_builder_fee_rate",
     "_require_epoch_ms",
 ]

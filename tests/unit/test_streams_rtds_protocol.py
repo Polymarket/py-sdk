@@ -9,9 +9,9 @@ from polymarket._internal.streams.rtds.protocol import (
 from polymarket.models.rtds_events import RtdsEvent, parse_rtds_event
 from polymarket.streams._specs import (
     CommentsSpec,
-    CryptoPricesChainlinkTwapSpec,
-    CryptoPricesSpec,
-    EquityPricesSpec,
+    CryptoPricesChainlinkTwapSpec,  # pyright: ignore[reportDeprecated]
+    CryptoPricesSpec,  # pyright: ignore[reportDeprecated]
+    EquityPricesSpec,  # pyright: ignore[reportDeprecated]
 )
 
 
@@ -41,35 +41,35 @@ def test_comments_all_four_types_when_explicitly_requested() -> None:
 
 
 def test_crypto_uses_wire_topic_name() -> None:
-    binance = server_subscriptions_for(CryptoPricesSpec(topic="prices.crypto.binance"))
-    chainlink = server_subscriptions_for(CryptoPricesSpec(topic="prices.crypto.chainlink"))
+    binance = server_subscriptions_for(CryptoPricesSpec(topic="prices.crypto.binance"))  # pyright: ignore[reportDeprecated]
+    chainlink = server_subscriptions_for(CryptoPricesSpec(topic="prices.crypto.chainlink"))  # pyright: ignore[reportDeprecated]
     assert binance == (type(binance[0])(topic="crypto_prices", type="update"),)
     assert chainlink == (type(chainlink[0])(topic="crypto_prices_chainlink", type="update"),)
 
 
 def test_chainlink_twap_uses_window_specific_wire_topic() -> None:
-    thirty = server_subscriptions_for(CryptoPricesChainlinkTwapSpec(window_seconds=30))
-    sixty = server_subscriptions_for(CryptoPricesChainlinkTwapSpec(window_seconds=60))
+    thirty = server_subscriptions_for(CryptoPricesChainlinkTwapSpec(window_seconds=30))  # pyright: ignore[reportDeprecated]
+    sixty = server_subscriptions_for(CryptoPricesChainlinkTwapSpec(window_seconds=60))  # pyright: ignore[reportDeprecated]
 
     assert thirty == (type(thirty[0])(topic="crypto_prices_twap_thirty", type="update"),)
     assert sixty == (type(sixty[0])(topic="crypto_prices_twap_sixty", type="update"),)
 
 
 def test_equity_always_server_subscribes_to_update_only() -> None:
-    srvs = server_subscriptions_for(EquityPricesSpec(symbol="AAPL"))
+    srvs = server_subscriptions_for(EquityPricesSpec(symbol="AAPL"))  # pyright: ignore[reportDeprecated]
     assert srvs == (type(srvs[0])(topic="equity_prices", type="update"),)
 
 
 def test_equity_types_filter_does_not_change_server_subscribe() -> None:
-    srvs = server_subscriptions_for(EquityPricesSpec(symbol="AAPL", types=["subscribe"]))
+    srvs = server_subscriptions_for(EquityPricesSpec(symbol="AAPL", types=["subscribe"]))  # pyright: ignore[reportDeprecated]
     assert srvs == (type(srvs[0])(topic="equity_prices", type="update"),)
 
 
 def test_dedup_collapses_overlapping_specs_by_key() -> None:
     state = derive_state(
         [
-            CryptoPricesSpec(topic="prices.crypto.binance", symbols=["btcusdt"]),
-            CryptoPricesSpec(topic="prices.crypto.binance", symbols=["ethusdt"]),
+            CryptoPricesSpec(topic="prices.crypto.binance", symbols=["btcusdt"]),  # pyright: ignore[reportDeprecated]
+            CryptoPricesSpec(topic="prices.crypto.binance", symbols=["ethusdt"]),  # pyright: ignore[reportDeprecated]
         ]
     )
     assert list(state.keys()) == ["crypto_prices:update"]
@@ -78,8 +78,8 @@ def test_dedup_collapses_overlapping_specs_by_key() -> None:
 def test_dedup_keeps_distinct_topics_separately() -> None:
     state = derive_state(
         [
-            CryptoPricesSpec(topic="prices.crypto.binance"),
-            CryptoPricesSpec(topic="prices.crypto.chainlink"),
+            CryptoPricesSpec(topic="prices.crypto.binance"),  # pyright: ignore[reportDeprecated]
+            CryptoPricesSpec(topic="prices.crypto.chainlink"),  # pyright: ignore[reportDeprecated]
         ]
     )
     assert set(state.keys()) == {"crypto_prices:update", "crypto_prices_chainlink:update"}
@@ -88,9 +88,9 @@ def test_dedup_keeps_distinct_topics_separately() -> None:
 def test_chainlink_twap_dedup_shares_a_window_but_keeps_windows_distinct() -> None:
     state = derive_state(
         [
-            CryptoPricesChainlinkTwapSpec(window_seconds=30, symbols=["btc/usd"]),
-            CryptoPricesChainlinkTwapSpec(window_seconds=30, symbols=["eth/usd"]),
-            CryptoPricesChainlinkTwapSpec(window_seconds=60, symbols=["btc/usd"]),
+            CryptoPricesChainlinkTwapSpec(window_seconds=30, symbols=["btc/usd"]),  # pyright: ignore[reportDeprecated]
+            CryptoPricesChainlinkTwapSpec(window_seconds=30, symbols=["eth/usd"]),  # pyright: ignore[reportDeprecated]
+            CryptoPricesChainlinkTwapSpec(window_seconds=60, symbols=["btc/usd"]),  # pyright: ignore[reportDeprecated]
         ]
     )
 
@@ -111,7 +111,7 @@ def test_dedup_keeps_distinct_comment_types() -> None:
 
 
 def test_subscribe_frame_shape() -> None:
-    srvs = server_subscriptions_for(CryptoPricesSpec(topic="prices.crypto.binance"))
+    srvs = server_subscriptions_for(CryptoPricesSpec(topic="prices.crypto.binance"))  # pyright: ignore[reportDeprecated]
     assert build_subscribe_frame(srvs) == {
         "action": "subscribe",
         "subscriptions": [{"topic": "crypto_prices", "type": "update"}],
@@ -119,7 +119,7 @@ def test_subscribe_frame_shape() -> None:
 
 
 def test_unsubscribe_frame_shape() -> None:
-    srvs = server_subscriptions_for(CryptoPricesSpec(topic="prices.crypto.chainlink"))
+    srvs = server_subscriptions_for(CryptoPricesSpec(topic="prices.crypto.chainlink"))  # pyright: ignore[reportDeprecated]
     assert build_unsubscribe_frame(srvs) == {
         "action": "unsubscribe",
         "subscriptions": [{"topic": "crypto_prices_chainlink", "type": "update"}],
@@ -127,11 +127,11 @@ def test_unsubscribe_frame_shape() -> None:
 
 
 def test_diff_added_emits_subscribe_only() -> None:
-    before = derive_state([CryptoPricesSpec(topic="prices.crypto.binance")])
+    before = derive_state([CryptoPricesSpec(topic="prices.crypto.binance")])  # pyright: ignore[reportDeprecated]
     after = derive_state(
         [
-            CryptoPricesSpec(topic="prices.crypto.binance"),
-            CryptoPricesSpec(topic="prices.crypto.chainlink"),
+            CryptoPricesSpec(topic="prices.crypto.binance"),  # pyright: ignore[reportDeprecated]
+            CryptoPricesSpec(topic="prices.crypto.chainlink"),  # pyright: ignore[reportDeprecated]
         ]
     )
     frames = diff_state_frames(before, after)
@@ -143,11 +143,11 @@ def test_diff_added_emits_subscribe_only() -> None:
 def test_diff_removed_emits_unsubscribe_only() -> None:
     before = derive_state(
         [
-            CryptoPricesSpec(topic="prices.crypto.binance"),
-            CryptoPricesSpec(topic="prices.crypto.chainlink"),
+            CryptoPricesSpec(topic="prices.crypto.binance"),  # pyright: ignore[reportDeprecated]
+            CryptoPricesSpec(topic="prices.crypto.chainlink"),  # pyright: ignore[reportDeprecated]
         ]
     )
-    after = derive_state([CryptoPricesSpec(topic="prices.crypto.binance")])
+    after = derive_state([CryptoPricesSpec(topic="prices.crypto.binance")])  # pyright: ignore[reportDeprecated]
     frames = diff_state_frames(before, after)
     assert len(frames) == 1
     assert frames[0]["action"] == "unsubscribe"
@@ -155,7 +155,7 @@ def test_diff_removed_emits_unsubscribe_only() -> None:
 
 
 def test_diff_no_change_emits_nothing() -> None:
-    state = derive_state([CryptoPricesSpec(topic="prices.crypto.binance")])
+    state = derive_state([CryptoPricesSpec(topic="prices.crypto.binance")])  # pyright: ignore[reportDeprecated]
     assert diff_state_frames(state, state) == []
 
 
@@ -231,24 +231,24 @@ def _equity_event(symbol: str, event_type: str) -> RtdsEvent:
 
 
 def test_crypto_matcher_filters_by_symbol() -> None:
-    matches = matcher_for(CryptoPricesSpec(topic="prices.crypto.binance", symbols=["btcusdt"]))
+    matches = matcher_for(CryptoPricesSpec(topic="prices.crypto.binance", symbols=["btcusdt"]))  # pyright: ignore[reportDeprecated]
     assert matches(_crypto_event("btcusdt")) is True
     assert matches(_crypto_event("ethusdt")) is False
 
 
 def test_crypto_matcher_no_symbol_filter_accepts_all_symbols() -> None:
-    matches = matcher_for(CryptoPricesSpec(topic="prices.crypto.binance"))
+    matches = matcher_for(CryptoPricesSpec(topic="prices.crypto.binance"))  # pyright: ignore[reportDeprecated]
     assert matches(_crypto_event("btcusdt")) is True
     assert matches(_crypto_event("anything")) is True
 
 
 def test_crypto_matcher_filters_by_topic_source() -> None:
-    matches = matcher_for(CryptoPricesSpec(topic="prices.crypto.binance"))
+    matches = matcher_for(CryptoPricesSpec(topic="prices.crypto.binance"))  # pyright: ignore[reportDeprecated]
     assert matches(_crypto_event("btcusdt", topic="crypto_prices_chainlink")) is False
 
 
 def test_chainlink_twap_matcher_filters_by_window_and_symbol() -> None:
-    matches = matcher_for(CryptoPricesChainlinkTwapSpec(window_seconds=30, symbols=["btc/usd"]))
+    matches = matcher_for(CryptoPricesChainlinkTwapSpec(window_seconds=30, symbols=["btc/usd"]))  # pyright: ignore[reportDeprecated]
 
     assert matches(_twap_event("btc/usd", 30)) is True
     assert matches(_twap_event("eth/usd", 30)) is False
@@ -258,7 +258,7 @@ def test_chainlink_twap_matcher_filters_by_window_and_symbol() -> None:
 
 
 def test_chainlink_twap_matcher_without_symbols_accepts_all_for_its_window() -> None:
-    matches = matcher_for(CryptoPricesChainlinkTwapSpec(window_seconds=60))
+    matches = matcher_for(CryptoPricesChainlinkTwapSpec(window_seconds=60))  # pyright: ignore[reportDeprecated]
 
     assert matches(_twap_event("btc/usd", 60)) is True
     assert matches(_twap_event("eth/usd", 60)) is True
@@ -310,13 +310,13 @@ def test_comments_parent_filter_rejects_non_matching_parent() -> None:
 
 
 def test_equity_matcher_filters_by_symbol_case_insensitive() -> None:
-    matches = matcher_for(EquityPricesSpec(symbol="AAPL"))
+    matches = matcher_for(EquityPricesSpec(symbol="AAPL"))  # pyright: ignore[reportDeprecated]
     assert matches(_equity_event("AAPL", "update")) is True
     assert matches(_equity_event("aapl", "update")) is True
     assert matches(_equity_event("MSFT", "update")) is False
 
 
 def test_equity_matcher_filters_by_type_client_side() -> None:
-    matches = matcher_for(EquityPricesSpec(symbol="AAPL", types=["update"]))
+    matches = matcher_for(EquityPricesSpec(symbol="AAPL", types=["update"]))  # pyright: ignore[reportDeprecated]
     assert matches(_equity_event("AAPL", "update")) is True
     assert matches(_equity_event("AAPL", "subscribe")) is False

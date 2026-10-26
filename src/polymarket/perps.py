@@ -12,6 +12,15 @@ from polymarket.models.perps.notifications import (
     PerpsNotificationsPage,
     PerpsNotificationsPaginator,
 )
+from polymarket.models.perps.orders import (
+    PerpsBatchLeverageResult,
+    PerpsCancelOrderErrorCode,
+    PerpsCancelOrderRejection,
+    PerpsCancelOrderResult,
+    PerpsCancelOrderSuccess,
+    PerpsLeverageUpdateRejection,
+)
+from polymarket.models.perps.requests import PerpsCancelRetryOptions, PerpsLeverageUpdate
 from polymarket.models.perps.results import (
     PerpsOrderPlacement,
     PerpsPlacedTpSlOrder,
@@ -20,8 +29,16 @@ from polymarket.models.perps.results import (
 
 __all__ = [
     "PerpsNotificationEntry",
+    "PerpsBatchLeverageResult",
+    "PerpsLeverageUpdate",
+    "PerpsLeverageUpdateRejection",
     "PerpsNotificationsPage",
     "PerpsNotificationsPaginator",
+    "PerpsCancelOrderErrorCode",
+    "PerpsCancelOrderRejection",
+    "PerpsCancelOrderResult",
+    "PerpsCancelOrderSuccess",
+    "PerpsCancelRetryOptions",
     "PerpsOrderPlacement",
     "PerpsPlacedTpSlOrder",
     "PerpsPlacedTpSlOrders",

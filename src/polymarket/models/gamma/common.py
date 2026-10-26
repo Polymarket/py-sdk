@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
+from enum import StrEnum
 from typing import Any, cast
 
 from pydantic import Field, field_validator
@@ -224,6 +225,13 @@ class BestLine(BaseModel):
     line: float | None = None
 
 
+class TeamOrdering(StrEnum):
+    """A team's side in a sports event."""
+
+    HOME = "home"
+    AWAY = "away"
+
+
 class Team(BaseModel):
     id: TeamId
     name: str | None = None
@@ -236,6 +244,7 @@ class Team(BaseModel):
     updated_at: datetime | None = Field(default=None, validation_alias="updatedAt")
     provider_id: int | None = Field(default=None, validation_alias="providerId")
     color: str | None = None
+    ordering: TeamOrdering | None = None
 
     @field_validator("created_at", "updated_at", mode="before")
     @classmethod
@@ -246,6 +255,7 @@ class Team(BaseModel):
 class SportsMetadata(BaseModel):
     id: SportId
     sport: str
+    name: str | None = None
     image: str
     resolution: str
     ordering: str
@@ -403,6 +413,7 @@ __all__ = [
     "SportsMetadata",
     "TagReference",
     "Team",
+    "TeamOrdering",
     "TemplateReference",
     "coerce_string_id",
     "empty_string_to_none",

@@ -207,26 +207,113 @@ def test_sync_transport_flags_cancel_only_restriction() -> None:
     assert exc_info.value.retry_after is None
 
 
-def test_sync_transport_ignores_unparseable_retry_after_header() -> None:
+# 2026-09-10T06:02:00Z is 119.6 s after this clock, so a correct conversion
+# reports 120 whole seconds, never 119.
+_HTTP_DATE_NOW = 1_789_020_000.4
+
+
+def _rejected_with_retry_after(
+    header: str, status: int = 503, body: dict[str, object] | None = None
+) -> RequestRejectedError | RateLimitError:
     transport = SyncTransport(
         base_url="https://example.test",
         client=httpx.Client(
             base_url="https://example.test",
             transport=httpx.MockTransport(
                 lambda request: httpx.Response(
-                    503,
-                    json={"error": "unavailable"},
-                    headers={"Retry-After": "Sun, 20 Jul 2026 12:00:00 GMT"},
+                    status,
+                    json={"error": "unavailable"} if body is None else body,
+                    headers={"Retry-After": header},
                     request=request,
                 )
             ),
         ),
     )
-
-    with pytest.raises(RequestRejectedError) as exc_info:
+    with pytest.raises((RequestRejectedError, RateLimitError)) as exc_info:
         transport.get_json("/markets/1")
+    return exc_info.value
 
-    assert exc_info.value.retry_after is None
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        "Thu, 10 Sep 2026 06:02:00 GMT",
+        "Thursday, 10-Sep-26 06:02:00 GMT",
+        "Thu Sep 10 06:02:00 2026",
+    ],
+    ids=["imf-fixdate", "rfc850", "asctime"],
+)
+def test_sync_transport_converts_http_date_retry_after_to_seconds(
+    monkeypatch: pytest.MonkeyPatch, header: str
+) -> None:
+    monkeypatch.setattr("polymarket.clients._transport.time.time", lambda: _HTTP_DATE_NOW)
+
+    error = _rejected_with_retry_after(header)
+
+    assert isinstance(error, RequestRejectedError)
+    assert error.status == 503
+    assert error.retry_after == 120.0
+
+
+def test_sync_transport_converts_http_date_retry_after_on_rate_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("polymarket.clients._transport.time.time", lambda: _HTTP_DATE_NOW)
+
+    error = _rejected_with_retry_after("Thu, 10 Sep 2026 06:02:00 GMT", status=429)
+
+    assert isinstance(error, RateLimitError)
+    assert error.retry_after == 120.0
+
+
+@pytest.mark.parametrize(
+    "header",
+    ["Thu, 10 Sep 2026 05:00:00 GMT", "Thursday, 10-Sep-77 06:02:00 GMT"],
+    ids=["past-date", "two-digit-year-over-fifty-years-ahead"],
+)
+def test_sync_transport_clamps_past_http_date_retry_after_to_zero(
+    monkeypatch: pytest.MonkeyPatch, header: str
+) -> None:
+    monkeypatch.setattr("polymarket.clients._transport.time.time", lambda: _HTTP_DATE_NOW)
+
+    assert _rejected_with_retry_after(header).retry_after == 0.0
+
+
+def test_sync_transport_prefers_http_date_header_over_body_delay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("polymarket.clients._transport.time.time", lambda: _HTTP_DATE_NOW)
+
+    error = _rejected_with_retry_after(
+        "Thu, 10 Sep 2026 06:02:00 GMT",
+        body={"error": "post-only mode", "code": "post_only_mode", "retry_after_seconds": 79},
+    )
+
+    assert error.retry_after == 120.0
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        "not-a-date",
+        "Thu, 31 Feb 2026 06:02:00 GMT",
+        "Thu, 10 Sep 2026 23:59:60 GMT",
+        "10 Sep 2026",
+        "120, Thu, 10 Sep 2026 06:02:00 GMT",
+        "Thu, 10 Sep 2147483648 06:02:00 GMT",
+    ],
+    ids=["garbage", "impossible-day", "leap-second", "bare-date", "two-headers", "overflow-year"],
+)
+def test_sync_transport_falls_back_to_body_delay_for_malformed_http_dates(
+    monkeypatch: pytest.MonkeyPatch, header: str
+) -> None:
+    monkeypatch.setattr("polymarket.clients._transport.time.time", lambda: _HTTP_DATE_NOW)
+
+    error = _rejected_with_retry_after(
+        header, body={"error": "unavailable", "retry_after_seconds": 79}
+    )
+
+    assert error.retry_after == 79.0
 
 
 @pytest.mark.parametrize("header_value", ["1e400", "inf", "nan"])
@@ -614,3 +701,53 @@ def test_async_close_does_not_close_injected_client() -> None:
         await injected.aclose()
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("base_url", ["https://clob.test", "https://clob.test/prefix/"])
+@pytest.mark.parametrize("path,expected", [("/v1/heartbeats", True), ("/other-route", False)])
+@pytest.mark.parametrize("heartbeat_id", ["expected-id", ""])
+def test_order_heartbeat_rejection_preserves_id_without_retry(
+    path: str, expected: bool, heartbeat_id: str, base_url: str
+) -> None:
+    from polymarket.errors import OrderHeartbeatMismatchError
+
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(
+            400,
+            json={"error_msg": "Invalid Heartbeat ID", "heartbeat_id": heartbeat_id},
+            request=request,
+        )
+
+    transport = SyncTransport(
+        base_url=base_url,
+        client=httpx.Client(base_url=base_url, transport=httpx.MockTransport(handler)),
+    )
+    with pytest.raises(RequestRejectedError) as error:
+        transport.post_json(path, json={"heartbeat_id": "stale-id"})
+    assert isinstance(error.value, OrderHeartbeatMismatchError) is expected
+    if isinstance(error.value, OrderHeartbeatMismatchError):
+        assert error.value.heartbeat_id == heartbeat_id
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("base_url", ["https://clob.test", "https://clob.test/prefix/"])
+def test_invalid_heartbeat_payload_has_no_recovery_id(base_url: str) -> None:
+    from polymarket.errors import OrderHeartbeatMismatchError
+
+    transport = SyncTransport(
+        base_url=base_url,
+        client=httpx.Client(
+            base_url=base_url,
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(
+                    400, json={"error": "Invalid payload"}, request=request
+                )
+            ),
+        ),
+    )
+    with pytest.raises(RequestRejectedError, match="Invalid payload") as error:
+        transport.post_json("/v1/heartbeats")
+    assert not isinstance(error.value, OrderHeartbeatMismatchError)

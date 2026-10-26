@@ -36,7 +36,6 @@ from polymarket import (
     SessionKeyKnownScope,
     SessionKeyScope,
     TransactionFailedError,
-    TransactionOutcome,
     UnexpectedResponseError,
     UserInputError,
 )
@@ -166,11 +165,17 @@ def _management_handler(
         captured.append(request)
         path = urlparse(str(request.url)).path
         if path == _SESSION_KEYS_PATH:
+            revocation_submitted = any(
+                urlparse(str(captured_request.url)).path == _REVOCATIONS_PATH
+                for captured_request in captured
+            )
             return httpx.Response(
                 200,
                 json={
                     "wallet": wallet.lower(),
-                    "signers": [
+                    "signers": []
+                    if revocation_submitted
+                    else [
                         {
                             "address": _SESSION_ADDRESS.lower(),
                             "scopes": ["clob", f" {_NEWER_SCOPE.lower()} "],
@@ -388,7 +393,6 @@ def test_authorize_session_key_sync_uses_default_scopes(authorization_status: st
 
 def _assert_fetch_and_revocation(
     session_keys: tuple[AuthorizedSessionKey, ...],
-    transaction: TransactionOutcome,
     captured: list[httpx.Request],
     *,
     wallet: str,
@@ -398,9 +402,6 @@ def _assert_fetch_and_revocation(
     assert session_key.address.lower() == _SESSION_ADDRESS.lower()
     assert session_key.scopes == ("clob", f" {_NEWER_SCOPE.lower()} ")
     assert session_key.valid_until == datetime.fromtimestamp(_LISTED_EXPIRY, tz=UTC)
-
-    assert transaction.transaction_hash == _TRANSACTION_HASH
-    assert transaction.transaction_id == _REVOCATION_TRANSACTION_ID
 
     revocation_requests = [
         request for request in captured if urlparse(str(request.url)).path == _REVOCATIONS_PATH
@@ -422,7 +423,8 @@ def _assert_fetch_and_revocation(
     assert len(signature) == 2 + 65 * 2
 
     paths = [urlparse(str(request.url)).path for request in captured]
-    assert f"/v1/account/transactions/{_REVOCATION_TRANSACTION_ID}" in paths
+    assert _SESSION_KEYS_PATH in paths
+    assert f"/v1/account/transactions/{_REVOCATION_TRANSACTION_ID}" not in paths
 
 
 def test_fetch_and_revoke_session_key_async() -> None:
@@ -430,7 +432,7 @@ def test_fetch_and_revoke_session_key_async() -> None:
 
     async def run() -> tuple[
         tuple[AuthorizedSessionKey, ...],
-        TransactionOutcome,
+        None,
         str,
     ]:
         client = await make_deposit_client()
@@ -440,18 +442,18 @@ def test_fetch_and_revoke_session_key_async() -> None:
         _install_secure_clob_handler(client, handler)
         try:
             session_keys = await client.fetch_session_keys()
-            transaction = await client.revoke_session_key(
+            result = await client.revoke_session_key(
                 address=_SESSION_ADDRESS,
                 idempotency_key=" revocation-key ",
             )
-            return session_keys, transaction, wallet
+            return session_keys, result, wallet
         finally:
             await client.close()
 
-    session_keys, transaction, wallet = asyncio.run(run())
+    session_keys, result, wallet = asyncio.run(run())
+    assert result is None
     _assert_fetch_and_revocation(
         session_keys,
-        transaction,
         captured,
         wallet=wallet,
     )
@@ -474,14 +476,14 @@ def test_fetch_and_revoke_session_key_sync(revocation_status: str) -> None:
         install_sync_relayer_handler(client, handler)
         _install_sync_secure_clob_handler(client, handler)
         session_keys = client.fetch_session_keys()
-        transaction = client.revoke_session_key(
+        result = client.revoke_session_key(
             address=_SESSION_ADDRESS,
             idempotency_key=" revocation-key ",
         )
 
+    assert result is None
     _assert_fetch_and_revocation(
         session_keys,
-        transaction,
         captured,
         wallet=wallet,
     )
@@ -508,13 +510,13 @@ def test_revoke_session_key_sync_retries_the_exact_signed_payload() -> None:
         )
         client._ctx = dataclasses.replace(client._ctx, _resolved_environment_config=config)
         install_sync_relayer_handler(client, handler)
-        transaction = client.revoke_session_key(
+        _install_sync_secure_clob_handler(client, handler)
+        result = client.revoke_session_key(
             address=_SESSION_ADDRESS,
             idempotency_key="exact-revocation",
         )
 
-    assert transaction.transaction_id == _REVOCATION_TRANSACTION_ID
-    assert transaction.transaction_hash == _TRANSACTION_HASH
+    assert result is None
     revocation_requests = [
         request for request in captured if urlparse(str(request.url)).path == _REVOCATIONS_PATH
     ]
@@ -526,24 +528,60 @@ def test_revoke_session_key_sync_retries_the_exact_signed_payload() -> None:
     assert sum(urlparse(str(request.url)).path == _EXECUTE_PARAMS_PATH for request in captured) == 1
 
 
-def test_revoke_session_key_waits_for_confirmation_before_returning() -> None:
+def test_revoke_session_key_returns_after_registry_removal() -> None:
     captured: list[httpx.Request] = []
 
     with make_sync_deposit_client() as client:
         handler = _management_handler(captured, wallet=str(client.wallet))
         install_sync_relayer_handler(client, handler)
-        transaction = client.revoke_session_key(address=_SESSION_ADDRESS)
+        _install_sync_secure_clob_handler(client, handler)
+        result = client.revoke_session_key(address=_SESSION_ADDRESS)
 
-    assert transaction.transaction_id == _REVOCATION_TRANSACTION_ID
-    assert transaction.transaction_hash == _TRANSACTION_HASH
+    assert result is None
     assert (
         sum(
             urlparse(str(request.url)).path
             == f"/v1/account/transactions/{_REVOCATION_TRANSACTION_ID}"
             for request in captured
         )
-        == 1
+        == 0
     )
+    assert sum(urlparse(str(request.url)).path == _SESSION_KEYS_PATH for request in captured) == 1
+
+
+@pytest.mark.parametrize("status", (404, 503))
+def test_revoke_session_key_retries_transient_registry_read_failure(status: int) -> None:
+    captured: list[httpx.Request] = []
+
+    with make_sync_deposit_client() as client:
+        stable_handler = _management_handler(captured, wallet=str(client.wallet))
+        registry_unavailable = True
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal registry_unavailable
+            if urlparse(str(request.url)).path == _SESSION_KEYS_PATH and registry_unavailable:
+                registry_unavailable = False
+                captured.append(request)
+                return httpx.Response(
+                    status,
+                    json={"error": "registry unavailable"},
+                    request=request,
+                )
+            return stable_handler(request)
+
+        config = dataclasses.replace(
+            client._ctx.environment_config,
+            relayer_max_polls=3,
+            relayer_poll_frequency_ms=0,
+        )
+        client._ctx = dataclasses.replace(client._ctx, _resolved_environment_config=config)
+        install_sync_relayer_handler(client, handler)
+        _install_sync_secure_clob_handler(client, handler)
+
+        result = client.revoke_session_key(address=_SESSION_ADDRESS)
+
+    assert result is None
+    assert sum(urlparse(str(request.url)).path == _SESSION_KEYS_PATH for request in captured) == 2
 
 
 def test_authorize_session_key_retries_transient_registry_read_failure() -> None:

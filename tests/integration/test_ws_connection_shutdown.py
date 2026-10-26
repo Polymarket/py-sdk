@@ -5,7 +5,7 @@ import pytest
 
 from polymarket import AsyncPublicClient
 from polymarket.environments import PRODUCTION
-from polymarket.streams import CryptoPricesSpec
+from polymarket.streams import CryptoPricesSpec  # pyright: ignore[reportDeprecated]
 
 
 @pytest.mark.integration
@@ -13,7 +13,7 @@ def test_live_rtds_single_subscription_close_returns_within_one_second() -> None
     async def run() -> float:
         client = AsyncPublicClient(environment=PRODUCTION)
         try:
-            stream = await client.subscribe(CryptoPricesSpec(topic="prices.crypto.binance"))
+            stream = await client.subscribe(CryptoPricesSpec(topic="prices.crypto.binance"))  # pyright: ignore[reportDeprecated]
             await asyncio.sleep(0.5)
             started = time.monotonic()
             await asyncio.wait_for(stream.close(), timeout=1.0)

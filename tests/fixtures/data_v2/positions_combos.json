@@ -1,0 +1,340 @@
+[
+  {
+    "combo_condition_id": "0x030b98f62eadaee25b8c04abe48fb41d480000000000000000000000000000",
+    "outcome_index": 0,
+    "outcome_label": "Yes",
+    "combo_position_id": "1377429565969768194445658926463361565610412667506844289284639465465251364864",
+    "proxy_wallet": "0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b",
+    "current_size": 27.393837,
+    "entry_avg_price_usdc": 0.498563,
+    "entry_cost_usdc": 13.657553,
+    "gross_entry_cost_usdc": 14.0,
+    "entry_fees_usdc": 0.34242,
+    "realized_payout_usdc": 0.0,
+    "status": "RESOLVED_LOSS",
+    "redeemable": false,
+    "first_entry_at": "2026-07-29T21:42:32Z",
+    "resolved_at": "2026-07-29T22:25:33Z",
+    "legs_total": 4,
+    "legs_resolved": 4,
+    "legs_pending": 0,
+    "legs": [
+      {
+        "leg_index": 0,
+        "leg_position_id": "537592301394906578030321356864481012104568960231674000893108985352914206721",
+        "leg_condition_id": "0x01304436b57e87850ca3d1ab20706670060000000000000000000000000000",
+        "leg_outcome_index": 1,
+        "leg_outcome_label": "San Diego Padres",
+        "leg_status": "RESOLVED_WIN",
+        "leg_resolved_at": "2026-07-29T23:06:30Z",
+        "leg_current_price": 1.0,
+        "market": {
+          "market_id": "3054121",
+          "slug": "mlb-col-sd-2026-07-29",
+          "title": "Colorado Rockies vs. San Diego Padres",
+          "question": "Colorado Rockies vs. San Diego Padres",
+          "group_item_title": "",
+          "sports_market_type": "moneyline",
+          "line": null,
+          "outcomes": [
+            "Colorado Rockies",
+            "San Diego Padres"
+          ],
+          "outcome": "San Diego Padres",
+          "image_url": "https://polymarket-upload.s3.us-east-2.amazonaws.com/Repetitive-markets/MLB.jpg",
+          "icon_url": "https://polymarket-upload.s3.us-east-2.amazonaws.com/Repetitive-markets/MLB.jpg",
+          "category": "",
+          "subcategory": "",
+          "tags": [],
+          "end_date": "2026-08-05",
+          "event": {
+            "event_id": "738032",
+            "event_slug": "mlb-col-sd-2026-07-29",
+            "event_title": "Colorado Rockies vs. San Diego Padres",
+            "event_image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/Repetitive-markets/MLB.jpg"
+          }
+        }
+      },
+      {
+        "leg_index": 1,
+        "leg_position_id": "670712369311889852583401451697603096700903416546879073321645823228609822720",
+        "leg_condition_id": "0x017b9c1874b8597e1500898a063ea925ab0000000000000000000000000000",
+        "leg_outcome_index": 0,
+        "leg_outcome_label": "Emma Navarro",
+        "leg_status": "RESOLVED_LOSS",
+        "leg_resolved_at": "2026-07-29T22:42:21Z",
+        "leg_current_price": 0.0,
+        "market": {
+          "market_id": "3134194",
+          "slug": "wta-navarro-cocciar-2026-07-29",
+          "title": "Mubadala Citi DC Open: Emma Navarro vs Elisabetta Cocciaretto",
+          "question": "Mubadala Citi DC Open: Emma Navarro vs Elisabetta Cocciaretto",
+          "group_item_title": "",
+          "sports_market_type": "moneyline",
+          "line": null,
+          "outcomes": [
+            "Emma Navarro",
+            "Elisabetta Cocciaretto"
+          ],
+          "outcome": "Emma Navarro",
+          "image_url": "https://polymarket-upload.s3.us-east-2.amazonaws.com/wta-logo-41f331bdf1.png",
+          "icon_url": "https://polymarket-upload.s3.us-east-2.amazonaws.com/wta-logo-41f331bdf1.png",
+          "category": "",
+          "subcategory": "",
+          "tags": [],
+          "end_date": "2026-08-05",
+          "event": {
+            "event_id": "757507",
+            "event_slug": "wta-navarro-cocciar-2026-07-29",
+            "event_title": "Mubadala Citi DC Open: Emma Navarro vs Elisabetta Cocciaretto",
+            "event_image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/wta-logo-41f331bdf1.png"
+          }
+        }
+      },
+      {
+        "leg_index": 2,
+        "leg_position_id": "865855195970414409277923152173318732766997913579482440317699896364274548737",
+        "leg_condition_id": "0x01ea0e822f5aee2c4d5d72c452235db1b00000000000000000000000000000",
+        "leg_outcome_index": 1,
+        "leg_outcome_label": "San Francisco Giants",
+        "leg_status": "RESOLVED_WIN",
+        "leg_resolved_at": "2026-07-30T03:25:42Z",
+        "leg_current_price": 1.0,
+        "market": {
+          "market_id": "3054119",
+          "slug": "mlb-mil-sf-2026-07-29",
+          "title": "Milwaukee Brewers vs. San Francisco Giants",
+          "question": "Milwaukee Brewers vs. San Francisco Giants",
+          "group_item_title": "",
+          "sports_market_type": "moneyline",
+          "line": null,
+          "outcomes": [
+            "Milwaukee Brewers",
+            "San Francisco Giants"
+          ],
+          "outcome": "San Francisco Giants",
+          "image_url": "https://polymarket-upload.s3.us-east-2.amazonaws.com/Repetitive-markets/MLB.jpg",
+          "icon_url": "https://polymarket-upload.s3.us-east-2.amazonaws.com/Repetitive-markets/MLB.jpg",
+          "category": "",
+          "subcategory": "",
+          "tags": [],
+          "end_date": "2026-08-05",
+          "event": {
+            "event_id": "738031",
+            "event_slug": "mlb-mil-sf-2026-07-29",
+            "event_title": "Milwaukee Brewers vs. San Francisco Giants",
+            "event_image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/Repetitive-markets/MLB.jpg"
+          }
+        }
+      },
+      {
+        "leg_index": 3,
+        "leg_position_id": "932347778883073360067949554423831260321490741993285763134219883824812130304",
+        "leg_condition_id": "0x020fb0ad28fe2eb51a9dedbdb39bb433000003000000000000000000000000",
+        "leg_outcome_index": 0,
+        "leg_outcome_label": "Yes",
+        "leg_status": "RESOLVED_WIN",
+        "leg_resolved_at": "2026-07-30T01:21:47Z",
+        "leg_current_price": 1.0,
+        "market": {
+          "market_id": "2948606",
+          "slug": "arg-def-rie-2026-07-29-def",
+          "title": "CSyD Defensa y Justicia",
+          "question": "Will CSyD Defensa y Justicia win on 2026-07-29?",
+          "group_item_title": "CSyD Defensa y Justicia",
+          "sports_market_type": "moneyline",
+          "line": null,
+          "outcomes": [
+            "Yes",
+            "No"
+          ],
+          "outcome": "Yes",
+          "image_url": "https://polymarket-upload.s3.us-east-2.amazonaws.com/argentina-primera-division-fdedea0d80.png",
+          "icon_url": "https://polymarket-upload.s3.us-east-2.amazonaws.com/argentina-primera-division-fdedea0d80.png",
+          "category": "",
+          "subcategory": "",
+          "tags": [],
+          "end_date": "2026-07-29",
+          "event": {
+            "event_id": "710707",
+            "event_slug": "arg-def-rie-2026-07-29",
+            "event_title": "CSyD Defensa y Justicia vs. CD Riestra",
+            "event_image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/argentina-primera-division-fdedea0d80.png"
+          }
+        }
+      }
+    ],
+    "first_entry_at_micros": 1785361352000000,
+    "updated_at": "2026-07-30T15:38:32Z",
+    "updated_at_micros": 1785425912234415
+  },
+  {
+    "combo_condition_id": "0x03ef28da8ebf10dee70883e098bf1e9cbe0000000000000000000000000000",
+    "outcome_index": 0,
+    "outcome_label": "Yes",
+    "combo_position_id": "1779496956387023451018773818174760111630377278647208440000180064737394950144",
+    "proxy_wallet": "0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b",
+    "current_size": 40.823578,
+    "entry_avg_price_usdc": 0.355971,
+    "entry_cost_usdc": 14.532009,
+    "gross_entry_cost_usdc": 15.0,
+    "entry_fees_usdc": 0.46795,
+    "realized_payout_usdc": 0.0,
+    "status": "RESOLVED_LOSS",
+    "redeemable": false,
+    "first_entry_at": "2026-07-29T21:42:20Z",
+    "resolved_at": "2026-07-29T22:25:33Z",
+    "legs_total": 4,
+    "legs_resolved": 4,
+    "legs_pending": 0,
+    "legs": [
+      {
+        "leg_index": 0,
+        "leg_position_id": "471522926896185725944311987420306526392743232527698550880094496675279667201",
+        "leg_condition_id": "0x010adf5d68058c9a359cff4a1aebeb6ce90000000000000000000000000000",
+        "leg_outcome_index": 1,
+        "leg_outcome_label": "Himeno Sakatsume",
+        "leg_status": "RESOLVED_WIN",
+        "leg_resolved_at": "2026-07-29T23:23:23Z",
+        "leg_current_price": 1.0,
+        "market": {
+          "market_id": "3151338",
+          "slug": "wta-wong-sakatsu-2026-07-28",
+          "title": "Vancouver: Cody Wong vs Himeno Sakatsume",
+          "question": "Vancouver: Cody Wong vs Himeno Sakatsume",
+          "group_item_title": "",
+          "sports_market_type": "moneyline",
+          "line": null,
+          "outcomes": [
+            "Cody Wong",
+            "Himeno Sakatsume"
+          ],
+          "outcome": "Himeno Sakatsume",
+          "image_url": "https://polymarket-upload.s3.us-east-2.amazonaws.com/wta-logo-41f331bdf1.png",
+          "icon_url": "https://polymarket-upload.s3.us-east-2.amazonaws.com/wta-logo-41f331bdf1.png",
+          "category": "",
+          "subcategory": "",
+          "tags": [],
+          "end_date": "2026-08-05",
+          "event": {
+            "event_id": "760606",
+            "event_slug": "wta-wong-sakatsu-2026-07-28",
+            "event_title": "Vancouver: Cody Wong vs Himeno Sakatsume",
+            "event_image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/wta-logo-41f331bdf1.png"
+          }
+        }
+      },
+      {
+        "leg_index": 1,
+        "leg_position_id": "670712369311889852583401451697603096700903416546879073321645823228609822720",
+        "leg_condition_id": "0x017b9c1874b8597e1500898a063ea925ab0000000000000000000000000000",
+        "leg_outcome_index": 0,
+        "leg_outcome_label": "Emma Navarro",
+        "leg_status": "RESOLVED_LOSS",
+        "leg_resolved_at": "2026-07-29T22:42:21Z",
+        "leg_current_price": 0.0,
+        "market": {
+          "market_id": "3134194",
+          "slug": "wta-navarro-cocciar-2026-07-29",
+          "title": "Mubadala Citi DC Open: Emma Navarro vs Elisabetta Cocciaretto",
+          "question": "Mubadala Citi DC Open: Emma Navarro vs Elisabetta Cocciaretto",
+          "group_item_title": "",
+          "sports_market_type": "moneyline",
+          "line": null,
+          "outcomes": [
+            "Emma Navarro",
+            "Elisabetta Cocciaretto"
+          ],
+          "outcome": "Emma Navarro",
+          "image_url": "https://polymarket-upload.s3.us-east-2.amazonaws.com/wta-logo-41f331bdf1.png",
+          "icon_url": "https://polymarket-upload.s3.us-east-2.amazonaws.com/wta-logo-41f331bdf1.png",
+          "category": "",
+          "subcategory": "",
+          "tags": [],
+          "end_date": "2026-08-05",
+          "event": {
+            "event_id": "757507",
+            "event_slug": "wta-navarro-cocciar-2026-07-29",
+            "event_title": "Mubadala Citi DC Open: Emma Navarro vs Elisabetta Cocciaretto",
+            "event_image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/wta-logo-41f331bdf1.png"
+          }
+        }
+      },
+      {
+        "leg_index": 2,
+        "leg_position_id": "714438888368126497495556326170948963995829842385279409111669191217384521728",
+        "leg_condition_id": "0x01945bab30b4723118400c5b24234cd1450000000000000000000000000000",
+        "leg_outcome_index": 0,
+        "leg_outcome_label": "Zeynep Sonmez",
+        "leg_status": "RESOLVED_LOSS",
+        "leg_resolved_at": "2026-07-29T23:51:33Z",
+        "leg_current_price": 0.0,
+        "market": {
+          "market_id": "3191835",
+          "slug": "wta-sonmez-kalieva-2026-07-29",
+          "title": "The Memphis Classic: Zeynep Sonmez vs Elvina Kalieva",
+          "question": "The Memphis Classic: Zeynep Sonmez vs Elvina Kalieva",
+          "group_item_title": "",
+          "sports_market_type": "moneyline",
+          "line": null,
+          "outcomes": [
+            "Zeynep Sonmez",
+            "Elvina Kalieva"
+          ],
+          "outcome": "Zeynep Sonmez",
+          "image_url": "https://polymarket-upload.s3.us-east-2.amazonaws.com/wta-logo-41f331bdf1.png",
+          "icon_url": "https://polymarket-upload.s3.us-east-2.amazonaws.com/wta-logo-41f331bdf1.png",
+          "category": "",
+          "subcategory": "",
+          "tags": [],
+          "end_date": "2026-08-05",
+          "event": {
+            "event_id": "765504",
+            "event_slug": "wta-sonmez-kalieva-2026-07-29",
+            "event_title": "The Memphis Classic: Zeynep Sonmez vs Elvina Kalieva",
+            "event_image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/wta-logo-41f331bdf1.png"
+          }
+        }
+      },
+      {
+        "leg_index": 3,
+        "leg_position_id": "814822063019673274014396489695648900389052847752741169265273123402013474816",
+        "leg_condition_id": "0x01cd2c461424a0146e7a5eac021856ee200000000000000000000000000000",
+        "leg_outcome_index": 0,
+        "leg_outcome_label": "Mai Hontama",
+        "leg_status": "RESOLVED_WIN",
+        "leg_resolved_at": "2026-07-30T00:53:00Z",
+        "leg_current_price": 1.0,
+        "market": {
+          "market_id": "3196295",
+          "slug": "wta-hontama-lu-2026-07-29",
+          "title": "Vancouver: Mai Hontama vs Jiajing Lu",
+          "question": "Vancouver: Mai Hontama vs Jiajing Lu",
+          "group_item_title": "",
+          "sports_market_type": "moneyline",
+          "line": null,
+          "outcomes": [
+            "Mai Hontama",
+            "Jiajing Lu"
+          ],
+          "outcome": "Mai Hontama",
+          "image_url": "https://polymarket-upload.s3.us-east-2.amazonaws.com/wta-logo-41f331bdf1.png",
+          "icon_url": "https://polymarket-upload.s3.us-east-2.amazonaws.com/wta-logo-41f331bdf1.png",
+          "category": "",
+          "subcategory": "",
+          "tags": [],
+          "end_date": "2026-08-05",
+          "event": {
+            "event_id": "766502",
+            "event_slug": "wta-hontama-lu-2026-07-29",
+            "event_title": "Vancouver: Mai Hontama vs Jiajing Lu",
+            "event_image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/wta-logo-41f331bdf1.png"
+          }
+        }
+      }
+    ],
+    "first_entry_at_micros": 1785361340000000,
+    "updated_at": "2026-07-30T15:38:32Z",
+    "updated_at_micros": 1785425912234415
+  }
+]

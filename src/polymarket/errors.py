@@ -1,8 +1,13 @@
 """Exception types raised by the Polymarket SDK."""
 
-from typing import Literal, TypeAlias
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Literal, TypeAlias
 
 from polymarket.rate_limit import RateLimitUpdate
+
+if TYPE_CHECKING:
+    from polymarket.models.perps.orders import PerpsCancelOrderResult
 
 
 class PolymarketError(Exception):
@@ -17,8 +22,41 @@ class UnexpectedResponseError(PolymarketError):
     """Error raised when a response does not match the expected shape."""
 
 
+class PaginationLimitError(PolymarketError):
+    """Error raised when pagination would pass the deepest page the service serves.
+
+    Some list endpoints cap how far an offset-paginated read may go and reject
+    requests past the cap. Explicitly resuming an over-limit cursor raises
+    this before sending a request. Automatic iteration instead yields the
+    final accessible page with ``limit_reached=True`` and stops normally;
+    whether more items exist past the cap cannot be established.
+    """
+
+
 class TransportError(PolymarketError):
     """Error raised when a network or runtime transport failure occurs."""
+
+
+class PerpsCancelRetryError(PolymarketError):
+    """A later cancellation attempt failed after receiving earlier results.
+
+    ``results`` retains the last received results in original request order.
+    ``pending_indexes`` identifies the positions in the failed attempt. Their
+    entries are historical rejections, not outcomes of that attempt. Reconcile
+    those orders before submitting another cancellation. ``__cause__`` is the
+    original failure. Task cancellation still raises ``asyncio.CancelledError``.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        results: tuple[PerpsCancelOrderResult, ...],
+        pending_indexes: tuple[int, ...],
+    ) -> None:
+        super().__init__(message)
+        self.results = results
+        self.pending_indexes = pending_indexes
 
 
 class ConnectionLostError(PolymarketError):
@@ -73,6 +111,19 @@ class RequestRejectedError(PolymarketError):
         self.code = code
         self.retry_after = retry_after
         self.restriction = restriction
+
+
+class OrderHeartbeatMismatchError(RequestRejectedError):
+    """An order heartbeat used a stale ID.
+
+    Retry explicitly with ``heartbeat_id`` and retain the next successful ID.
+    A rejected send does not refresh the deadline. The expected ID can be empty
+    after a legacy heartbeat.
+    """
+
+    def __init__(self, heartbeat_id: str) -> None:
+        super().__init__("Invalid Heartbeat ID", status=400)
+        self.heartbeat_id = heartbeat_id
 
 
 class AutoCancelDailyLimitError(RequestRejectedError):

@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from enum import IntEnum
 from typing import Annotated, Literal
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, computed_field, field_validator
 
 from polymarket.models._validators import parse_decimal_string
 from polymarket.models.base import BaseModel
@@ -20,14 +20,14 @@ from polymarket.models.clob.orders import OrderType
 from polymarket.models.gamma.comment import CommentProfile
 from polymarket.models.types import (
     ApiKey,
+    ClobAssetId,
     ComboConditionId,
     CommentId,
-    CtfConditionId,
+    ConditionId,
     OrderId,
     OrderSide,
     PositionId,
     QuestionId,
-    TokenId,
     validate_combo_condition_id,
 )
 from polymarket.types import EvmAddress, TransactionHash
@@ -49,6 +49,7 @@ class NotificationType(IntEnum):
     ORDER_FILL_FAILED = 8
     AUTO_REDEEMED = 9
     COMBO_AUTO_REDEEMED = 10
+    TAKER_TIER_UPGRADED = 11
 
 
 def _empty_string_to_none(value: object) -> object:
@@ -65,8 +66,8 @@ class OrderNotificationPayload(BaseModel):
     older notifications may omit them entirely, along with ``order_type``.
     """
 
-    token_id: TokenId = Field(validation_alias="asset_id")
-    condition_id: CtfConditionId = Field(validation_alias="market")
+    asset_id: ClobAssetId = Field(validation_alias=AliasChoices("asset_id", "token_id"))
+    condition_id: ConditionId = Field(validation_alias="market")
     order_id: OrderId
     side: OrderSide
     order_type: OrderType | None = Field(default=None, validation_alias="type")
@@ -85,6 +86,13 @@ class OrderNotificationPayload(BaseModel):
     event_slug: str | None = Field(default=None, validation_alias="eventSlug")
     series_slug: str | None = Field(default=None, validation_alias="seriesSlug")
 
+    @computed_field
+    @property
+    def token_id(self) -> ClobAssetId:
+        """Deprecated alias for :attr:`asset_id`."""
+
+        return self.asset_id
+
     @field_validator("price", "original_size", "matched_size", "remaining_size", mode="before")
     @classmethod
     def _parse_decimal_fields(cls, value: object) -> object:
@@ -102,10 +110,17 @@ class MarketNotificationToken(BaseModel):
     On a market-resolved notification, ``winner`` marks the winning outcome.
     """
 
-    token_id: TokenId
+    asset_id: ClobAssetId = Field(validation_alias=AliasChoices("asset_id", "token_id"))
     outcome: str
     price: Decimal | None = None
     winner: bool
+
+    @computed_field
+    @property
+    def token_id(self) -> ClobAssetId:
+        """Deprecated alias for :attr:`asset_id`."""
+
+        return self.asset_id
 
     @field_validator("price", mode="before")
     @classmethod
@@ -145,7 +160,7 @@ class MarketNotificationPayload(BaseModel):
     Fields that default to ``None`` may be absent on older notifications.
     """
 
-    condition_id: CtfConditionId
+    condition_id: ConditionId
     question_id: QuestionId
     question: str
     description: str
@@ -259,7 +274,7 @@ class AutoRedeemedNotificationPayload(BaseModel):
 
     proxy_wallet: EvmAddress = Field(validation_alias="proxyWallet")
     amount: Decimal
-    condition_id: CtfConditionId = Field(validation_alias="conditionId")
+    condition_id: ConditionId = Field(validation_alias="conditionId")
     question: str
     image: str
     market_slug: str = Field(validation_alias="slug")
@@ -298,6 +313,28 @@ class ComboAutoRedeemedNotificationPayload(BaseModel):
     @classmethod
     def _validate_condition_id(cls, value: object) -> ComboConditionId:
         return validate_combo_condition_id(value)
+
+
+class TakerTierUpgradedNotificationPayload(BaseModel):
+    """A taker tier upgrade in a daily snapshot.
+
+    ``rebate_bps`` is in basis points and ``snapshot_date`` identifies the
+    snapshot's UTC calendar day.
+    """
+
+    previous_tier: int = Field(strict=True)
+    tier: int = Field(strict=True)
+    rebate_bps: int = Field(strict=True)
+    snapshot_date: date
+
+    @field_validator("snapshot_date", mode="before")
+    @classmethod
+    def _parse_snapshot_date(cls, value: object) -> date:
+        if type(value) is date:
+            return value
+        if isinstance(value, str) and len(value) == 10 and value[4] == value[7] == "-":
+            return date.fromisoformat(value)
+        raise ValueError("snapshot_date must be a YYYY-MM-DD calendar date")
 
 
 def _parse_notification_id(value: object) -> object:
@@ -400,6 +437,13 @@ class ComboAutoRedeemedNotification(_NotificationBase):
     payload: ComboAutoRedeemedNotificationPayload
 
 
+class TakerTierUpgradedNotification(_NotificationBase):
+    """The account's taker tier increased in a daily snapshot."""
+
+    type: Literal[NotificationType.TAKER_TIER_UPGRADED]
+    payload: TakerTierUpgradedNotificationPayload
+
+
 Notification = Annotated[
     OrderCancellationNotification
     | OrderFillNotification
@@ -410,7 +454,8 @@ Notification = Annotated[
     | YieldPayoutNotification
     | OrderFillFailedNotification
     | AutoRedeemedNotification
-    | ComboAutoRedeemedNotification,
+    | ComboAutoRedeemedNotification
+    | TakerTierUpgradedNotification,
     Field(discriminator="type"),
 ]
 """Account notification.
@@ -441,6 +486,8 @@ __all__ = [
     "OrderNotificationPayload",
     "RewardPayoutNotification",
     "RewardPayoutNotificationPayload",
+    "TakerTierUpgradedNotification",
+    "TakerTierUpgradedNotificationPayload",
     "YieldPayoutNotification",
     "YieldPayoutNotificationPayload",
 ]

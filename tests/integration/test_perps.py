@@ -10,6 +10,8 @@ Metered side effects:
 - Session tests create (and where noted revoke) delegated Perps credentials.
 - Order tests place resting orders far from the mark price and cancel them.
 - The auto-cancel test arms a 10-minute dead man's switch and disarms it.
+- The batch-leverage test temporarily changes unused-instrument configuration
+  and verifies restoration in ``finally``.
 """
 
 import asyncio
@@ -26,6 +28,7 @@ from polymarket import (
     AsyncSecureClient,
     BuilderApiKey,
     PerpsInstrument,
+    PerpsLeverageUpdate,
     PerpsTpSlTrigger,
     RequestRejectedError,
 )
@@ -304,6 +307,88 @@ async def test_arms_reads_and_disarms_the_auto_cancel_switch(
 
         disarmed = await session.fetch_auto_cancel_status()
         assert disarmed.deadline is None
+    finally:
+        await session.close()
+
+
+@pytest.mark.integration
+@pytest.mark.metered
+async def test_updates_perps_leverages_in_order_and_restores(
+    deposit_wallet_client: AsyncSecureClient,
+) -> None:
+    instruments = await deposit_wallet_client.fetch_perps_instruments()
+    instruments_by_id = {instrument.id: instrument for instrument in instruments}
+    session = await deposit_wallet_client.open_perps_session()
+    try:
+        portfolio = await session.fetch_portfolio()
+        open_orders = await session.fetch_open_orders()
+        active_instrument_ids = {position.instrument_id for position in portfolio.positions} | {
+            order.instrument_id for order in open_orders
+        }
+        configs = await session.fetch_account_config()
+
+        selected: list[tuple[int, int, bool, int]] = []
+        for config in configs:
+            instrument = instruments_by_id.get(config.instrument_id)
+            if instrument is None or config.instrument_id in active_instrument_ids:
+                continue
+            target_leverage = 1 if config.leverage != 1 else 2
+            if target_leverage > instrument.max_leverage:
+                continue
+            selected.append(
+                (
+                    config.instrument_id,
+                    config.leverage,
+                    config.cross,
+                    target_leverage,
+                )
+            )
+            if len(selected) == 2:
+                break
+
+        if len(selected) < 2:
+            pytest.skip("fewer than two unused configurable Perps instruments")
+
+        originals = [
+            PerpsLeverageUpdate(
+                instrument_id=instrument_id,
+                leverage=leverage,
+                cross_margin=cross_margin,
+            )
+            for instrument_id, leverage, cross_margin, _ in selected
+        ]
+        updates = [
+            PerpsLeverageUpdate(
+                instrument_id=instrument_id,
+                leverage=target_leverage,
+                cross_margin=cross_margin,
+            )
+            for instrument_id, _, cross_margin, target_leverage in selected
+        ]
+
+        try:
+            results = await session.update_leverages(updates)
+            assert [result.instrument_id for result in results] == [
+                update.instrument_id for update in updates
+            ]
+            assert all(result.status == "ok" for result in results)
+
+            for update in updates:
+                (current,) = await session.fetch_account_config(instrument_id=update.instrument_id)
+                assert current.leverage == update.leverage
+                assert current.cross == update.cross_margin
+        finally:
+            restoration = await session.update_leverages(originals)
+            assert [result.instrument_id for result in restoration] == [
+                update.instrument_id for update in originals
+            ]
+            assert all(result.status == "ok" for result in restoration)
+            for original in originals:
+                (restored,) = await session.fetch_account_config(
+                    instrument_id=original.instrument_id
+                )
+                assert restored.leverage == original.leverage
+                assert restored.cross == original.cross_margin
     finally:
         await session.close()
 

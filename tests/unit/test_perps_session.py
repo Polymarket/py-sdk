@@ -20,6 +20,7 @@ from polymarket.errors import (
     AutoCancelDailyLimitError,
     RequestRejectedError,
     TransportError,
+    UnexpectedResponseError,
     UserInputError,
 )
 from polymarket.errors import TimeoutError as SDKTimeoutError
@@ -30,8 +31,108 @@ from polymarket.models.perps.events import (
     PerpsOrderEvent,
     PerpsResyncEvent,
 )
+from polymarket.models.perps.orders import PerpsCancelOrderErrorCode, PerpsLeverageUpdateRejection
+from polymarket.models.perps.requests import PerpsLeverageUpdate
 
 Handler = Callable[[ServerConnection], Awaitable[None]]
+
+
+def _internal_transfer(transfer_id: int, timestamp: int) -> dict[str, Any]:
+    return {
+        "transfer_id": transfer_id,
+        "type": "transfer",
+        "asset": "pUSD",
+        "amount": "1.23000000000000000001",
+        "direction": "out",
+        "counterparty": "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
+        "label": "rebalance-001",
+        "created_timestamp": timestamp,
+    }
+
+
+def test_internal_transfer_history_resumes_submillisecond_overlap() -> None:
+    captured: list[httpx.Request] = []
+    responses = [
+        {"data": [_internal_transfer(4, 1002), _internal_transfer(3, 1001)], "more": True},
+        {
+            "data": [
+                _internal_transfer(4, 1002),
+                _internal_transfer(3, 1001),
+                _internal_transfer(2, 1000),
+            ],
+            "more": True,
+        },
+        {
+            "data": [
+                _internal_transfer(3, 1001),
+                _internal_transfer(2, 1000),
+                _internal_transfer(1, 999),
+            ],
+            "more": False,
+        },
+    ]
+
+    def rest(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json=responses.pop(0))
+
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        await ws.wait_closed()
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            await session._api.close()
+            session._api = AsyncTransport(
+                base_url="https://perps.test",
+                client=httpx.AsyncClient(
+                    base_url="https://perps.test", transport=httpx.MockTransport(rest)
+                ),
+            )
+            pages = session.list_internal_transfers(start=0, end=2000)
+            assert captured == []
+            first = await pages.first_page()
+            assert [row.transfer_id for row in first.items] == [4, 3]
+            assert first.items[0].amount == Decimal("1.23000000000000000001")
+            assert first.items[0].created_at == datetime.fromtimestamp(1.002, tz=UTC)
+            assert first.items[0].label == "rebalance-001"
+            assert first.next_cursor is not None
+            resumed = session.list_internal_transfers(cursor=first.next_cursor)
+            assert [row.transfer_id async for page in resumed for row in page.items] == [2, 1]
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10))
+    assert [dict(request.url.params) for request in captured] == [
+        {"start_timestamp": "0", "end_timestamp": "2000"},
+        {"start_timestamp": "0", "end_timestamp": "1002"},
+        {"start_timestamp": "0", "end_timestamp": "1001"},
+    ]
+
+
+@pytest.mark.parametrize("rows", [[], [_internal_transfer(1, 1000)]])
+def test_internal_transfer_history_refuses_unsafe_progress(rows: list[dict[str, Any]]) -> None:
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        await ws.wait_closed()
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            await session._api.close()
+            session._api = AsyncTransport(
+                base_url="https://perps.test",
+                client=httpx.AsyncClient(
+                    base_url="https://perps.test",
+                    transport=httpx.MockTransport(
+                        lambda _: httpx.Response(200, json={"data": rows, "more": True})
+                    ),
+                ),
+            )
+            pages = session.list_internal_transfers(start=0, end=1001)
+            with pytest.raises(UnexpectedResponseError):
+                async for _ in pages:
+                    pass
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10))
+
 
 _PROXY_PRIVATE_KEY = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 _PROXY_ADDRESS = "0x14791697260E4c9A71f18484C9f997B308e59325"
@@ -81,6 +182,7 @@ def _order_update(
     update: dict[str, Any] = {
         "ch": "orders",
         "ts": 1751500000000,
+        "ets": 1751499999000,
         "sq": sequence,
         "data": {
             "oid": order_id,
@@ -107,6 +209,7 @@ def _fills_update(*, sequence: int = 6) -> dict[str, Any]:
     return {
         "ch": "fills",
         "ts": 1751500000002,
+        "ets": 1751499999000,
         "sq": sequence,
         "data": [
             {
@@ -123,6 +226,7 @@ def _fills_update(*, sequence: int = 6) -> dict[str, Any]:
                 "pep": "0",
                 "pnl": "0",
                 "liq": False,
+                "adl": False,
                 "ts": 1751500000000,
             },
             {
@@ -139,6 +243,7 @@ def _fills_update(*, sequence: int = 6) -> dict[str, Any]:
                 "pep": "0.5",
                 "pnl": "0.2",
                 "liq": False,
+                "adl": False,
                 "ts": 1751500000001,
             },
         ],
@@ -217,7 +322,11 @@ def test_auth_rejection_surfaces_request_rejected_error() -> None:
     asyncio.run(asyncio.wait_for(run(), timeout=10.0))
 
 
-def test_place_order_signs_command_and_returns_order_update() -> None:
+@pytest.mark.parametrize("status", ["open", "instrument_settled", "insufficient_margin_at_fill"])
+@pytest.mark.parametrize("update_before_ack", [True, False])
+def test_place_order_signs_command_and_returns_order_update(
+    status: str, update_before_ack: bool
+) -> None:
     commands: list[dict[str, Any]] = []
 
     async def handler(ws: ServerConnection) -> None:
@@ -228,16 +337,16 @@ def test_place_order_signs_command_and_returns_order_update() -> None:
                 continue
             commands.append(message)
             client_order_id = message["op"]["args"][0]["c"]
-            await ws.send(
-                json.dumps(
-                    _order_update(
-                        77,
-                        client_order_id=client_order_id,
-                        reduce_only=True,
-                    )
-                )
+            update = _order_update(
+                77,
+                client_order_id=client_order_id,
+                reduce_only=True,
             )
-            await ws.send(json.dumps({"id": message["id"], "data": [{"status": "ok", "oid": 77}]}))
+            update["data"]["status"] = status
+            ack = {"id": message["id"], "data": [{"status": "ok", "oid": 77}]}
+            frames = [update, ack] if update_before_ack else [ack, update]
+            for frame in frames:
+                await ws.send(json.dumps(frame))
 
     async def run() -> None:
         async with ws_server(handler) as url, _open_session(url) as session:
@@ -252,9 +361,12 @@ def test_place_order_signs_command_and_returns_order_update() -> None:
             assert placement.order.id == 77
             assert placement.order.client_order_id == commands[0]["op"]["args"][0]["c"]
             assert placement.order.reduce_only is True
-            assert placement.order.status == "open"
+            assert placement.order.status == status
             assert placement.tp_sl is None
             assert session._event_waiters == []
+            event = await asyncio.wait_for(session.__anext__(), timeout=5.0)
+            assert isinstance(event, PerpsOrderEvent)
+            assert event.payload == placement.order
 
     asyncio.run(asyncio.wait_for(run(), timeout=10.0))
     command = commands[0]
@@ -278,6 +390,89 @@ def test_place_order_signs_command_and_returns_order_update() -> None:
     assert isinstance(command["salt"], int)
     assert isinstance(command["ts"], int)
     assert command["sig"].startswith("0x") and len(command["sig"]) == 132
+
+
+@pytest.mark.parametrize("with_exits", [False, True])
+def test_gtd_placement_keeps_order_and_command_expiry_separate(with_exits: bool) -> None:
+    from polymarket.models.perps.requests import PerpsTpSlTrigger
+
+    commands: list[dict[str, Any]] = []
+    expiry = datetime.now(UTC) + timedelta(minutes=5)
+    deadline = datetime.now(UTC) + timedelta(seconds=30)
+
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        async for raw in ws:
+            message = json.loads(raw)
+            if _is_ping(message):
+                continue
+            commands.append(message)
+            update = _order_update(77, client_order_id=message["op"]["args"][0]["c"])
+            update["data"]["tif"] = "gtd"
+            await ws.send(json.dumps(update))
+            acks = [
+                {"status": "ok", "oid": 77 + index} for index in range(len(message["op"]["args"]))
+            ]
+            await ws.send(json.dumps({"id": message["id"], "data": acks}))
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            placement = await session.place_order(
+                instrument_id=1,
+                side="BUY",
+                price="0.5",
+                quantity="10",
+                time_in_force="gtd",
+                gtd_expiry=expiry,
+                expires_at=deadline,
+                stop_loss=PerpsTpSlTrigger(trigger_price="0.4") if with_exits else None,
+            )
+            assert placement.order.time_in_force == "gtd"
+            assert commands[0]["exp"] == int(deadline.timestamp() * 1000)
+            assert commands[0]["op"]["args"][0]["gtd_expiry"] == int(expiry.timestamp() * 1000)
+            if with_exits:
+                assert placement.tp_sl is not None
+                assert placement.tp_sl.stop_loss is not None
+                assert "gtd_expiry" not in commands[0]["op"]["args"][1]
+                assert "tif" not in commands[0]["op"]["args"][1]
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+
+
+def test_gtd_batch_revalidates_expiry_before_sending(monkeypatch: pytest.MonkeyPatch) -> None:
+    from polymarket.models.perps.requests import PerpsOrderRequest
+
+    commands: list[dict[str, Any]] = []
+    expiry = 1_893_456_000_123
+    monkeypatch.setattr(
+        "polymarket.models.perps.requests.time.time_ns", lambda: (expiry - 1) * 1_000_000
+    )
+    valid = PerpsOrderRequest(
+        instrument_id=1, side="BUY", price="1", quantity="1", time_in_force="gtc"
+    )
+    delayed = PerpsOrderRequest(
+        instrument_id=1, side="BUY", price="1", quantity="1", time_in_force="gtd", gtd_expiry=expiry
+    )
+    monkeypatch.setattr("polymarket.models.perps.requests.time.time_ns", lambda: expiry * 1_000_000)
+
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        async for raw in ws:
+            message = json.loads(raw)
+            if _is_ping(message):
+                continue
+            commands.append(message)
+            await ws.send(json.dumps({"id": message["id"], "data": [{"status": "ok", "oid": 1}]}))
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            with pytest.raises(UserInputError, match="strictly in the future"):
+                await session.post_orders([valid, delayed])
+            await session.post_orders([valid])
+            assert len(commands) == 1
+            assert len(commands[0]["op"]["args"]) == 1
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
 
 
 def test_place_order_update_timeout_starts_after_ack(
@@ -509,6 +704,73 @@ def test_place_order_with_tp_sl_groups_rows_and_returns_trigger_ids() -> None:
     assert op["args"][1]["buy"] is False and op["args"][1]["ro"] is True
 
 
+def test_place_gtd_order_with_trailing_stop_loss() -> None:
+    from polymarket.models.perps.requests import PerpsTpSlTrigger, PerpsTrailingStop
+
+    commands: list[dict[str, Any]] = []
+
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        async for raw in ws:
+            message = json.loads(raw)
+            if _is_ping(message):
+                continue
+            commands.append(message)
+            client_order_id = message["op"]["args"][0]["c"]
+            await ws.send(
+                json.dumps(
+                    _order_update(
+                        100,
+                        client_order_id=client_order_id,
+                    )
+                )
+            )
+            await ws.send(
+                json.dumps(
+                    {
+                        "id": message["id"],
+                        "data": [
+                            {"status": "ok", "oid": 100},
+                            {"status": "ok", "oid": 101},
+                            {"status": "ok", "oid": 102},
+                        ],
+                    }
+                )
+            )
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            placement = await session.place_order(
+                instrument_id=1,
+                side="BUY",
+                price="0.5",
+                quantity="10",
+                time_in_force="gtd",
+                gtd_expiry=1893456000000,
+                take_profit=PerpsTpSlTrigger(trigger_price="1"),
+                stop_loss=PerpsTrailingStop(trailing_bps=200, activation_price=Decimal("1.05")),
+            )
+            assert placement.order.id == 100
+            assert placement.order.client_order_id == commands[0]["op"]["args"][0]["c"]
+            assert placement.tp_sl is not None
+            assert placement.tp_sl.take_profit is not None
+            assert placement.tp_sl.take_profit.order_id == 101
+            assert placement.tp_sl.stop_loss is not None
+            assert placement.tp_sl.stop_loss.order_id == 102
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+    op = commands[0]["op"]
+    assert op["grp"] == "order"
+    assert len(op["args"]) == 3
+    assert len(op["args"][0]["c"]) == 32
+    assert "c" not in op["args"][1]
+    assert "c" not in op["args"][2]
+    assert op["args"][1]["tr"] == {"tpsl": "tp", "trp": "1", "market": True}
+    assert op["args"][2]["tr"] == {"tpsl": "sl", "trail_bps": 200, "act": "1.05", "market": True}
+    # Trigger legs exit the position: entry BUY -> reduce-only SELL legs.
+    assert op["args"][1]["buy"] is False and op["args"][1]["ro"] is True
+
+
 def test_place_order_rejection_raises_request_rejected() -> None:
     async def handler(ws: ServerConnection) -> None:
         await _handshake(ws)
@@ -607,7 +869,7 @@ def test_cancel_order_returns_result_without_raising_on_err_status() -> None:
                 json.dumps(
                     {
                         "id": message["id"],
-                        "data": [{"status": "err", "oid": 55, "error": "order not found"}],
+                        "data": [{"status": "err", "oid": 55, "error": "order_not_found"}],
                     }
                 )
             )
@@ -616,7 +878,7 @@ def test_cancel_order_returns_result_without_raising_on_err_status() -> None:
         async with ws_server(handler) as url, _open_session(url) as session:
             result = await session.cancel_order(order_id=55)
             assert result.status == "err"
-            assert result.error == "order not found"
+            assert result.error is PerpsCancelOrderErrorCode.ORDER_NOT_FOUND
 
     asyncio.run(asyncio.wait_for(run(), timeout=10.0))
 
@@ -721,6 +983,199 @@ def test_arm_auto_cancel_daily_limit_raises_typed_error() -> None:
     asyncio.run(asyncio.wait_for(run(), timeout=10.0))
 
 
+def test_update_leverages_preserves_order_and_mixed_results() -> None:
+    commands: list[dict[str, Any]] = []
+
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        async for raw in ws:
+            message = json.loads(raw)
+            if _is_ping(message):
+                continue
+            commands.append(message)
+            await ws.send(
+                json.dumps(
+                    {
+                        "id": message["id"],
+                        "data": [
+                            {
+                                "status": "ok",
+                                "instrument_id": 2,
+                                "leverage": 10,
+                                "cross": True,
+                            },
+                            {
+                                "status": "err",
+                                "instrument_id": 1,
+                                "error": "internal_error",
+                            },
+                        ],
+                    }
+                )
+            )
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            results = await session.update_leverages(
+                [
+                    PerpsLeverageUpdate(instrument_id=2, leverage=10, cross_margin=True),
+                    PerpsLeverageUpdate(instrument_id=1, leverage=5, cross_margin=False),
+                ]
+            )
+            assert [result.instrument_id for result in results] == [2, 1]
+            assert [result.status for result in results] == ["ok", "err"]
+            assert isinstance(results[1], PerpsLeverageUpdateRejection)
+            assert results[1].error == "internal_error"
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+    assert commands[0]["req"] == "post"
+    assert commands[0]["op"] == {
+        "type": "updateLeverages",
+        "args": [
+            {"cross": True, "iid": 2, "lev": 10},
+            {"cross": False, "iid": 1, "lev": 5},
+        ],
+    }
+    assert commands[0]["sig"].startswith("0x") and len(commands[0]["sig"]) == 132
+
+
+def test_update_leverages_request_rejection_raises() -> None:
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        async for raw in ws:
+            message = json.loads(raw)
+            if _is_ping(message):
+                continue
+            await ws.send(
+                json.dumps(
+                    {
+                        "id": message["id"],
+                        "data": [{"status": "err", "error": "batch_rate_limited"}],
+                    }
+                )
+            )
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            with pytest.raises(RequestRejectedError, match="batch_rate_limited"):
+                await session.update_leverages(
+                    [PerpsLeverageUpdate(instrument_id=1, leverage=5, cross_margin=False)]
+                )
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        [],
+        [{"status": "ok", "instrument_id": 1, "leverage": 5, "cross": False}],
+        [
+            {"status": "err", "instrument_id": 2, "error": "invalid_leverage"},
+            {"status": "ok", "instrument_id": 1, "leverage": 5, "cross": False},
+        ],
+        *[
+            [
+                {"status": "ok", "instrument_id": 1, "leverage": 5, "cross": False, **fields},
+                {"status": "ok", "instrument_id": 2, "leverage": 5, "cross": False},
+            ]
+            for fields in (
+                {"instrument_id": True, "leverage": -5, "cross": "false"},
+                {"instrument_id": True},
+                {"instrument_id": "1"},
+                {"leverage": True},
+                {"leverage": "5"},
+                {"leverage": 0},
+                {"leverage": -5},
+                {"leverage": 2**32},
+                {"cross": "false"},
+                {"cross": 0},
+            )
+        ],
+        [
+            {"status": "err", "instrument_id": True, "error": "invalid_leverage"},
+            {"status": "ok", "instrument_id": 2, "leverage": 5, "cross": False},
+        ],
+    ],
+)
+def test_update_leverages_rejects_malformed_or_misordered_results(response: object) -> None:
+    commands: list[dict[str, Any]] = []
+
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        async for raw in ws:
+            message = json.loads(raw)
+            if _is_ping(message):
+                continue
+            commands.append(message)
+            await ws.send(json.dumps({"id": message["id"], "data": response}))
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            with pytest.raises(TransportError, match="unexpected response"):
+                await session.update_leverages(
+                    [
+                        PerpsLeverageUpdate(instrument_id=1, leverage=5, cross_margin=False),
+                        PerpsLeverageUpdate(instrument_id=2, leverage=5, cross_margin=False),
+                    ]
+                )
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+    assert len(commands) == 1
+
+
+def test_update_leverages_connection_loss_does_not_resubmit() -> None:
+    commands: list[dict[str, Any]] = []
+
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        async for raw in ws:
+            message = json.loads(raw)
+            if _is_ping(message):
+                continue
+            commands.append(message)
+            await ws.close()
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            with pytest.raises(TransportError, match="connection closed"):
+                await session.update_leverages(
+                    [
+                        PerpsLeverageUpdate(instrument_id=1, leverage=5, cross_margin=False),
+                    ]
+                )
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+    assert len(commands) == 1
+
+
+def test_update_leverages_validates_batch_before_transport() -> None:
+    async def run() -> None:
+        session = PerpsSession(
+            chain_id=137,
+            credentials=_CREDENTIALS,
+            rest_url="http://127.0.0.1:9",
+            ws_url="ws://127.0.0.1:9",
+        )
+        try:
+            with pytest.raises(UserInputError, match="between 1 and 100"):
+                await session.update_leverages([])
+            update = PerpsLeverageUpdate(instrument_id=1, leverage=5, cross_margin=False)
+            with pytest.raises(UserInputError, match="duplicate 1"):
+                await session.update_leverages([update, update])
+            with pytest.raises(UserInputError, match="between 1 and 100"):
+                await session.update_leverages(
+                    [
+                        PerpsLeverageUpdate(instrument_id=index, leverage=1, cross_margin=False)
+                        for index in range(101)
+                    ]
+                )
+        finally:
+            await session.close()
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+
+
 def test_update_margin_sends_signed_command_and_completes() -> None:
     commands: list[dict[str, Any]] = []
 
@@ -747,6 +1202,27 @@ def test_update_margin_sends_signed_command_and_completes() -> None:
     }
     assert commands[0]["req"] == "post"
     assert commands[0]["sig"].startswith("0x") and len(commands[0]["sig"]) == 132
+
+
+def test_update_leverage_rejection_surfaces_server_error() -> None:
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        async for raw in ws:
+            message = json.loads(raw)
+            if _is_ping(message):
+                continue
+            await ws.send(
+                json.dumps(
+                    {"id": message["id"], "data": {"status": "err", "error": "invalid_leverage"}}
+                )
+            )
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            with pytest.raises(RequestRejectedError, match="invalid_leverage"):
+                await session.update_leverage(instrument_id=1, leverage=100, cross_margin=False)
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
 
 
 def test_update_margin_rejection_surfaces_request_rejected_error() -> None:
@@ -818,6 +1294,7 @@ def test_sequence_gap_emits_resync_event_before_update() -> None:
             assert second.channel == "orders"
             assert second.previous_sequence == 1
             assert second.sequence == 5
+            assert second.event_timestamp is None
             assert isinstance(third, PerpsOrderEvent)
 
     asyncio.run(asyncio.wait_for(run(), timeout=10.0))
@@ -827,6 +1304,7 @@ def _notification_update(sequence: int, notification_id: str) -> dict[str, Any]:
     return {
         "ch": "notifications",
         "ts": 1751500000000,
+        "ets": 1751499999000,
         "sq": sequence,
         "data": {
             "id": notification_id,
@@ -839,6 +1317,48 @@ def _notification_update(sequence: int, notification_id: str) -> dict[str, Any]:
             "order_type": "market",
         },
     }
+
+
+def test_adl_notifications_arrive_on_existing_session_iterator() -> None:
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        await ws.send(
+            json.dumps(
+                {
+                    "ch": "notifications",
+                    "ts": 1751500000000,
+                    "ets": 1751499999000,
+                    "sq": 42,
+                    "data": {
+                        "id": "6ab1e47f-9b8c-5eaf-8f9b-7c8d9e0f1a2b",
+                        "type": "position_deleveraged",
+                        "instrument_id": 1,
+                        "side": "short",
+                        "size_closed": "0.01",
+                        "price": "52000",
+                        "pnl": "130",
+                        "margin_type": "isolated",
+                    },
+                }
+            )
+        )
+        await ws.send(json.dumps(_order_update(1, sequence=1)))
+        with contextlib.suppress(Exception):
+            async for _ in ws:
+                pass
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            async for event in session:
+                assert isinstance(event, PerpsNotificationEvent)
+                assert event.payload.type == "position_deleveraged"
+                assert event.payload.price == Decimal("52000")
+                assert event.payload.pnl == Decimal("130")
+                assert event.sequence == 42
+                assert event.timestamp == datetime.fromtimestamp(1751500000, tz=UTC)
+                break
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
 
 
 def test_notification_sequence_gaps_do_not_emit_local_resync() -> None:
@@ -893,7 +1413,15 @@ def test_server_notifications_resync_frame_emits_server_resync_event() -> None:
     async def handler(ws: ServerConnection) -> None:
         await _handshake(ws)
         await ws.send(
-            json.dumps({"ch": "notifications", "ts": 1751500000000, "sq": 77, "type": "resync"})
+            json.dumps(
+                {
+                    "ch": "notifications",
+                    "ts": 1751500000000,
+                    "ets": 1751499999000,
+                    "sq": 77,
+                    "type": "resync",
+                }
+            )
         )
         with contextlib.suppress(Exception):
             async for _ in ws:
@@ -932,6 +1460,7 @@ def test_session_reconnects_reauthenticates_and_emits_resync() -> None:
             event = await asyncio.wait_for(session.__anext__(), timeout=10.0)
             assert isinstance(event, PerpsResyncEvent)
             assert event.reason == "reconnect"
+            assert event.event_timestamp is None
             await asyncio.wait_for(connected.wait(), timeout=10.0)
             assert connections == 2
 
@@ -953,3 +1482,978 @@ def test_commands_fail_fast_after_close() -> None:
                 await session.cancel_order(order_id=1)
 
     asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+
+
+# Consent failures and races use controlled responses rather than mutating live accounts.
+def test_builder_consent_serializes_versions_and_commits_only_confirmed_terms() -> None:
+    from eth_account import Account
+    from eth_account.messages import encode_typed_data
+
+    from polymarket._internal.actions.perps.signing import build_perps_op_typed_data
+    from polymarket.models.perps import PerpsBuilderAttribution
+
+    async def run() -> None:
+        signer = Account.from_key("0x" + "23" * 32)
+        builder = "0x" + "ab" * 20
+        other_builder = "0x" + "cd" * 20
+        started = asyncio.Event()
+        release = asyncio.Event()
+        grants: dict[str, dict[str, Any]] = {}
+        posted: list[dict[str, Any]] = []
+        requests: list[httpx.Request] = []
+        reject = False
+        cap = "0.0002"
+        reject_status = False
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            if request.url.path == "/v1/info/builder":
+                if reject_status:
+                    return httpx.Response(400, json={"error": "status unavailable"})
+                return httpx.Response(
+                    200,
+                    json={
+                        "address": request.url.params["address"],
+                        "registered": True,
+                        "enabled": True,
+                        "admission_enabled": True,
+                        "max_fee_rate": cap,
+                    },
+                )
+            if request.method == "GET":
+                saved = grants.get(str(request.url.params["builder"]).lower())
+                return httpx.Response(200, json={"data": [saved] if saved else []})
+            body = json.loads(request.content)
+            args = body["op"]["args"]
+            posted.append(args)
+            typed = build_perps_op_typed_data(
+                chain_id=137,
+                op=[
+                    "approveBuilder",
+                    [args["builder"], args["max_fee_rate"], args["approval_version"]],
+                ],
+                salt=body["salt"],
+                timestamp_ms=body["ts"],
+            )
+            assert (
+                Account.recover_message(
+                    encode_typed_data(full_message=typed), signature=body["sig"]
+                )
+                == signer.address
+            )
+            if len(posted) == 1:
+                started.set()
+                await release.wait()
+            if reject:
+                return httpx.Response(400, json={"error": "rejected"})
+            approval = {**args, "trader": signer.address, "timestamp": 1751500000001, "sequence": 2}
+            grants[args["builder"].lower()] = approval
+            return httpx.Response(200, json=approval)
+
+        session = PerpsSession(
+            chain_id=137,
+            credentials=_CREDENTIALS,
+            rest_url="https://perps.test",
+            ws_url="ws://unused",
+            owner_signer=signer,
+            builder_attribution=builder,
+        )
+        await session._api.close()
+        session._api = AsyncTransport(
+            base_url="https://perps.test",
+            client=httpx.AsyncClient(
+                transport=httpx.MockTransport(handler), base_url="https://perps.test"
+            ),
+        )
+        try:
+            pending = asyncio.create_task(session.approve_builder_fee(max_fee_rate="0.0002"))
+            await started.wait()
+            queued_revoke = asyncio.create_task(session.revoke_builder_fee())
+            await asyncio.sleep(0)
+            assert session.builder_attribution is None and len(posted) == 1
+            release.set()
+            await pending
+            await queued_revoke
+            assert [(p["builder"], p["approval_version"], p["max_fee_rate"]) for p in posted] == [
+                (builder, 1, "0.0002"),
+                (builder, 2, "0"),
+            ]
+            assert session.builder_attribution is None
+            await session.approve_builder_fee(builder_address=builder, max_fee_rate="0.0003")
+            terms = PerpsBuilderAttribution(address=builder, fee_rate=Decimal("0.0002"))
+            assert session.builder_attribution == terms
+            cap = "0.001"
+            request_count = len(requests)
+            with pytest.raises(TypeError, match="max_fee_rate"):
+                await session.approve_builder_fee()  # type: ignore[call-arg]
+            assert len(requests) == request_count
+            await session.approve_builder_fee(builder_address=builder, max_fee_rate="0.0003")
+            terms = PerpsBuilderAttribution(address=builder, fee_rate=Decimal("0.0003"))
+            assert session.builder_attribution == terms
+            reject_status = True
+            with pytest.raises(RequestRejectedError):
+                await session.approve_builder_fee(builder_address=builder, max_fee_rate="0.0001")
+            assert session.builder_attribution == terms
+            assert len(posted) == 5
+            reject = True
+            with pytest.raises(RequestRejectedError):
+                await session.approve_builder_fee(
+                    builder_address=other_builder, max_fee_rate="0.0004"
+                )
+            with pytest.raises(RequestRejectedError):
+                await session.revoke_builder_fee()
+            assert session.builder_attribution == terms
+            reject = False
+            await session.revoke_builder_fee(other_builder)
+            assert session.builder_attribution == terms
+            revoked = await session.approve_builder_fee(max_fee_rate="0")
+            assert revoked.approval_version == 6 and session.builder_attribution is None
+            reject_status = False
+            cap = "0"
+            await session.approve_builder_fee(builder_address=builder, max_fee_rate="0.0003")
+            assert session.builder_attribution is None
+            cap = "0.0002"
+            await session.approve_builder_fee(max_fee_rate="0.0002")
+            assert session.builder_attribution == PerpsBuilderAttribution(
+                address=builder, fee_rate=Decimal("0.0002")
+            )
+        finally:
+            await session.close()
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10))
+
+
+def test_builder_fills_share_session_iterator_before_ack_and_after_reconnect() -> None:
+    from polymarket.models.perps import PerpsBuilderFillEvent
+
+    async def run() -> None:
+        disconnect = asyncio.Event()
+        subscriptions: list[list[str]] = []
+
+        async def handler(ws: ServerConnection) -> None:
+            while True:
+                frame = json.loads(await ws.recv())
+                if _is_ping(frame):
+                    continue
+                if frame["req"] == "sub" and frame["chs"] == ["builderFills"]:
+                    subscriptions.append(frame["chs"])
+                    if len(subscriptions) == 1:
+                        for sequence in (1, 100):
+                            await ws.send(
+                                json.dumps(
+                                    {
+                                        "ch": "builderFills",
+                                        "ts": 1751500000000,
+                                        "ets": 1751499999000,
+                                        "sq": sequence,
+                                        "data": [],
+                                    }
+                                )
+                            )
+                    await ws.send(json.dumps({"id": frame["id"], "data": {"status": "ok"}}))
+                    if len(subscriptions) == 1:
+                        await disconnect.wait()
+                        await ws.close()
+                    else:
+                        await ws.send(
+                            json.dumps(
+                                {
+                                    "ch": "builderFills",
+                                    "ts": 1751500000000,
+                                    "ets": 1751499999000,
+                                    "sq": 200,
+                                    "data": [],
+                                }
+                            )
+                        )
+                        await ws.wait_closed()
+                    return
+                await ws.send(json.dumps({"id": frame["id"], "data": {"status": "ok"}}))
+
+        async with ws_server(handler) as url:
+            session = PerpsSession(
+                chain_id=137,
+                credentials=_CREDENTIALS,
+                rest_url="http://127.0.0.1:9",
+                ws_url=url,
+                include_builder_fills=True,
+            )
+            async with await session.open():
+                initial = [await anext(session), await anext(session)]
+                assert [e.sequence for e in initial if isinstance(e, PerpsBuilderFillEvent)] == [
+                    1,
+                    100,
+                ]
+                disconnect.set()
+                recovered = [await anext(session), await anext(session)]
+                assert any(
+                    isinstance(e, PerpsResyncEvent) and e.reason == "reconnect" for e in recovered
+                )
+                assert any(
+                    isinstance(e, PerpsBuilderFillEvent) and e.sequence == 200 for e in recovered
+                )
+                assert subscriptions[0] == subscriptions[1] and "builderFills" in subscriptions[0]
+
+    asyncio.run(asyncio.wait_for(run(), timeout=15))
+
+
+@pytest.mark.parametrize(
+    ("size", "take_profit_quantity", "stop_loss_quantity", "quantities"),
+    [
+        ("1", None, None, ["0", "0"]),
+        (
+            "-1",
+            Decimal("0.1234567890123456789012345678"),
+            None,
+            ["0.1234567890123456789012345678", "0"],
+        ),
+        ("1", "0.25", "0.75", ["0.25", "0.75"]),
+        ("1", Decimal("1E-8"), "0.7500", ["0.00000001", "0.7500"]),
+        (
+            "-1",
+            "0.0000000000000000000000000001",
+            "79228162514264337593543950335",
+            ["0.0000000000000000000000000001", "79228162514264337593543950335"],
+        ),
+    ],
+)
+@pytest.mark.parametrize("trailing", [False, True])
+def test_position_exits_keep_terms_captured_before_portfolio_read(
+    size: str,
+    take_profit_quantity: Decimal | str | None,
+    stop_loss_quantity: str | None,
+    quantities: list[str],
+    trailing: bool,
+) -> None:
+    from polymarket.models.perps import (
+        PerpsBuilderAttribution,
+        PerpsPositionTpSlTrigger,
+        PerpsPositionTrailingStop,
+    )
+
+    async def run() -> None:
+        frames: list[dict[str, Any]] = []
+
+        async def handler(ws: ServerConnection) -> None:
+            await _handshake(ws)
+            async for raw in ws:
+                frame = json.loads(raw)
+                if _is_ping(frame):
+                    continue
+                frames.append(frame)
+                await ws.send(
+                    json.dumps(
+                        {
+                            "id": frame["id"],
+                            "data": [{"status": "ok", "oid": 77}, {"status": "ok", "oid": 78}],
+                        }
+                    )
+                )
+
+        terms = PerpsBuilderAttribution(address="0x" + "ab" * 20, fee_rate=Decimal("0.0003"))
+        async with ws_server(handler) as url:
+            session = PerpsSession(
+                chain_id=137,
+                credentials=_CREDENTIALS,
+                rest_url="https://perps.test",
+                ws_url=url,
+                builder_attribution=terms,
+            )
+
+            def portfolio_response(request: httpx.Request) -> httpx.Response:
+                # Consent can change while the position request is in flight.
+                session._builder_attribution = None
+                return httpx.Response(
+                    200,
+                    json={
+                        "positions": [
+                            {
+                                "instrument_id": 1,
+                                "symbol": "BTC",
+                                "size": size,
+                                "entry_price": "100",
+                                "leverage": 1,
+                                "cross": True,
+                                "initial_margin": "0",
+                                "maintenance_margin": "0",
+                                "position_value": "100",
+                                "liquidation_price": "0",
+                                "unrealized_pnl": "0",
+                                "return_on_equity": "0",
+                                "cumulative_funding": "0",
+                                "adl_index": 0,
+                            }
+                        ],
+                        "margin": {
+                            "total_account_value": "100",
+                            "available_order_margin": "0",
+                            "total_initial_margin": "0",
+                            "total_maintenance_margin": "0",
+                            "total_position_value": "100",
+                        },
+                        "withdrawable": "0",
+                        "in_liquidation": False,
+                        "fee_tier": 0,
+                        "timestamp": 1751500000000,
+                    },
+                )
+
+            await session._api.close()
+            session._api = AsyncTransport(
+                base_url="https://perps.test",
+                client=httpx.AsyncClient(
+                    transport=httpx.MockTransport(portfolio_response), base_url="https://perps.test"
+                ),
+            )
+            async with await session.open():
+                await session.place_position_tp_sl(
+                    instrument_id=1,
+                    take_profit=PerpsPositionTpSlTrigger(
+                        trigger_price="200", quantity=take_profit_quantity
+                    ),
+                    stop_loss=PerpsPositionTrailingStop(
+                        trailing_bps=200, quantity=stop_loss_quantity
+                    )
+                    if trailing
+                    else PerpsPositionTpSlTrigger(trigger_price="50", quantity=stop_loss_quantity),
+                )
+                assert frames[0]["op"]["grp"] == "position"
+                assert [row["qty"] for row in frames[0]["op"]["args"]] == quantities
+                assert all(row["buy"] == size.startswith("-") for row in frames[0]["op"]["args"])
+                assert all(row["ro"] is True for row in frames[0]["op"]["args"])
+                assert all(row["tr"]["market"] is True for row in frames[0]["op"]["args"])
+                assert [row["builder"] for row in frames[0]["op"]["args"]] == [
+                    {"address": terms.address, "fee_rate": "0.0003"},
+                    {"address": terms.address, "fee_rate": "0.0003"},
+                ]
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10))
+
+
+@pytest.mark.parametrize(
+    "state",
+    ["approved", "lower_cap", "inactive", "missing", "revoked", "zero_cap"],
+)
+def test_builder_setup_restores_consent_without_writes(state: str) -> None:
+    from eth_account import Account
+
+    from polymarket.models.perps import PerpsOrderRequest
+
+    async def run() -> None:
+        builder = "0x" + "ab" * 20
+        reads: list[str] = []
+        cap = "0" if state == "zero_cap" else "0.0001" if state == "lower_cap" else "0.0003"
+        disabled = state in ("missing", "revoked", "zero_cap")
+        posted: list[dict[str, Any]] = []
+
+        async def handler(ws: ServerConnection) -> None:
+            await _handshake(ws)
+            async for raw in ws:
+                frame = json.loads(raw)
+                if _is_ping(frame):
+                    continue
+                row = frame["op"]["args"][0]
+                if disabled:
+                    assert "builder" not in row
+                else:
+                    assert row["builder"] == {
+                        "address": builder,
+                        "fee_rate": str(min(Decimal(cap), Decimal("0.0002"))),
+                    }
+                await ws.send(
+                    json.dumps({"id": frame["id"], "data": [{"status": "ok", "oid": 77}]})
+                )
+
+        def response(request: httpx.Request) -> httpx.Response:
+            if request.method == "POST":
+                args = json.loads(request.content)["op"]["args"]
+                posted.append(args)
+                assert args["builder"] == builder
+                return httpx.Response(
+                    200,
+                    json={
+                        **args,
+                        "trader": "0x" + "12" * 20,
+                        "timestamp": 1751500000000,
+                        "sequence": 2,
+                    },
+                )
+            assert request.method == "GET"
+            reads.append(request.url.path)
+            if request.url.path == "/v1/info/builder":
+                assert request.url.params["address"] == builder
+                return httpx.Response(
+                    200,
+                    json={
+                        "address": builder,
+                        "registered": True,
+                        "enabled": state != "inactive",
+                        "admission_enabled": True,
+                        "max_fee_rate": cap,
+                    },
+                )
+            assert request.url.path == "/v1/account/builder-approvals"
+            assert request.url.params["builder"] == builder
+            assert request.headers["POLYMARKET-PROXY"] == _CREDENTIALS.proxy
+            assert request.headers["POLYMARKET-SECRET"] == _CREDENTIALS.secret
+            return httpx.Response(
+                200,
+                json={
+                    "data": []
+                    if state == "missing"
+                    else [
+                        {
+                            "trader": "0x" + "12" * 20,
+                            "builder": builder.upper().replace("0X", "0x"),
+                            "max_fee_rate": "0" if state == "revoked" else "0.0002",
+                            "approval_version": 1,
+                            "timestamp": 1751500000000,
+                            "sequence": 1,
+                        }
+                    ]
+                },
+            )
+
+        async with ws_server(handler) as url:
+            session = PerpsSession(
+                chain_id=137,
+                credentials=_CREDENTIALS,
+                builder_attribution=builder,
+                owner_signer=Account.from_key("0x" + "23" * 32),
+                rest_url="https://perps.test",
+                ws_url=url,
+            )
+            await session._api.close()
+            session._api = AsyncTransport(
+                base_url="https://perps.test",
+                header_resolver=session._resolve_auth_headers,
+                client=httpx.AsyncClient(
+                    transport=httpx.MockTransport(response), base_url="https://perps.test"
+                ),
+            )
+            try:
+                if state != "inactive":
+                    await session.open()
+                    orders = [
+                        PerpsOrderRequest(
+                            instrument_id=1, side="BUY", quantity="1", time_in_force="ioc"
+                        )
+                    ]
+                    await session.post_orders(orders)
+                    assert reads == ["/v1/info/builder", "/v1/account/builder-approvals"]
+                    assert not posted
+                    if disabled:
+                        cap = "0.0001"
+                        await session.approve_builder_fee(max_fee_rate="0.0001")
+                        disabled = False
+                        await session.post_orders(orders)
+                else:
+                    with pytest.raises(UserInputError):
+                        await session.open()
+            finally:
+                await session.close()
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10))
+
+
+@pytest.mark.parametrize("acknowledgement", ["rejected", "missing"])
+def test_optional_builder_subscription_never_blocks_readiness(acknowledgement: str) -> None:
+    async def run() -> None:
+        subscriptions: list[list[str]] = []
+        receipt_requested = asyncio.Event()
+        disconnect = asyncio.Event()
+
+        async def handler(ws: ServerConnection) -> None:
+            frames = await _handshake(ws)
+            subscriptions.append(frames[1]["chs"])
+            assert "builderFills" not in frames[1]["chs"]
+            async for raw in ws:
+                frame = json.loads(raw)
+                if _is_ping(frame):
+                    continue
+                if frame.get("req") == "sub":
+                    assert frame["chs"] == ["builderFills"]
+                    if acknowledgement == "rejected":
+                        await ws.send(
+                            json.dumps(
+                                {
+                                    "id": frame["id"],
+                                    "data": {"status": "err", "error": "unavailable"},
+                                }
+                            )
+                        )
+                    receipt_requested.set()
+                    if len(subscriptions) == 1:
+                        await disconnect.wait()
+                        await ws.close()
+                        return
+                    continue
+                await ws.send(json.dumps({"id": frame["id"], "data": {"status": "ok"}}))
+
+        async with ws_server(handler) as url:
+            session = PerpsSession(
+                chain_id=137,
+                credentials=_CREDENTIALS,
+                rest_url="http://127.0.0.1:9",
+                ws_url=url,
+                include_builder_fills=True,
+            )
+            try:
+                await asyncio.wait_for(session.open(), timeout=1)
+                await receipt_requested.wait()
+                receipt_requested.clear()
+                disconnect.set()
+                event = await asyncio.wait_for(anext(session), timeout=5)
+                assert isinstance(event, PerpsResyncEvent) and event.reason == "reconnect"
+                await receipt_requested.wait()
+            finally:
+                await session.close()
+            assert not session._pending
+            assert session._builder_subscription_task is None
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10))
+
+
+@pytest.mark.parametrize("identifiers", [[1, -1], [1, True], [1, 1.5]])
+def test_cancel_validates_entire_batch_before_signing(
+    monkeypatch: pytest.MonkeyPatch,
+    identifiers: list[Any],
+) -> None:
+    def unexpected_sign(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("invalid batch reached signing")
+
+    async def run() -> None:
+        from polymarket._internal import perps_session
+
+        monkeypatch.setattr(perps_session, "sign_perps_op_with_key", unexpected_sign)
+
+        async def handler(ws: ServerConnection) -> None:
+            await _handshake(ws)
+            await ws.wait_closed()
+
+        async with ws_server(handler) as url, _open_session(url) as session:
+            with pytest.raises(UserInputError):
+                await session.cancel_orders(order_ids=identifiers)
+            assert not session._pending
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10))
+
+
+@pytest.mark.parametrize("later_failure", [False, True])
+def test_cancel_lost_response_never_replays_uncertain_command(
+    monkeypatch: pytest.MonkeyPatch,
+    later_failure: bool,
+) -> None:
+    from polymarket import PerpsCancelRetryError
+    from polymarket._internal import perps_session
+
+    monkeypatch.setattr(perps_session, "_ACK_TIMEOUT_S", 0.05)
+    commands: list[dict[str, Any]] = []
+
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        async for raw in ws:
+            message = json.loads(raw)
+            if _is_ping(message):
+                continue
+            commands.append(message)
+            if later_failure and len(commands) == 1:
+                await ws.send(
+                    json.dumps(
+                        {
+                            "id": message["id"],
+                            "data": [
+                                {"status": "ok", "oid": 1},
+                                {"status": "err", "oid": 2, "error": "order_in_flight"},
+                            ],
+                        }
+                    )
+                )
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            if later_failure:
+                with pytest.raises(PerpsCancelRetryError) as caught:
+                    await session.cancel_orders(order_ids=[1, 2], expires_at=4_000_000_000_000)
+                assert caught.value.pending_indexes == (1,)
+                assert caught.value.results[0].status == "ok"
+                assert caught.value.results[1].status == "err"
+                assert isinstance(caught.value.__cause__, TransportError)
+            else:
+                with pytest.raises(TransportError):
+                    await session.cancel_order(order_id=2, expires_at=4_000_000_000_000)
+            assert not session._pending
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10))
+    assert [command["op"]["args"] for command in commands] == (
+        [[1, 2], [2]] if later_failure else [[2]]
+    )
+    assert all(command["exp"] == 4_000_000_000_000 for command in commands)
+
+
+def test_cancelling_cancel_task_removes_pending_request_without_retry() -> None:
+    commands: list[dict[str, Any]] = []
+
+    async def run() -> None:
+        received = asyncio.Event()
+
+        async def handler(ws: ServerConnection) -> None:
+            await _handshake(ws)
+            async for raw in ws:
+                message = json.loads(raw)
+                if _is_ping(message):
+                    continue
+                commands.append(message)
+                received.set()
+
+        async with ws_server(handler) as url, _open_session(url) as session:
+            task = asyncio.create_task(session.cancel_order(order_id=1))
+            await received.wait()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            assert not session._pending
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10))
+    assert len(commands) == 1
+
+
+def test_activation_continues_existing_session_iterator() -> None:
+    from polymarket.models.perps import PerpsTpSlEvent
+
+    async def handler(ws: ServerConnection) -> None:
+        await _handshake(ws)
+        for sequence, status in enumerate(["armed", "activated", "expired"], 1):
+            await ws.send(
+                json.dumps(
+                    {
+                        "ch": "tpsl::1",
+                        "ts": 1751500000000,
+                        "ets": 1751499999000,
+                        "sq": sequence,
+                        "data": {"oid": 44, "st": status},
+                    }
+                )
+            )
+        with contextlib.suppress(Exception):
+            async for _ in ws:
+                pass
+
+    async def run() -> None:
+        async with ws_server(handler) as url, _open_session(url) as session:
+            statuses: list[str] = []
+            async for event in session:
+                assert isinstance(event, PerpsTpSlEvent)
+                statuses.append(event.payload.status)
+                assert event.sequence == len(statuses)
+                if len(statuses) == 3:
+                    break
+            assert statuses == ["armed", "activated", "expired"]
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10))
+
+
+def test_trailing_take_profit_is_rejected_before_reads_or_commands() -> None:
+    from typing import cast
+
+    from polymarket import PerpsPositionTrailingStop
+
+    async def run() -> None:
+        session = PerpsSession(
+            chain_id=137,
+            credentials=_CREDENTIALS,
+            rest_url="https://perps.test",
+            ws_url="ws://perps.test",
+        )
+        try:
+            with pytest.raises(UserInputError, match="take_profit"):
+                await session.place_position_tp_sl(
+                    instrument_id=1,
+                    take_profit=cast(Any, PerpsPositionTrailingStop(trailing_bps=200)),
+                )
+        finally:
+            await session.close()
+
+    asyncio.run(run())
+
+
+def test_twap_rest_lifecycle_and_uncertain_create() -> None:
+    from polymarket._internal.actions.perps.signing import sign_perps_op_with_key
+    from polymarket.errors import UnexpectedResponseError
+
+    captured: list[httpx.Request] = []
+    response_mode = "ok"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        if request.method == "GET":
+            return httpx.Response(200, json=[], request=request)
+        if request.method == "POST":
+            if response_mode == "timeout":
+                return httpx.Response(500, json={"error": "timeout"}, request=request)
+            if response_mode == "malformed":
+                return httpx.Response(200, json={"status": "ok", "twid": 1}, request=request)
+            return httpx.Response(
+                200,
+                json={"status": "ok", "twid": 9007199254740991, "ts": 1767225600000},
+                request=request,
+            )
+        return httpx.Response(200, json={"status": "ok"}, request=request)
+
+    async def run() -> None:
+        nonlocal response_mode
+        session = PerpsSession(
+            chain_id=137,
+            credentials=_CREDENTIALS,
+            rest_url="https://perps.test",
+            ws_url="ws://127.0.0.1:9",
+        )
+        await session._api.close()
+        session._api = AsyncTransport(
+            base_url="https://perps.test",
+            client=httpx.AsyncClient(
+                base_url="https://perps.test", transport=httpx.MockTransport(handler)
+            ),
+            header_resolver=session._resolve_auth_headers,
+        )
+        try:
+            accepted = await session.create_twap(
+                instrument_id=1, side="BUY", quantity="1.000000000000000001", duration_ms=300000
+            )
+            assert accepted.twap_id == 9007199254740991
+            assert await session.fetch_twaps() == ()
+            await session.pause_twap(twap_id=accepted.twap_id)
+            await session.resume_twap(twap_id=accepted.twap_id)
+            await session.cancel_twap(twap_id=accepted.twap_id)
+            count = len(captured)
+            with pytest.raises(UserInputError):
+                await session.create_twap(
+                    instrument_id=1, side="BUY", quantity="1", duration_ms=300000, interval_ms=31000
+                )
+            assert len(captured) == count
+            response_mode = "timeout"
+            with pytest.raises(RequestRejectedError):
+                await session.create_twap(
+                    instrument_id=1, side="BUY", quantity="1", duration_ms=300000
+                )
+            assert len(captured) == count + 1
+            response_mode = "malformed"
+            with pytest.raises(UnexpectedResponseError):
+                await session.create_twap(
+                    instrument_id=1, side="BUY", quantity="1", duration_ms=300000
+                )
+        finally:
+            await session.close()
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+    created = json.loads(captured[0].content)
+    assert created["op"] == {
+        "type": "createTwap",
+        "args": {
+            "iid": 1,
+            "buy": True,
+            "qty": "1.000000000000000001",
+            "dur": 300000,
+            "rnd": False,
+            "slip_bps": 0,
+            "ro": False,
+        },
+    }
+    assert created["sig"] == sign_perps_op_with_key(
+        _PROXY_PRIVATE_KEY,
+        chain_id=137,
+        op=["createTwap", [1, True, "1.000000000000000001", 300000, False, 0, False]],
+        salt=created["salt"],
+        timestamp_ms=created["ts"],
+    )
+    for request, operation in zip(captured[2:5], ["pause", "resume", "cancel"], strict=True):
+        body = json.loads(request.content)
+        expected = (
+            {"type": "cancelTwap", "args": {"twid": 9007199254740991}}
+            if operation == "cancel"
+            else {"type": "controlTwap", "args": {"twid": 9007199254740991, "act": operation}}
+        )
+        assert body["op"] == expected
+
+
+def test_chase_rest_lifecycle_and_uncertain_create() -> None:
+    from unittest.mock import patch
+
+    from polymarket._internal.actions.perps.signing import sign_perps_op_with_key
+    from polymarket.errors import UnexpectedResponseError
+
+    captured: list[httpx.Request] = []
+    response_mode = "ok"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        if request.method == "GET":
+            return httpx.Response(200, json=[], request=request)
+        if response_mode == "timeout":
+            return httpx.Response(500, json={"error": "timeout"}, request=request)
+        if response_mode == "transport":
+            raise httpx.ReadError("lost acknowledgement", request=request)
+        if response_mode == "disabled":
+            return httpx.Response(404, json={"error": "not_found"}, request=request)
+        if response_mode == "domain":
+            return httpx.Response(
+                200, json={"status": "err", "error": "chase_limit_exceeded"}, request=request
+            )
+        if request.method == "POST":
+            if response_mode == "malformed":
+                return httpx.Response(200, json={"status": "ok", "chid": 1}, request=request)
+            return httpx.Response(
+                200, json={"status": "ok", "chid": 2**53 - 1, "ts": 1767225600000}, request=request
+            )
+        return httpx.Response(200, json={"status": "ok"}, request=request)
+
+    async def run() -> None:
+        nonlocal response_mode
+        session = PerpsSession(
+            chain_id=137,
+            credentials=_CREDENTIALS,
+            rest_url="https://perps.test",
+            ws_url="ws://127.0.0.1:9",
+        )
+        await session._api.close()
+        session._api = AsyncTransport(
+            base_url="https://perps.test",
+            client=httpx.AsyncClient(
+                base_url="https://perps.test", transport=httpx.MockTransport(handler)
+            ),
+            header_resolver=session._resolve_auth_headers,
+        )
+        try:
+            accepted = await session.create_chase(
+                instrument_id=1, side="BUY", quantity="1.000000000000000001"
+            )
+            assert accepted.chase_id == 2**53 - 1
+            assert await session.fetch_chases() == ()
+            await session.cancel_chase(chase_id=accepted.chase_id)
+            await session.create_chase(
+                instrument_id=1,
+                side="SELL",
+                quantity=1e-8,
+                limit_price="1.000000000000000001",
+                max_distance="0",
+                max_distance_bps=1000,
+                post_only=False,
+                reduce_only=True,
+                client_order_id="a" * 32,
+                expires_at=1767225660000,
+            )
+            count = len(captured)
+            with patch.object(session, "_create_signed_command") as sign:
+                for invalid in [
+                    {"max_distance_bps": 0},
+                    {"max_distance": "1", "max_distance_bps": 50},
+                    {"expires_at": -1},
+                    {"expires_at": 2**53},
+                ]:
+                    with pytest.raises(UserInputError):
+                        await session.create_chase(
+                            **({"instrument_id": 1, "side": "BUY", "quantity": "1"} | invalid)  # pyright: ignore[reportArgumentType]
+                        )
+                with pytest.raises(UserInputError):
+                    await session.cancel_chase(chase_id=2**53)
+                sign.assert_not_called()
+            assert len(captured) == count
+            for mode, error in [
+                ("timeout", RequestRejectedError),
+                ("transport", TransportError),
+                ("disabled", RequestRejectedError),
+                ("domain", RequestRejectedError),
+                ("malformed", UnexpectedResponseError),
+            ]:
+                response_mode = mode
+                with pytest.raises(error):
+                    await session.create_chase(instrument_id=1, side="BUY", quantity="1")
+                count += 1
+                assert len(captured) == count
+            response_mode = "transport"
+            with pytest.raises(TransportError):
+                await session.cancel_chase(chase_id=accepted.chase_id)
+            assert len(captured) == count + 1
+        finally:
+            await session.close()
+
+    asyncio.run(asyncio.wait_for(run(), timeout=10.0))
+    for index, op in [
+        (0, ["createChase", [1, True, "1.000000000000000001", True, False]]),
+        (2, ["cancelChase", [2**53 - 1]]),
+        (
+            3,
+            [
+                "createChase",
+                [1, False, "0.00000001", "1.000000000000000001", "0", 1000, False, True, "a" * 32],
+            ],
+        ),
+    ]:
+        body = json.loads(captured[index].content)
+        assert body["sig"] == sign_perps_op_with_key(
+            _PROXY_PRIVATE_KEY, chain_id=137, op=op, salt=body["salt"], timestamp_ms=body["ts"]
+        )
+    assert captured[1].headers["polymarket-proxy"] == _PROXY_ADDRESS
+    assert captured[1].headers["polymarket-secret"] == "session-secret"
+    assert json.loads(captured[3].content)["exp"] == 1767225660000
+    assert json.loads(captured[2].content)["op"] == {
+        "type": "cancelChase",
+        "args": {"chid": 2**53 - 1},
+    }
+
+
+def test_chase_child_identity_in_private_order_event() -> None:
+    from polymarket.models.perps.events import parse_perps_session_event
+
+    frame = _order_update(42)
+    frame["data"]["chid"] = 2**53 - 1
+    event = parse_perps_session_event(frame)
+    assert isinstance(event, PerpsOrderEvent)
+    assert event.payload.chase_id == 2**53 - 1
+
+
+def test_position_snapshots_use_authenticated_owner() -> None:
+    async def run() -> None:
+        owner = "0x1111111111111111111111111111111111111111"
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert request.headers["POLYMARKET-PROXY"] == _CREDENTIALS.proxy
+            assert request.headers["POLYMARKET-SECRET"] == _CREDENTIALS.secret
+            if request.url.path == "/v1/account/credentials":
+                return httpx.Response(200, json={"address": owner, "keys": []})
+            assert json.loads(request.content) == {
+                "address": owner,
+                "active_instrument_ids": [7],
+                "history_fills": [],
+            }
+            return httpx.Response(
+                200,
+                json={
+                    "history_as_of_at": 0,
+                    "active": [{"instrument_id": 7, "status": "not_found"}],
+                    "history": [],
+                },
+            )
+
+        session = PerpsSession(
+            chain_id=137,
+            credentials=_CREDENTIALS,
+            rest_url="https://perps.test",
+            ws_url="ws://unused",
+        )
+        async with httpx.AsyncClient(
+            base_url="https://perps.test", transport=httpx.MockTransport(handler)
+        ) as http:
+            await session._api.close()
+            session._api = AsyncTransport(
+                base_url="https://perps.test",
+                client=http,
+                header_resolver=session._resolve_auth_headers,
+            )
+            try:
+                snapshots = await session.fetch_position_snapshots(active_instrument_ids=(7,))
+                assert snapshots.active[0].status == "not_found"
+            finally:
+                await session.close()
+
+    asyncio.run(run())

@@ -3,7 +3,7 @@
 import inspect
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import get_type_hints
+from typing import Any, get_type_hints
 
 import pytest
 
@@ -49,6 +49,19 @@ def _expanded_order(**overrides: object) -> dict[str, object]:
     }
 
 
+@pytest.mark.parametrize(
+    "wire",
+    [
+        _compact_order(tif="gtd", status="order_expired"),
+        _expanded_order(tif="gtd", status="order_expired"),
+    ],
+)
+def test_gtd_order_read_and_update(wire: dict[str, object]) -> None:
+    order = PerpsOrder.model_validate(wire)
+    assert order.time_in_force == "gtd"
+    assert order.quantity == Decimal("10")
+
+
 def _compact_fill(**overrides: object) -> dict[str, object]:
     return {
         "tid": 9,
@@ -64,6 +77,7 @@ def _compact_fill(**overrides: object) -> dict[str, object]:
         "pep": "0",
         "pnl": "1.25",
         "liq": False,
+        "adl": False,
         "ts": 1751500000000,
         **overrides,
     }
@@ -84,6 +98,7 @@ def _expanded_fill(**overrides: object) -> dict[str, object]:
         "previous_entry_price": "99",
         "pnl": "-1.25",
         "liquidation": False,
+        "adl": False,
         "timestamp": 1751500000000,
         **overrides,
     }
@@ -166,6 +181,57 @@ def test_order_parses_nested_tpsl_decimals() -> None:
     assert order.tp_sl.armed_quantity == Decimal("1.5")
 
 
+# REST cancel_reason_status and WS order_status_from_reason at perpetuals 5a6d080.
+@pytest.mark.parametrize(
+    "status",
+    [
+        "order_already_terminal",
+        "sweep_cap_exceeded",
+        "resting_order_limit_exceeded",
+        "below_min_notional",
+        "instrument_disabled",
+        "instrument_close_only",
+        "instrument_settled",
+        "insufficient_margin_at_fill",
+        "mark_price_unavailable",
+    ],
+)
+def test_order_preserves_terminal_status_in_history_and_private_updates(status: str) -> None:
+    client_order_id = "0123456789abcdef0123456789abcdef"
+    price = "100.000000000000000001"
+    filled = "0.000000000000000001"
+    compact = PerpsOrder.parse_response(
+        _compact_order(status=status, coid=client_order_id, p=price, fill=filled, rest="0")
+    )
+    history = PerpsOrder.parse_response_list(
+        [
+            _expanded_order(order_id=4, status="filled"),
+            _expanded_order(
+                status=status,
+                client_order_id=client_order_id,
+                price=price,
+                filled_quantity=filled,
+                resting_quantity="0",
+            ),
+        ]
+    )
+    assert [order.status for order in history] == ["filled", status]
+    historical_order = history[1]
+    assert compact.status == historical_order.status == status
+    assert compact.client_order_id == historical_order.client_order_id == client_order_id
+    assert compact.price == historical_order.price == Decimal(price)
+    assert compact.filled_quantity == historical_order.filled_quantity == Decimal(filled)
+
+
+def test_order_rejects_unknown_status_in_history_and_private_updates() -> None:
+    for payload in (
+        _compact_order(status="unsupported_status"),
+        _expanded_order(status="unsupported_status"),
+    ):
+        with pytest.raises(UnexpectedResponseError):
+            PerpsOrder.parse_response(payload)
+
+
 @pytest.mark.parametrize("field", ["trp", "armed_qty"])
 def test_tpsl_decimal_fields_reject_bool(field: str) -> None:
     payload: dict[str, object] = {
@@ -235,3 +301,89 @@ def test_fill_decimal_fields_reject_bool(field: str) -> None:
 def test_fill_timestamp_remains_strict_epoch_milliseconds(value: object) -> None:
     with pytest.raises(UnexpectedResponseError):
         PerpsFill.parse_response(_compact_fill(ts=value))
+
+
+@pytest.mark.parametrize("wire_builder", [_compact_order, _expanded_order])
+@pytest.mark.parametrize("active", [False, True])
+def test_trailing_order_metadata_preserves_precision_and_state(
+    wire_builder: Any, active: bool
+) -> None:
+    order = PerpsOrder.model_validate(
+        wire_builder(
+            tpsl={
+                "kind": "sl",
+                "scope": "position",
+                "trp": "0",
+                "trail_bps": 200,
+                "act": "105.0000000000000000000000001",
+                "trail_anchor": "0",
+                "trail_active": active,
+            }
+        )
+    )
+    assert order.tp_sl is not None
+    assert order.tp_sl.trailing_bps == 200
+    assert order.tp_sl.activation_price == Decimal("105.0000000000000000000000001")
+    assert order.tp_sl.trailing_anchor == Decimal("0")
+    assert order.tp_sl.trailing_active is active
+    historical = PerpsTpSlOrderFields.model_validate(
+        {"kind": "sl", "scope": "position", "trp": "100", "trail_bps": 200}
+    )
+    assert historical.trailing_active is None
+    assert historical.trailing_anchor is None
+
+
+@pytest.mark.parametrize("metadata", [{}, {"settlement": False}, {"settlement": True}])
+def test_fill_settlement_flags_across_wire_shapes(metadata: dict[str, bool]) -> None:
+    compact = PerpsFill.parse_response(_compact_fill(**metadata))
+    expanded = PerpsFill.parse_response(_expanded_fill(**metadata))
+    assert compact.settlement is metadata.get("settlement", False)
+    assert expanded.settlement is compact.settlement
+
+
+@pytest.mark.parametrize("factory", [_expanded_fill, _compact_fill])
+def test_fills_keep_liquidation_mark_distinct_from_accounting_price(factory: Any) -> None:
+    fill = PerpsFill.parse_response(
+        factory(
+            adl=False,
+            liquidation_details={
+                "liquidated_user": "0x1111111111111111111111111111111111111111",
+                "mark": "9007199254740993.00000001",
+                "method": "backstop",
+            },
+        )
+    )
+    assert fill.price == Decimal("100.5")
+    assert fill.adl is False
+    assert fill.liquidation_details is not None
+    assert fill.liquidation_details.mark == Decimal("9007199254740993.00000001")
+    assert fill.liquidation_details.method == "backstop"
+    assert fill.liquidation_details.liquidated_user == "0x1111111111111111111111111111111111111111"
+
+
+@pytest.mark.parametrize("factory", [_expanded_fill, _compact_fill])
+def test_adl_fills_do_not_invent_liquidation_details_or_identity(factory: Any) -> None:
+    adl = PerpsFill.parse_response(factory(adl=True))
+    assert adl.adl is True
+    assert adl.liquidation_details is None
+    liquidation = PerpsFill.parse_response(
+        factory(adl=False, liquidation_details={"mark": "100.1", "method": "market"})
+    )
+    assert liquidation.liquidation_details is not None
+    assert liquidation.liquidation_details.liquidated_user is None
+
+
+@pytest.mark.parametrize("factory", [_expanded_fill, _compact_fill])
+def test_fills_require_adl_and_complete_liquidation_details(factory: Any) -> None:
+    wire = factory()
+    wire.pop("adl", None)
+    with pytest.raises(UnexpectedResponseError):
+        PerpsFill.parse_response(wire)
+    for details in [
+        {"method": "backstop"},
+        {"mark": "100"},
+        {"mark": "100", "method": "auction"},
+        {"mark": "NaN", "method": "backstop"},
+    ]:
+        with pytest.raises(UnexpectedResponseError):
+            PerpsFill.parse_response(factory(adl=False, liquidation_details=details))

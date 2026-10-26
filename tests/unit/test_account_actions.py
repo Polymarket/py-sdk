@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 from typing import Any
 
@@ -24,6 +25,7 @@ from polymarket.models import (
     AutoRedeemedNotification,
     ComboAutoRedeemedNotification,
     NotificationType,
+    TakerTierUpgradedNotification,
     YieldPayoutNotification,
 )
 
@@ -200,14 +202,20 @@ def test_parse_account_trades_page_returns_empty_tuple_for_empty_data() -> None:
 
 
 def test_parse_account_trades_page_parses_full_trade() -> None:
+    failed_trade = {**_CLOB_TRADE_PAYLOAD, "id": "trade-2", "status": "FAILED"}
+    failed_trade.pop("transaction_hash")
     page = parse_account_trades_page(
-        {"data": [_CLOB_TRADE_PAYLOAD], "next_cursor": END_CURSOR, "count": 1}
+        {"data": [_CLOB_TRADE_PAYLOAD, failed_trade], "next_cursor": END_CURSOR, "count": 2}
     )
-    assert len(page.items) == 1
+    assert len(page.items) == 2
     trade = page.items[0]
     assert trade.id == "trade-1"
     assert trade.maker_orders[0].order_id == "order-1"
     assert trade.trader_side == "TAKER"
+    assert trade.transaction_hash == "0xTX"
+    assert page.items[1].id == "trade-2"
+    assert page.items[1].status == "FAILED"
+    assert page.items[1].transaction_hash is None
 
 
 def test_build_notifications_request_includes_signature_type() -> None:
@@ -257,6 +265,10 @@ def test_parse_notifications_decodes_typed_payloads() -> None:
                 },
             ),
             notification(
+                11,
+                {"previous_tier": 0, "tier": 1, "rebate_bps": 5, "snapshot_date": "2026-10-06"},
+            ),
+            notification(
                 10,
                 {
                     "amount": 10,
@@ -274,13 +286,19 @@ def test_parse_notifications_decodes_typed_payloads() -> None:
     assert [item.type for item in result] == [
         NotificationType.YIELD_PAYOUT,
         NotificationType.AUTO_REDEEMED,
+        NotificationType.TAKER_TIER_UPGRADED,
         NotificationType.COMBO_AUTO_REDEEMED,
     ]
-    yield_payout, auto_redeemed, combo_auto_redeemed = result
+    yield_payout, auto_redeemed, tier_upgraded, combo_auto_redeemed = result
     assert isinstance(yield_payout, YieldPayoutNotification)
     assert yield_payout.payload.amount == Decimal("3.21")
     assert isinstance(auto_redeemed, AutoRedeemedNotification)
     assert auto_redeemed.payload.market_slug == "market-slug"
+    assert isinstance(tier_upgraded, TakerTierUpgradedNotification)
+    assert tier_upgraded.payload.previous_tier == 0
+    assert tier_upgraded.payload.tier == 1
+    assert tier_upgraded.payload.rebate_bps == 5
+    assert tier_upgraded.payload.snapshot_date == date(2026, 10, 6)
     assert isinstance(combo_auto_redeemed, ComboAutoRedeemedNotification)
     assert combo_auto_redeemed.payload.legs == 2
 
@@ -377,3 +395,35 @@ def test_parse_balance_allowance_returns_model() -> None:
 def test_parse_balance_allowance_rejects_missing_field() -> None:
     with pytest.raises(UnexpectedResponseError):
         parse_balance_allowance({"balance": "0"})
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"tier": 1.5},
+        {"previous_tier": "0"},
+        {"rebate_bps": True},
+        {"snapshot_date": "2026-02-30"},
+        {"snapshot_date": "2026-10-06T00:00:00Z"},
+        {"snapshot_date": 1700000000},
+    ],
+)
+def test_parse_notifications_rejects_malformed_tier_upgrade(override: dict[str, object]) -> None:
+    with pytest.raises(UnexpectedResponseError):
+        parse_notifications(
+            [
+                {
+                    "id": 11,
+                    "owner": "f4f247b7-4ac7-ff29-a152-04fda0a8755a",
+                    "type": 11,
+                    "timestamp": 1700000000000,
+                    "payload": {
+                        "previous_tier": 0,
+                        "tier": 1,
+                        "rebate_bps": 5,
+                        "snapshot_date": "2026-10-06",
+                        **override,
+                    },
+                }
+            ]
+        )

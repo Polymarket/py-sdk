@@ -57,7 +57,7 @@ def test_setup_trading_approvals_bundles_required_calls_for_deposit_wallet() -> 
     body = request_json(submit_calls[0])
     assert body["type"] == "WALLET"
     inner = body["depositWalletParams"]["calls"]
-    assert len(inner) == 15
+    assert len(inner) == 17
 
     erc20_sel = _selector("approve(address,uint256)")
     erc1155_sel = _selector("setApprovalForAll(address,bool)")
@@ -78,7 +78,8 @@ def test_setup_trading_approvals_bundles_required_calls_for_deposit_wallet() -> 
         assert inner[index]["data"].startswith(erc20_sel)
         assert spender[2:].lower() in inner[index]["data"].lower()
     # ERC1155 conditional-token approvals: standard_exchange, neg_risk_exchange,
-    # collateral_adapter, neg_risk_collateral_adapter, auto_redeem_operator
+    # collateral_adapter, neg_risk_collateral_adapter, auto_redeem_operator,
+    # binary_module, neg_risk_module
     for offset, operator in enumerate(
         [
             PRODUCTION_CONFIG.standard_exchange,
@@ -86,6 +87,8 @@ def test_setup_trading_approvals_bundles_required_calls_for_deposit_wallet() -> 
             PRODUCTION_CONFIG.collateral_adapter,
             PRODUCTION_CONFIG.neg_risk_collateral_adapter,
             PRODUCTION_CONFIG.auto_redeem_operator,
+            PRODUCTION_CONFIG.binary_module,
+            PRODUCTION_CONFIG.neg_risk_module,
         ]
     ):
         index = 7 + offset
@@ -101,7 +104,7 @@ def test_setup_trading_approvals_bundles_required_calls_for_deposit_wallet() -> 
             PRODUCTION_CONFIG.auto_redeem_operator,
         ]
     ):
-        index = 12 + offset
+        index = 14 + offset
         assert inner[index]["target"].lower() == PRODUCTION_CONFIG.position_manager.lower()
         assert inner[index]["data"].startswith(erc1155_sel)
         assert operator[2:].lower() in inner[index]["data"].lower()

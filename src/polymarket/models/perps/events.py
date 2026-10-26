@@ -9,9 +9,11 @@ from pydantic import Field, TypeAdapter, ValidationError, field_validator
 from polymarket.models.base import BaseModel
 from polymarket.models.perps._validators import (
     _parse_epoch_ms,  # pyright: ignore[reportPrivateUsage]
+    _parse_event_horizon,  # pyright: ignore[reportPrivateUsage]
     _require_epoch_ms,  # pyright: ignore[reportPrivateUsage]
 )
 from polymarket.models.perps.account import PerpsBalance, PerpsFundingPayment, PerpsPortfolio
+from polymarket.models.perps.builder_events import PerpsBuilderFillEvent
 from polymarket.models.perps.funds import PerpsDepositUpdate, PerpsWithdrawalUpdate
 from polymarket.models.perps.market import (
     PerpsBbo,
@@ -38,6 +40,7 @@ _SESSION_CHANNEL_TYPES: dict[str, str] = {
     "portfolio": "portfolio",
     "orders": "order",
     "fills": "fill",
+    "builderFills": "builder_fill",
     "funding": "funding",
     "deposits": "deposit",
     "withdrawals": "withdrawal",
@@ -47,7 +50,19 @@ _SESSION_CHANNEL_TYPES: dict[str, str] = {
 _NOTIFICATIONS_CHANNEL = "notifications"
 
 
+class _PerpsWireEventHorizon(BaseModel):
+    ets: int = Field(strict=True, ge=0)
+
+
 class _PerpsEventEnvelope(BaseModel):
+    event_timestamp: datetime | None
+    """Newest reflected event time; None means the event horizon is unknown."""
+
+    @field_validator("event_timestamp", mode="before")
+    @classmethod
+    def _validate_event_timestamp(cls, value: object) -> object:
+        return None if value is None else _parse_event_horizon(value)
+
     @field_validator("timestamp", mode="before", check_fields=False)
     @classmethod
     def _validate_timestamp(cls, value: object) -> object:
@@ -246,6 +261,13 @@ class PerpsResyncEvent(BaseModel):
     previous_sequence: int | None = None
     sequence: int | None = None
     timestamp: datetime | None = None
+    event_timestamp: datetime | None = None
+    """Server-attested event horizon; None for unknown horizons and local recovery."""
+
+    @field_validator("event_timestamp", mode="before")
+    @classmethod
+    def _validate_event_timestamp(cls, value: object) -> object:
+        return None if value is None else _parse_event_horizon(value)
 
     @field_validator("timestamp", mode="before")
     @classmethod
@@ -255,6 +277,7 @@ class PerpsResyncEvent(BaseModel):
 
 PerpsSessionEvent = (
     PerpsBalanceEvent
+    | PerpsBuilderFillEvent
     | PerpsPortfolioEvent
     | PerpsOrderEvent
     | PerpsFillEvent
@@ -268,6 +291,7 @@ PerpsSessionEvent = (
 
 _SessionUpdateEvent = Annotated[
     PerpsBalanceEvent
+    | PerpsBuilderFillEvent
     | PerpsPortfolioEvent
     | PerpsOrderEvent
     | PerpsFillEvent
@@ -330,6 +354,7 @@ def parse_perps_market_event(raw: object) -> PerpsMarketEvent | None:
     envelope = _market_envelope(raw)
     if envelope is None:
         return None
+    envelope["event_timestamp"] = _PerpsWireEventHorizon.model_validate(raw).ets
     return _MARKET_EVENT_ADAPTER.validate_python(envelope)
 
 
@@ -342,12 +367,14 @@ def parse_perps_session_event(raw: object) -> PerpsSessionEvent | None:
     if not isinstance(channel, str) or "ts" not in wire or "sq" not in wire:
         return None
     if channel == _NOTIFICATIONS_CHANNEL and wire.get("type") == "resync":
+        horizon = _PerpsWireEventHorizon.model_validate(wire).ets
         return PerpsResyncEvent.model_validate(
             {
                 "reason": "server",
                 "channel": channel,
                 "sequence": wire.get("sq"),
                 "timestamp": wire.get("ts"),
+                "event_timestamp": horizon,
             }
         )
     if _TPSL_CHANNEL.match(channel):
@@ -357,11 +384,13 @@ def parse_perps_session_event(raw: object) -> PerpsSessionEvent | None:
         if mapped is None:
             return None
         event_type = mapped
+    horizon = _PerpsWireEventHorizon.model_validate(wire).ets
     return _SESSION_EVENT_ADAPTER.validate_python(
         {
             "type": event_type,
             "channel": channel,
             "timestamp": wire.get("ts"),
+            "event_timestamp": horizon,
             "sequence": wire.get("sq"),
             "payload": wire.get("data"),
         }

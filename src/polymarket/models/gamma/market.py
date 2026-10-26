@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any, cast
+from typing import Any, Literal, TypeAlias, cast
 
 from pydantic import AliasChoices, Field, field_validator, model_validator
 
@@ -22,7 +23,7 @@ from polymarket.models.gamma.common import (
 )
 from polymarket.models.types import (
     ClobRewardId,
-    CtfConditionId,
+    ConditionId,
     EventId,
     MarketId,
     PositionId,
@@ -30,10 +31,30 @@ from polymarket.models.types import (
     ResolutionRequestId,
     TagId,
     TokenId,
-    validate_ctf_condition_id,
-    validate_optional_ctf_condition_id,
+    validate_condition_id_response,
+    validate_optional_condition_id_response,
 )
 from polymarket.types import EvmAddress
+
+ComboKnownStatus: TypeAlias = Literal["pending", "enabled", "disabled"]
+# The Combo status set can grow between SDK releases, so unknown values flow
+# through as plain strings instead of failing validation.
+ComboStatus: TypeAlias = ComboKnownStatus | str
+
+
+class ProtocolVersion(StrEnum):
+    """Known market protocol versions."""
+
+    V1 = "v1"
+    V2 = "v2"
+
+
+class MarketResolutionStatus(StrEnum):
+    """Resolution state for a market using the v2 protocol."""
+
+    INACTIVE = "inactive"
+    ACTIVE = "active"
+    RESOLVED = "resolved"
 
 
 class UmaResolutionStatus(StrEnum):
@@ -52,6 +73,10 @@ class MarketState(BaseModel):
     active: bool | None = None
     closed: bool | None = None
     archived: bool | None = None
+    combo_status: ComboStatus | None = Field(
+        default=None,
+        validation_alias="comboStatus",
+    )
     accepting_orders: bool | None = Field(
         default=None,
         validation_alias="acceptingOrders",
@@ -90,6 +115,12 @@ class MarketOutcome(BaseModel):
     token_id: TokenId | None = Field(
         default=None,
         validation_alias="tokenId",
+        description="CTF token ID for this outcome, when available.",
+    )
+    position_id: PositionId | None = Field(
+        default=None,
+        validation_alias="positionId",
+        description="Polymarket V2 position ID for this outcome, when available.",
     )
     price: Decimal | None = None
 
@@ -244,6 +275,21 @@ class MarketTrading(BaseModel):
 class MarketResolution(BaseModel):
     """Resolution metadata for a market."""
 
+    onchain_event_id: str | None = Field(
+        default=None,
+        validation_alias="onchainEventId",
+        description="Parent v2 on-chain event ID, shared by markets in a neg-risk event.",
+    )
+    request_id: ResolutionRequestId | None = Field(
+        default=None,
+        validation_alias="requestId",
+        description="Oracle request ID: a condition ID or the parent event ID.",
+    )
+    resolution_status: MarketResolutionStatus | None = Field(
+        default=None,
+        validation_alias="resolutionStatus",
+        description="V2 resolution state, distinct from the legacy UMA lifecycle.",
+    )
     question_id: QuestionId | None = Field(
         default=None,
         validation_alias="questionId",
@@ -262,7 +308,33 @@ class MarketResolution(BaseModel):
         validation_alias="resolvedBy",
     )
 
-    @field_validator("question_id", "neg_risk_request_id", "resolved_by", mode="before")
+    @field_validator("onchain_event_id", mode="before")
+    @classmethod
+    def _validate_onchain_event_id(cls, value: object) -> object:
+        if value == "":
+            return None
+        if value is not None and (
+            not isinstance(value, str) or re.fullmatch(r"0x[0-9a-fA-F]{58}000000", value) is None
+        ):
+            raise ValueError(
+                "Expected a 32-byte on-chain event ID with the bottom three bytes zero"
+            )
+        return value
+
+    @field_validator("request_id", mode="before")
+    @classmethod
+    def _validate_request_id(cls, value: object) -> object:
+        if value == "":
+            return None
+        if value is not None and (
+            not isinstance(value, str) or re.fullmatch(r"0x[0-9a-fA-F]{62}00", value) is None
+        ):
+            raise ValueError("Expected a 32-byte oracle request ID with the outcome byte zero")
+        return value
+
+    @field_validator(
+        "question_id", "neg_risk_request_id", "resolved_by", "resolution_status", mode="before"
+    )
     @classmethod
     def empty_string_to_none(cls, value: object) -> object | None:
         return None if value == "" else value
@@ -277,7 +349,7 @@ class ClobReward(BaseModel):
     """Reward configuration attached to a market condition."""
 
     id: ClobRewardId
-    condition_id: CtfConditionId = Field(validation_alias="conditionId")
+    condition_id: ConditionId = Field(validation_alias="conditionId")
     asset_address: str = Field(validation_alias="assetAddress")
     rewards_amount: Decimal = Field(validation_alias="rewardsAmount")
     rewards_daily_rate: Decimal = Field(validation_alias="rewardsDailyRate")
@@ -294,8 +366,8 @@ class ClobReward(BaseModel):
 
     @field_validator("condition_id", mode="before")
     @classmethod
-    def _validate_condition_id(cls, value: object) -> CtfConditionId:
-        return validate_ctf_condition_id(value)
+    def _validate_condition_id(cls, value: object) -> ConditionId:
+        return validate_condition_id_response(value)
 
 
 class MarketRewards(BaseModel):
@@ -372,8 +444,9 @@ class Market(BaseModel):
     """A Polymarket market."""
 
     id: MarketId
+    version: ProtocolVersion | None = None
     slug: str | None = None
-    condition_id: CtfConditionId | None = Field(
+    condition_id: ConditionId | None = Field(
         default=None,
         validation_alias=AliasChoices("conditionId", "condition"),
     )
@@ -396,6 +469,8 @@ class Market(BaseModel):
     position_ids: tuple[PositionId, ...] = Field(
         default=(),
         validation_alias="positionIds",
+        deprecated="Use the position_id on each outcome instead.",
+        description="Deprecated market-level Polymarket V2 position IDs.",
     )
 
     def _repr_html_(self) -> str:
@@ -452,6 +527,7 @@ class Market(BaseModel):
 
         return {
             "id": data.get("id"),
+            "version": data.get("version"),
             "slug": data.get("slug"),
             "condition_id": empty_string_to_none(data.get("conditionId")),
             "question": data.get("question"),
@@ -464,6 +540,7 @@ class Market(BaseModel):
                 "active": data.get("active"),
                 "closed": data.get("closed"),
                 "archived": data.get("archived"),
+                "combo_status": data.get("comboStatus"),
                 "accepting_orders": data.get("acceptingOrders"),
                 "enable_order_book": data.get("enableOrderBook"),
                 "neg_risk": data.get("negRisk"),
@@ -475,11 +552,13 @@ class Market(BaseModel):
                 "yes": {
                     "label": outcomes[0],
                     "token_id": token_ids[0] if len(token_ids) > 0 else None,
+                    "position_id": position_ids[0] if len(position_ids) > 0 else None,
                     "price": outcome_prices[0] if len(outcome_prices) > 0 else None,
                 },
                 "no": {
                     "label": outcomes[1],
                     "token_id": token_ids[1] if len(token_ids) > 1 else None,
+                    "position_id": position_ids[1] if len(position_ids) > 1 else None,
                     "price": outcome_prices[1] if len(outcome_prices) > 1 else None,
                 },
             },
@@ -515,6 +594,9 @@ class Market(BaseModel):
                 "fee_schedule": data.get("feeSchedule"),
             },
             "resolution": {
+                "onchain_event_id": data.get("onchainEventId"),
+                "request_id": data.get("requestId"),
+                "resolution_status": data.get("resolutionStatus"),
                 "question_id": empty_string_to_none(data.get("questionID")),
                 "neg_risk_request_id": empty_string_to_none(data.get("negRiskRequestID")),
                 "uma_resolution_status": empty_string_to_none(data.get("umaResolutionStatus")),
@@ -554,12 +636,14 @@ class Market(BaseModel):
 
     @field_validator("condition_id", mode="before")
     @classmethod
-    def _validate_condition_id(cls, value: object) -> CtfConditionId | None:
-        return validate_optional_ctf_condition_id(value)
+    def _validate_condition_id(cls, value: object) -> ConditionId | None:
+        return validate_optional_condition_id_response(value)
 
 
 __all__ = [
     "ClobReward",
+    "ComboKnownStatus",
+    "ComboStatus",
     "FeeSchedule",
     "Market",
     "MarketEvent",
@@ -573,5 +657,7 @@ __all__ = [
     "MarketState",
     "MarketTag",
     "MarketTrading",
+    "ProtocolVersion",
+    "MarketResolutionStatus",
     "UmaResolutionStatus",
 ]

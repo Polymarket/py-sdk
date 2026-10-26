@@ -10,6 +10,7 @@ import pytest
 from pydantic import ValidationError
 from pydantic.fields import FieldInfo
 
+from polymarket.models.perps import PerpsPositionDeleveragedNotification
 from polymarket.models.perps.events import (
     PerpsBookEvent,
     PerpsCandleEvent,
@@ -63,6 +64,7 @@ def test_book_event_injects_instrument_id_from_channel() -> None:
         {
             "ch": "book::7",
             "ts": 1751500000000,
+            "ets": 1751499999000,
             "sq": 3,
             "data": {"b": [["0.5", "10"]], "a": [["0.6", "4"]]},
         }
@@ -79,6 +81,7 @@ def test_candle_event_parses_interval_and_tuples() -> None:
         {
             "ch": "klines::7::5m",
             "ts": 1751500000000,
+            "ets": 1751499999000,
             "sq": 1,
             "data": [[1751500000000, "1", "2", "0.5", "1.5", "100", 3]],
         }
@@ -94,6 +97,7 @@ def test_ticker_event_parses_compact_payload() -> None:
         {
             "ch": "tickers::all",
             "ts": 1751500000000,
+            "ets": 1751499999000,
             "sq": 2,
             "data": {
                 "iid": 4,
@@ -120,7 +124,13 @@ def test_non_event_frames_are_ignored_not_dropped() -> None:
 
 def test_malformed_channel_frames_count_as_dropped() -> None:
     events, dropped = parse_perps_market_events(
-        {"ch": "book::7", "ts": 1751500000000, "sq": 1, "data": {"bogus": True}}
+        {
+            "ch": "book::7",
+            "ts": 1751500000000,
+            "ets": 1751499999000,
+            "sq": 1,
+            "data": {"bogus": True},
+        }
     )
     assert events == []
     assert dropped == 1
@@ -128,7 +138,13 @@ def test_malformed_channel_frames_count_as_dropped() -> None:
 
 def test_session_order_event_normalizes_compact_order() -> None:
     event = parse_perps_session_event(
-        {"ch": "orders", "ts": 1751500000000, "sq": 9, "data": _order_update()}
+        {
+            "ch": "orders",
+            "ts": 1751500000000,
+            "ets": 1751499999000,
+            "sq": 9,
+            "data": _order_update(),
+        }
     )
     assert isinstance(event, PerpsOrderEvent)
     assert event.payload.id == 5
@@ -164,6 +180,7 @@ def test_session_funding_event_parses_compact_payload() -> None:
         {
             "ch": "funding",
             "ts": 1751500000000,
+            "ets": 1751499999000,
             "sq": 4,
             "data": {
                 "id": 3055723280187747,
@@ -182,18 +199,20 @@ def test_session_funding_event_parses_compact_payload() -> None:
     assert event.payload.funding == Decimal("0.5")
 
 
-def test_session_tpsl_event_parses_lifecycle_update() -> None:
+@pytest.mark.parametrize("status", ["armed", "activated", "expired"])
+def test_session_tpsl_event_parses_lifecycle_update(status: str) -> None:
     event = parse_perps_session_event(
         {
             "ch": "tpsl::12",
             "ts": 1751500000000,
+            "ets": 1751499999000,
             "sq": 1,
-            "data": {"oid": 44, "st": "armed"},
+            "data": {"oid": 44, "st": status},
         }
     )
     assert isinstance(event, PerpsTpSlEvent)
     assert event.payload.order_id == 44
-    assert event.payload.status == "armed"
+    assert event.payload.status == status
 
 
 def test_session_deposit_event_normalizes_placeholder_hash() -> None:
@@ -201,6 +220,7 @@ def test_session_deposit_event_normalizes_placeholder_hash() -> None:
         {
             "ch": "deposits",
             "ts": 1751500000000,
+            "ets": 1751499999000,
             "sq": 1,
             "data": {"hash": "0x", "asset": "USDC", "amount": "10", "status": "pending"},
         }
@@ -214,7 +234,7 @@ def test_session_deposit_event_normalizes_placeholder_hash() -> None:
     "frame",
     [
         {"id": 1, "data": [{"status": "ok", "oid": 2}]},
-        {"ch": "unknown-channel", "ts": 1, "sq": 1, "data": {}},
+        {"ch": "unknown-channel", "ts": 1, "ets": 1751499999000, "sq": 1, "data": {}},
         "not-a-dict",
     ],
 )
@@ -223,7 +243,13 @@ def test_session_parser_returns_none_for_non_events(frame: object) -> None:
 
 
 def _notification_frame(notification: dict[str, object]) -> dict[str, object]:
-    return {"ch": "notifications", "ts": 1751500000000, "sq": 42, "data": notification}
+    return {
+        "ch": "notifications",
+        "ts": 1751500000000,
+        "ets": 1751499999000,
+        "sq": 42,
+        "data": notification,
+    }
 
 
 def _position_change_notification(**overrides: object) -> dict[str, object]:
@@ -334,6 +360,50 @@ def test_session_notification_with_unknown_type_fails_validation() -> None:
                 {"id": "5f4a3c2b-1d0e-49f8-a7b6-c5d4e3f2a1b0", "type": "new_notification_kind"}
             )
         )
+
+
+@pytest.mark.parametrize("margin_type", ["cross", "isolated"])
+def test_session_notification_parses_adl_with_exact_decimals(margin_type: str) -> None:
+    event = parse_perps_session_event(
+        _notification_frame(
+            {
+                "id": "5f4a3c2b-1d0e-49f8-a7b6-c5d4e3f2a1b0",
+                "type": "position_deleveraged",
+                "instrument_id": 3,
+                "side": "short",
+                "size_closed": "0.01234567890123456789",
+                "price": "52000.125",
+                "pnl": "130.125",
+                "margin_type": margin_type,
+            }
+        )
+    )
+    assert isinstance(event, PerpsNotificationEvent)
+    assert event.payload.type == "position_deleveraged"
+    assert event.payload.instrument_id == 3
+    assert event.payload.size_closed == Decimal("0.01234567890123456789")
+    assert event.payload.price == Decimal("52000.125")
+    assert event.payload.pnl == Decimal("130.125")
+    assert event.payload.margin_type == margin_type
+    assert event.timestamp == datetime.fromtimestamp(1751500000, tz=UTC)
+    assert event.sequence == 42
+
+
+@pytest.mark.parametrize("field", ["instrument_id", "price", "pnl"])
+def test_adl_history_requires_concrete_instrument_and_settlement_values(field: str) -> None:
+    notification: dict[str, object] = {
+        "id": "6ab1e47f-9b8c-5eaf-8f9b-7c8d9e0f1a2b",
+        "type": "position_deleveraged",
+        "instrument_id": 1,
+        "side": "short",
+        "size_closed": "0.01",
+        "price": "52000",
+        "pnl": "130",
+        "margin_type": "cross",
+    }
+    notification[field] = None
+    with pytest.raises(ValidationError):
+        PerpsNotificationEntry.model_validate({"notification": notification, "ts": 1751500000000})
 
 
 @pytest.mark.parametrize("value", [True, [], object()])
@@ -451,6 +521,10 @@ def test_perps_notification_and_event_annotations_expose_canonical_types() -> No
     assert position_hints["size"] is Decimal
     assert position_hints["avg_price"] is Decimal
     assert liquidated_hints["pnl"] == Decimal | None
+    deleveraged_hints = get_type_hints(PerpsPositionDeleveragedNotification, include_extras=True)
+    assert deleveraged_hints["size_closed"] is Decimal
+    assert deleveraged_hints["price"] is Decimal
+    assert deleveraged_hints["pnl"] is Decimal
     assert entry_hints["read_at"] == datetime | None
     assert entry_hints["timestamp"] is datetime
     assert trade_hints["timestamp"] is datetime
@@ -491,10 +565,136 @@ def test_model_signatures_expose_canonical_types_and_timestamp_alias() -> None:
 
 def test_notifications_resync_frame_parses_as_server_resync_event() -> None:
     event = parse_perps_session_event(
-        {"ch": "notifications", "ts": 1751500000000, "sq": 77, "type": "resync"}
+        {
+            "ch": "notifications",
+            "ts": 1751500000000,
+            "ets": 1751499999000,
+            "sq": 77,
+            "type": "resync",
+        }
     )
     assert isinstance(event, PerpsResyncEvent)
     assert event.reason == "server"
     assert event.channel == "notifications"
     assert event.sequence == 77
     assert event.timestamp is not None
+
+
+@pytest.mark.parametrize(
+    "frame",
+    [
+        {"ch": "trades::1", "data": []},
+        {"ch": "book::1", "data": {"b": [], "a": []}},
+        {"ch": "bbo::1", "data": {"iid": 1, "bp": "1", "bq": "2", "ap": "3", "aq": "4"}},
+        {
+            "ch": "tickers::all",
+            "data": {
+                "iid": 1,
+                "idx": "1",
+                "mark": "1",
+                "last": "1",
+                "mid": "1",
+                "oi": "0",
+                "fr": "0",
+                "nxf": 1751500000000,
+            },
+        },
+        {"ch": "statistics::all", "data": {"iid": 1, "vol": "0", "open": "1", "klines": []}},
+        {"ch": "klines::1::1m", "data": []},
+    ],
+)
+def test_market_horizon_is_distinct_from_send_time(frame: dict[str, object]) -> None:
+    wire = {**frame, "ts": 1751500000100, "ets": 1751500000000, "sq": 42}
+    event = parse_perps_market_event(wire)
+    assert event is not None
+    assert event.event_timestamp == datetime.fromtimestamp(1751500000, tz=UTC)
+    assert event.timestamp == datetime.fromtimestamp(1751500000.1, tz=UTC)
+    unknown = parse_perps_market_event({**wire, "ets": 0})
+    assert unknown is not None and unknown.event_timestamp is None
+    del wire["ets"]
+    with pytest.raises(ValidationError):
+        parse_perps_market_event(wire)
+
+
+@pytest.mark.parametrize(
+    "frame",
+    [
+        {"ch": "balances", "data": {"asset": "USDC", "balance": "10", "value": "10"}},
+        {
+            "ch": "portfolio",
+            "data": {
+                "positions": [],
+                "margin": {
+                    "total_account_value": "10",
+                    "total_initial_margin": "0",
+                    "total_maintenance_margin": "0",
+                    "total_position_value": "0",
+                    "available_order_margin": "10",
+                },
+                "fee_tier": 0,
+                "withdrawable": "10",
+                "in_liquidation": False,
+                "timestamp": 1751500000000,
+            },
+        },
+        {"ch": "orders", "data": _order_update()},
+        {"ch": "fills", "data": []},
+        {"ch": "builderFills", "data": []},
+        {
+            "ch": "funding",
+            "data": {
+                "id": 1,
+                "iid": 1,
+                "sz": "10",
+                "fr": "0.0001",
+                "fua": "USDC",
+                "fund": "0.5",
+                "ts": 1751500000000,
+            },
+        },
+        {"ch": "deposits", "data": {"asset": "USDC", "amount": "10", "status": "pending"}},
+        {
+            "ch": "withdrawals",
+            "data": {
+                "withdraw_id": "1",
+                "asset": "USDC",
+                "amount": "10",
+                "fee": "0",
+                "status": "pending",
+                "to": "0x" + "11" * 20,
+            },
+        },
+        {"ch": "notifications", "data": _position_change_notification()},
+        {"ch": "tpsl::1", "data": {"oid": 1, "st": "armed"}},
+        {"ch": "notifications", "type": "resync"},
+    ],
+)
+def test_session_horizon_including_recovery_has_no_send_time_fallback(
+    frame: dict[str, object],
+) -> None:
+    wire = {**frame, "ts": 1751500000100, "ets": 1751500000000, "sq": 42}
+    event = parse_perps_session_event(wire)
+    assert event is not None
+    assert event.event_timestamp == datetime.fromtimestamp(1751500000, tz=UTC)
+    assert event.timestamp == datetime.fromtimestamp(1751500000.1, tz=UTC)
+    unknown = parse_perps_session_event({**wire, "ets": 0})
+    assert unknown is not None and unknown.event_timestamp is None
+    del wire["ets"]
+    with pytest.raises(ValidationError):
+        parse_perps_session_event(wire)
+    assert PerpsResyncEvent(reason="reconnect").event_timestamp is None
+
+
+@pytest.mark.parametrize("horizon", [None, True, -1, 1751500000000.0, "1751500000000"])
+def test_wire_horizons_require_integer_even_when_canonical_unknown_is_none(horizon: object) -> None:
+    with pytest.raises(ValidationError):
+        parse_perps_market_event(
+            {"ch": "trades::1", "ts": 1751500000000, "sq": 1, "ets": horizon, "data": []}
+        )
+    frames: tuple[dict[str, object], ...] = (
+        {"ch": "builderFills", "data": []},
+        {"ch": "notifications", "type": "resync"},
+    )
+    for frame in frames:
+        with pytest.raises(ValidationError):
+            parse_perps_session_event({**frame, "ts": 1751500000000, "sq": 1, "ets": horizon})
