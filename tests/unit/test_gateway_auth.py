@@ -1274,6 +1274,7 @@ def test_terminal_rfq_bearer_session_releases_authentication(failure: str) -> No
     from websockets.asyncio.server import ServerConnection, serve
 
     from polymarket._internal.environment import PRODUCTION_CONFIG, create_environment
+    from polymarket._internal.rfq import RfqQuoterSession
     from polymarket.errors import ConnectionLostError
 
     async def run() -> None:
@@ -1308,7 +1309,7 @@ def test_terminal_rfq_bearer_session_releases_authentication(failure: str) -> No
                 async with await AsyncSecureClient.create(
                     private_key=PRIVATE_KEY, wallet=SIGNER.address, environment=environment
                 ) as client:
-                    stream = await client.open_rfq_session()
+                    stream = cast(RfqQuoterSession, await client.open_rfq_session())
                     authentication = stream._authentication
                     assert authentication is not None
                     release.set()
