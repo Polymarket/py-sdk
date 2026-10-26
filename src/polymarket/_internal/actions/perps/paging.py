@@ -93,6 +93,8 @@ def decode_perps_trades_cursor(cursor: str) -> dict[str, Any]:
     _require_non_negative_int(state, "start_timestamp")
     _require_non_negative_int(state, "end_timestamp")
     _require_non_negative_int_list(state, "seen_trade_ids")
+    if "server_cursor" in state:
+        _require_str(state, "server_cursor")
     return state
 
 
