@@ -1,4 +1,10 @@
-from polymarket.auth import BearerCredentials, BuilderApiKey, RelayerApiKey
+from polymarket.auth import (
+    BearerCredentials,
+    BuilderApiKey,
+    PlatformApiKey,
+    RelayerApiKey,
+    RemotePlatformApiKey,
+)
 from polymarket.calls import TransactionCall
 from polymarket.clients import AsyncPublicClient, AsyncSecureClient, PublicClient, SecureClient
 from polymarket.environments import PRODUCTION, Environment
@@ -459,6 +465,8 @@ __all__ = [
     "AuthorizeSessionKeyResult",
     "BalanceAllowance",
     "BearerCredentials",
+    "PlatformApiKey",
+    "RemotePlatformApiKey",
     "BuilderApiKey",
     "BuilderApiKeyInfo",
     "BuilderFeeRates",

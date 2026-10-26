@@ -12,7 +12,7 @@ from polymarket._internal.environment import EnvironmentConfig, get_environment_
 from polymarket._internal.eoa.rpc import JsonRpcClient, SyncJsonRpcClient
 from polymarket._internal.gateway_session import AsyncGatewaySession, SyncGatewaySession
 from polymarket._internal.wallet import SignerType, WalletType
-from polymarket.auth import ApiKey, BearerCredentials
+from polymarket.auth import ApiKey, BearerCredentials, PlatformApiKey, RemotePlatformApiKey
 from polymarket.clients._transport import AsyncTransport, SyncTransport
 from polymarket.environments import Environment
 from polymarket.models.clob import ApiKeyCreds
@@ -48,6 +48,7 @@ class SyncSecureClientContext(SyncClientContext):
     api_key: ApiKey | None
     rpc: SyncJsonRpcClient
     session: SyncGatewaySession | None = None
+    platform_api_key: PlatformApiKey | RemotePlatformApiKey | None = None
     order_metadata: SyncOrderMetadataCache
 
 
@@ -81,6 +82,7 @@ class AsyncSecureClientContext(AsyncClientContext):
     api_key: ApiKey | None
     rpc: JsonRpcClient
     session: AsyncGatewaySession | None = None
+    platform_api_key: PlatformApiKey | RemotePlatformApiKey | None = None
     order_metadata: AsyncOrderMetadataCache
 
 
