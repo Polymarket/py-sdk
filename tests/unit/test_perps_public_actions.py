@@ -325,3 +325,148 @@ def test_fetch_book_rejects_unsupported_depth() -> None:
             await transport.close()
 
     asyncio.run(run())
+
+
+def test_public_trades_follow_opaque_cursor_across_same_millisecond_and_resume() -> None:
+    requests: list[dict[str, str]] = []
+    cursors = [None, "opaque+/page=2", "opaque+/page=3"]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        query = _query(request)
+        requests.append(query)
+        assert query["instrument_id"] == "1"
+        assert query["start_timestamp"] == "1000"
+        assert query["end_timestamp"] == "2000"
+        page = cursors.index(query.get("cursor"))
+        start, stop = page * 100, min((page + 1) * 100, 235)
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "trade_id": tid,
+                        "instrument_id": 1,
+                        "side": "long",
+                        "price": "1",
+                        "quantity": "1",
+                        "timestamp": 1000,
+                    }
+                    for tid in range(start, stop)
+                ],
+                "more": page < 2,
+                "cursor": cursors[page + 1] if page < 2 else None,
+            },
+        )
+
+    async def run() -> None:
+        transport = _transport(handler)
+        try:
+            paginator = perps_public.list_trades(transport, instrument_id=1, start=1000, end=2000)
+            trades = [trade async for trade in paginator.iter_items()]
+            assert [trade.trade_id for trade in trades] == list(range(235))
+            assert len({trade.trade_id for trade in trades}) == 235
+            first = await paginator.first_page()
+            assert first.next_cursor is not None
+            # A saved SDK cursor carries its original instrument and time bounds.
+            resumed = perps_public.list_trades(transport, instrument_id=9, start=5, end=6)
+            remaining = [
+                trade async for trade in resumed.from_cursor(first.next_cursor).iter_items()
+            ]
+            assert [trade.trade_id for trade in remaining] == list(range(100, 235))
+        finally:
+            await transport.close()
+
+    asyncio.run(run())
+    assert [request.get("cursor") for request in requests] == [
+        None,
+        cursors[1],
+        cursors[2],
+        None,
+        cursors[1],
+        cursors[2],
+    ]
+
+
+@pytest.mark.parametrize("value", [None, "", 0, False, {}, []])
+def test_public_trade_continuation_rejects_invalid_server_cursor(value: object) -> None:
+    async def run() -> None:
+        transport = _transport(
+            lambda _: httpx.Response(200, json={"data": [], "more": True, "cursor": value})
+        )
+        try:
+            with pytest.raises(UnexpectedResponseError, match="cursor"):
+                await perps_public.list_trades(transport, instrument_id=1).first_page()
+        finally:
+            await transport.close()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("value", [None, "", 1])
+def test_saved_public_trade_cursor_rejects_invalid_opaque_value(value: object) -> None:
+    async def run() -> None:
+        transport = _transport(lambda _: (_ for _ in ()).throw(AssertionError("must not request")))
+        try:
+            saved = _cursor(
+                {
+                    "kind": "perpsTrades",
+                    "instrument_id": 1,
+                    "start_timestamp": 1000,
+                    "end_timestamp": 2000,
+                    "seen_trade_ids": [],
+                    "server_cursor": value,
+                }
+            )
+            with pytest.raises(UserInputError, match="cursor"):
+                await (
+                    perps_public.list_trades(transport, instrument_id=1)
+                    .from_cursor(saved)
+                    .first_page()
+                )
+        finally:
+            await transport.close()
+
+    asyncio.run(run())
+
+
+def test_old_saved_trade_cursor_deduplicates_boundary_when_server_supplies_cursor() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert _query(request)["end_timestamp"] == "1500"
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "trade_id": tid,
+                        "instrument_id": 1,
+                        "side": "long",
+                        "price": "1",
+                        "quantity": "1",
+                        "timestamp": 1500 if tid == 2 else 1200,
+                    }
+                    for tid in [2, 1]
+                ],
+                "more": False,
+                "cursor": None,
+            },
+        )
+
+    async def run() -> None:
+        transport = _transport(handler)
+        try:
+            saved = _cursor(
+                {
+                    "kind": "perpsTrades",
+                    "instrument_id": 1,
+                    "start_timestamp": 1000,
+                    "end_timestamp": 1500,
+                    "seen_trade_ids": [2],
+                }
+            )
+            paginator = perps_public.list_trades(transport, instrument_id=1)
+            trades = [trade async for trade in paginator.from_cursor(saved).iter_items()]
+            assert [trade.trade_id for trade in trades] == [1]
+        finally:
+            await transport.close()
+
+    asyncio.run(run())

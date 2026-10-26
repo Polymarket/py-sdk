@@ -242,15 +242,31 @@ def list_trades(
             }
         else:
             state = decode_perps_trades_cursor(cursor)
-        payload = await perps.get_json(
-            "/v1/info/trades",
-            params={
-                "instrument_id": state["instrument_id"],
-                "start_timestamp": state["start_timestamp"],
-                "end_timestamp": state["end_timestamp"],
-            },
-        )
+        params = {
+            "instrument_id": state["instrument_id"],
+            "start_timestamp": state["start_timestamp"],
+            "end_timestamp": state["end_timestamp"],
+        }
+        if "server_cursor" in state:
+            params["cursor"] = state["server_cursor"]
+        payload = await perps.get_json("/v1/info/trades", params=params)
         data, more = parse_data_envelope(payload)
+        envelope = as_json_dict(payload)
+        assert envelope is not None
+        if "cursor" in envelope or "server_cursor" in state:
+            server_cursor = envelope.get("cursor")
+            if more and (not isinstance(server_cursor, str) or not server_cursor):
+                raise UnexpectedResponseError(
+                    "Perps trades continuation cursor must be a nonempty string"
+                )
+            seen = set(cast("list[int]", state.get("seen_trade_ids", [])))
+            parsed_items = tuple(PerpsTrade.parse_response(item) for item in data)
+            items = tuple(item for item in parsed_items if item.trade_id not in seen)
+            next_cursor = (
+                encode_perps_cursor({**state, "server_cursor": server_cursor}) if more else None
+            )
+            return Page(items=items, has_more=more, next_cursor=next_cursor)
+
         seen: set[int] = set(cast("list[int]", state.get("seen_trade_ids", [])))
         fresh: list[dict[str, Any]] = []
         for raw_item in data:

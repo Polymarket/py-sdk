@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Bug Fixes
+
+* **perps:** follow public trade cursors without skipping trades sharing a timestamp.
+
 ## [0.14.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.13.0...polymarket-client-v0.14.0) (2026-10-21)
 
 ### Features
