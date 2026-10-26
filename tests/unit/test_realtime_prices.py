@@ -35,6 +35,7 @@ from polymarket.streams import (
     EquityTwapPriceSpec,
     KnownPriceSource,
     MarketSpec,
+    PolymarketPriceSpec,
     PriceSource,
     PriceSpec,
     RealtimePriceSnapshot,
@@ -135,7 +136,8 @@ class Feed:
                         self.ignore_unsubscriptions -= 1
                         continue
                     for sub in frame["subscriptions"]:
-                        channel, symbol = sub["channel"], sub["filter"]["symbol"]
+                        channel = sub["channel"]
+                        symbol = sub["filter"].get("symbol", sub["filter"].get("asset_id"))
                         op = "subscribed" if frame["op"] == "subscribe" else "unsubscribed"
                         ack = {"op": op, "rid": frame["rid"], "channel": channel}
                         if op == "subscribed" and self.ack_provider is not None:
@@ -146,7 +148,12 @@ class Feed:
                         if op == "unsubscribed":
                             self.unsubscribed.set()
                         if ack["op"] == "subscribed":
-                            await ws.send(json.dumps(price_frame(channel, symbol, snapshot=True)))
+                            snapshot = (
+                                polymarket_frame(symbol, snapshot=True)
+                                if channel == "price.polymarket"
+                                else price_frame(channel, symbol, snapshot=True)
+                            )
+                            await ws.send(json.dumps(snapshot))
         except ConnectionClosed:
             pass
 
@@ -228,7 +235,7 @@ def test_price_provider_subscribe_and_unsubscribe_requests(
             manager = RealtimeStreamManager(url=url, credentials=CREDS)
             try:
                 spec = spec_type(**arguments, provider=provider)
-                handle = await manager.subscribe(spec)
+                handle = await manager.subscribe(cast(PriceSpec, spec))
                 assert (await anext(handle)).topic == spec.topic
                 expected_filter = dict(price_filter)
                 if provider is not None:
@@ -1367,3 +1374,104 @@ def test_acceptance_timeout_and_cancellation_release_only_joining_listener(
                 await manager.close()
 
     asyncio.run(asyncio.wait_for(run(), 5))
+
+
+def polymarket_frame(asset_id: str, *, snapshot: bool = False) -> dict[str, Any]:
+    return {
+        "v": 1,
+        "channel": "price.polymarket",
+        "seq": 1,
+        "ts": TIMESTAMP,
+        "snapshot": snapshot,
+        "payload": []
+        if snapshot and asset_id == "123"
+        else {
+            "market": "0x" + "ab" * 32,
+            "asset_id": asset_id,
+            "best_bid": "0.51",
+            "best_ask": "",
+            "hash": "book-hash",
+            "timestamp": TIMESTAMP - 1,
+        },
+    }
+
+
+@pytest.mark.parametrize("asset_ids", [["123", "456"], ["00123", "00456", "456"]])
+def test_public_polymarket_prices_route_cold_snapshots_updates_and_recovery(
+    asset_ids: list[str],
+) -> None:
+    async def run() -> None:
+        feed = Feed()
+        async with feed_server(feed) as url:
+            environment = create_environment(
+                name="test", config=replace(PRODUCTION_CONFIG, realtime_ws_url=url)
+            )
+            async with AsyncPublicClient(environment=environment) as client:
+                handle = await client.subscribe(PolymarketPriceSpec(asset_ids=asset_ids))
+                cold, warm = await anext(handle), await anext(handle)
+                assert cold.type == "subscribe" and cold.payload.asset_id == "123"
+                assert cold.payload.data == ()
+                assert warm.type == "subscribe" and warm.payload.asset_id == "456"
+                assert warm.payload.data[0].best_bid == Decimal("0.51")
+                assert warm.payload.data[0].best_ask is None
+                assert warm.payload.data[0].timestamp == datetime.fromtimestamp(
+                    (TIMESTAMP - 1) / 1000, UTC
+                )
+                assert feed.operations("auth") == []
+                assert feed.operations("subscribe")[0]["subscriptions"] == [
+                    {"channel": "price.polymarket", "filter": {"asset_id": "123"}},
+                    {"channel": "price.polymarket", "filter": {"asset_id": "456"}},
+                ]
+                frame = polymarket_frame("456")
+                await feed.connections[0].send(json.dumps({**frame, "channel": "future.channel"}))
+                await feed.connections[0].send(json.dumps({**frame, "payload": {"invalid": True}}))
+                await feed.connections[0].send(json.dumps({**frame, "payload": []}))
+                await feed.connections[0].send(json.dumps(frame))
+                update = await anext(handle)
+                assert update.type == "update" and update.payload.asset_id == "456"
+                assert update.payload.best_bid == Decimal("0.51")
+                late = await client.subscribe(PolymarketPriceSpec(asset_ids=["000456"]))
+                replay = await anext(late)
+                assert replay.type == "subscribe" and replay.payload.data == (update.payload,)
+                assert len(feed.connections) == 1
+                await feed.connections[0].close(4002, "recover")
+                await eventually(lambda: len(feed.connections) == 2)
+                for _ in range(2):
+                    assert (await anext(handle)).type == "subscribe"
+                assert (await anext(late)).type == "subscribe"
+                assert feed.operations("auth") == []
+                assert (
+                    feed.operations("subscribe")[1]["subscriptions"]
+                    == feed.operations("subscribe")[0]["subscriptions"]
+                )
+            await eventually(lambda: all(ws.close_code is not None for ws in feed.connections))
+
+    asyncio.run(asyncio.wait_for(run(), 5))
+
+
+def test_public_polymarket_prices_preserve_zero_asset_identity() -> None:
+    async def run() -> None:
+        feed = Feed()
+        async with feed_server(feed) as url:
+            environment = create_environment(
+                name="test", config=replace(PRODUCTION_CONFIG, realtime_ws_url=url)
+            )
+            async with AsyncPublicClient(environment=environment) as client:
+                handle = await client.subscribe(PolymarketPriceSpec(asset_ids=["000", "0"]))
+                snapshot = await anext(handle)
+                assert snapshot.type == "subscribe" and snapshot.payload.asset_id == "0"
+                assert snapshot.payload.data[0].asset_id == "0"
+                assert feed.operations("subscribe")[0]["subscriptions"] == [
+                    {"channel": "price.polymarket", "filter": {"asset_id": "0"}}
+                ]
+                await feed.connections[0].send(json.dumps(polymarket_frame("0")))
+                update = await anext(handle)
+                assert update.type == "update" and update.payload.asset_id == "0"
+
+    asyncio.run(asyncio.wait_for(run(), 5))
+
+
+@pytest.mark.parametrize("asset_ids", [[], [""], ["invalid"], ["0x123"], ["１２３"]])
+def test_public_price_spec_rejects_invalid_asset_ids(asset_ids: list[str]) -> None:
+    with pytest.raises(UserInputError):
+        PolymarketPriceSpec(asset_ids=asset_ids)
