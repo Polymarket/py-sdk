@@ -1,8 +1,11 @@
+# pyright: reportPrivateUsage=false
 """Perps collateral movement construction tests."""
 
 import asyncio
 import json
 from collections.abc import Callable
+from dataclasses import replace
+from decimal import Decimal
 from typing import cast
 
 import httpx
@@ -10,6 +13,7 @@ import pytest
 from eth_account import Account
 from eth_account.messages import encode_typed_data
 
+from polymarket import ApiKeyCreds, AsyncSecureClient
 from polymarket._internal.actions.perps.funds import perps_deposit_call, withdraw_from_perps
 from polymarket._internal.actions.perps.signing import build_perps_withdraw_typed_data
 from polymarket.clients._transport import AsyncTransport
@@ -220,6 +224,68 @@ def test_internal_transfer_signs_exact_amount_and_keeps_label_unsigned(
         encode_typed_data(full_message=signed), signature=body["sig"]
     )
     assert recovered == _OWNER.address
+
+
+@pytest.mark.parametrize(
+    "amount,expected",
+    [
+        (1e-6, "0.000001"),
+        (Decimal("1E-7"), "0.0000001"),
+        (Decimal("1E+2"), "100"),
+        (1e20, "100000000000000000000"),
+    ],
+)
+def test_public_internal_transfer_numeric_and_string_amounts_sign_identically(
+    monkeypatch: pytest.MonkeyPatch, amount: Decimal | float, expected: str
+) -> None:
+    from polymarket._internal.actions.perps.signing import build_perps_op_typed_data
+
+    monkeypatch.setattr("polymarket._internal.actions.perps.funds.now_ms", lambda: 1751500000123)
+    monkeypatch.setattr("polymarket._internal.actions.perps.funds.random_perps_salt", lambda: 12345)
+    recipient = "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc"
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"status": "ok", "transfer_id": 42})
+
+    async def run() -> None:
+        client = await AsyncSecureClient._create(
+            private_key=_OWNER_KEY,
+            wallet=_OWNER.address,
+            credentials=ApiKeyCreds(
+                key="test-key", passphrase="test-passphrase", secret="dGVzdA=="
+            ),
+            validate_credentials=False,
+        )
+        async with (
+            client,
+            httpx.AsyncClient(base_url=_BASE_URL, transport=httpx.MockTransport(handler)) as http,
+        ):
+            await client._ctx.perps.close()
+            client._ctx = replace(
+                client._ctx, perps=AsyncTransport(base_url=_BASE_URL, client=http)
+            )
+            assert await client.transfer_perps_collateral(recipient=recipient, amount=amount) == 42
+            assert (
+                await client.transfer_perps_collateral(recipient=recipient, amount=expected) == 42
+            )
+
+    asyncio.run(run())
+    assert len(requests) == 2
+    body = json.loads(requests[0].content)
+    assert body == json.loads(requests[1].content)
+    assert body["op"]["args"]["amount"] == expected
+    signed = build_perps_op_typed_data(
+        chain_id=137,
+        op=["internalTransfer", [_OWNER.address, _COLLATERAL, expected, recipient]],
+        salt=12345,
+        timestamp_ms=1751500000123,
+    )
+    assert (
+        Account.recover_message(encode_typed_data(full_message=signed), signature=body["sig"])
+        == _OWNER.address
+    )
 
 
 @pytest.mark.parametrize(

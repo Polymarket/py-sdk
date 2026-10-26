@@ -132,6 +132,8 @@ async def transfer_perps_collateral(
     if recipient.lower() == signer.address.lower():
         raise UserInputError("Perps collateral cannot be transferred to the authenticated account")
     amount_string = to_decimal_string("amount", amount)
+    if not isinstance(amount, str):
+        amount_string = format(Decimal(amount_string), "f")
     if not re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", amount_string) or Decimal(amount_string) <= 0:
         raise UserInputError("amount must be a positive fixed-point decimal")
     if label is not None and (
