@@ -142,6 +142,7 @@ from polymarket.models import (
     ClobTrade,
     ComboMarket,
     Comment,
+    CryptoMarketConfig,
     Event,
     LastTradePrice,
     LastTradePriceForAsset,
@@ -1219,6 +1220,10 @@ class SecureClient:
                 id=id, slug=slug, locale=locale, omit_empty=omit_empty, status=status
             ),
         )
+
+    def get_crypto_market_configs(self) -> tuple[CryptoMarketConfig, ...]:
+        """Get supported crypto market configurations."""
+        return sync_dispatch(self._ctx, _gamma_actions.get_crypto_market_configs_spec())
 
     def get_sports(self) -> tuple[SportsMetadata, ...]:
         """Get available sports metadata."""
