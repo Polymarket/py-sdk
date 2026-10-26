@@ -375,3 +375,130 @@ def test_parse_reward_percentages_rejects_non_numeric_value() -> None:
 def test_parse_reward_percentages_rejects_bool_value() -> None:
     with pytest.raises(UnexpectedResponseError):
         parse_reward_percentages({"0xCOND1": True})
+
+
+@pytest.mark.parametrize("end_date", [None, "", "missing"])
+def test_reward_market_filters_survive_cursor_and_empty_rewards(end_date: str | None) -> None:
+    from polymarket._internal.actions.rewards import (
+        build_list_reward_markets_request,
+        parse_reward_markets_page,
+    )
+
+    path, params = build_list_reward_markets_request(
+        query="sports",
+        tag_slugs=("sports", "politics"),
+        market_id=12,
+        event_ids=(1, 2),
+        min_price=0.1,
+        max_price=0.9,
+        min_volume_24hr=1,
+        max_volume_24hr=100,
+        sort_direction="DESC",
+        order_by="volume_24hr",
+        cursor="MjU=",
+        page_size=25,
+    )
+    assert path == "/rewards/markets/multi"
+    assert params == {
+        "q": "sports",
+        "tag_slug": ("sports", "politics"),
+        "market_id": 12,
+        "event_id": (1, 2),
+        "min_price": 0.1,
+        "max_price": 0.9,
+        "min_volume_24hr": 1,
+        "max_volume_24hr": 100,
+        "position": "DESC",
+        "order_by": "volume_24hr",
+        "next_cursor": "MjU=",
+        "page_size": 25,
+    }
+    payload = dict(
+        _MARKET_REWARD_PAYLOAD,
+        market_id="12",
+        event_id="1",
+        created_at="2026-10-07T00:00:00Z",
+        end_date=end_date,
+        group_item_title="",
+        spread=0.1,
+        volume_24hr=1.5,
+        one_day_price_change=-0.2,
+        rewards_config=[],
+    )
+    if end_date == "missing":
+        del payload["end_date"]
+    page = parse_reward_markets_page({"data": [payload], "next_cursor": "LTE="})
+    assert page.items[0].rewards_config == ()
+    assert page.items[0].end_date is None
+    assert page.has_more is False
+    with pytest.raises(UserInputError):
+        build_list_reward_markets_request(min_price=float("nan"))
+    from typing import cast
+
+    from polymarket.models.clob.rewards import RewardMarketSort
+
+    with pytest.raises(UserInputError, match="Invalid reward market sort field"):
+        build_list_reward_markets_request(order_by=cast(RewardMarketSort, "volume24hr"))
+
+
+def test_current_rebates_request_and_exact_response() -> None:
+    from datetime import date
+    from decimal import Decimal
+
+    from polymarket._internal.actions.rewards import (
+        build_get_current_rebates_request,
+        parse_current_rebates,
+    )
+
+    maker = "0x" + "ab" * 20
+    assert build_get_current_rebates_request(date="2024-02-29", maker_address=maker) == (
+        "/rebates/current",
+        {"date": "2024-02-29", "maker_address": maker},
+    )
+    amount = "9007199254740993.000000000000000001"
+    fees = parse_current_rebates(
+        [
+            {
+                "date": "2024-02-29",
+                "condition_id": _CONDITION_ID,
+                "asset_address": maker,
+                "maker_address": maker,
+                "rebated_fees_usdc": amount,
+            }
+        ]
+    )
+    assert fees[0].date == date(2024, 2, 29)
+    assert fees[0].rebated_fees_usdc == Decimal(amount)
+    assert parse_current_rebates([]) == ()
+    assert parse_current_rebates(None) == ()
+    for invalid_date in ("2023-02-29", "20240229", "2024-W09-4", "0000-01-01"):
+        with pytest.raises(UserInputError):
+            build_get_current_rebates_request(date=invalid_date, maker_address=maker)
+    for invalid_maker in ("0x" + "00" * 20, "bad"):
+        with pytest.raises(UserInputError):
+            build_get_current_rebates_request(date="2024-02-29", maker_address=invalid_maker)
+    with pytest.raises(UnexpectedResponseError):
+        parse_current_rebates({"data": []})
+
+
+@pytest.mark.parametrize("sponsored", [None, False, True])
+def test_total_earnings_sponsored_option_preserves_omission(sponsored: bool | None) -> None:
+    _, params = build_total_user_earnings_for_day_request(
+        date="2026-10-06",
+        signature_type=3,
+        sponsored=sponsored,
+    )
+    if sponsored is None:
+        assert "sponsored" not in params
+    else:
+        assert params["sponsored"] is sponsored
+
+
+@pytest.mark.parametrize("sponsored", ["true", 1])
+def test_total_earnings_rejects_non_bool_sponsored(sponsored: Any) -> None:
+    with pytest.raises(UserInputError, match="sponsored"):
+        build_total_user_earnings_for_day_request(
+            date="2026-10-06",
+            signature_type=3,
+            sponsored=sponsored,
+        )

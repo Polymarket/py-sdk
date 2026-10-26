@@ -6,9 +6,9 @@ from collections.abc import Callable
 from datetime import datetime
 from decimal import Decimal
 from types import CoroutineType
-from typing import TYPE_CHECKING, Any, assert_type
+from typing import TYPE_CHECKING, Any, Literal, assert_type
 
-from polymarket import AsyncPublicClient, AsyncSecureClient
+from polymarket import AsyncPublicClient, AsyncSecureClient, PerpsInstrumentLogo
 from polymarket.models.perps import (
     PerpsBuilderApproval,
     PerpsBuilderAttribution,
@@ -24,16 +24,39 @@ from polymarket.models.perps import (
     PerpsCancelRetryOptions,
     PerpsChase,
     PerpsChaseAccepted,
+    PerpsFill,
     PerpsInternalTransfer,
     PerpsInternalTransferId,
+    PerpsLiquidationDetails,
     PerpsOrderRequest,
+    PerpsPortfolio,
     PerpsPositionDeleveragedNotification,
     PerpsPostOrderAck,
 )
 from polymarket.pagination import AsyncPaginator
 from polymarket.perps import PerpsOrderPlacement, PerpsSession
+from polymarket.streams import PerpsBookSpec
 
 if TYPE_CHECKING:
+
+    async def _check_event_horizon_typing(session: PerpsSession, client: AsyncPublicClient) -> None:
+        async for event in session:
+            assert_type(event.event_timestamp, datetime | None)
+        handle = await client.subscribe(PerpsBookSpec(instrument_id=1))
+        async for event in handle:
+            assert_type(event.event_timestamp, datetime | None)
+
+    _event_horizon_typing_check = _check_event_horizon_typing
+
+    async def _check_instrument_presentation_typing(client: AsyncPublicClient) -> None:
+        for instrument in await client.fetch_perps_instruments():
+            assert_type(instrument.ui_live_time, datetime | None)
+            assert_type(instrument.logo, PerpsInstrumentLogo | None)
+            if instrument.logo:
+                assert_type(instrument.logo.light, str)
+                assert_type(instrument.logo.dark, str)
+
+    _instrument_presentation_typing_check = _check_instrument_presentation_typing
 
     async def _check_transfer_typing(session: PerpsSession) -> None:
         pages = session.list_internal_transfers(start=0)
@@ -208,3 +231,36 @@ if TYPE_CHECKING:
         assert_type(await session.cancel_chase(chase_id=accepted.chase_id), None)
 
     _chase_typing_check = _check_chase_typing
+
+
+if TYPE_CHECKING:
+
+    async def _check_fill_risk_typing(session: PerpsSession) -> None:
+        pages = session.list_fills(instrument_id=0)
+        assert_type(pages, AsyncPaginator[PerpsFill])
+        async for fill in pages.iter_items():
+            assert_type(fill.adl, bool)
+            assert_type(fill.liquidation_details, PerpsLiquidationDetails | None)
+            if fill.liquidation_details is not None:
+                assert_type(fill.liquidation_details.mark, Decimal)
+                assert_type(fill.liquidation_details.method, Literal["market", "backstop"])
+                assert_type(fill.liquidation_details.liquidated_user, str | None)
+        async for event in session:
+            if event.type == "fill":
+                for fill in event.payload:
+                    assert_type(fill.adl, bool)
+                    assert_type(fill.liquidation_details, PerpsLiquidationDetails | None)
+
+    _fill_risk_typing_check = _check_fill_risk_typing
+
+    async def _check_portfolio_risk_typing(session: PerpsSession) -> None:
+        portfolio = await session.fetch_portfolio()
+        assert_type(portfolio.margin.available_order_margin, Decimal)
+        assert_type(portfolio.fee_tier, int)
+        for position in portfolio.positions:
+            assert_type(position.adl_index, Literal[0, 1, 2, 3])
+        async for event in session:
+            if event.type == "portfolio":
+                assert_type(event.payload, PerpsPortfolio)
+
+    _portfolio_risk_typing_check = _check_portfolio_risk_typing

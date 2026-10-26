@@ -32,6 +32,8 @@ def _routed_handler(
         path = urlparse(str(request.url)).path
         key = (request.method, path)
         if key in routes:
+            if routes[key] is None:
+                return httpx.Response(200, content=b"null", request=request)
             return httpx.Response(200, json=routes[key], request=request)
         return httpx.Response(404, json={"error": "not mocked"}, request=request)
 
@@ -161,3 +163,80 @@ class TestListMarketRewards:
 
         assert len(page.items) == 1
         assert captured[0].headers.get("POLY_SIGNATURE") is None
+
+
+_DISCOVERY_MARKET: dict[str, Any] = {
+    "condition_id": _CONDITION_ID,
+    "market_id": "12",
+    "event_id": "1",
+    "market_slug": "market",
+    "event_slug": "event",
+    "question": "Question?",
+    "image": "",
+    "market_competitiveness": 0.4,
+    "rewards_config": [],
+    "rewards_max_spread": 3,
+    "rewards_min_size": 10,
+    "spread": 0.1,
+    "tokens": [],
+    "group_item_title": "",
+    "volume_24hr": 100,
+    "created_at": "2026-10-07T00:00:00Z",
+    "one_day_price_change": -0.2,
+    "end_date": "",
+}
+
+
+def test_sync_reward_market_pagination_retains_filters() -> None:
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "data": [_DISCOVERY_MARKET],
+                "next_cursor": "MQ==" if len(captured) == 1 else "LTE=",
+            },
+            request=request,
+        )
+
+    with PublicClient() as client:
+        _install_sync_clob(client, httpx.MockTransport(handler))
+        pages = list(
+            client.list_reward_markets(
+                query="sports",
+                tag_slugs=("sports", "politics"),
+                min_volume_24hr=1,
+                max_volume_24hr=100,
+                event_ids=(1, 2),
+                order_by="volume_24hr",
+                sort_direction="DESC",
+                page_size=1,
+            )
+        )
+    assert len(pages) == 2
+    assert len(captured) == 2
+    for request in captured:
+        params = parse_qs(urlparse(str(request.url)).query)
+        assert params["tag_slug"] == ["sports", "politics"]
+        assert params["min_volume_24hr"] == ["1"]
+        assert params["max_volume_24hr"] == ["100"]
+        assert "exclude_tag_slug" not in params
+        assert params["event_id"] == ["1", "2"]
+        assert params["position"] == ["DESC"]
+        assert params["q"] == ["sports"]
+        assert request.headers.get("POLY_SIGNATURE") is None
+    assert parse_qs(urlparse(str(captured[1].url)).query)["next_cursor"] == ["MQ=="]
+
+
+def test_sync_public_current_rebates_uses_unsigned_read() -> None:
+    captured: list[httpx.Request] = []
+    with PublicClient() as client:
+        _install_sync_clob(client, _routed_handler(captured, {("GET", "/rebates/current"): None}))
+        assert client.get_current_rebates(date="2024-02-29", maker_address=SIGNER_ADDRESS) == ()
+    assert parse_qs(urlparse(str(captured[0].url)).query) == {
+        "date": ["2024-02-29"],
+        "maker_address": [SIGNER_ADDRESS],
+    }
+    assert "POLY_SIGNATURE" not in captured[0].headers
