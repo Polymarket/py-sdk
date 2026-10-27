@@ -393,7 +393,7 @@ def _compute_market_buy_amounts(
     budget = parse_amount(round_down(amount, config.amount))
     steps = budget // collateral_step
     collateral = steps * collateral_step
-    if collateral == 0 or (collateral < _MIN_MARKET_BUY_AMOUNT <= budget):
+    if collateral < _MIN_MARKET_BUY_AMOUNT:
         minimum_steps = -(-_MIN_MARKET_BUY_AMOUNT // collateral_step)
         raise UserInputError(
             f"BUY amount {amount} cannot be spent exactly at price {price}. At this price "

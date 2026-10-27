@@ -459,10 +459,11 @@ def test_market_buy_amount_that_steps_below_the_minimum_is_rejected() -> None:
         )
 
 
-def test_market_buy_amount_below_one_step_is_rejected() -> None:
+@pytest.mark.parametrize("amount", ["0.001", "0.5"])
+def test_market_buy_amount_below_the_minimum_is_rejected(amount: str) -> None:
     with pytest.raises(UserInputError, match=r"steps of 0\.0013; use at least 0\.9906"):
         _compute_market_order_amounts(
-            amount=Decimal("0.001"), price=Decimal("0.65"), side="BUY", tick_size=Decimal("0.01")
+            amount=Decimal(amount), price=Decimal("0.65"), side="BUY", tick_size=Decimal("0.01")
         )
 
 
