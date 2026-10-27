@@ -2222,11 +2222,11 @@ class SecureClient:
         the resting order's price, never worse than the bound.
 
         A signed BUY encodes its price exactly: the spend divided by the share count
-        equals the order price. The spend is in whole cents and the share count uses
-        the market's share precision, so at a given price the spend moves in fixed
-        steps. The SDK signs the largest step that does not exceed ``amount`` (or the
-        fee-adjusted ``max_spend``), so part of ``amount`` may go unspent. If no step
-        fits, or the steps fall below the 1 USDC minimum for a marketable BUY,
+        equals the order price. The spend and the share count both use the market's
+        amount precision, so at a given price the spend moves in fixed steps. The SDK
+        signs the largest step that does not exceed ``amount`` (or the fee-adjusted
+        ``max_spend``), so part of ``amount`` may go unspent. If no step fits, or the
+        steps fall below the 0.99 USDC minimum for a marketable BUY,
         ``UserInputError`` is raised before signing or posting, and names the
         smallest amount that works.
 
@@ -2337,11 +2337,11 @@ class SecureClient:
         the resting order's price, never worse than the bound.
 
         A signed BUY encodes its price exactly: the spend divided by the share count
-        equals the order price. The spend is in whole cents and the share count uses
-        the market's share precision, so at a given price the spend moves in fixed
-        steps. The SDK signs the largest step that does not exceed ``amount`` (or the
-        fee-adjusted ``max_spend``), so part of ``amount`` may go unspent. If no step
-        fits, or the steps fall below the 1 USDC minimum for a marketable BUY,
+        equals the order price. The spend and the share count both use the market's
+        amount precision, so at a given price the spend moves in fixed steps. The SDK
+        signs the largest step that does not exceed ``amount`` (or the fee-adjusted
+        ``max_spend``), so part of ``amount`` may go unspent. If no step fits, or the
+        steps fall below the 0.99 USDC minimum for a marketable BUY,
         ``UserInputError`` is raised before signing or posting, and names the
         smallest amount that works.
 

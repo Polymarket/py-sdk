@@ -31,8 +31,10 @@ from polymarket.models.types import ClobAssetId, OrderSide
 from polymarket.types import EvmAddress, HexString
 
 _COLLATERAL_DECIMALS = 6
-# Smallest collateral amount, in base units, that a marketable BUY may spend.
-_MIN_MARKET_BUY_AMOUNT = 1_000_000
+# Smallest collateral amount, in base units, that a marketable BUY may spend. It is
+# 0.99 USDC, not 1 USDC, because an exact-price spend of a 1 USDC amount can land
+# just below 1 USDC.
+_MIN_MARKET_BUY_AMOUNT = 990_000
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -371,14 +373,14 @@ def _compute_market_buy_amounts(
     *, amount: Decimal, price: Decimal, config: RoundingConfig
 ) -> tuple[int, int]:
     """Return the largest (collateral, shares) pair within ``amount`` whose ratio is
-    exactly ``price``, with collateral in whole ``config.size`` decimals and shares in
-    whole ``config.amount`` decimals.
+    exactly ``price``, with collateral and shares both in whole ``config.amount``
+    decimals (the precision of a limit BUY's collateral).
 
     The exchange reads the order price as collateral / shares, so the pair must encode
     ``price`` exactly. Both amounts then move in fixed steps: the smallest share amount
     that meets both precisions at this price.
     """
-    collateral_unit = 10 ** (_COLLATERAL_DECIMALS - config.size)
+    collateral_unit = 10 ** (_COLLATERAL_DECIMALS - config.amount)
     share_unit = 10 ** (_COLLATERAL_DECIMALS - config.amount)
     numerator, denominator = price.as_integer_ratio()
     # collateral = shares * numerator / denominator must be a whole number of
@@ -388,7 +390,7 @@ def _compute_market_buy_amounts(
         share_unit, collateral_step_divisor // math.gcd(collateral_step_divisor, numerator)
     )
     collateral_step = share_step * numerator // denominator
-    budget = parse_amount(round_down(amount, config.size))
+    budget = parse_amount(round_down(amount, config.amount))
     steps = budget // collateral_step
     collateral = steps * collateral_step
     if collateral == 0 or (collateral < _MIN_MARKET_BUY_AMOUNT <= budget):

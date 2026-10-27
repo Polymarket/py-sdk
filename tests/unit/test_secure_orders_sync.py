@@ -191,10 +191,10 @@ def test_protected_market_buy_signs_exactly_max_price_on_the_sync_client() -> No
             token_id="8501497", side="BUY", amount="100", max_price="0.55"
         )
 
-    # Same construction as the async path: 0.11 USDC buys exactly 0.2 shares at 0.55,
-    # so 100 USDC becomes 99.99 USDC for 181.8 shares.
-    assert signed.maker_amount == 99_990_000
-    assert signed.taker_amount == 181_800_000
+    # Same construction as the async path: 0.0011 USDC buys exactly 0.002 shares at
+    # 0.55, so 100 USDC becomes 99.9999 USDC for 181.818 shares.
+    assert signed.maker_amount == 99_999_900
+    assert signed.taker_amount == 181_818_000
 
 
 @pytest.mark.parametrize("order_type", ["FAK", "FOK"])
@@ -232,7 +232,7 @@ def test_protected_buy_signs_max_price_exactly_after_tick_refinement(
 
 
 @pytest.mark.parametrize("order_type", ["FAK", "FOK"])
-@pytest.mark.parametrize(("amount", "max_spend"), [("1", None), ("100", "1")])
+@pytest.mark.parametrize(("amount", "max_spend"), [("0.99", None), ("100", "0.99")])
 def test_protected_buy_rejects_an_inexact_amount_without_posting(
     order_type: Literal["FAK", "FOK"], amount: str, max_spend: str | None
 ) -> None:

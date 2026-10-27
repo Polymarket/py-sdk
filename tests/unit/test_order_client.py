@@ -204,7 +204,7 @@ def test_protected_buy_signs_max_price_exactly_after_tick_refinement(
 
 
 @pytest.mark.parametrize("order_type", ["FAK", "FOK"])
-@pytest.mark.parametrize(("amount", "max_spend"), [("1", None), ("100", "1")])
+@pytest.mark.parametrize(("amount", "max_spend"), [("0.99", None), ("100", "0.99")])
 def test_protected_buy_rejects_an_inexact_amount_without_posting(
     order_type: Literal["FAK", "FOK"], amount: str, max_spend: str | None
 ) -> None:

@@ -257,10 +257,10 @@ def test_prepare_market_order_draft_buy_uses_max_price_without_book() -> None:
             await client.close()
 
     offered, requested = asyncio.run(run())
-    # At 0.55 the amounts move in steps of 0.11 USDC for 0.2 shares, so 100 USDC
-    # becomes 99.99 USDC for 181.8 shares: exactly 0.55 per share.
-    assert offered == 99_990_000
-    assert requested == 181_800_000
+    # At 0.55 the amounts move in steps of 0.0011 USDC for 0.002 shares, so 100 USDC
+    # becomes 99.9999 USDC for 181.818 shares: exactly 0.55 per share.
+    assert offered == 99_999_900
+    assert requested == 181_818_000
     assert "/book" not in captured
 
 
@@ -286,9 +286,10 @@ def test_prepare_market_order_draft_buy_max_spend_resizes_then_steps_down() -> N
 
     offered, requested = asyncio.run(run())
     # Fee resizing (zero fee rate in the fixture) caps the spend at max_spend first;
-    # the amounts then step down from it: 49.94 USDC for 90.8 shares at exactly 0.55.
-    assert offered == 49_940_000
-    assert requested == 90_800_000
+    # the amounts then step down from it: 49.9994 USDC for 90.908 shares at exactly
+    # 0.55.
+    assert offered == 49_999_400
+    assert requested == 90_908_000
 
 
 def test_prepare_market_order_draft_sell_uses_min_price_without_book() -> None:
@@ -319,8 +320,8 @@ def test_prepare_market_order_draft_sell_uses_min_price_without_book() -> None:
 
 # Direct coverage of the market BUY amount math shared by protected and unprotected
 # orders. The exchange reads a BUY's price as maker / taker, requires that ratio to be
-# exactly an on-tick price, and requires whole cents of collateral and whole
-# amount-precision shares.
+# exactly an on-tick price, and requires collateral and shares in whole units of the
+# market's amount precision.
 _TICK_SIZES = ["0.1", "0.01", "0.005", "0.0025", "0.001", "0.0001"]
 _PROTECTED_BUY_CASES = [
     # (amount, max_price, tick_size)
@@ -344,18 +345,18 @@ def _exchange_admits(maker: int, taker: int, tick_size: Decimal) -> bool:
 
 
 def _exact_buy_amounts_by_search(amount: Decimal, price: Decimal, tick_size: Decimal) -> int:
-    # Largest whole-cent collateral within amount that buys a whole number of share
-    # units at exactly price.
-    config = resolve_rounding_config(tick_size)
-    collateral_unit = 10 ** (6 - config.size)
-    share_unit = 10 ** (6 - config.amount)
+    # Largest collateral within amount that buys a whole number of share units at
+    # exactly price, with collateral in whole units too. Walks the share count down one
+    # unit at a time from the most amount could buy.
+    unit = 10 ** (6 - resolve_rounding_config(tick_size).amount)
     numerator, denominator = price.as_integer_ratio()
-    collateral = int(amount * 10**6) // collateral_unit * collateral_unit
-    while collateral > 0:
-        shares, remainder = divmod(collateral * denominator, numerator)
-        if remainder == 0 and shares % share_unit == 0:
+    budget = int(amount * 10**6)
+    shares = budget * denominator // numerator // unit * unit
+    while shares > 0:
+        collateral, remainder = divmod(shares * numerator, denominator)
+        if remainder == 0 and collateral % unit == 0 and collateral <= budget:
             return collateral
-        collateral -= collateral_unit
+        shares -= unit
     return 0
 
 
@@ -366,7 +367,7 @@ def _assert_exact_buy_amounts(
     assert Decimal(maker) / Decimal(taker) == price
     assert _exchange_admits(maker, taker, tick_size)
     assert maker <= amount * 10**6
-    assert maker % 10 ** (6 - config.size) == 0
+    assert maker % 10 ** (6 - config.amount) == 0
     assert taker % 10 ** (6 - config.amount) == 0
 
 
@@ -384,11 +385,14 @@ def test_market_buy_amounts_encode_exactly_the_order_price(
 def test_market_buy_amounts_spend_the_most_an_exact_price_allows(tick_size: str) -> None:
     tick = Decimal(tick_size)
     prices = [tick * i for i in range(1, int(1 / tick), max(1, int(1 / tick) // 97))]
-    amounts = [Decimal(a) for a in ("1", "1.01", "3.33", "10", "25.5", "99.99", "250", "1000")]
+    amounts = [
+        Decimal(a)
+        for a in ("0.99", "0.9999", "1", "1.01", "3.33", "10", "25.5", "99.99", "250", "1000")
+    ]
     for price in prices:
         for amount in amounts:
             expected = _exact_buy_amounts_by_search(amount, price, tick)
-            if expected < 1_000_000:
+            if expected < 990_000:
                 with pytest.raises(UserInputError, match="cannot be spent exactly"):
                     _compute_market_order_amounts(
                         amount=amount, price=price, side="BUY", tick_size=tick
@@ -402,12 +406,34 @@ def test_market_buy_amounts_spend_the_most_an_exact_price_allows(tick_size: str)
 
 
 def test_market_buy_amounts_step_by_the_smallest_exact_share_count() -> None:
-    # At 0.65 on a 0.01 tick, 0.13 USDC buys exactly 0.2 shares; 10 USDC holds 76
-    # such steps.
+    # At 0.65 on a 0.01 tick, 0.0013 USDC buys exactly 0.002 shares; 10 USDC holds
+    # 7692 such steps.
     maker, taker = _compute_market_order_amounts(
         amount=Decimal("10"), price=Decimal("0.65"), side="BUY", tick_size=Decimal("0.01")
     )
-    assert (maker, taker) == (9_880_000, 15_200_000)
+    assert (maker, taker) == (9_999_600, 15_384_000)
+
+
+@pytest.mark.parametrize(
+    ("price", "tick_size", "expected"),
+    [
+        ("0.7", "0.1", (994_000, 1_420_000)),
+        ("0.65", "0.01", (999_700, 1_538_000)),
+        ("0.07", "0.01", (999_600, 14_280_000)),
+        ("0.335", "0.005", (999_640, 2_984_000)),
+        ("0.4325", "0.0025", (999_940, 2_312_000)),
+        ("0.962", "0.001", (995_670, 1_035_000)),
+        ("0.9999", "0.0001", (999_900, 1_000_000)),
+    ],
+)
+def test_market_buy_of_one_usdc_stays_above_the_minimum(
+    price: str, tick_size: str, expected: tuple[int, int]
+) -> None:
+    maker, taker = _compute_market_order_amounts(
+        amount=Decimal("1"), price=Decimal(price), side="BUY", tick_size=Decimal(tick_size)
+    )
+    assert (maker, taker) == expected
+    _assert_exact_buy_amounts(maker, taker, Decimal("1"), Decimal(price), Decimal(tick_size))
 
 
 def test_market_buy_amounts_exact_division_is_unchanged() -> None:
@@ -417,22 +443,26 @@ def test_market_buy_amounts_exact_division_is_unchanged() -> None:
     assert (maker, taker) == (1_000_000, 10_000_000)
 
 
+def test_market_buy_at_exactly_the_minimum_is_accepted() -> None:
+    maker, taker = _compute_market_order_amounts(
+        amount=Decimal("0.99"), price=Decimal("0.5"), side="BUY", tick_size=Decimal("0.01")
+    )
+    assert (maker, taker) == (990_000, 1_980_000)
+
+
 def test_market_buy_amount_that_steps_below_the_minimum_is_rejected() -> None:
-    # 1 USDC at 0.07 holds 14 steps of 0.07, which is 0.98 and under the 1 USDC
-    # minimum for a marketable BUY.
-    with pytest.raises(UserInputError, match=r"steps of 0\.07; use at least 1\.05"):
+    # 0.99 USDC at 0.65 holds 761 steps of 0.0013, which is 0.9893 and under the
+    # 0.99 USDC minimum for a marketable BUY.
+    with pytest.raises(UserInputError, match=r"steps of 0\.0013; use at least 0\.9906"):
         _compute_market_order_amounts(
-            amount=Decimal("1"), price=Decimal("0.07"), side="BUY", tick_size=Decimal("0.01")
+            amount=Decimal("0.99"), price=Decimal("0.65"), side="BUY", tick_size=Decimal("0.01")
         )
 
 
 def test_market_buy_amount_below_one_step_is_rejected() -> None:
-    with pytest.raises(UserInputError, match=r"steps of 70\.01"):
+    with pytest.raises(UserInputError, match=r"steps of 0\.0013; use at least 0\.9906"):
         _compute_market_order_amounts(
-            amount=Decimal("50"),
-            price=Decimal("0.7001"),
-            side="BUY",
-            tick_size=Decimal("0.0001"),
+            amount=Decimal("0.001"), price=Decimal("0.65"), side="BUY", tick_size=Decimal("0.01")
         )
 
 
