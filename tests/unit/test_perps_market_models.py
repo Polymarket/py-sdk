@@ -400,10 +400,9 @@ def test_trade_settlement_flags_across_wire_shapes(metadata: dict[str, bool]) ->
 @pytest.mark.parametrize("streaming", [False, True])
 def test_ticker_preserves_pricing_safety_state(streaming: bool) -> None:
     from polymarket.models.perps import (
-        PerpsPricingIndexSource,
-        PerpsPricingMode,
-        PerpsPricingReason,
-        PerpsTickerUpdate,
+        PerpsKnownPricingIndexSource,
+        PerpsKnownPricingMode,
+        PerpsKnownPricingReason,
     )
 
     status = {
@@ -449,18 +448,34 @@ def test_ticker_preserves_pricing_safety_state(streaming: bool) -> None:
     assert model.model_validate({**payload, "pricing_status": None}).pricing_status is None
     parsed = model.model_validate({**payload, "pricing_status": status}).pricing_status
     assert parsed is not None
-    assert parsed.mode is PerpsPricingMode.RECOVERY_PENDING
-    assert parsed.reason is PerpsPricingReason.MATERIAL_RECOVERY_GAP
-    assert parsed.index_source is PerpsPricingIndexSource.INTERNAL
+    assert parsed.mode is PerpsKnownPricingMode.RECOVERY_PENDING
+    assert parsed.reason is PerpsKnownPricingReason.MATERIAL_RECOVERY_GAP
+    assert parsed.index_source is PerpsKnownPricingIndexSource.INTERNAL
     assert parsed.anchor_price == Decimal("123.000000000000000001")
     assert parsed.anchor_timestamp == datetime.fromtimestamp(1751500000, tz=UTC)
     assert parsed.index_observed_timestamp is None
     assert parsed.state_changed_timestamp == datetime.fromtimestamp(1751500001.234, tz=UTC)
-    assert parsed.session_id == 0
-    assert parsed.config_version is None
     assert parsed.no_increase and parsed.at_upper_bound and not parsed.at_lower_bound
-    for field in ["no_increase", "at_lower_bound", "state_changed_timestamp", "session_id"]:
+    for field in ["mode", "no_increase", "at_lower_bound", "state_changed_timestamp"]:
         with pytest.raises(ValidationError):
             model.model_validate(
                 {**payload, "pricing_status": {k: v for k, v in status.items() if k != field}}
             )
+    unknown = model.model_validate(
+        {
+            **payload,
+            "pricing_status": {
+                **status,
+                "mode": "future_mode",
+                "reason": "future_reason",
+                "index_source": "future_source",
+            },
+        }
+    ).pricing_status
+    assert unknown is not None
+    assert (unknown.mode, unknown.reason, unknown.index_source) == (
+        "future_mode",
+        "future_reason",
+        "future_source",
+    )
+    assert not isinstance(unknown.mode, PerpsKnownPricingMode)

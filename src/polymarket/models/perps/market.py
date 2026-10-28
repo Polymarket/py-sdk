@@ -3,7 +3,6 @@
 from collections.abc import Sequence
 from datetime import datetime
 from decimal import Decimal
-from enum import StrEnum
 from typing import Literal, cast
 
 from pydantic import AliasChoices, Field, field_validator, model_validator
@@ -18,6 +17,12 @@ from polymarket.models.perps._validators import (
 from polymarket.models.perps.types import (
     PerpsInstrumentCategory,
     PerpsInstrumentId,
+    PerpsKnownPricingIndexSource,
+    PerpsKnownPricingMode,
+    PerpsKnownPricingReason,
+    PerpsPricingIndexSource,
+    PerpsPricingMode,
+    PerpsPricingReason,
     PerpsSide,
     PerpsTradeId,
 )
@@ -116,64 +121,67 @@ class PerpsInstrument(BaseModel):
         return _coerce_decimalish(value)
 
 
-class PerpsPricingMode(StrEnum):
-    """Accepted pricing mode, independent of the retained index source."""
-
-    EXTERNAL = "external"
-    HOLD = "hold"
-    INTERNAL = "internal"
-    FROZEN = "frozen"
-    BOUNDED = "bounded"
-    RECOVERY_PENDING = "recovery_pending"
-
-
-class PerpsPricingReason(StrEnum):
-    """Reason for the current pricing mode."""
-
-    EXTERNAL_AVAILABLE = "external_available"
-    ALL_SOURCES_UNAVAILABLE = "all_sources_unavailable"
-    ACTIVATION_DELAY = "activation_delay"
-    MISSING_ORACLE_CONFIGURATION = "missing_oracle_configuration"
-    SOURCE_DISAGREEMENT = "source_disagreement"
-    UNKNOWN_SOURCE_STATE = "unknown_source_state"
-    EXPLICIT_HALT = "explicit_halt"
-    DISABLED = "disabled"
-    PROCESS_DISABLED = "process_disabled"
-    MANUAL_FREEZE = "manual_freeze"
-    INSUFFICIENT_BID_DEPTH = "insufficient_bid_depth"
-    INSUFFICIENT_ASK_DEPTH = "insufficient_ask_depth"
-    INVALID_BOOK = "invalid_book"
-    IMPACT_SPREAD_TOO_WIDE = "impact_spread_too_wide"
-    INVALID_PRECISION = "invalid_precision"
-    ARITHMETIC_FAILURE = "arithmetic_failure"
-    SESSION_BOUND = "session_bound"
-    RECOVERY_CONFIRMATION = "recovery_confirmation"
-    MATERIAL_RECOVERY_GAP = "material_recovery_gap"
-
-
-class PerpsPricingIndexSource(StrEnum):
-    """Source of the retained index price."""
-
-    UNKNOWN = "unknown"
-    EXTERNAL = "external"
-    INTERNAL = "internal"
-
-
 class PerpsPricingStatus(BaseModel):
-    """Pricing safety state. Missing status does not imply external pricing."""
+    """Pricing safety state of a Perps instrument.
+
+    A missing status does not imply external pricing.
+    """
 
     mode: PerpsPricingMode
+    """Pricing mode in effect.
+
+    ``PerpsKnownPricingMode.EXTERNAL`` is normal pricing. Treat any other value,
+    including values not enumerated in ``PerpsKnownPricingMode``, as non-normal
+    pricing.
+    """
     reason: PerpsPricingReason
+    """Reason for the current pricing mode."""
     index_source: PerpsPricingIndexSource
+    """Source of the retained index price, independent of the pricing mode."""
     anchor_price: Decimal | None
+    """Anchor price reported for the current pricing state, or ``None`` when none is reported."""
     anchor_timestamp: datetime | None
+    """Time associated with ``anchor_price``, or ``None`` when none is reported."""
     index_observed_timestamp: datetime | None
+    """Time the retained index price was observed, or ``None`` when unknown."""
     state_changed_timestamp: datetime
-    session_id: int | None = Field(strict=True, ge=0)
-    config_version: int | None = Field(strict=True, ge=0)
+    """Time the pricing state last changed."""
     no_increase: bool = Field(strict=True)
+    """Whether the current pricing state reports a no-increase exposure restriction."""
     at_lower_bound: bool = Field(strict=True)
+    """Whether the current pricing state reports the price at its lower bound."""
     at_upper_bound: bool = Field(strict=True)
+    """Whether the current pricing state reports the price at its upper bound."""
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def _parse_mode(cls, value: object) -> object:
+        if not isinstance(value, str):
+            raise ValueError("expected a pricing mode string")
+        try:
+            return PerpsKnownPricingMode(value)
+        except ValueError:
+            return value
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def _parse_reason(cls, value: object) -> object:
+        if not isinstance(value, str):
+            raise ValueError("expected a pricing reason string")
+        try:
+            return PerpsKnownPricingReason(value)
+        except ValueError:
+            return value
+
+    @field_validator("index_source", mode="before")
+    @classmethod
+    def _parse_index_source(cls, value: object) -> object:
+        if not isinstance(value, str):
+            raise ValueError("expected a pricing index source string")
+        try:
+            return PerpsKnownPricingIndexSource(value)
+        except ValueError:
+            return value
 
     @field_validator("anchor_price", mode="before")
     @classmethod
@@ -198,6 +206,10 @@ class PerpsTicker(BaseModel):
     symbol: str
     index_price: Decimal
     pricing_status: PerpsPricingStatus | None = None
+    """Pricing safety state, or ``None`` when not reported.
+
+    A missing status does not imply external pricing.
+    """
     mark_price: Decimal
     last_price: Decimal
     mid_price: Decimal
@@ -239,7 +251,14 @@ class PerpsTickerUpdate(BaseModel):
 
     instrument_id: PerpsInstrumentId = Field(validation_alias="iid")
     index_price: Decimal = Field(validation_alias="idx")
+    # Unlike the abbreviated keys around it, the stream carries this field
+    # under its full ``pricing_status`` key, the same key as the REST ticker.
+    # No captured stream frame in this repository confirms that key yet.
     pricing_status: PerpsPricingStatus | None = None
+    """Pricing safety state, or ``None`` when not reported.
+
+    A missing status does not imply external pricing.
+    """
     mark_price: Decimal = Field(validation_alias="mark")
     last_price: Decimal = Field(validation_alias="last")
     mid_price: Decimal = Field(validation_alias="mid")
@@ -490,9 +509,6 @@ __all__ = [
     "PerpsInstrumentLogo",
     "PerpsRiskTier",
     "PerpsStatistic",
-    "PerpsPricingMode",
-    "PerpsPricingReason",
-    "PerpsPricingIndexSource",
     "PerpsPricingStatus",
     "PerpsTicker",
     "PerpsTickerUpdate",
