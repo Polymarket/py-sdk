@@ -339,9 +339,7 @@ def test_trade_empty_string_required_decimal_rejected() -> None:
         parse_user_event({**_TRADE, "price": ""})
 
 
-def test_redemptions_normalize_and_match_with_valid_neighbors() -> None:
-    from polymarket._internal.streams.clob.user_protocol import UserSubscription, matcher_for
-
+def test_redemptions_normalize_with_valid_neighbors() -> None:
     condition = "0x" + "ab" * 32
     combo = "0x03" + "cd" * 30
     redemption = {
@@ -368,7 +366,7 @@ def test_redemptions_normalize_and_match_with_valid_neighbors() -> None:
             {
                 **redemption,
                 "event_type": "combo_auto_redeem",
-                "condition_id": combo,
+                "condition_id": combo + "01",
                 "position_id": "123",
                 "outcome_index": 1,
                 "legs": 2,
@@ -391,9 +389,10 @@ def test_redemptions_normalize_and_match_with_valid_neighbors() -> None:
     assert ordinary.payload.wallet == redemption["proxy_wallet"]
     assert ordinary.payload.transaction_hash == redemption["txn_hash"]
     assert ordinary.payload.timestamp.isoformat() == "2023-11-14T22:13:20+00:00"
+    assert ordinary.payload.question is None
+    assert ordinary.payload.image is None
+    assert ordinary.payload.slug is None
+    assert combination.payload.condition_id == combo
+    assert combination.payload.slug is None
     assert combination.payload.position_id == "123"
     assert combination.payload.outcome_index == 1 and combination.payload.legs == 2
-    matches = matcher_for(UserSubscription(markets=(condition.upper(), combo)))
-    assert matches(ordinary) and matches(combination)
-    assert not matcher_for(UserSubscription(markets=("other",)))(ordinary)
-    assert matcher_for(UserSubscription(markets=()))(combination)

@@ -23,6 +23,7 @@ from polymarket.models.clob._validators import (
 )
 from polymarket.models.clob.account import (
     TradeStatus,
+    _empty_string_to_none,  # pyright: ignore[reportPrivateUsage]
     _normalize_trade_status,  # pyright: ignore[reportPrivateUsage]
 )
 from polymarket.models.types import (
@@ -247,19 +248,25 @@ class UserTradeEvent(BaseModel):
 
 
 class _AutoRedeemPayload(BaseModel):
-    """Automatic redemption proceeds, with amount in collateral units."""
-
     owner: str
-    wallet: EvmAddress = Field(validation_alias="proxy_wallet")
-    transaction_hash: TransactionHash = Field(validation_alias="txn_hash")
-    amount: Decimal
-    question: str
-    image: str
-    slug: str
-    neg_risk: bool
-    timestamp: datetime
+    wallet: EvmAddress = Field(
+        validation_alias="proxy_wallet",
+        description="Wallet whose resolved position was redeemed.",
+    )
+    transaction_hash: TransactionHash = Field(
+        validation_alias="txn_hash", description="Hash of the redemption transaction."
+    )
+    amount: Decimal = Field(description="Proceeds paid out, in collateral units.")
+    question: str | None = Field(description="Market question, or None when not reported.")
+    image: str | None = Field(description="Market image URL, or None when not reported.")
+    slug: str | None = Field(description="Market URL slug, or None when not reported.")
+    neg_risk: bool = Field(description="Whether the market is negative-risk.")
+    timestamp: datetime = Field(description="Time of the redemption.")
 
     _amount = field_validator("amount", mode="before")(_coerce_decimalish)
+    _empty_text_to_none = field_validator("question", "image", "slug", mode="before")(
+        _empty_string_to_none
+    )
     _timestamp = field_validator("timestamp", mode="before")(_parse_epoch_ms_timestamp)
 
 
@@ -270,12 +277,20 @@ class UserAutoRedeemPayload(_AutoRedeemPayload):
 
 
 class UserComboAutoRedeemPayload(_AutoRedeemPayload):
-    """Automatic redemption of a combination token."""
+    """Automatic redemption of a resolved Combo position.
 
-    condition_id: ComboConditionId
-    position_id: PositionId
-    outcome_index: int
-    legs: int
+    ``question``, ``image``, ``slug`` and ``neg_risk`` describe the Combo market as
+    reported, not its individual legs, and the text fields may be empty (``None``).
+    """
+
+    condition_id: ComboConditionId = Field(
+        description="Canonical Combo condition ID of the redeemed basket."
+    )
+    position_id: PositionId = Field(description="Position ID of the redeemed basket token.")
+    outcome_index: int = Field(
+        ge=0, description="Basket token side index of the redeemed position."
+    )
+    legs: int = Field(ge=0, description="Number of legs in the redeemed Combo.")
 
     _condition = field_validator("condition_id", mode="before")(validate_combo_condition_id)
 
