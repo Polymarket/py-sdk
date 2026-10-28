@@ -3,7 +3,7 @@
 import asyncio
 import time
 from datetime import datetime
-from typing import Any, cast
+from typing import Any, cast, get_args
 
 from polymarket._internal.actions.perps.builders import validate_address
 from polymarket._internal.actions.perps.paging import (
@@ -38,7 +38,7 @@ from polymarket.pagination import AsyncPaginator, Page
 
 _BOOK_DEPTHS = (10, 100, 500, 1000)
 _CATEGORIES = ("equity", "commodity", "index", "crypto")
-_KLINE_INTERVALS = ("1s", "1m", "5m", "15m", "1h", "4h", "1d", "1w")
+_KLINE_INTERVALS: tuple[str, ...] = get_args(PerpsKlineInterval)
 
 
 async def fetch_registration(perps: AsyncTransport, *, address: str) -> bool:

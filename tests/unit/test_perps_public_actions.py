@@ -5,15 +5,17 @@ import base64
 import json
 from collections.abc import Callable
 from decimal import Decimal
-from typing import Any
+from typing import Any, get_args
 from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
 
+from polymarket._internal.actions.perps import paging as perps_paging
 from polymarket._internal.actions.perps import public as perps_public
 from polymarket.clients._transport import AsyncTransport
 from polymarket.errors import UnexpectedResponseError, UserInputError
+from polymarket.models.perps.types import PerpsKlineInterval
 
 _BASE_URL = "https://perps.test"
 
@@ -88,7 +90,13 @@ def test_fetch_registration_validates_before_dispatch(address: str) -> None:
     asyncio.run(run())
 
 
-def test_list_candles_steps_forward_by_interval() -> None:
+@pytest.mark.parametrize(
+    "interval,duration",
+    [("1m", 60_000), ("30m", 1_800_000), ("6h", 21_600_000), ("12h", 43_200_000)],
+)
+def test_list_candles_steps_forward_by_interval(
+    interval: PerpsKlineInterval, duration: int
+) -> None:
     requests: list[dict[str, str]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -98,7 +106,7 @@ def test_list_candles_steps_forward_by_interval() -> None:
         if len(requests) == 1:
             candles = [
                 [start, "1", "2", "0.5", "1.5", "10", 1],
-                [start + 60_000, "1", "2", "0.5", "1.5", "10", 1],
+                [start + duration, "1", "2", "0.5", "1.5", "10", 1],
             ]
             return httpx.Response(200, json={"data": candles, "more": True})
         return httpx.Response(
@@ -111,9 +119,9 @@ def test_list_candles_steps_forward_by_interval() -> None:
             paginator = perps_public.list_candles(
                 transport,
                 instrument_id=1,
-                interval="1m",
-                start=1_000_000,
-                end=2_000_000,
+                interval=interval,
+                start=0,
+                end=3 * duration,
             )
             items = [item async for item in paginator.iter_items()]
             assert len(items) == 3
@@ -121,10 +129,15 @@ def test_list_candles_steps_forward_by_interval() -> None:
             await transport.close()
 
     asyncio.run(run())
-    assert requests[0]["start_timestamp"] == "1000000"
+    assert requests[0]["start_timestamp"] == "0"
     # The next window starts one interval after the last returned candle.
-    assert requests[1]["start_timestamp"] == str(1_000_000 + 60_000 + 60_000)
-    assert all(request["interval"] == "1m" for request in requests)
+    assert requests[1]["start_timestamp"] == str(2 * duration)
+    assert all(request["interval"] == interval for request in requests)
+
+
+def test_interval_durations_cover_every_kline_interval() -> None:
+    durations = perps_paging._INTERVAL_MS  # pyright: ignore[reportPrivateUsage]
+    assert set(durations) == set(get_args(PerpsKlineInterval))
 
 
 def test_list_funding_history_pages_backward() -> None:
@@ -264,7 +277,7 @@ def test_public_paginators_reject_malformed_cursor_fields() -> None:
                         {
                             "kind": "perpsCandles",
                             "instrument_id": 1,
-                            "interval": "30m",
+                            "interval": "2h",
                             "start_timestamp": 0,
                             "end_timestamp": 1,
                         }

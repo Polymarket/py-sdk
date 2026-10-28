@@ -2,11 +2,12 @@
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Literal, TypeAlias, TypeVar
+from typing import Literal, TypeAlias, TypeVar, get_args
 
 from typing_extensions import deprecated
 
 from polymarket.errors import UserInputError
+from polymarket.models.perps.types import PerpsStreamCandleInterval
 from polymarket.models.price_events import KnownPriceSource
 
 _COMMENT_EVENT_TYPES: frozenset[str] = frozenset(
@@ -18,7 +19,7 @@ _CRYPTO_PRICES_TOPICS: frozenset[str] = frozenset(
 )
 _CRYPTO_PRICES_CHAINLINK_TWAP_WINDOWS: frozenset[int] = frozenset({30, 60})
 _EQUITY_EVENT_TYPES: frozenset[str] = frozenset({"update", "subscribe"})
-_PERPS_CANDLE_INTERVALS: frozenset[str] = frozenset({"1m", "5m", "15m", "1h", "4h", "1d", "1w"})
+_PERPS_CANDLE_INTERVALS: frozenset[str] = frozenset(get_args(PerpsStreamCandleInterval))
 
 
 def _validate_perps_instrument_id(instrument_id: object, *, optional: bool = False) -> None:
@@ -389,7 +390,7 @@ class PerpsCandlesSpec:
     """
 
     instrument_id: int
-    interval: Literal["1m", "5m", "15m", "1h", "4h", "1d", "1w"]
+    interval: PerpsStreamCandleInterval
     topic: Literal["perps.candles"] = field(default="perps.candles", init=False)
 
     def __post_init__(self) -> None:

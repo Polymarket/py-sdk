@@ -76,10 +76,11 @@ def test_book_event_injects_instrument_id_from_channel() -> None:
     assert event.sequence == 3
 
 
-def test_candle_event_parses_interval_and_tuples() -> None:
+@pytest.mark.parametrize("interval", ["5m", "30m", "6h", "12h"])
+def test_candle_event_parses_interval_and_tuples(interval: str) -> None:
     event = parse_perps_market_event(
         {
-            "ch": "klines::7::5m",
+            "ch": f"klines::7::{interval}",
             "ts": 1751500000000,
             "ets": 1751499999000,
             "sq": 1,
@@ -87,7 +88,7 @@ def test_candle_event_parses_interval_and_tuples() -> None:
         }
     )
     assert isinstance(event, PerpsCandleEvent)
-    assert event.payload.interval == "5m"
+    assert event.payload.interval == interval
     assert event.payload.candles[0].close == Decimal("1.5")
     assert event.payload.candles[0].trades == 3
 

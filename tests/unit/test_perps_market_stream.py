@@ -14,6 +14,7 @@ from websockets.asyncio.server import ServerConnection, serve
 from polymarket._internal.streams.perps.market import PerpsMarketStreamManager
 from polymarket._internal.streams.perps.market_protocol import derive_state
 from polymarket.models.perps.events import PerpsBookEvent, PerpsTradeEvent
+from polymarket.models.perps.types import PerpsStreamCandleInterval
 from polymarket.streams._specs import (
     PerpsBookSpec,
     PerpsCandlesSpec,
@@ -108,12 +109,13 @@ def test_batched_trade_frame_yields_one_event_and_routes_by_channel() -> None:
     asyncio.run(asyncio.wait_for(run(), timeout=15.0))
 
 
-def test_derive_state_collapses_all_subscriptions() -> None:
+@pytest.mark.parametrize("interval", ["1m", "30m", "6h", "12h"])
+def test_derive_state_collapses_all_subscriptions(interval: PerpsStreamCandleInterval) -> None:
     state = derive_state(
         [
             PerpsTradesSpec(instrument_id=1),
             PerpsBookSpec(instrument_id=1),
-            PerpsCandlesSpec(instrument_id=2, interval="1m"),
+            PerpsCandlesSpec(instrument_id=2, interval=interval),
             PerpsTickersSpec(instrument_id=3),
             PerpsTickersSpec(),
             PerpsStatisticsSpec(instrument_id=4),
@@ -121,7 +123,7 @@ def test_derive_state_collapses_all_subscriptions() -> None:
     )
     # An all-instruments tickers subscription subsumes per-instrument channels.
     assert state == frozenset(
-        {"trades::1", "book::1", "klines::2::1m", "tickers::all", "statistics::4"}
+        {"trades::1", "book::1", f"klines::2::{interval}", "tickers::all", "statistics::4"}
     )
 
 

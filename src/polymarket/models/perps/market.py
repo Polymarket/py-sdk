@@ -3,7 +3,7 @@
 from collections.abc import Sequence
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal, cast
+from typing import cast
 
 from pydantic import AliasChoices, Field, field_validator, model_validator
 
@@ -18,6 +18,7 @@ from polymarket.models.perps.types import (
     PerpsInstrumentCategory,
     PerpsInstrumentId,
     PerpsSide,
+    PerpsStreamCandleInterval,
     PerpsTradeId,
 )
 
@@ -394,7 +395,7 @@ class PerpsCandleBatch(BaseModel):
     """Streaming candle batch for one instrument and interval."""
 
     instrument_id: PerpsInstrumentId
-    interval: Literal["1m", "5m", "15m", "1h", "4h", "1d", "1w"]
+    interval: PerpsStreamCandleInterval
     candles: tuple[PerpsCandle, ...]
 
 
