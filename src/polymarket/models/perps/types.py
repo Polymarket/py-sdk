@@ -31,6 +31,68 @@ class PerpsInternalTransferDirection(StrEnum):
     OUT = "out"
 
 
+class PerpsKnownPricingMode(StrEnum):
+    """Known pricing modes for a Perps instrument.
+
+    ``EXTERNAL`` is normal pricing. Treat any other value, including values not
+    enumerated here, as non-normal pricing.
+    """
+
+    EXTERNAL = "external"
+    HOLD = "hold"
+    INTERNAL = "internal"
+    FROZEN = "frozen"
+    BOUNDED = "bounded"
+    RECOVERY_PENDING = "recovery_pending"
+
+
+# The pricing mode set can grow between SDK releases, so unknown values flow
+# through as plain strings instead of failing validation.
+PerpsPricingMode: TypeAlias = PerpsKnownPricingMode | str
+
+
+class PerpsKnownPricingReason(StrEnum):
+    """Known reasons for the current pricing mode of a Perps instrument."""
+
+    EXTERNAL_AVAILABLE = "external_available"
+    ALL_SOURCES_UNAVAILABLE = "all_sources_unavailable"
+    ACTIVATION_DELAY = "activation_delay"
+    MISSING_ORACLE_CONFIGURATION = "missing_oracle_configuration"
+    SOURCE_DISAGREEMENT = "source_disagreement"
+    UNKNOWN_SOURCE_STATE = "unknown_source_state"
+    EXPLICIT_HALT = "explicit_halt"
+    DISABLED = "disabled"
+    PROCESS_DISABLED = "process_disabled"
+    MANUAL_FREEZE = "manual_freeze"
+    INSUFFICIENT_BID_DEPTH = "insufficient_bid_depth"
+    INSUFFICIENT_ASK_DEPTH = "insufficient_ask_depth"
+    INVALID_BOOK = "invalid_book"
+    IMPACT_SPREAD_TOO_WIDE = "impact_spread_too_wide"
+    INVALID_PRECISION = "invalid_precision"
+    ARITHMETIC_FAILURE = "arithmetic_failure"
+    SESSION_BOUND = "session_bound"
+    RECOVERY_CONFIRMATION = "recovery_confirmation"
+    MATERIAL_RECOVERY_GAP = "material_recovery_gap"
+
+
+# The pricing reason set can grow between SDK releases, so unknown values flow
+# through as plain strings instead of failing validation.
+PerpsPricingReason: TypeAlias = PerpsKnownPricingReason | str
+
+
+class PerpsKnownPricingIndexSource(StrEnum):
+    """Known sources of the retained index price of a Perps instrument."""
+
+    UNKNOWN = "unknown"
+    EXTERNAL = "external"
+    INTERNAL = "internal"
+
+
+# The index source set can grow between SDK releases, so unknown values flow
+# through as plain strings instead of failing validation.
+PerpsPricingIndexSource: TypeAlias = PerpsKnownPricingIndexSource | str
+
+
 PerpsInstrumentCategory: TypeAlias = Literal["equity", "commodity", "index", "crypto"]
 PerpsMarginType: TypeAlias = Literal["cross", "isolated"]
 PerpsNotificationOrderType: TypeAlias = Literal["market", "limit", "take_profit", "stop_loss"]
@@ -112,6 +174,9 @@ __all__ = [
     "PerpsInstrumentCategory",
     "PerpsInstrumentId",
     "PerpsKlineInterval",
+    "PerpsKnownPricingIndexSource",
+    "PerpsKnownPricingMode",
+    "PerpsKnownPricingReason",
     "PerpsKnownWithdrawalStatus",
     "PerpsMarginType",
     "PerpsNotificationId",
@@ -120,6 +185,9 @@ __all__ = [
     "PerpsOrderId",
     "PerpsOrderStatus",
     "PerpsPnlInterval",
+    "PerpsPricingIndexSource",
+    "PerpsPricingMode",
+    "PerpsPricingReason",
     "PerpsSide",
     "PerpsStreamCandleInterval",
     "PerpsTimeInForce",

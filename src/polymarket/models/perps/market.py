@@ -17,6 +17,12 @@ from polymarket.models.perps._validators import (
 from polymarket.models.perps.types import (
     PerpsInstrumentCategory,
     PerpsInstrumentId,
+    PerpsKnownPricingIndexSource,
+    PerpsKnownPricingMode,
+    PerpsKnownPricingReason,
+    PerpsPricingIndexSource,
+    PerpsPricingMode,
+    PerpsPricingReason,
     PerpsSide,
     PerpsTradeId,
 )
@@ -115,12 +121,95 @@ class PerpsInstrument(BaseModel):
         return _coerce_decimalish(value)
 
 
+class PerpsPricingStatus(BaseModel):
+    """Pricing safety state of a Perps instrument.
+
+    A missing status does not imply external pricing.
+    """
+
+    mode: PerpsPricingMode
+    """Pricing mode in effect.
+
+    ``PerpsKnownPricingMode.EXTERNAL`` is normal pricing. Treat any other value,
+    including values not enumerated in ``PerpsKnownPricingMode``, as non-normal
+    pricing.
+    """
+    reason: PerpsPricingReason
+    """Reason for the current pricing mode."""
+    index_source: PerpsPricingIndexSource
+    """Source of the retained index price, independent of the pricing mode."""
+    anchor_price: Decimal | None
+    """Anchor price reported for the current pricing state, or ``None`` when none is reported."""
+    anchor_timestamp: datetime | None
+    """Time associated with ``anchor_price``, or ``None`` when none is reported."""
+    index_observed_timestamp: datetime | None
+    """Time the retained index price was observed, or ``None`` when unknown."""
+    state_changed_timestamp: datetime
+    """Time the pricing state last changed."""
+    no_increase: bool = Field(strict=True)
+    """Whether the current pricing state reports a no-increase exposure restriction."""
+    at_lower_bound: bool = Field(strict=True)
+    """Whether the current pricing state reports the price at its lower bound."""
+    at_upper_bound: bool = Field(strict=True)
+    """Whether the current pricing state reports the price at its upper bound."""
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def _parse_mode(cls, value: object) -> object:
+        if not isinstance(value, str):
+            raise ValueError("expected a pricing mode string")
+        try:
+            return PerpsKnownPricingMode(value)
+        except ValueError:
+            return value
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def _parse_reason(cls, value: object) -> object:
+        if not isinstance(value, str):
+            raise ValueError("expected a pricing reason string")
+        try:
+            return PerpsKnownPricingReason(value)
+        except ValueError:
+            return value
+
+    @field_validator("index_source", mode="before")
+    @classmethod
+    def _parse_index_source(cls, value: object) -> object:
+        if not isinstance(value, str):
+            raise ValueError("expected a pricing index source string")
+        try:
+            return PerpsKnownPricingIndexSource(value)
+        except ValueError:
+            return value
+
+    @field_validator("anchor_price", mode="before")
+    @classmethod
+    def _parse_anchor_price(cls, value: object) -> object:
+        return _coerce_decimalish(value)
+
+    @field_validator("anchor_timestamp", "index_observed_timestamp", mode="before")
+    @classmethod
+    def _parse_optional_timestamp(cls, value: object) -> object:
+        return _parse_epoch_ms(value)
+
+    @field_validator("state_changed_timestamp", mode="before")
+    @classmethod
+    def _parse_timestamp(cls, value: object) -> object:
+        return _require_epoch_ms(value)
+
+
 class PerpsTicker(BaseModel):
     """Current prices and funding state for a Perps instrument."""
 
     instrument_id: PerpsInstrumentId
     symbol: str
     index_price: Decimal
+    pricing_status: PerpsPricingStatus | None = None
+    """Pricing safety state, or ``None`` when not reported.
+
+    A missing status does not imply external pricing.
+    """
     mark_price: Decimal
     last_price: Decimal
     mid_price: Decimal
@@ -162,6 +251,14 @@ class PerpsTickerUpdate(BaseModel):
 
     instrument_id: PerpsInstrumentId = Field(validation_alias="iid")
     index_price: Decimal = Field(validation_alias="idx")
+    # Unlike the abbreviated keys around it, the stream carries this field
+    # under its full ``pricing_status`` key, the same key as the REST ticker.
+    # No captured stream frame in this repository confirms that key yet.
+    pricing_status: PerpsPricingStatus | None = None
+    """Pricing safety state, or ``None`` when not reported.
+
+    A missing status does not imply external pricing.
+    """
     mark_price: Decimal = Field(validation_alias="mark")
     last_price: Decimal = Field(validation_alias="last")
     mid_price: Decimal = Field(validation_alias="mid")
@@ -412,6 +509,7 @@ __all__ = [
     "PerpsInstrumentLogo",
     "PerpsRiskTier",
     "PerpsStatistic",
+    "PerpsPricingStatus",
     "PerpsTicker",
     "PerpsTickerUpdate",
     "PerpsTrade",
