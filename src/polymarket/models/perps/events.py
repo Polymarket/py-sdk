@@ -2,7 +2,7 @@
 
 import re
 from datetime import datetime
-from typing import Annotated, Any, Literal, cast
+from typing import Annotated, Any, Literal, cast, get_args
 
 from pydantic import Field, TypeAdapter, ValidationError, field_validator
 
@@ -25,14 +25,20 @@ from polymarket.models.perps.market import (
 )
 from polymarket.models.perps.notifications import PerpsNotification
 from polymarket.models.perps.orders import PerpsFill, PerpsOrder
-from polymarket.models.perps.types import PerpsOrderId, PerpsTpSlLifecycleStatus
+from polymarket.models.perps.types import (
+    PerpsOrderId,
+    PerpsStreamCandleInterval,
+    PerpsTpSlLifecycleStatus,
+)
 
 _TRADES_CHANNEL = re.compile(r"^trades::(\d+)$")
 _BBO_CHANNEL = re.compile(r"^bbo::(\d+)$")
 _BOOK_CHANNEL = re.compile(r"^book::(\d+)$")
 _TICKERS_CHANNEL = re.compile(r"^tickers::(all|\d+)$")
 _STATISTICS_CHANNEL = re.compile(r"^statistics::(all|\d+)$")
-_CANDLES_CHANNEL = re.compile(r"^klines::(\d+)::(1m|5m|15m|30m|1h|4h|6h|12h|1d|1w)$")
+_CANDLES_CHANNEL = re.compile(
+    rf"^klines::(\d+)::({'|'.join(get_args(PerpsStreamCandleInterval))})$"
+)
 _TPSL_CHANNEL = re.compile(r"^tpsl::\d+$")
 
 _SESSION_CHANNEL_TYPES: dict[str, str] = {

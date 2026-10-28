@@ -5,12 +5,13 @@ import base64
 import json
 from collections.abc import Callable
 from decimal import Decimal
-from typing import Any
+from typing import Any, get_args
 from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
 
+from polymarket._internal.actions.perps import paging as perps_paging
 from polymarket._internal.actions.perps import public as perps_public
 from polymarket.clients._transport import AsyncTransport
 from polymarket.errors import UnexpectedResponseError, UserInputError
@@ -119,8 +120,8 @@ def test_list_candles_steps_forward_by_interval(
                 transport,
                 instrument_id=1,
                 interval=interval,
-                start=1_000_000,
-                end=1_000_000_000,
+                start=0,
+                end=3 * duration,
             )
             items = [item async for item in paginator.iter_items()]
             assert len(items) == 3
@@ -128,10 +129,15 @@ def test_list_candles_steps_forward_by_interval(
             await transport.close()
 
     asyncio.run(run())
-    assert requests[0]["start_timestamp"] == "1000000"
+    assert requests[0]["start_timestamp"] == "0"
     # The next window starts one interval after the last returned candle.
-    assert requests[1]["start_timestamp"] == str(1_000_000 + 2 * duration)
+    assert requests[1]["start_timestamp"] == str(2 * duration)
     assert all(request["interval"] == interval for request in requests)
+
+
+def test_interval_durations_cover_every_kline_interval() -> None:
+    durations = perps_paging._INTERVAL_MS  # pyright: ignore[reportPrivateUsage]
+    assert set(durations) == set(get_args(PerpsKlineInterval))
 
 
 def test_list_funding_history_pages_backward() -> None:
