@@ -685,7 +685,8 @@ def test_deposits_keep_distinct_events_and_deduplicate_overlapping_pages(start: 
         try:
             pages = perps_account.list_deposits(transport, start=start, end=3000)
             first = await pages.first_page()
-            assert [item.log_index for item in first.items] == [None, 0]
+            assert first.has_more
+            assert [item.log_index for item in first.items] == [None, None, 0]
             assert first.next_cursor is not None
             second = await pages.from_cursor(first.next_cursor).first_page()
             assert [item.log_index for item in second.items] == [1]
@@ -698,4 +699,41 @@ def test_deposits_keep_distinct_events_and_deduplicate_overlapping_pages(start: 
             await transport.close()
 
     asyncio.run(run())
+    assert [query["end_timestamp"] for query in queries] == ["3000", "2000", "2000"]
+
+
+def test_withdrawals_continue_through_inclusive_start() -> None:
+    queries: list[dict[str, str]] = []
+
+    def withdrawal(withdraw_id: int) -> dict[str, Any]:
+        return {
+            "withdraw_id": withdraw_id,
+            "asset": "USDC",
+            "amount": "10",
+            "fee": "0",
+            "status": "confirmed",
+            "to": "0x" + "3" * 40,
+            "hash": "0x" + str(withdraw_id) * 64,
+            "confirmations": 3,
+            "required_confirmations": 3,
+            "created_timestamp": 2000,
+            "confirmed_timestamp": 2000,
+        }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        queries.append(dict(request.url.params))
+        ids = [2] if request.url.params["end_timestamp"] == "3000" else [2, 1]
+        return httpx.Response(
+            200, json={"data": [withdrawal(withdraw_id) for withdraw_id in ids], "more": True}
+        )
+
+    async def run() -> list[list[int]]:
+        transport = _transport(handler)
+        try:
+            pages = perps_account.list_withdrawals(transport, start=2000, end=3000)
+            return [[item.withdrawal_id for item in page.items] async for page in pages]
+        finally:
+            await transport.close()
+
+    assert asyncio.run(run()) == [[2], [1], []]
     assert [query["end_timestamp"] for query in queries] == ["3000", "2000", "2000"]
