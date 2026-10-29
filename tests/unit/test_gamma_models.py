@@ -43,10 +43,30 @@ def _minimal_market_payload(**overrides: object) -> dict[str, object]:
     return payload
 
 
+@pytest.mark.parametrize("taker_delay_ms", [0, 500, 2000, None])
+def test_market_preserves_taker_delay_ms(taker_delay_ms: int | None) -> None:
+    market = Market.parse_response(
+        _minimal_market_payload(secondsDelay=2, takerDelayMs=taker_delay_ms)
+    )
+
+    assert market.trading.taker_delay_ms == taker_delay_ms
+    with pytest.warns(DeprecationWarning, match="Use taker_delay_ms instead"):
+        assert market.trading.seconds_delay == 2
+
+
+def test_market_does_not_infer_taker_delay_ms_from_seconds_delay() -> None:
+    market = Market.parse_response(_minimal_market_payload(secondsDelay=2))
+
+    assert market.trading.taker_delay_ms is None
+
+
 def test_market_parses_minimal_payload() -> None:
     market = Market.parse_response(_minimal_market_payload())
 
     assert market.id == "MARKET-1"
+    assert market.trading.taker_delay_ms is None
+    with pytest.warns(DeprecationWarning, match="Use taker_delay_ms instead"):
+        assert market.trading.seconds_delay is None
     assert market.outcomes.yes.label == "Yes"
     assert market.outcomes.yes.token_id == "TOKEN-YES"
     assert market.outcomes.yes.price == Decimal("0.6")
