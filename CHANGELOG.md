@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.15.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.14.0...polymarket-client-v0.15.0) (2026-10-29)
+
+
+### Features
+
+* **models:** add taker delay in milliseconds ([fb4fea3](https://github.com/Polymarket/py-sdk/commit/fb4fea32089b276706e6d40e6333fc49fe043772))
+
+
+### Bug Fixes
+
+* **perps:** accept pre_ipo and future instrument categories ([#396](https://github.com/Polymarket/py-sdk/issues/396)) ([173fc78](https://github.com/Polymarket/py-sdk/commit/173fc78515a6705452abf3758f6bf6dd75a8bba1))
+
 ## [0.14.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.13.0...polymarket-client-v0.14.0) (2026-10-21)
 
 ### Features
