@@ -43,10 +43,18 @@ def _minimal_market_payload(**overrides: object) -> dict[str, object]:
     return payload
 
 
+@pytest.mark.parametrize("seconds_delay", [0, 2, 0.5, None])
+def test_market_preserves_seconds_delay(seconds_delay: float | None) -> None:
+    market = Market.parse_response(_minimal_market_payload(secondsDelay=seconds_delay))
+
+    assert market.trading.seconds_delay == seconds_delay
+
+
 def test_market_parses_minimal_payload() -> None:
     market = Market.parse_response(_minimal_market_payload())
 
     assert market.id == "MARKET-1"
+    assert market.trading.seconds_delay is None
     assert market.outcomes.yes.label == "Yes"
     assert market.outcomes.yes.token_id == "TOKEN-YES"
     assert market.outcomes.yes.price == Decimal("0.6")

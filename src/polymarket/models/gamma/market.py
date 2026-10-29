@@ -253,7 +253,7 @@ class MarketTrading(BaseModel):
         default=None,
         validation_alias="minimumTickSize",
     )
-    seconds_delay: int | None = Field(
+    seconds_delay: float | None = Field(
         default=None,
         validation_alias="secondsDelay",
     )
