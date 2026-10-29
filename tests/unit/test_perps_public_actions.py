@@ -4,6 +4,7 @@ import asyncio
 import base64
 import json
 from collections.abc import Callable
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -14,6 +15,7 @@ import pytest
 from polymarket._internal.actions.perps import public as perps_public
 from polymarket.clients._transport import AsyncTransport
 from polymarket.errors import UnexpectedResponseError, UserInputError
+from polymarket.models.perps import PerpsFeeScheduleEntry, PerpsInstrumentFeeSchedule
 
 _BASE_URL = "https://perps.test"
 
@@ -82,6 +84,195 @@ def test_fetch_registration_validates_before_dispatch(address: str) -> None:
         try:
             with pytest.raises(UserInputError, match="address"):
                 await perps_public.fetch_registration(transport, address=address)
+        finally:
+            await transport.close()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("category", [None, "pre_ipo", "future_category"])
+@pytest.mark.parametrize("metadata", ["omitted", "null", "open_ended", "bounded"])
+def test_fetch_instruments_accepts_new_and_unknown_categories(
+    category: str | None, metadata: str
+) -> None:
+    start_ms = 1_793_145_600_123
+    end_ms = start_ms + 86_400_000 if metadata == "bounded" else None
+    payload: dict[str, Any] = {
+        "instrument_id": 1,
+        "symbol": "ANT-PERP",
+        "base_asset": "ANT",
+        "quote_asset": "USD",
+        "funding_interval": "1h",
+        "quantity_decimals": 4,
+        "price_decimals": 2,
+        "price_bounds": "0.1",
+        "liquidation_fee": "0.01",
+        "max_order_count": 200,
+        "min_notional": "1",
+        "max_market_notional": "100000",
+        "max_limit_notional": "1000000",
+        "max_leverage": 10,
+        "isolated_only": True,
+        "risk_tiers": [{"lower_bound": "0", "max_leverage": 10}],
+        "ui_live_time": None,
+    }
+    if metadata != "omitted":
+        payload["fee_override"] = None
+        payload["funding_multiplier"] = None
+    if metadata in ("open_ended", "bounded"):
+        payload["fee_override"] = {
+            "start_time": start_ms,
+            "end_time": end_ms,
+            "tiers": [{"taker_fee_rate": "0.000123456789", "maker_fee_rate": "-0.00001"}],
+        }
+        payload["funding_multiplier"] = {
+            "multiplier": "0.5001",
+            "start_time": start_ms,
+            "end_time": end_ms,
+        }
+    categories = (
+        [category]
+        if category is not None
+        else ["equity", "commodity", "index", "crypto", "pre_ipo", "future_category"]
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/info/instruments"
+        assert _query(request) == ({"category": category} if category is not None else {})
+        return httpx.Response(
+            200,
+            json=[
+                {**payload, "instrument_id": index, "category": value}
+                for index, value in enumerate(categories)
+            ],
+        )
+
+    async def run() -> None:
+        transport = _transport(handler)
+        try:
+            instruments = await perps_public.fetch_instruments(transport, category=category)
+            assert [item.category for item in instruments] == categories
+            for instrument in instruments:
+                if metadata in ("omitted", "null"):
+                    assert instrument.fee_override is None
+                    assert instrument.funding_multiplier is None
+                else:
+                    expected_start = datetime.fromtimestamp(start_ms / 1000, tz=UTC)
+                    expected_end = (
+                        datetime.fromtimestamp(end_ms / 1000, tz=UTC)
+                        if end_ms is not None
+                        else None
+                    )
+                    assert instrument.fee_override is not None
+                    assert instrument.fee_override.start_time == expected_start
+                    assert instrument.fee_override.end_time == expected_end
+                    assert instrument.fee_override.tiers[0].taker_fee_rate == Decimal(
+                        "0.000123456789"
+                    )
+                    assert instrument.fee_override.tiers[0].maker_fee_rate == Decimal("-0.00001")
+                    assert instrument.funding_multiplier is not None
+                    assert instrument.funding_multiplier.multiplier == Decimal("0.5001")
+                    assert instrument.funding_multiplier.start_time == expected_start
+                    assert instrument.funding_multiplier.end_time == expected_end
+        finally:
+            await transport.close()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("category", ["", 42, True, []])
+def test_fetch_instruments_rejects_invalid_category_before_dispatch(category: Any) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        pytest.fail(f"Invalid category reached transport: {request.url}")
+
+    async def run() -> None:
+        transport = _transport(handler)
+        try:
+            with pytest.raises(UserInputError, match="category"):
+                await perps_public.fetch_instruments(transport, category=category)
+        finally:
+            await transport.close()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("instrument_id", [None, 0, 7])
+def test_fetch_fees_parses_categories_and_instrument_selection(instrument_id: int | None) -> None:
+    rates = {"taker_fee_rate": "0.0001", "maker_fee_rate": "-0.00001"}
+    tier = {**rates, "min_volume_30d": "100000.000000"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/info/fees"
+        assert _query(request) == (
+            {"instrument_id": str(instrument_id)} if instrument_id is not None else {}
+        )
+        if instrument_id is None:
+            schedule = [
+                {**rates, "category": category, "tiers": [tier]}
+                for category in ("crypto", "pre_ipo", "future_category")
+            ]
+        else:
+            schedule = [
+                {
+                    **rates,
+                    "instrument_id": instrument_id,
+                    "volume_window_hours": 720,
+                    "tiers": [{**tier, "volume_window_hours": 720}],
+                    "fee_override": (
+                        {
+                            "start_time": 1_793_145_600_000,
+                            "end_time": None,
+                            "tiers": [rates],
+                        }
+                        if instrument_id != 0
+                        else None
+                    ),
+                }
+            ]
+        return httpx.Response(200, json={"fee_schedule": schedule})
+
+    async def run() -> None:
+        transport = _transport(handler)
+        try:
+            entries = await perps_public.fetch_fees(transport, instrument_id=instrument_id)
+            assert entries
+            if instrument_id is None:
+                assert all(isinstance(entry, PerpsFeeScheduleEntry) for entry in entries)
+                assert [
+                    entry.category for entry in entries if isinstance(entry, PerpsFeeScheduleEntry)
+                ] == ["crypto", "pre_ipo", "future_category"]
+            else:
+                (entry,) = entries
+                assert isinstance(entry, PerpsInstrumentFeeSchedule)
+                assert entry.instrument_id == instrument_id
+                assert entry.volume_window_hours == 720
+                assert entry.tiers[0].volume_window_hours == 720
+                if instrument_id == 0:
+                    assert entry.fee_override is None
+                else:
+                    assert entry.fee_override is not None
+                    assert entry.fee_override.end_time is None
+                    assert entry.fee_override.tiers[0].maker_fee_rate == Decimal("-0.00001")
+            for entry in entries:
+                assert entry.taker_fee_rate == Decimal("0.0001")
+                assert entry.maker_fee_rate == Decimal("-0.00001")
+                assert entry.tiers[0].min_volume_30d == Decimal("100000.000000")
+        finally:
+            await transport.close()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("instrument_id", [-1, True, "7"])
+def test_fetch_fees_validates_instrument_id_before_dispatch(instrument_id: Any) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        pytest.fail(f"Invalid instrument ID reached transport: {request.url}")
+
+    async def run() -> None:
+        transport = _transport(handler)
+        try:
+            with pytest.raises(UserInputError, match="instrument_id"):
+                await perps_public.fetch_fees(transport, instrument_id=instrument_id)
         finally:
             await transport.close()
 

@@ -31,7 +31,10 @@ class PerpsInternalTransferDirection(StrEnum):
     OUT = "out"
 
 
-PerpsInstrumentCategory: TypeAlias = Literal["equity", "commodity", "index", "crypto"]
+# Keep known values discoverable while allowing categories added between SDK releases.
+PerpsInstrumentCategory: TypeAlias = (
+    Literal["equity", "commodity", "index", "crypto", "pre_ipo"] | str
+)
 PerpsMarginType: TypeAlias = Literal["cross", "isolated"]
 PerpsNotificationOrderType: TypeAlias = Literal["market", "limit", "take_profit", "stop_loss"]
 PerpsNotificationType: TypeAlias = Literal[

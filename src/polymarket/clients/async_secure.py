@@ -250,6 +250,7 @@ from polymarket.models.perps import (
     PerpsFundingRate,
     PerpsInstrument,
     PerpsInstrumentCategory,
+    PerpsInstrumentFeeSchedule,
     PerpsKlineInterval,
     PerpsMarketEvent,
     PerpsTicker,
@@ -4050,6 +4051,9 @@ class AsyncSecureClient:
         including patch releases.
 
         Fetch Perps instruments, optionally filtered by instrument or category.
+
+        Categories include ``equity``, ``commodity``, ``index``, ``crypto``, and
+        ``pre_ipo`` (pre-IPO). Future category strings are also accepted.
         """
         return await _perps_actions.fetch_instruments(
             self._ctx.perps, instrument_id=instrument_id, category=category
@@ -4087,13 +4091,32 @@ class AsyncSecureClient:
             self._ctx.perps, instrument_id=instrument_id, depth=depth
         )
 
-    async def fetch_perps_fees(self) -> tuple[PerpsFeeScheduleEntry, ...]:
+    @overload
+    async def fetch_perps_fees(
+        self, *, instrument_id: None = None
+    ) -> tuple[PerpsFeeScheduleEntry, ...]: ...
+
+    @overload
+    async def fetch_perps_fees(
+        self, *, instrument_id: int
+    ) -> tuple[PerpsInstrumentFeeSchedule, ...]: ...
+
+    @overload
+    async def fetch_perps_fees(
+        self, *, instrument_id: int | None
+    ) -> tuple[PerpsFeeScheduleEntry, ...] | tuple[PerpsInstrumentFeeSchedule, ...]: ...
+
+    async def fetch_perps_fees(
+        self, *, instrument_id: int | None = None
+    ) -> tuple[PerpsFeeScheduleEntry, ...] | tuple[PerpsInstrumentFeeSchedule, ...]:
         """Experimental: This API may change in a breaking way in any release,
         including patch releases.
 
-        Fetch the Perps fee schedule.
+        Fetch category fee schedules, or effective fees for ``instrument_id``.
+
+        Instrument fees include the stored override, which may be scheduled or expired.
         """
-        return await _perps_actions.fetch_fees(self._ctx.perps)
+        return await _perps_actions.fetch_fees(self._ctx.perps, instrument_id=instrument_id)
 
     def list_perps_candles(
         self,

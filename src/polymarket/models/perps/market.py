@@ -60,6 +60,66 @@ class PerpsInstrumentLogo(BaseModel):
     dark: str
 
 
+class PerpsFeeOverrideTier(BaseModel):
+    """Maker and taker rates at one account fee tier during an override."""
+
+    taker_fee_rate: Decimal
+    maker_fee_rate: Decimal
+
+    @field_validator("taker_fee_rate", "maker_fee_rate", mode="before")
+    @classmethod
+    def _parse_decimals(cls, value: object) -> object:
+        return _coerce_decimalish(value)
+
+
+class PerpsFeeOverride(BaseModel):
+    """Stored fee override with an inclusive start and exclusive, optional end.
+
+    Scheduled and expired overrides remain visible until cleared.
+    """
+
+    start_time: datetime
+    end_time: datetime | None
+    tiers: tuple[PerpsFeeOverrideTier, ...]
+
+    @field_validator("start_time", mode="before")
+    @classmethod
+    def _parse_start_time(cls, value: object) -> object:
+        return _require_epoch_ms(value)
+
+    @field_validator("end_time", mode="before")
+    @classmethod
+    def _parse_end_time(cls, value: object) -> object:
+        return _parse_epoch_ms(value)
+
+
+class PerpsFundingMultiplier(BaseModel):
+    """Stored funding scale applied to periods starting within its window.
+
+    The start is inclusive and the optional end is exclusive. Scheduled and
+    expired multipliers remain visible until cleared.
+    """
+
+    multiplier: Decimal
+    start_time: datetime
+    end_time: datetime | None
+
+    @field_validator("multiplier", mode="before")
+    @classmethod
+    def _parse_decimal(cls, value: object) -> object:
+        return _coerce_decimalish(value)
+
+    @field_validator("start_time", mode="before")
+    @classmethod
+    def _parse_start_time(cls, value: object) -> object:
+        return _require_epoch_ms(value)
+
+    @field_validator("end_time", mode="before")
+    @classmethod
+    def _parse_end_time(cls, value: object) -> object:
+        return _parse_epoch_ms(value)
+
+
 class PerpsInstrument(BaseModel):
     """A tradable Perps instrument and its trading limits."""
 
@@ -90,6 +150,8 @@ class PerpsInstrument(BaseModel):
     """Advisory visibility time; None means hidden. Does not restrict trading."""
     logo: PerpsInstrumentLogo | None = None
     """Immutable theme logo URLs; absent until uploaded."""
+    fee_override: PerpsFeeOverride | None = None
+    funding_multiplier: PerpsFundingMultiplier | None = None
 
     @field_validator("ui_live_time", mode="before")
     @classmethod
@@ -390,6 +452,36 @@ class PerpsFeeScheduleEntry(BaseModel):
         return _coerce_decimalish(value)
 
 
+class PerpsInstrumentFeeTier(BaseModel):
+    """One effective volume-based fee tier for a selected Perps instrument."""
+
+    min_volume_30d: Decimal
+    taker_fee_rate: Decimal
+    maker_fee_rate: Decimal
+    volume_window_hours: int
+
+    @field_validator("min_volume_30d", "taker_fee_rate", "maker_fee_rate", mode="before")
+    @classmethod
+    def _parse_decimals(cls, value: object) -> object:
+        return _coerce_decimalish(value)
+
+
+class PerpsInstrumentFeeSchedule(BaseModel):
+    """Effective instrument fees at read time and its stored override window."""
+
+    instrument_id: PerpsInstrumentId
+    taker_fee_rate: Decimal
+    maker_fee_rate: Decimal
+    volume_window_hours: int
+    tiers: tuple[PerpsInstrumentFeeTier, ...]
+    fee_override: PerpsFeeOverride | None
+
+    @field_validator("taker_fee_rate", "maker_fee_rate", mode="before")
+    @classmethod
+    def _parse_decimals(cls, value: object) -> object:
+        return _coerce_decimalish(value)
+
+
 class PerpsCandleBatch(BaseModel):
     """Streaming candle batch for one instrument and interval."""
 
@@ -405,10 +497,15 @@ __all__ = [
     "PerpsBookUpdate",
     "PerpsCandle",
     "PerpsCandleBatch",
+    "PerpsFeeOverride",
+    "PerpsFeeOverrideTier",
     "PerpsFeeScheduleEntry",
     "PerpsFeeTier",
+    "PerpsFundingMultiplier",
     "PerpsFundingRate",
     "PerpsInstrument",
+    "PerpsInstrumentFeeSchedule",
+    "PerpsInstrumentFeeTier",
     "PerpsInstrumentLogo",
     "PerpsRiskTier",
     "PerpsStatistic",

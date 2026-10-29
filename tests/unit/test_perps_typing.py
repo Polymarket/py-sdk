@@ -24,7 +24,9 @@ from polymarket.models.perps import (
     PerpsCancelRetryOptions,
     PerpsChase,
     PerpsChaseAccepted,
+    PerpsFeeScheduleEntry,
     PerpsFill,
+    PerpsInstrumentFeeSchedule,
     PerpsInternalTransfer,
     PerpsInternalTransferId,
     PerpsLiquidationDetails,
@@ -57,6 +59,25 @@ if TYPE_CHECKING:
                 assert_type(instrument.logo.dark, str)
 
     _instrument_presentation_typing_check = _check_instrument_presentation_typing
+
+    async def _check_pre_ipo_typing(public: AsyncPublicClient, secure: AsyncSecureClient) -> None:
+        for client in (public, secure):
+            instruments = await client.fetch_perps_instruments(category="pre_ipo")
+            if instruments:
+                instrument = instruments[0]
+                if instrument.fee_override:
+                    assert_type(instrument.fee_override.start_time, datetime)
+                    assert_type(instrument.fee_override.end_time, datetime | None)
+                    assert_type(instrument.fee_override.tiers[0].taker_fee_rate, Decimal)
+                if instrument.funding_multiplier:
+                    assert_type(instrument.funding_multiplier.multiplier, Decimal)
+            assert_type(await client.fetch_perps_fees(), tuple[PerpsFeeScheduleEntry, ...])
+            assert_type(
+                await client.fetch_perps_fees(instrument_id=1),
+                tuple[PerpsInstrumentFeeSchedule, ...],
+            )
+
+    _pre_ipo_typing_check = _check_pre_ipo_typing
 
     async def _check_transfer_typing(session: PerpsSession) -> None:
         pages = session.list_internal_transfers(start=0)

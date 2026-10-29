@@ -13,10 +13,15 @@ from polymarket.models.perps.market import (
     PerpsBook,
     PerpsBookLevel,
     PerpsCandle,
+    PerpsFeeOverride,
+    PerpsFeeOverrideTier,
     PerpsFeeScheduleEntry,
     PerpsFeeTier,
+    PerpsFundingMultiplier,
     PerpsFundingRate,
     PerpsInstrument,
+    PerpsInstrumentFeeSchedule,
+    PerpsInstrumentFeeTier,
     PerpsInstrumentSettlement,
     PerpsRiskTier,
     PerpsStatistic,
@@ -33,6 +38,12 @@ _TIMESTAMP = datetime(2025, 7, 2, 23, 46, 40, tzinfo=UTC)
     ("model", "fields"),
     [
         (PerpsRiskTier, {"lower_bound": Decimal}),
+        (PerpsFeeOverrideTier, {"taker_fee_rate": Decimal, "maker_fee_rate": Decimal}),
+        (PerpsFeeOverride, {"start_time": datetime, "end_time": datetime | None}),
+        (
+            PerpsFundingMultiplier,
+            {"multiplier": Decimal, "start_time": datetime, "end_time": datetime | None},
+        ),
         (
             PerpsInstrumentSettlement,
             {"sequence": int, "timestamp": datetime, "price": Decimal, "insurance_debit": Decimal},
@@ -46,6 +57,8 @@ _TIMESTAMP = datetime(2025, 7, 2, 23, 46, 40, tzinfo=UTC)
                 "min_notional": Decimal,
                 "max_market_notional": Decimal,
                 "max_limit_notional": Decimal,
+                "fee_override": PerpsFeeOverride | None,
+                "funding_multiplier": PerpsFundingMultiplier | None,
             },
         ),
         (
@@ -119,6 +132,14 @@ _TIMESTAMP = datetime(2025, 7, 2, 23, 46, 40, tzinfo=UTC)
         ),
         (
             PerpsFeeScheduleEntry,
+            {"taker_fee_rate": Decimal, "maker_fee_rate": Decimal},
+        ),
+        (
+            PerpsInstrumentFeeTier,
+            {"min_volume_30d": Decimal, "taker_fee_rate": Decimal, "maker_fee_rate": Decimal},
+        ),
+        (
+            PerpsInstrumentFeeSchedule,
             {"taker_fee_rate": Decimal, "maker_fee_rate": Decimal},
         ),
     ],
@@ -210,6 +231,24 @@ def test_tuple_models_preserve_nested_field_error_locations() -> None:
 def test_required_timestamp_preserves_strict_epoch_ms_input(value: object) -> None:
     with pytest.raises(ValidationError, match="epoch-ms"):
         PerpsFundingRate.model_validate({"funding_rate": "0.001", "timestamp": value})
+
+
+@pytest.mark.parametrize("model", [PerpsFeeOverride, PerpsFundingMultiplier])
+@pytest.mark.parametrize("field", ["start_time", "end_time"])
+@pytest.mark.parametrize("value", [True, "1751500000000", 1.5])
+def test_instrument_override_timestamps_require_epoch_ms(
+    model: type[PerpsFeeOverride] | type[PerpsFundingMultiplier], field: str, value: object
+) -> None:
+    with pytest.raises(ValidationError, match="epoch-ms"):
+        model.model_validate(
+            {
+                "start_time": _EPOCH_MS,
+                "end_time": None,
+                "tiers": [],
+                "multiplier": "0.5",
+                field: value,
+            }
+        )
 
 
 def test_tuple_preprocessing_and_optional_values_are_preserved() -> None:
