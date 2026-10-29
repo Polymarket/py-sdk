@@ -66,7 +66,7 @@ async def fetch_instruments(
     category: PerpsInstrumentCategory | None = None,
 ) -> tuple[PerpsInstrument, ...]:
     _validate_instrument_id(instrument_id, optional=True)
-    if category is not None and (type(category) is not str or not category):
+    if category is not None and (not isinstance(cast(object, category), str) or not category):
         raise UserInputError("category must be a non-empty string")
     payload = await perps.get_json(
         "/v1/info/instruments",

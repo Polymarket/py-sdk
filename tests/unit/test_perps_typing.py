@@ -8,7 +8,13 @@ from decimal import Decimal
 from types import CoroutineType
 from typing import TYPE_CHECKING, Any, Literal, assert_type
 
-from polymarket import AsyncPublicClient, AsyncSecureClient, PerpsInstrumentLogo
+from polymarket import (
+    AsyncPublicClient,
+    AsyncSecureClient,
+    PerpsInstrumentCategory,
+    PerpsInstrumentLogo,
+    PerpsKnownInstrumentCategory,
+)
 from polymarket.models.perps import (
     PerpsBuilderApproval,
     PerpsBuilderAttribution,
@@ -62,9 +68,13 @@ if TYPE_CHECKING:
 
     async def _check_pre_ipo_typing(public: AsyncPublicClient, secure: AsyncSecureClient) -> None:
         for client in (public, secure):
+            await client.fetch_perps_instruments(category=PerpsKnownInstrumentCategory.PRE_IPO)
+            await client.fetch_perps_instruments(category="future_category")
             instruments = await client.fetch_perps_instruments(category="pre_ipo")
             if instruments:
                 instrument = instruments[0]
+                assert_type(instrument.category, PerpsInstrumentCategory)
+                await client.fetch_perps_instruments(category=instrument.category)
                 if instrument.fee_override:
                     assert_type(instrument.fee_override.start_time, datetime)
                     assert_type(instrument.fee_override.end_time, datetime | None)
@@ -72,6 +82,8 @@ if TYPE_CHECKING:
                 if instrument.funding_multiplier:
                     assert_type(instrument.funding_multiplier.multiplier, Decimal)
             assert_type(await client.fetch_perps_fees(), tuple[PerpsFeeScheduleEntry, ...])
+            for fee in await client.fetch_perps_fees():
+                assert_type(fee.category, PerpsInstrumentCategory)
             assert_type(
                 await client.fetch_perps_fees(instrument_id=1),
                 tuple[PerpsInstrumentFeeSchedule, ...],

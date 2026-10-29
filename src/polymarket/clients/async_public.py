@@ -1783,6 +1783,8 @@ class AsyncPublicClient:
 
         Categories include ``equity``, ``commodity``, ``index``, ``crypto``, and
         ``pre_ipo`` (pre-IPO). Future category strings are also accepted.
+        Known returned categories are ``PerpsKnownInstrumentCategory`` members;
+        unknown categories remain strings. Either can be passed as a filter.
         """
         return await _perps_actions.fetch_instruments(
             self._ctx.perps, instrument_id=instrument_id, category=category

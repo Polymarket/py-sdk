@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import pytest
 
+from polymarket import PerpsKnownInstrumentCategory
 from polymarket._internal.actions.perps import public as perps_public
 from polymarket.clients._transport import AsyncTransport
 from polymarket.errors import UnexpectedResponseError, UserInputError
@@ -90,7 +91,9 @@ def test_fetch_registration_validates_before_dispatch(address: str) -> None:
     asyncio.run(run())
 
 
-@pytest.mark.parametrize("category", [None, "pre_ipo", "future_category"])
+@pytest.mark.parametrize(
+    "category", [None, "pre_ipo", "future_category", PerpsKnownInstrumentCategory.PRE_IPO]
+)
 @pytest.mark.parametrize("metadata", ["omitted", "null", "open_ended", "bounded"])
 def test_fetch_instruments_accepts_new_and_unknown_categories(
     category: str | None, metadata: str
@@ -152,6 +155,11 @@ def test_fetch_instruments_accepts_new_and_unknown_categories(
         try:
             instruments = await perps_public.fetch_instruments(transport, category=category)
             assert [item.category for item in instruments] == categories
+            for item, value in zip(instruments, categories, strict=True):
+                if value == "future_category":
+                    assert type(item.category) is str
+                else:
+                    assert item.category is PerpsKnownInstrumentCategory(value)
             for instrument in instruments:
                 if metadata in ("omitted", "null"):
                     assert instrument.fee_override is None
@@ -241,6 +249,14 @@ def test_fetch_fees_parses_categories_and_instrument_selection(instrument_id: in
                 assert [
                     entry.category for entry in entries if isinstance(entry, PerpsFeeScheduleEntry)
                 ] == ["crypto", "pre_ipo", "future_category"]
+                for entry, category in zip(
+                    entries, ("crypto", "pre_ipo", "future_category"), strict=True
+                ):
+                    assert isinstance(entry, PerpsFeeScheduleEntry)
+                    if category == "future_category":
+                        assert type(entry.category) is str
+                    else:
+                        assert entry.category is PerpsKnownInstrumentCategory(category)
             else:
                 (entry,) = entries
                 assert isinstance(entry, PerpsInstrumentFeeSchedule)

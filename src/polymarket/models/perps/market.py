@@ -11,6 +11,7 @@ from polymarket.models.base import BaseModel
 from polymarket.models.perps._validators import (
     _coerce_decimalish,  # pyright: ignore[reportPrivateUsage]
     _parse_epoch_ms,  # pyright: ignore[reportPrivateUsage]
+    _parse_instrument_category,  # pyright: ignore[reportPrivateUsage]
     _parse_tx_hash,  # pyright: ignore[reportPrivateUsage]
     _require_epoch_ms,  # pyright: ignore[reportPrivateUsage]
 )
@@ -152,6 +153,11 @@ class PerpsInstrument(BaseModel):
     """Immutable theme logo URLs; absent until uploaded."""
     fee_override: PerpsFeeOverride | None = None
     funding_multiplier: PerpsFundingMultiplier | None = None
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def _parse_category(cls, value: object) -> object:
+        return _parse_instrument_category(value)
 
     @field_validator("ui_live_time", mode="before")
     @classmethod
@@ -445,6 +451,11 @@ class PerpsFeeScheduleEntry(BaseModel):
     taker_fee_rate: Decimal
     maker_fee_rate: Decimal
     tiers: tuple[PerpsFeeTier, ...]
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def _parse_category(cls, value: object) -> object:
+        return _parse_instrument_category(value)
 
     @field_validator("taker_fee_rate", "maker_fee_rate", mode="before")
     @classmethod

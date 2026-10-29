@@ -1,6 +1,17 @@
 from datetime import UTC, datetime
 from decimal import Decimal
 
+from polymarket.models.perps.types import PerpsKnownInstrumentCategory
+
+
+def _parse_instrument_category(value: object) -> object:
+    if not isinstance(value, str) or not value:
+        raise ValueError("expected a nonempty instrument category")
+    try:
+        return PerpsKnownInstrumentCategory(value)
+    except ValueError:
+        return value
+
 
 def _coerce_decimalish(value: object) -> object:
     if value is None:
@@ -66,6 +77,7 @@ def _parse_tx_hash(value: object) -> object:
 
 
 __all__ = [
+    "_parse_instrument_category",
     "_coerce_decimalish",
     "_parse_auto_cancel_deadline",
     "_parse_epoch_ms",
