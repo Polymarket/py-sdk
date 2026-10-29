@@ -253,9 +253,15 @@ class MarketTrading(BaseModel):
         default=None,
         validation_alias="minimumTickSize",
     )
-    seconds_delay: float | None = Field(
+    seconds_delay: int | None = Field(
         default=None,
         validation_alias="secondsDelay",
+        deprecated="Use taker_delay_ms instead.",
+    )
+    taker_delay_ms: int | None = Field(
+        default=None,
+        validation_alias="takerDelayMs",
+        description="Taker delay in milliseconds.",
     )
     fees_enabled: bool | None = Field(
         default=None,
@@ -594,6 +600,7 @@ class Market(BaseModel):
                 "minimum_order_size": data.get("orderMinSize"),
                 "minimum_tick_size": data.get("orderPriceMinTickSize"),
                 "seconds_delay": data.get("secondsDelay"),
+                "taker_delay_ms": data.get("takerDelayMs"),
                 "fees_enabled": data.get("feesEnabled"),
                 "fee_type": data.get("feeType"),
                 "fee_schedule": data.get("feeSchedule"),
