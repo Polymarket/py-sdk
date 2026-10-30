@@ -16,15 +16,25 @@ from polymarket.models.base import BaseModel
 from polymarket.models.clob._validators import (
     _coerce_decimalish,  # pyright: ignore[reportPrivateUsage]
     _coerce_optional_decimalish,  # pyright: ignore[reportPrivateUsage]
+    _parse_epoch_ms_timestamp,  # pyright: ignore[reportPrivateUsage]
     _parse_epoch_seconds_or_ms_timestamp,  # pyright: ignore[reportPrivateUsage]
     _parse_epoch_seconds_timestamp,  # pyright: ignore[reportPrivateUsage]
     _parse_expiration_timestamp,  # pyright: ignore[reportPrivateUsage]
 )
 from polymarket.models.clob.account import (
     TradeStatus,
+    _empty_string_to_none,  # pyright: ignore[reportPrivateUsage]
     _normalize_trade_status,  # pyright: ignore[reportPrivateUsage]
 )
-from polymarket.models.types import ClobAssetId, ConditionId, OrderSide
+from polymarket.models.types import (
+    ClobAssetId,
+    ComboConditionId,
+    ConditionId,
+    OrderSide,
+    PositionId,
+    validate_combo_condition_id,
+)
+from polymarket.types import EvmAddress, TransactionHash
 
 
 def _uppercase_string(value: object) -> object:
@@ -237,7 +247,70 @@ class UserTradeEvent(BaseModel):
     payload: UserTradePayload
 
 
-UserEvent = Annotated[UserOrderEvent | UserTradeEvent, Field(discriminator="type")]
+class _AutoRedeemPayload(BaseModel):
+    owner: str
+    wallet: EvmAddress = Field(
+        validation_alias="proxy_wallet",
+        description="Wallet whose resolved position was redeemed.",
+    )
+    transaction_hash: TransactionHash = Field(
+        validation_alias="txn_hash", description="Hash of the redemption transaction."
+    )
+    amount: Decimal = Field(description="Proceeds paid out, in collateral units.")
+    question: str | None = Field(description="Market question, or None when not reported.")
+    image: str | None = Field(description="Market image URL, or None when not reported.")
+    slug: str | None = Field(description="Market URL slug, or None when not reported.")
+    neg_risk: bool = Field(description="Whether the market is negative-risk.")
+    timestamp: datetime = Field(description="Time of the redemption.")
+
+    _amount = field_validator("amount", mode="before")(_coerce_decimalish)
+    _empty_text_to_none = field_validator("question", "image", "slug", mode="before")(
+        _empty_string_to_none
+    )
+    _timestamp = field_validator("timestamp", mode="before")(_parse_epoch_ms_timestamp)
+
+
+class UserAutoRedeemPayload(_AutoRedeemPayload):
+    """Automatic redemption of a resolved position."""
+
+    condition_id: ConditionId
+
+
+class UserComboAutoRedeemPayload(_AutoRedeemPayload):
+    """Automatic redemption of a resolved Combo position.
+
+    ``question``, ``image``, ``slug`` and ``neg_risk`` describe the Combo market as
+    reported, not its individual legs, and the text fields may be empty (``None``).
+    """
+
+    condition_id: ComboConditionId = Field(
+        description="Canonical Combo condition ID of the redeemed basket."
+    )
+    position_id: PositionId = Field(description="Position ID of the redeemed basket token.")
+    outcome_index: int = Field(
+        ge=0, description="Basket token side index of the redeemed position."
+    )
+    legs: int = Field(ge=0, description="Number of legs in the redeemed Combo.")
+
+    _condition = field_validator("condition_id", mode="before")(validate_combo_condition_id)
+
+
+class UserAutoRedeemEvent(BaseModel):
+    topic: Literal["user"] = "user"
+    type: Literal["auto_redeem"]
+    payload: UserAutoRedeemPayload
+
+
+class UserComboAutoRedeemEvent(BaseModel):
+    topic: Literal["user"] = "user"
+    type: Literal["combo_auto_redeem"]
+    payload: UserComboAutoRedeemPayload
+
+
+UserEvent = Annotated[
+    UserOrderEvent | UserTradeEvent | UserAutoRedeemEvent | UserComboAutoRedeemEvent,
+    Field(discriminator="type"),
+]
 
 
 _USER_EVENT_ADAPTER: TypeAdapter[UserEvent] = TypeAdapter(UserEvent)
@@ -278,6 +351,10 @@ def parse_user_events(raw: object) -> tuple[list[UserEvent], int]:
 __all__ = [
     "KnownUserOrderStatus",
     "UserEvent",
+    "UserAutoRedeemEvent",
+    "UserAutoRedeemPayload",
+    "UserComboAutoRedeemEvent",
+    "UserComboAutoRedeemPayload",
     "UserOrderEvent",
     "UserOrderPayload",
     "UserOrderStatus",

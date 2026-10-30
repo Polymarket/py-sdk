@@ -8,6 +8,8 @@ from pydantic import ValidationError
 
 from polymarket.models.clob.account import TradeStatus
 from polymarket.models.clob.user_events import (
+    UserAutoRedeemEvent,
+    UserComboAutoRedeemEvent,
     UserEvent,
     UserOrderEvent,
     UserOrderPayload,
@@ -100,7 +102,9 @@ def test_user_event_keeps_discriminated_union_metadata() -> None:
     union, metadata = get_args(UserEvent)
 
     assert get_origin(UserEvent) is Annotated
-    assert union == (UserOrderEvent | UserTradeEvent)
+    assert union == (
+        UserOrderEvent | UserTradeEvent | UserAutoRedeemEvent | UserComboAutoRedeemEvent
+    )
     assert metadata.discriminator == "type"
 
 
@@ -135,6 +139,7 @@ def test_order_placement_parses_with_normalized_envelope() -> None:
 )
 def test_order_cancellation_statuses_parse(status: str) -> None:
     event = parse_user_event({**_ORDER_PLACEMENT, "type": "CANCELLATION", "status": status})
+    assert isinstance(event, UserOrderEvent)
     assert event.payload.status == status
 
 
@@ -332,3 +337,62 @@ def test_trade_empty_string_required_decimal_rejected() -> None:
     # "" only means absent for optional decimals; required ones stay strict.
     with pytest.raises(ValidationError):
         parse_user_event({**_TRADE, "price": ""})
+
+
+def test_redemptions_normalize_with_valid_neighbors() -> None:
+    condition = "0x" + "ab" * 32
+    combo = "0x03" + "cd" * 30
+    redemption = {
+        "event_type": "auto_redeem",
+        "owner": "test-owner",
+        "proxy_wallet": "0x" + "12" * 20,
+        "txn_hash": "0x" + "34" * 32,
+        "condition_id": condition,
+        "amount": "1.25",
+        "question": "",
+        "image": "",
+        "slug": "",
+        "neg_risk": False,
+        "timestamp": "1700000000000",
+        "position_id": "",
+        "outcome_index": 0,
+        "legs": 0,
+    }
+    events, dropped = parse_user_events(
+        [
+            _ORDER_PLACEMENT,
+            redemption,
+            {"event_type": "future_event"},
+            {
+                **redemption,
+                "event_type": "combo_auto_redeem",
+                "condition_id": combo + "01",
+                "position_id": "123",
+                "outcome_index": 1,
+                "legs": 2,
+            },
+            {**redemption, "amount": "invalid"},
+            _TRADE,
+        ]
+    )
+    assert dropped == 2
+    assert [event.type for event in events] == [
+        "order",
+        "auto_redeem",
+        "combo_auto_redeem",
+        "trade",
+    ]
+    ordinary, combination = events[1:3]
+    assert isinstance(ordinary, UserAutoRedeemEvent)
+    assert isinstance(combination, UserComboAutoRedeemEvent)
+    assert ordinary.payload.amount == Decimal("1.25")
+    assert ordinary.payload.wallet == redemption["proxy_wallet"]
+    assert ordinary.payload.transaction_hash == redemption["txn_hash"]
+    assert ordinary.payload.timestamp.isoformat() == "2023-11-14T22:13:20+00:00"
+    assert ordinary.payload.question is None
+    assert ordinary.payload.image is None
+    assert ordinary.payload.slug is None
+    assert combination.payload.condition_id == combo
+    assert combination.payload.slug is None
+    assert combination.payload.position_id == "123"
+    assert combination.payload.outcome_index == 1 and combination.payload.legs == 2
