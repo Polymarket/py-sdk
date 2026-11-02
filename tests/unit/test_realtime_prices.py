@@ -30,6 +30,7 @@ from polymarket.errors import (
 from polymarket.streams import (
     CryptoPriceSpec,
     CryptoTwapPriceSpec,
+    EquityMarketStatus,
     EquityPriceSpec,
     EquityTwapPriceSpec,
     KnownPriceSource,
@@ -532,6 +533,109 @@ def test_twap_frames_reject_unsupported_windows(
 def test_equity_twap_symbol_is_validated(symbol: Any) -> None:
     with pytest.raises(UserInputError, match="symbol"):
         EquityTwapPriceSpec(symbol=symbol)
+
+
+@pytest.mark.parametrize("channel", ["price.equity", "price.equity.twap"])
+def test_market_status_is_normalized_on_live_and_batch_frames(channel: str) -> None:
+    for status in (*EquityMarketStatus, None):
+        for snapshot, empty in [(False, False), (True, False), (True, True)]:
+            frame = price_frame(channel, snapshot=snapshot)
+            if empty:
+                frame["payload"]["data"] = []
+            if status is not None:
+                frame["payload"]["market_status"] = status.value
+            event = parse_price_event(frame)
+            assert event is not None
+            assert event.topic == "prices.equity" or event.topic == "prices.equity.twap"
+            assert event.payload.market_status is status
+            if event.type == "subscribe":
+                assert len(event.payload.data) == (0 if empty else 1)
+                assert all(
+                    "market_status" not in point.model_dump() for point in event.payload.data
+                )
+            else:
+                assert event.payload.value == Decimal(EXACT)
+
+
+@pytest.mark.parametrize("twap", [False, True])
+def test_market_status_reaches_subscribers_and_late_joiners(twap: bool) -> None:
+    async def run() -> None:
+        channel = "price.equity.twap" if twap else "price.equity"
+        spec = EquityTwapPriceSpec(symbol="usdjpy") if twap else EquityPriceSpec(symbol="usdjpy")
+        feed = Feed()
+        async with feed_server(feed) as url:
+            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            try:
+                first = await manager.subscribe(spec)
+                initial = await anext(first)
+                assert initial.topic == "prices.equity" or initial.topic == "prices.equity.twap"
+                assert initial.payload.market_status is None
+                barrier = price_frame(channel, "usdjpy", snapshot=True)
+                barrier["payload"]["market_status"] = "closed"
+                await feed.connections[0].send(json.dumps(barrier))
+                closed = await anext(first)
+                assert closed.topic == "prices.equity" or closed.topic == "prices.equity.twap"
+                assert closed.payload.market_status is EquityMarketStatus.CLOSED
+                joined = await manager.subscribe(spec)
+                replay = await anext(joined)
+                assert replay.topic == "prices.equity" or replay.topic == "prices.equity.twap"
+                assert replay.payload.market_status is EquityMarketStatus.CLOSED
+                for seq, status in enumerate(
+                    (EquityMarketStatus.UNKNOWN, EquityMarketStatus.OPEN), 2
+                ):
+                    # Spot status-only frames repeat the price timestamp. TWAP
+                    # status changes ride a new price on their single clock.
+                    timestamp = TIMESTAMP + seq if twap else TIMESTAMP
+                    frame = price_frame(channel, "usdjpy", timestamp=timestamp)
+                    frame["seq"] = seq
+                    frame["payload"]["market_status"] = status.value
+                    if not twap:
+                        frame["payload"].update(
+                            received_at=TIMESTAMP + seq, is_carried_forward=True
+                        )
+                    await feed.connections[0].send(json.dumps(frame))
+                    update = await anext(first)
+                    assert update.type == "update"
+                    assert update.topic == "prices.equity" or update.topic == "prices.equity.twap"
+                    assert update.payload.market_status is status
+                    assert update.payload.value == Decimal(EXACT)
+                    if update.topic == "prices.equity":
+                        assert update.payload.is_carried_forward is True
+                        assert update.payload.received_at == datetime.fromtimestamp(
+                            (TIMESTAMP + seq) / 1000, UTC
+                        )
+                    latest = await manager.subscribe(spec)
+                    history = await anext(latest)
+                    assert history.type == "subscribe"
+                    assert history.topic == "prices.equity" or history.topic == "prices.equity.twap"
+                    assert history.payload.market_status is status
+                    assert len(history.payload.data) == (seq if twap else 1)
+                    assert history.payload.data[-1].timestamp == update.payload.timestamp
+                if not twap:
+                    for seq, status in enumerate((EquityMarketStatus.CLOSED, None), 4):
+                        frame = price_frame(channel, "usdjpy", timestamp=TIMESTAMP - 1)
+                        frame["seq"] = seq
+                        frame["payload"]["is_carried_forward"] = True
+                        if status is not None:
+                            frame["payload"]["market_status"] = status.value
+                        await feed.connections[0].send(json.dumps(frame))
+                        update = await anext(first)
+                        assert update.topic == "prices.equity" and update.type == "update"
+                        assert update.payload.market_status is status
+                        latest = await manager.subscribe(spec)
+                        history = await anext(latest)
+                        assert history.topic == "prices.equity" and history.type == "subscribe"
+                        # An older unstated frame must not clear the last stated status.
+                        assert history.payload.market_status is EquityMarketStatus.CLOSED
+                        assert len(history.payload.data) == 1
+                        assert history.payload.data[0].timestamp == datetime.fromtimestamp(
+                            TIMESTAMP / 1000, UTC
+                        )
+                assert len(feed.operations("subscribe")) == 1
+            finally:
+                await manager.close()
+
+    asyncio.run(asyncio.wait_for(run(), 5))
 
 
 def test_secure_client_equity_twap_subscribe_and_unsubscribe_requests() -> None:

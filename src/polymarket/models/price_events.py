@@ -30,6 +30,19 @@ def _parse_price_source(value: object) -> PriceSource:
         return value
 
 
+class EquityMarketStatus(StrEnum):
+    """State of the market of the instrument priced by an equity provider.
+
+    UNKNOWN means the provider cannot determine the state. An omitted status
+    means not stated, never open. Providers can price different instruments
+    for the same symbol and report different states.
+    """
+
+    OPEN = "open"
+    CLOSED = "closed"
+    UNKNOWN = "unknown"
+
+
 class RealtimeErrorCode(StrEnum):
     BAD_OP = "bad_op"
     BAD_CHANNEL = "bad_channel"
@@ -93,6 +106,35 @@ class RealtimeTwapSnapshot(RealtimePriceSnapshot):
     window_seconds: Literal[60] = 60
 
 
+class _EquityMarketState(BaseModel):
+    market_status: EquityMarketStatus | None = None
+    """Current status for this provider's instrument; None means not stated."""
+
+
+class RealtimeEquityPriceUpdate(RealtimePriceUpdate, _EquityMarketState):
+    """An equity price and current market status.
+
+    A status-only update repeats the price timestamp with is_carried_forward
+    true. Do not deduplicate updates by price timestamp alone.
+    """
+
+
+class RealtimeEquityPriceSnapshot(RealtimePriceSnapshot, _EquityMarketState):
+    """Equity history with current status at batch level.
+
+    While closed or unknown, history can include the closing price even when
+    it is older than two minutes.
+    """
+
+
+class RealtimeEquityTwapUpdate(RealtimeTwapUpdate, _EquityMarketState):
+    """An equity TWAP and market status, which changes only with a new price."""
+
+
+class RealtimeEquityTwapSnapshot(RealtimeTwapSnapshot, _EquityMarketState):
+    """Equity TWAP history and current status; may include an older closing price."""
+
+
 class _PriceEventMetadata(BaseModel):
     """Event time and delivery metadata.
 
@@ -143,7 +185,7 @@ class EquityPriceUpdateEvent(_PriceEventMetadata):
 
     topic: Literal["prices.equity"] = "prices.equity"
     type: Literal["update"] = "update"
-    payload: RealtimePriceUpdate
+    payload: RealtimeEquityPriceUpdate
 
 
 class EquityPriceSnapshotEvent(_PriceEventMetadata):
@@ -151,7 +193,7 @@ class EquityPriceSnapshotEvent(_PriceEventMetadata):
 
     topic: Literal["prices.equity"] = "prices.equity"
     type: Literal["subscribe"] = "subscribe"
-    payload: RealtimePriceSnapshot
+    payload: RealtimeEquityPriceSnapshot
 
 
 class EquityTwapPriceUpdateEvent(_PriceEventMetadata):
@@ -159,7 +201,7 @@ class EquityTwapPriceUpdateEvent(_PriceEventMetadata):
 
     topic: Literal["prices.equity.twap"] = "prices.equity.twap"
     type: Literal["update"] = "update"
-    payload: RealtimeTwapUpdate
+    payload: RealtimeEquityTwapUpdate
 
 
 class EquityTwapPriceSnapshotEvent(_PriceEventMetadata):
@@ -167,7 +209,7 @@ class EquityTwapPriceSnapshotEvent(_PriceEventMetadata):
 
     topic: Literal["prices.equity.twap"] = "prices.equity.twap"
     type: Literal["subscribe"] = "subscribe"
-    payload: RealtimeTwapSnapshot
+    payload: RealtimeEquityTwapSnapshot
 
 
 CryptoPriceEvent = CryptoPriceUpdateEvent | CryptoPriceSnapshotEvent
@@ -177,6 +219,11 @@ EquityTwapPriceEvent = EquityTwapPriceUpdateEvent | EquityTwapPriceSnapshotEvent
 PriceEvent = CryptoPriceEvent | CryptoTwapPriceEvent | EquityPriceEvent | EquityTwapPriceEvent
 
 __all__ = [
+    "RealtimeEquityTwapSnapshot",
+    "RealtimeEquityTwapUpdate",
+    "RealtimeEquityPriceSnapshot",
+    "RealtimeEquityPriceUpdate",
+    "EquityMarketStatus",
     "CryptoPriceEvent",
     "CryptoPriceSnapshotEvent",
     "CryptoPriceUpdateEvent",
