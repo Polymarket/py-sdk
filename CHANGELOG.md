@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Breaking Changes
+
+- Remove `download_accounting_snapshot` from `PublicClient`, `SecureClient`, `AsyncPublicClient`, and `AsyncSecureClient`. The accounting snapshot route has no V2 replacement. Remove calls to this download; portfolio, position, and activity reads do not provide an equivalent ZIP/CSV export.
+
 ## [0.15.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.14.0...polymarket-client-v0.15.0) (2026-10-29)
 
 
