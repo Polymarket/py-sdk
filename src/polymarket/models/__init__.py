@@ -47,6 +47,8 @@ from polymarket.models.clob import (
     OrderResponseErrorCode,
     OrderType,
     PriceRequest,
+    RateLimitTier,
+    RateLimitTierDetails,
     RebatedFee,
     RejectedOrder,
     RelayerTransactionState,
@@ -330,6 +332,8 @@ from polymarket.models.types import (
 )
 
 __all__ = [
+    "RateLimitTier",
+    "RateLimitTierDetails",
     "PerpsPositionSnapshotFill",
     "PerpsPositionSnapshotCandle",
     "PerpsPositionSnapshotMarker",

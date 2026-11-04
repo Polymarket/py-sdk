@@ -7,7 +7,9 @@ from polymarket._internal.l1_auth import ApiKeyAuthSignature
 from polymarket.auth import BuilderApiKey
 from polymarket.clients._transport import AsyncTransport, SyncTransport
 from polymarket.errors import RequestRejectedError, UnexpectedResponseError
-from polymarket.models.clob import ApiKeyCreds, BuilderApiKeyInfo
+from polymarket.models.clob import ApiKeyCreds, BuilderApiKeyInfo, RateLimitTier
+
+_RATE_LIMIT_TIER_PATH = "/v1/user/rate-limit-tier"
 
 _BUILDER_API_KEY_PATH = "/auth/builder-api-key"
 
@@ -90,6 +92,11 @@ async def fetch_api_keys(secure_clob: AsyncTransport) -> tuple[str, ...]:
     return parse_api_keys_response(payload)
 
 
+async def get_rate_limit_tier(secure_clob: AsyncTransport) -> RateLimitTier:
+    payload = await secure_clob.get_json(_RATE_LIMIT_TIER_PATH)
+    return RateLimitTier.parse_response(payload)
+
+
 async def delete_api_key(secure_clob: AsyncTransport) -> None:
     payload = await secure_clob.delete_json("/auth/api-key")
     if payload != "OK":
@@ -145,6 +152,11 @@ def fetch_api_keys_sync(secure_clob: SyncTransport) -> tuple[str, ...]:
     return parse_api_keys_response(payload)
 
 
+def get_rate_limit_tier_sync(secure_clob: SyncTransport) -> RateLimitTier:
+    payload = secure_clob.get_json(_RATE_LIMIT_TIER_PATH)
+    return RateLimitTier.parse_response(payload)
+
+
 def delete_api_key_sync(secure_clob: SyncTransport) -> None:
     payload = secure_clob.delete_json("/auth/api-key")
     if payload != "OK":
@@ -175,6 +187,8 @@ def revoke_builder_api_key_sync(clob: SyncTransport, builder_key: BuilderApiKey)
 
 
 __all__ = [
+    "get_rate_limit_tier",
+    "get_rate_limit_tier_sync",
     "build_l1_auth_headers",
     "create_api_key",
     "create_api_key_sync",

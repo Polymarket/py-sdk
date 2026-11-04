@@ -50,6 +50,7 @@ from polymarket.models.clob.order_response import (
     RejectedOrder,
 )
 from polymarket.models.clob.orders import MarketOrderType, OrderType, SignedOrder, TickSize
+from polymarket.models.clob.rate_limit_tier import RateLimitTier, RateLimitTierDetails
 from polymarket.models.clob.relayer import (
     GaslessTransaction,
     RelayerTransactionState,
@@ -74,6 +75,8 @@ from polymarket.models.clob.rewards import (
 )
 
 __all__ = [
+    "RateLimitTier",
+    "RateLimitTierDetails",
     "AcceptedOrder",
     "ApiKeyCreds",
     "AssetType",

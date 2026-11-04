@@ -174,6 +174,7 @@ from polymarket.models import (
     PriceRequest,
     ProtocolVersion,
     PublicProfile,
+    RateLimitTier,
     RelatedTag,
     SearchResults,
     Series,
@@ -2440,6 +2441,9 @@ class AsyncSecureClient:
     async def fetch_api_keys(self) -> tuple[str, ...]:
         """Fetch API key identifiers for the authenticated account."""
         return await _auth_actions.fetch_api_keys(self._ctx.secure_clob)
+
+    async def get_rate_limit_tier(self) -> RateLimitTier:
+        return await _auth_actions.get_rate_limit_tier(self._ctx.secure_clob)
 
     async def delete_api_key(self) -> None:
         """Delete the API key currently used by this client."""
