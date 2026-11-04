@@ -27,6 +27,10 @@ class ActivityType(StrEnum):
     TAKER_REBATE = "TAKER_REBATE"
     REFERRAL_REWARD = "REFERRAL_REWARD"
     TIP = "TIP"
+    DIRECTIONAL_SPLIT = "DIRECTIONAL_SPLIT"
+    DIRECTIONAL_MERGE = "DIRECTIONAL_MERGE"
+    THRESHOLD_COMPOSE = "THRESHOLD_COMPOSE"
+    THRESHOLD_DECOMPOSE = "THRESHOLD_DECOMPOSE"
 
 
 ActivityTypeFilter = (
@@ -45,6 +49,10 @@ ActivityTypeFilter = (
         "TAKER_REBATE",
         "REFERRAL_REWARD",
         "TIP",
+        "DIRECTIONAL_SPLIT",
+        "DIRECTIONAL_MERGE",
+        "THRESHOLD_COMPOSE",
+        "THRESHOLD_DECOMPOSE",
     ]
     | ActivityType
 )

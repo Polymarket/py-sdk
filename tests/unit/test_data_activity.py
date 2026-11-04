@@ -11,10 +11,14 @@ from polymarket import (
     ComboActivityType,
     ComboTradeActivity,
     ConditionId,
+    DirectionalMergeActivity,
+    DirectionalSplitActivity,
     MergeActivity,
     PublicClient,
     RedeemActivity,
     SplitActivity,
+    ThresholdComposeActivity,
+    ThresholdDecomposeActivity,
     TipActivity,
     TradeActivity,
     UnknownActivity,
@@ -80,6 +84,41 @@ def test_activity_variants(kind: str) -> None:
     assert row.type is ActivityType(kind) and row.amount == Decimal("1.25")
     if isinstance(row, TipActivity):
         assert row.side is None
+
+
+@pytest.mark.parametrize("kind", ["DIRECTIONAL_SPLIT", "DIRECTIONAL_MERGE"])
+def test_directional_activity_is_event_level(kind: str) -> None:
+    payload = {
+        **sample("activity")[0],
+        "type": kind,
+        "condition_id": "",
+        "side": "",
+        "outcome": "",
+        "outcome_index": 999,
+        "usdc_size": 25,
+    }
+    row = parse_activity(payload)
+    assert isinstance(row, DirectionalSplitActivity | DirectionalMergeActivity)
+    assert row.type is ActivityType(kind) and row.amount == Decimal("25")
+    assert row.title == payload["title"] and row.event_slug == payload["event_slug"]
+    assert not hasattr(row, "condition_id")
+
+
+@pytest.mark.parametrize("kind", ["THRESHOLD_COMPOSE", "THRESHOLD_DECOMPOSE"])
+def test_threshold_activity_carries_line_market_and_side(kind: str) -> None:
+    payload = {
+        **sample("activity")[0],
+        "type": kind,
+        "side": "",
+        "usdc_size": 4,
+        "outcome": "Yes",
+        "outcome_index": 0,
+    }
+    row = parse_activity(payload)
+    assert isinstance(row, ThresholdComposeActivity | ThresholdDecomposeActivity)
+    assert row.type is ActivityType(kind) and row.amount == Decimal("4")
+    assert row.condition_id == payload["condition_id"]
+    assert row.outcome == "Yes" and row.outcome_index == 0
 
 
 def test_unknown_activity_and_bad_shapes() -> None:
