@@ -38,7 +38,8 @@ CryptoPricesTopic = Literal["prices.crypto.binance", "prices.crypto.chainlink"]
 CryptoPricesChainlinkTwapWindowSeconds = Literal[30, 60]
 EquityPricesEventType = Literal["update", "subscribe"]
 PriceProviderInput: TypeAlias = (
-    Literal["chainlink", "pyth"] | Literal[KnownPriceSource.CHAINLINK, KnownPriceSource.PYTH]
+    Literal["chainlink", "pyth", "binance"]
+    | Literal[KnownPriceSource.CHAINLINK, KnownPriceSource.PYTH, KnownPriceSource.BINANCE]
 )
 
 
@@ -50,7 +51,9 @@ def _normalize_price_provider(provider: PriceProviderInput | None) -> PriceProvi
             return "chainlink"
         if provider == "pyth":
             return "pyth"
-    raise UserInputError("provider must be 'chainlink' or 'pyth'")
+        if provider == "binance":
+            return "binance"
+    raise UserInputError("provider must be 'chainlink', 'pyth' or 'binance'")
 
 
 def _normalize_crypto_symbols(symbols: Sequence[str] | None) -> tuple[str, ...] | None:
@@ -467,6 +470,10 @@ class CryptoPriceSpec:
 
     Use explicit canonical lowercase symbols such as ``btcusd`` and ``ethusd``.
     Requires ``AsyncSecureClient``; subscription waits for server acceptance.
+
+    Set ``provider="binance"`` for Binance USDT spot closes under USD symbols.
+    Omit the provider to follow the default. An unavailable pin may fall back;
+    check the payload ``source`` for the provider actually serving prices.
     """
 
     symbols: Sequence[str]
