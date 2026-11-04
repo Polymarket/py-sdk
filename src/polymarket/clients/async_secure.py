@@ -89,9 +89,11 @@ from polymarket._internal.actions.relayer.calls import (
     TransactionCall,
     combinatorial_prepare_condition_call,
     ctf_redeem_positions_call,
+    decode_erc20_balance_of_result,
     decode_erc1155_balance_of_batch_result,
     decode_erc1155_balance_of_result,
     erc20_approval_call,
+    erc20_balance_of_call,
     erc20_transfer_call,
     erc1155_balance_of_batch_call,
     erc1155_balance_of_call,
@@ -103,6 +105,20 @@ from polymarket._internal.actions.relayer.calls import (
     split_v2_call,
 )
 from polymarket._internal.actions.relayer.deployed import fetch_deployed
+from polymarket._internal.actions.relayer.directional import (
+    collect_directional_candidates,
+    directional_pairs_from_balances,
+    resolve_directional_amount,
+)
+from polymarket._internal.actions.relayer.directional_calls import (
+    router_compose_threshold_call,
+    router_convert_call,
+    router_decompose_threshold_call,
+    router_horizontal_merge_call,
+    router_horizontal_split_call,
+    router_merge_directional_call,
+    router_split_directional_call,
+)
 from polymarket._internal.actions.relayer.gasless import (
     prepare_gasless_transaction,
     submit_deposit_wallet_create,
@@ -116,9 +132,20 @@ from polymarket._internal.actions.relayer.positions import (
     normalize_batch_merge_position_request,
     normalize_market_position_context,
     parse_market_id,
+    resolve_directional_condition_context,
     resolve_merge_amount_from_balances,
 )
 from polymarket._internal.context import AsyncSecureClientContext
+from polymarket._internal.directional import (
+    bucket_count_of,
+    bucket_yes_ids,
+    decode_position_id,
+    derive_directional_threshold_positions,
+    normalize_directional_event_id,
+    threshold_basket_ids,
+    validate_directional_amount,
+    validate_directional_pair,
+)
 from polymarket._internal.dispatch import (
     async_dispatch,
     async_paginate_keyset,
@@ -147,6 +174,7 @@ from polymarket.clients._transport import AsyncTransport
 from polymarket.clients.async_public import AsyncPublicClient
 from polymarket.environments import PRODUCTION, Environment
 from polymarket.errors import (
+    PaginationLimitError,
     RequestRejectedError,
     SigningError,
     TransportError,
@@ -241,6 +269,12 @@ from polymarket.models.data import (
     UserStats,
     UserVolume,
 )
+from polymarket.models.directional import (
+    DirectionalInstrumentKind,
+    DirectionalPair,
+    DirectionalSide,
+    ThresholdSideInput,
+)
 from polymarket.models.perps import (
     PerpsBook,
     PerpsBookDepth,
@@ -277,7 +311,7 @@ from polymarket.models.rtds_events import (
     RtdsEvent,
 )
 from polymarket.models.sports_events import SportsEvent
-from polymarket.models.types import ClobAssetId, CtfConditionId
+from polymarket.models.types import ClobAssetId, CtfConditionId, PositionId
 from polymarket.pagination import AsyncPaginator, Page
 from polymarket.rate_limit import RateLimitUpdateListener
 from polymarket.rfq import (
@@ -3106,6 +3140,285 @@ class AsyncSecureClient:
         handle = await submit_deposit_wallet_create(ctx, metadata="Deploy Deposit Wallet")
         await handle.wait()
 
+    async def find_directional_pairs(
+        self, *, event_id: str | None = None
+    ) -> tuple[DirectionalPair, ...]:
+        """Find collateral-return pairs in this wallet's indexed holdings.
+
+        Candidate balances are refreshed on chain. Results can share inventory:
+        rediscover after each confirmed merge. Unindexed holdings cannot be found.
+        event_id is an on-chain event ID, distinct from numeric catalog event IDs.
+        Raises PaginationLimitError if the position scan is incomplete.
+        """
+        event = normalize_directional_event_id(event_id) if event_id is not None else None
+        candidates: dict[PositionId, None] = {}
+        async for page in self.list_positions(filter_type="TOKENS", filter_amount=0):
+            candidates.update(dict.fromkeys(collect_directional_candidates(page.items, event)))
+            if page.limit_reached:
+                raise PaginationLimitError(
+                    "Cannot discover all directional holdings within the position listing limit"
+                )
+        ids = list(candidates)
+        balances: list[int] = []
+        for start in range(0, len(ids), 200):
+            balances.extend(await self._directional_position_balances(ids[start : start + 200]))
+        return directional_pairs_from_balances(ids, balances)
+
+    async def prepare_merge_directional(
+        self, position_id_a: str, position_id_b: str, *, amount: int | Literal["max"] = "max"
+    ) -> TransactionCall:
+        """Prepare an unsigned merge call using two threshold IDs in either order.
+
+        Reads fresh wing balances and resolves 'max'. No signing or submission
+        occurs. Pass the returned call to execute_transaction or custom signing.
+        Raises UserInputError for an invalid pair or insufficient inventory.
+        """
+        pair = validate_directional_pair(position_id_a, position_id_b)
+        validate_directional_amount(amount)
+        ids = [pair.above_position_id, pair.below_position_id]
+        balances = await self._directional_position_balances(ids)
+        resolved = resolve_directional_amount(ids, balances, amount)
+        return router_merge_directional_call(
+            router=cast(EvmAddress, self._ctx.environment_config.protocol_v2_router),
+            event_id=pair.event_id,
+            low_line=pair.low_line,
+            high_line=pair.high_line,
+            amount=resolved,
+        )
+
+    async def merge_directional(
+        self, position_id_a: str, position_id_b: str, *, amount: int | Literal["max"] = "max"
+    ) -> TransactionHandle:
+        """Merge ABOVE-low and BELOW-high into pUSD and middle-bucket YES.
+
+        IDs may be in either order. Amounts use six-decimal integer base units;
+        'max' uses the smaller fresh wing balance. Requires trading approvals.
+        Returns a transaction handle; await wait() to confirm.
+        """
+        call = await self.prepare_merge_directional(position_id_a, position_id_b, amount=amount)
+        return await self._dispatch_single_call(call, metadata="Directional collateral return")
+
+    async def prepare_split_directional(
+        self, position_id_a: str, position_id_b: str, *, amount: int | Literal["max"] = "max"
+    ) -> TransactionCall:
+        """Prepare an unsigned reversal using the same two threshold IDs.
+
+        'max' is capped by pUSD and every required middle-bucket YES balance.
+        No signing or submission occurs. Raises UserInputError for invalid inputs
+        or insufficient inventory. Preparation does not reserve balances.
+        """
+        pair = validate_directional_pair(position_id_a, position_id_b)
+        validate_directional_amount(amount)
+        ids = bucket_yes_ids(pair.event_id, pair.low_line, pair.high_line)
+        balances = await self._directional_split_balances(ids)
+        resolved = resolve_directional_amount([*ids, "pUSD"], balances, amount)
+        return router_split_directional_call(
+            router=cast(EvmAddress, self._ctx.environment_config.protocol_v2_router),
+            event_id=pair.event_id,
+            low_line=pair.low_line,
+            high_line=pair.high_line,
+            amount=resolved,
+        )
+
+    async def split_directional(
+        self, position_id_a: str, position_id_b: str, *, amount: int | Literal["max"] = "max"
+    ) -> TransactionHandle:
+        """Consume pUSD and middle-bucket YES to restore two threshold wings.
+
+        IDs may be in either order. Amounts use six-decimal integer base units.
+        'max' is capped by collateral and all consumed buckets. Requires trading
+        approvals. Returns a transaction handle; await wait() to confirm.
+        """
+        call = await self.prepare_split_directional(position_id_a, position_id_b, amount=amount)
+        return await self._dispatch_single_call(call, metadata="Split directional wings")
+
+    async def prepare_split_event_positions(self, *, event_id: str, amount: int) -> TransactionCall:
+        """Prepare an unsigned split into every bucket YES, including Void."""
+        return router_horizontal_split_call(
+            router=cast(EvmAddress, self._ctx.environment_config.protocol_v2_router),
+            event_id=event_id,
+            amount=amount,
+        )
+
+    async def split_event_positions(self, *, event_id: str, amount: int) -> TransactionHandle:
+        """Split pUSD into every real bucket YES and Void YES.
+
+        amount is an explicit positive integer in six-decimal base units.
+        Returns a transaction handle; await wait() to confirm.
+        """
+        call = await self.prepare_split_event_positions(event_id=event_id, amount=amount)
+        return await self._dispatch_single_call(call, metadata="Split directional event positions")
+
+    async def prepare_merge_event_positions(
+        self, *, event_id: str, amount: int | Literal["max"] = "max"
+    ) -> TransactionCall:
+        """Prepare an unsigned merge of every real bucket YES and Void YES."""
+        event = normalize_directional_event_id(event_id)
+        validate_directional_amount(amount)
+        ids = bucket_yes_ids(event, 0, bucket_count_of(event) + 1)
+        balances = await self._directional_position_balances(ids)
+        resolved = resolve_directional_amount(ids, balances, amount)
+        return router_horizontal_merge_call(
+            router=cast(EvmAddress, self._ctx.environment_config.protocol_v2_router),
+            event_id=event,
+            amount=resolved,
+        )
+
+    async def merge_event_positions(
+        self, *, event_id: str, amount: int | Literal["max"] = "max"
+    ) -> TransactionHandle:
+        """Merge every real bucket YES and Void YES into pUSD.
+
+        'max' uses the fresh minimum across the complete set. Amounts use
+        six-decimal integer base units. Await the returned handle's wait() to confirm.
+        """
+        call = await self.prepare_merge_event_positions(event_id=event_id, amount=amount)
+        return await self._dispatch_single_call(call, metadata="Merge directional event positions")
+
+    async def prepare_convert_position(
+        self, *, position_id: str, amount: int | Literal["max"] = "max"
+    ) -> TransactionCall:
+        """Prepare an unsigned bucket NO conversion, including Void NO."""
+        position = decode_position_id(position_id)
+        if position.kind == DirectionalInstrumentKind.LINE or position.side != DirectionalSide.NO:
+            raise UserInputError("Expected a directional bucket NO position, including Void NO")
+        validate_directional_amount(amount)
+        ids = [PositionId(position_id)]
+        balances = await self._directional_position_balances(ids)
+        resolved = resolve_directional_amount(ids, balances, amount)
+        return router_convert_call(
+            router=cast(EvmAddress, self._ctx.environment_config.protocol_v2_router),
+            event_id=position.event_id,
+            bucket_index=position.index,
+            amount=resolved,
+        )
+
+    async def convert_position(
+        self, *, position_id: str, amount: int | Literal["max"] = "max"
+    ) -> TransactionHandle:
+        """Convert a real bucket or Void NO into every other bucket's YES.
+
+        Threshold positions cannot be converted. 'max' uses the fresh NO balance.
+        Amounts use six-decimal integer base units. Await wait() to confirm.
+        """
+        call = await self.prepare_convert_position(position_id=position_id, amount=amount)
+        return await self._dispatch_single_call(call, metadata="Convert directional bucket NO")
+
+    async def prepare_compose_threshold(
+        self,
+        *,
+        event_id: str,
+        line: int,
+        side: ThresholdSideInput,
+        amount: int | Literal["max"] = "max",
+    ) -> TransactionCall:
+        """Prepare an unsigned composition of a bucket basket into a threshold side."""
+        threshold = derive_directional_threshold_positions(event_id=event_id, line=line)
+        event = normalize_directional_event_id(threshold.condition_id[:60])
+        validate_directional_amount(amount)
+        ids = threshold_basket_ids(event, line, side)
+        balances = await self._directional_position_balances(ids)
+        resolved = resolve_directional_amount(ids, balances, amount)
+        return router_compose_threshold_call(
+            router=cast(EvmAddress, self._ctx.environment_config.protocol_v2_router),
+            event_id=event,
+            line=line,
+            side=side,
+            amount=resolved,
+        )
+
+    async def compose_threshold(
+        self,
+        *,
+        event_id: str,
+        line: int,
+        side: ThresholdSideInput,
+        amount: int | Literal["max"] = "max",
+    ) -> TransactionHandle:
+        """Combine bucket YES into ABOVE or BELOW at an ordinal line.
+
+        ABOVE consumes buckets at/past the line. BELOW consumes earlier buckets
+        and Void. 'max' uses their fresh minimum. Await wait() to confirm.
+        """
+        call = await self.prepare_compose_threshold(
+            event_id=event_id, line=line, side=side, amount=amount
+        )
+        return await self._dispatch_single_call(call, metadata="Compose directional threshold")
+
+    async def prepare_decompose_threshold(
+        self,
+        *,
+        event_id: str,
+        line: int,
+        side: ThresholdSideInput,
+        amount: int | Literal["max"] = "max",
+    ) -> TransactionCall:
+        """Prepare an unsigned conversion of one threshold side into its bucket YES basket."""
+        threshold = derive_directional_threshold_positions(event_id=event_id, line=line)
+        if side not in ("above", "below"):
+            raise UserInputError("side must be 'above' or 'below'")
+        validate_directional_amount(amount)
+        ids = [threshold.above_position_id if side == "above" else threshold.below_position_id]
+        balances = await self._directional_position_balances(ids)
+        resolved = resolve_directional_amount(ids, balances, amount)
+        return router_decompose_threshold_call(
+            router=cast(EvmAddress, self._ctx.environment_config.protocol_v2_router),
+            event_id=event_id,
+            line=line,
+            side=side,
+            amount=resolved,
+        )
+
+    async def decompose_threshold(
+        self,
+        *,
+        event_id: str,
+        line: int,
+        side: ThresholdSideInput,
+        amount: int | Literal["max"] = "max",
+    ) -> TransactionHandle:
+        """Convert ABOVE or BELOW back into its bucket YES basket.
+
+        BELOW returns Void as well as real buckets. 'max' uses the fresh threshold
+        balance. Amounts use six-decimal integer base units. Await wait() to confirm.
+        """
+        call = await self.prepare_decompose_threshold(
+            event_id=event_id, line=line, side=side, amount=amount
+        )
+        return await self._dispatch_single_call(call, metadata="Decompose directional threshold")
+
+    async def _directional_position_balances(self, ids: Sequence[PositionId]) -> tuple[int, ...]:
+        call = erc1155_balance_of_batch_call(
+            token_address=cast(EvmAddress, self._ctx.environment_config.position_manager),
+            owners=[self._ctx.wallet] * len(ids),
+            token_ids=list(ids),
+        )
+        result = await self._ctx.rpc.eth_call(to=str(call.to), data=call.data)
+        balances = decode_erc1155_balance_of_batch_result(result)
+        if len(balances) != len(ids):
+            raise UnexpectedResponseError("Expected one balance per directional position")
+        return balances
+
+    async def _directional_split_balances(self, ids: Sequence[PositionId]) -> tuple[int, ...]:
+        positions = erc1155_balance_of_batch_call(
+            token_address=cast(EvmAddress, self._ctx.environment_config.position_manager),
+            owners=[self._ctx.wallet] * len(ids),
+            token_ids=list(ids),
+        )
+        collateral = erc20_balance_of_call(
+            token_address=cast(EvmAddress, self._ctx.environment_config.collateral_token),
+            owner=self._ctx.wallet,
+        )
+        results = await self._ctx.rpc.eth_call_batch(
+            [(str(positions.to), positions.data), (str(collateral.to), collateral.data)]
+        )
+        if len(results) != 2:
+            raise UnexpectedResponseError("Expected position and collateral balance results")
+        balances = decode_erc1155_balance_of_batch_result(results[0])
+        if len(balances) != len(ids):
+            raise UnexpectedResponseError("Expected one balance per directional position")
+        return (*balances, decode_erc20_balance_of_result(results[1]))
+
     async def split_position(
         self,
         *,
@@ -3641,6 +3954,13 @@ class AsyncSecureClient:
     ) -> MarketPositionContext:
         if (condition_id is None) == (market_id is None):
             raise UserInputError("Provide exactly one of condition_id or market_id")
+        if condition_id is not None:
+            directional = resolve_directional_condition_context(
+                condition_id,
+                position_manager=cast(EvmAddress, self._ctx.environment_config.position_manager),
+            )
+            if directional is not None:
+                return directional
         if condition_id is not None:
             context = f"condition {condition_id}"
             if closed is None:

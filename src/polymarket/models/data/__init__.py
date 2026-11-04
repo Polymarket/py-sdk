@@ -11,6 +11,8 @@ from polymarket.models.data.activity import (
     ComboWrapActivity,
     ConversionActivity,
     DepositActivity,
+    DirectionalMergeActivity,
+    DirectionalSplitActivity,
     MakerRebateActivity,
     MergeActivity,
     MigrationActivity,
@@ -19,6 +21,8 @@ from polymarket.models.data.activity import (
     RewardActivity,
     SplitActivity,
     TakerRebateActivity,
+    ThresholdComposeActivity,
+    ThresholdDecomposeActivity,
     TipActivity,
     Trade,
     TradeActivity,
@@ -90,6 +94,10 @@ from polymarket.models.data.resolutions import (
 from polymarket.models.data.tokens import TokenModule, TokenReference
 
 __all__ = [
+    "DirectionalSplitActivity",
+    "DirectionalMergeActivity",
+    "ThresholdComposeActivity",
+    "ThresholdDecomposeActivity",
     "Activity",
     "ActivityType",
     "ActivityTypeFilter",

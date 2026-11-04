@@ -1,6 +1,11 @@
 from polymarket.auth import BuilderApiKey, RelayerApiKey
 from polymarket.calls import TransactionCall
 from polymarket.clients import AsyncPublicClient, AsyncSecureClient, PublicClient, SecureClient
+from polymarket.directional import (
+    decode_position_id,
+    derive_directional_bucket_positions,
+    derive_directional_threshold_positions,
+)
 from polymarket.environments import PRODUCTION, Environment
 from polymarket.errors import (
     AutoCancelDailyLimitError,
@@ -53,6 +58,7 @@ from polymarket.models import (
     CtfConditionId,
     CurrentReward,
     CurrentRewardConfig,
+    DirectionalEventId,
     EarningBreakdown,
     Erc20TradingApproval,
     Erc1155TradingApproval,
@@ -251,6 +257,22 @@ from polymarket.models.data import (
     WithdrawalActivity,
     YieldActivity,
 )
+from polymarket.models.data.activity import (
+    DirectionalMergeActivity,
+    DirectionalSplitActivity,
+    ThresholdComposeActivity,
+    ThresholdDecomposeActivity,
+)
+from polymarket.models.directional import (
+    DecodedPositionId,
+    DirectionalBucketPositions,
+    DirectionalInstrumentKind,
+    DirectionalPair,
+    DirectionalSide,
+    DirectionalThresholdPositions,
+    ThresholdSide,
+    ThresholdSideInput,
+)
 from polymarket.models.perps.builder_events import PerpsBuilderFillEvent
 from polymarket.models.perps.builders import (
     PerpsBuilderApproval,
@@ -341,6 +363,22 @@ from polymarket.types import EvmAddress, HexString, TransactionHash
 from polymarket.version import __version__
 
 __all__ = [
+    "DirectionalSplitActivity",
+    "DirectionalMergeActivity",
+    "ThresholdComposeActivity",
+    "ThresholdDecomposeActivity",
+    "decode_position_id",
+    "derive_directional_bucket_positions",
+    "derive_directional_threshold_positions",
+    "DecodedPositionId",
+    "DirectionalBucketPositions",
+    "DirectionalInstrumentKind",
+    "DirectionalPair",
+    "DirectionalSide",
+    "DirectionalThresholdPositions",
+    "ThresholdSide",
+    "ThresholdSideInput",
+    "DirectionalEventId",
     "PerpsPositionSnapshotFill",
     "PerpsPositionSnapshotCandle",
     "PerpsPositionSnapshotMarker",

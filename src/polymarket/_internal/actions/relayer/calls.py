@@ -24,6 +24,7 @@ _DEPOSIT_WALLET_AUTHORIZE_SESSION_SIGNER_SELECTOR = _selector(
 )
 _DEPOSIT_WALLET_REVOKE_SESSION_SIGNER_SELECTOR = _selector("revokeSessionSigner(address)")
 _ERC20_ALLOWANCE_SELECTOR = _selector("allowance(address,address)")
+_ERC20_BALANCE_OF_SELECTOR = _selector("balanceOf(address)")
 _ERC20_TRANSFER_SELECTOR = _selector("transfer(address,uint256)")
 _ERC1155_BALANCE_OF_SELECTOR = _selector("balanceOf(address,uint256)")
 _ERC1155_BALANCE_OF_BATCH_SELECTOR = _selector("balanceOfBatch(address[],uint256[])")
@@ -100,6 +101,15 @@ def erc20_allowance_call(
 
 
 def decode_erc20_allowance_result(data: str) -> int:
+    return cast(int, _decode_return_data(data, "uint256"))
+
+
+def erc20_balance_of_call(*, token_address: EvmAddress, owner: EvmAddress) -> TransactionCall:
+    payload = _ERC20_BALANCE_OF_SELECTOR + abi_encode(["address"], [str(owner)])
+    return TransactionCall(to=token_address, data=cast(HexString, "0x" + payload.hex()))
+
+
+def decode_erc20_balance_of_result(data: str) -> int:
     return cast(int, _decode_return_data(data, "uint256"))
 
 

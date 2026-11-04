@@ -10,7 +10,7 @@ from polymarket.models.types import ClobAssetId, ConditionId, PositionId, to_con
 _UINT256_MAX = (1 << 256) - 1
 _UINT256_BYTE_LENGTH = 32
 _V2_RESERVED_BITS_MASK = ((1 << 64) - 1) << 40
-_SUPPORTED_V2_MODULE_IDS = frozenset((1, 2, 3))
+_SUPPORTED_V2_MODULE_IDS = frozenset((1, 2, 3, 4))
 _POSITION_ID_PATTERN = re.compile(r"(?:0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|[0-9]+)\Z")
 
 
@@ -40,6 +40,14 @@ def decode_v2_outcome_position_id(position_id: PositionId | str) -> DecodedV2Out
         raise UserInputError("Position ID must use a supported protocol v2 module")
     if outcome_index not in (0, 1):
         raise UserInputError("Protocol v2 position ID must be a YES/NO position ID")
+    if module_id == 4:
+        from polymarket._internal.directional import decode_position_id
+
+        decoded = decode_position_id(str(value))
+        return DecodedV2OutcomePositionId(
+            condition_id=decoded.condition_id,
+            outcome_index=0 if decoded.side.value in ("yes", "above") else 1,
+        )
     return DecodedV2OutcomePositionId(
         condition_id=to_condition_id(f"0x{encoded[:-2]}"),
         outcome_index=outcome_index,
