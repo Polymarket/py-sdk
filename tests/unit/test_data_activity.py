@@ -11,6 +11,7 @@ from polymarket import (
     ComboActivityType,
     ComboTradeActivity,
     ConditionId,
+    ConversionActivity,
     MergeActivity,
     PublicClient,
     RedeemActivity,
@@ -80,6 +81,26 @@ def test_activity_variants(kind: str) -> None:
     assert row.type is ActivityType(kind) and row.amount == Decimal("1.25")
     if isinstance(row, TipActivity):
         assert row.side is None
+
+
+@pytest.mark.parametrize(
+    ("size", "usdc_size"),
+    [
+        # Protocol v2 conversions serve the converted shares in size and 0 collateral.
+        (25, 0),
+        # Multi-outcome conversions release (k - 1) * shares of collateral.
+        (10, 20),
+    ],
+)
+def test_conversion_reports_shares_and_released_collateral(size: int, usdc_size: int) -> None:
+    payload = {**sample("activity")[0], "type": "CONVERSION", "size": size, "usdc_size": usdc_size}
+    row = parse_activity(payload)
+    assert isinstance(row, ConversionActivity)
+    assert row.shares == Decimal(size) and row.amount == Decimal(usdc_size)
+    broken = dict(payload)
+    broken.pop("size")
+    with pytest.raises(UnexpectedResponseError):
+        parse_activity(broken)
 
 
 def test_unknown_activity_and_bad_shapes() -> None:
