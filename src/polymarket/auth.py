@@ -9,6 +9,24 @@ from polymarket.errors import UserInputError
 from polymarket.types import EvmAddress
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class BearerCredentials:
+    """Complete session credentials. Store both values after every refresh."""
+
+    access_token: str = field(repr=False)
+    refresh_token: str = field(repr=False)
+
+    def __post_init__(self) -> None:
+        if not all(
+            isinstance(value, str) and value and not any(c.isspace() for c in value)  # pyright: ignore[reportUnnecessaryIsInstance]
+            for value in (self.access_token, self.refresh_token)
+        ):
+            raise UserInputError("Bearer credentials require non-empty token strings")
+
+    def __repr__(self) -> str:
+        return "BearerCredentials(access_token=<redacted>, refresh_token=<redacted>)"
+
+
 @dataclass(frozen=True, slots=True)
 class BuilderApiKey:
     key: str = field(repr=False)
@@ -55,4 +73,4 @@ class RelayerApiKey:
 ApiKey: TypeAlias = BuilderApiKey | RelayerApiKey
 
 
-__all__ = ["ApiKey", "BuilderApiKey", "RelayerApiKey"]
+__all__ = ["BearerCredentials", "ApiKey", "BuilderApiKey", "RelayerApiKey"]
