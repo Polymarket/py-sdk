@@ -224,6 +224,10 @@ class AsyncPublicClient:
         ``RedeemActivity``; check ``is_combo`` to identify a basket.
         A basket's outcome names its token side, not a selected leg.
 
+        Threshold compose and decompose rows move no collateral, so they report
+        ``shares`` and have no ``amount``. Rows with a type this SDK version does
+        not list return ``UnknownActivity``, which keeps the full row in ``raw``.
+
         Resuming a cursor uses the page size stored by that cursor."""
         spec = _data_actions.list_activity_spec(
             user=user,
