@@ -45,6 +45,7 @@ from polymarket.models.perps.orders import PerpsFill, PerpsOrder
 from polymarket.models.perps.requests import validate_client_order_id
 from polymarket.models.perps.types import (
     PerpsDepositStatus,
+    PerpsKlineInterval,
     PerpsPnlInterval,
     PerpsSortDirection,
     PerpsWithdrawalStatus,
@@ -53,6 +54,7 @@ from polymarket.pagination import AsyncPaginator, Page
 
 _M = TypeVar("_M", bound=BaseModel)
 
+_EQUITY_INTERVALS = ("1s", "1m", "5m", "15m", "30m", "1h", "4h", "6h", "12h", "1d", "1w")
 _PNL_INTERVALS = ("1h", "4h", "1d", "1w")
 _FUND_STATUSES = ("pending", "confirmed", "removed")
 _SORT_DIRECTIONS = ("desc", "asc")
@@ -421,7 +423,7 @@ async def mark_notifications_read(
 def list_equity_history(
     api: AsyncTransport,
     *,
-    interval: PerpsPnlInterval,
+    interval: PerpsKlineInterval,
     start: datetime | int,
     end: datetime | int | None = None,
 ) -> AsyncPaginator[PerpsEquityPoint]:
@@ -535,12 +537,13 @@ def _ascending_history(
     path: str,
     kind: str,
     model: type[_M],
-    interval: PerpsPnlInterval,
+    interval: PerpsKlineInterval,
     start: datetime | int,
     end: datetime | int | None,
 ) -> AsyncPaginator[_M]:
-    if interval not in _PNL_INTERVALS:
-        raise UserInputError(f"interval must be one of {list(_PNL_INTERVALS)}, got {interval!r}")
+    intervals = _EQUITY_INTERVALS if kind == "perpsEquityHistory" else _PNL_INTERVALS
+    if interval not in intervals:
+        raise UserInputError(f"interval must be one of {list(intervals)}, got {interval!r}")
     start_ms = to_epoch_ms("start", start)
     end_ms = to_epoch_ms("end", end)
 
@@ -553,9 +556,7 @@ def _ascending_history(
                 "end_timestamp": end_ms if end_ms is not None else int(time.time() * 1000),
             }
         else:
-            state = decode_perps_ascending_account_cursor(
-                cursor, kind=kind, intervals=_PNL_INTERVALS
-            )
+            state = decode_perps_ascending_account_cursor(cursor, kind=kind, intervals=intervals)
         data, more = parse_data_envelope(
             await api.get_json(
                 path,
@@ -572,7 +573,11 @@ def _ascending_history(
         next_cursor = None
         if has_more and isinstance(last_ts, int):
             next_cursor = encode_perps_cursor(
-                {**state, "start_timestamp": last_ts + interval_ms(state["interval"])}
+                {
+                    **state,
+                    "start_timestamp": last_ts
+                    + (1 if kind == "perpsEquityHistory" else interval_ms(state["interval"])),
+                }
             )
         return Page(items=items, has_more=has_more, next_cursor=next_cursor)
 

@@ -647,3 +647,68 @@ def test_list_fills_rejects_non_uint32_instrument_before_request(instrument_id: 
             await transport.close()
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "interval", ["1s", "1m", "5m", "15m", "30m", "1h", "4h", "6h", "12h", "1d", "1w"]
+)
+def test_equity_intervals_preserve_cursor_and_continue_after_sample(interval: str) -> None:
+    from typing import cast
+
+    from polymarket.models.perps.types import PerpsKlineInterval
+
+    queries: list[dict[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        queries.append(dict(request.url.params))
+        return httpx.Response(
+            200,
+            json={
+                "data": [[65_123 if len(queries) == 1 else 125_123, "100.5"]],
+                "more": len(queries) == 1,
+            },
+        )
+
+    async def run() -> None:
+        transport = _transport(handler)
+        try:
+            pages = perps_account.list_equity_history(
+                transport, interval=cast(PerpsKlineInterval, interval), start=0, end=200_000
+            )
+            first = await pages.first_page()
+            assert first.next_cursor is not None
+            second = await pages.from_cursor(first.next_cursor).first_page()
+            assert len(second.items) == 1 and not second.has_more
+        finally:
+            await transport.close()
+
+    asyncio.run(run())
+    assert [q["start_timestamp"] for q in queries] == ["0", "65124"]
+    assert all(q["interval"] == interval and q["end_timestamp"] == "200000" for q in queries)
+
+
+def test_pnl_rejects_equity_only_intervals_before_request_and_on_cursor() -> None:
+    from typing import Any, cast
+
+    async def run() -> None:
+        transport = _transport(lambda _: pytest.fail("invalid PnL interval reached transport"))
+        try:
+            for interval in ["1s", "1m", "30m", "6h", "12h"]:
+                with pytest.raises(UserInputError, match="interval"):
+                    perps_account.list_pnl_history(transport, interval=cast(Any, interval), start=0)
+                pages = perps_account.list_pnl_history(transport, interval="1h", start=0)
+                with pytest.raises(UserInputError, match="cursor"):
+                    await pages.from_cursor(
+                        _cursor(
+                            {
+                                "kind": "perpsPnlHistory",
+                                "interval": interval,
+                                "start_timestamp": 0,
+                                "end_timestamp": 200_000,
+                            }
+                        )
+                    ).first_page()
+        finally:
+            await transport.close()
+
+    asyncio.run(run())
