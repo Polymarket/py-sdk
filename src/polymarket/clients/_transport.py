@@ -574,15 +574,28 @@ def _read_json(response: httpx.Response) -> Any:
         raise UnexpectedResponseError(f"Received non-JSON response from {response.url}") from error
 
 
+_ERROR_IDENTIFIER_RE = re.compile(r"[a-z][a-z0-9]*(?:_[a-z0-9]+)*|[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*")
+
+
 def _extract_response_error_code(response: httpx.Response) -> str | None:
     if "application/json" not in response.headers.get("content-type", "").lower():
         return None
     try:
-        code = response.json().get("code")
+        body = response.json()
+        code = body.get("code")
+        error = body.get("error")
     except (AttributeError, ValueError):
         return None
     if isinstance(code, str) and code:
         return code
+    # Some services send only a stable identifier such as "NOT_ALLOWED" in `error`.
+    # 400 bodies carry validation details, so they never become codes.
+    if (
+        response.status_code != 400
+        and isinstance(error, str)
+        and _ERROR_IDENTIFIER_RE.fullmatch(error) is not None
+    ):
+        return error
     return None
 
 
