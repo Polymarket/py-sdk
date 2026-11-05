@@ -246,7 +246,22 @@ class RedeemActivity(_MarketEventActivity):
 
 
 class ConversionActivity(_MarketEventActivity):
+    """Conversion of NO shares into YES shares on an event's other outcomes.
+
+    ``shares`` is the number of shares converted. ``amount`` is the collateral the
+    conversion released in USDC. Converting NO shares on k outcomes releases
+    ``(k - 1) * shares``. It is 0 for single-outcome conversions and for protocol v2
+    conversions, which swap positions without releasing collateral, so read ``shares``
+    for the converted quantity.
+    """
+
     type: Literal[ActivityType.CONVERSION]
+    shares: Decimal = Field(validation_alias="size")
+
+    @field_validator("shares", mode="before")
+    @classmethod
+    def _parse_shares(cls, value: object) -> Decimal | None:
+        return optional_decimal_from_number(value)
 
 
 class _AccountCreditActivity(_KnownActivityBase):
