@@ -35,6 +35,47 @@ from polymarket.models import Comment
 from polymarket.pagination import Page
 
 
+@pytest.mark.parametrize("recurrence", ["annual", "hourly"])
+def test_recurrence_filters_reach_sync_and_async_transports(
+    recurrence: typing.Literal["annual", "hourly"],
+) -> None:
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        if request.url.path == "/events/keyset":
+            payload: object = {"events": []}
+        elif request.url.path == "/series":
+            payload = []
+        else:
+            assert request.url.path == "/public-search"
+            payload = {"events": [], "pagination": {"hasMore": False}}
+        return httpx.Response(200, json=payload)
+
+    transport = httpx.MockTransport(handler)
+    with PublicClient() as client:
+        _install_sync_gamma_transport(client, transport)
+        assert client.list_events(recurrence=recurrence).first_page().items == ()
+        assert client.list_series(recurrence=recurrence).first_page().items == ()
+        assert client.search(q="markets", recurrence=recurrence).first_page().items[0].events == ()
+
+    async def run() -> None:
+        async with AsyncPublicClient() as client:
+            _install_async_gamma_transport(client, transport)
+            assert (await client.list_events(recurrence=recurrence).first_page()).items == ()
+            assert (await client.list_series(recurrence=recurrence).first_page()).items == ()
+            page = await client.search(q="markets", recurrence=recurrence).first_page()
+            assert page.items[0].events == ()
+
+    asyncio.run(run())
+    assert [request.url.path for request in captured] == [
+        "/events/keyset",
+        "/series",
+        "/public-search",
+    ] * 2
+    assert [request.url.params["recurrence"] for request in captured] == [recurrence] * 6
+
+
 def _items_handler(captured: list[httpx.Request], rows: list[list[int]]) -> httpx.MockTransport:
     def handler(request: httpx.Request) -> httpx.Response:
         captured.append(request)
