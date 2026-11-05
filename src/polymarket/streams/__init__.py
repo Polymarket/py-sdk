@@ -65,6 +65,11 @@ from polymarket.models.price_events import (
     EquityTwapPriceSnapshotEvent,
     EquityTwapPriceUpdateEvent,
     KnownPriceSource,
+    PolymarketPriceEvent,
+    PolymarketPriceQuote,
+    PolymarketPriceSnapshot,
+    PolymarketPriceSnapshotEvent,
+    PolymarketPriceUpdateEvent,
     PriceEvent,
     PriceSource,
     RealtimeEquityPriceSnapshot,
@@ -130,6 +135,7 @@ from polymarket.streams._specs import (
     PerpsStatisticsSpec,
     PerpsTickersSpec,
     PerpsTradesSpec,
+    PolymarketPriceSpec,
     PriceProviderInput,
     PriceSpec,
     PublicSubscription,
@@ -140,9 +146,23 @@ from polymarket.streams._specs import (
     UserSpec,
 )
 
-StreamEvent = MarketEvent | SportsEvent | RtdsEvent | UserEvent | PerpsMarketEvent | PriceEvent
+StreamEvent = (
+    MarketEvent
+    | SportsEvent
+    | RtdsEvent
+    | UserEvent
+    | PerpsMarketEvent
+    | PriceEvent
+    | PolymarketPriceEvent
+)
 
 __all__ = [
+    "PolymarketPriceEvent",
+    "PolymarketPriceQuote",
+    "PolymarketPriceSnapshot",
+    "PolymarketPriceSnapshotEvent",
+    "PolymarketPriceUpdateEvent",
+    "PolymarketPriceSpec",
     "RealtimeEquityTwapSnapshot",
     "RealtimeEquityTwapUpdate",
     "RealtimeEquityPriceSnapshot",

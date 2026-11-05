@@ -2,6 +2,7 @@
 import asyncio
 import logging
 from collections.abc import Callable, Mapping
+from typing import Any, overload
 
 from polymarket._internal.streams.handle import AsyncSubscriptionHandle
 from polymarket._internal.streams.realtime.protocol import PriceKey, subscriptions_for
@@ -9,8 +10,13 @@ from polymarket._internal.streams.realtime.session import PriceListener, PriceSe
 from polymarket._internal.streams.realtime.socket import PriceConnection
 from polymarket.errors import TransportError
 from polymarket.models.clob.api_key import ApiKeyCreds
-from polymarket.models.price_events import PriceEvent
-from polymarket.streams._specs import EquityPriceSpec, PriceSpec
+from polymarket.models.price_events import PolymarketPriceEvent, PriceEvent, RealtimePriceEvent
+from polymarket.streams._specs import (
+    EquityPriceSpec,
+    PolymarketPriceSpec,
+    PriceSpec,
+    RealtimePriceSpec,
+)
 
 
 class RealtimeStreamManager:
@@ -20,7 +26,7 @@ class RealtimeStreamManager:
         self,
         *,
         url: str,
-        credentials: ApiKeyCreds,
+        credentials: ApiKeyCreds | None = None,
         headers: Mapping[str, str] | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
@@ -31,7 +37,7 @@ class RealtimeStreamManager:
             logger,
         )
         self._sessions: list[PriceSession] = []
-        self._handles: set[AsyncSubscriptionHandle[PriceEvent]] = set()
+        self._handles: set[AsyncSubscriptionHandle[RealtimePriceEvent]] = set()
         self._closed = False
         self._closing: asyncio.Task[None] | None = None
 
@@ -55,10 +61,18 @@ class RealtimeStreamManager:
         self._sessions.append(session)
         return session
 
-    async def subscribe(self, spec: PriceSpec) -> AsyncSubscriptionHandle[PriceEvent]:
+    @overload
+    async def subscribe(
+        self, spec: PolymarketPriceSpec
+    ) -> AsyncSubscriptionHandle[PolymarketPriceEvent]: ...
+    @overload
+    async def subscribe(self, spec: PriceSpec) -> AsyncSubscriptionHandle[PriceEvent]: ...
+    async def subscribe(self, spec: RealtimePriceSpec) -> AsyncSubscriptionHandle[Any]:
         if self._closed:
             raise TransportError("Realtime streams are closed")
-        handle: AsyncSubscriptionHandle[PriceEvent] = AsyncSubscriptionHandle(queue_size=1024)
+        handle: AsyncSubscriptionHandle[RealtimePriceEvent] = AsyncSubscriptionHandle(
+            queue_size=1024
+        )
         self._handles.add(handle)
         releases: list[Callable[[], None]] = []
         active = True
@@ -72,10 +86,10 @@ class RealtimeStreamManager:
                 remove()
             self._handles.discard(handle)
 
-        async def close(_: AsyncSubscriptionHandle[PriceEvent]) -> None:
+        async def close(_: AsyncSubscriptionHandle[RealtimePriceEvent]) -> None:
             release()
 
-        def event(value: PriceEvent) -> None:
+        def event(value: RealtimePriceEvent) -> None:
             if active and not (
                 isinstance(spec, EquityPriceSpec) and spec.types and value.type not in spec.types
             ):

@@ -12,7 +12,13 @@ from polymarket._internal.streams.realtime.protocol import (
 )
 from polymarket._internal.streams.realtime.socket import Operation, PriceConnection
 from polymarket.errors import ConnectionLostError, RequestRejectedError, TransportError
-from polymarket.models.price_events import PriceEvent
+from polymarket.models.price_events import (
+    PolymarketPriceSnapshot,
+    PolymarketPriceSnapshotEvent,
+)
+from polymarket.models.price_events import (
+    RealtimePriceEvent as PriceEvent,
+)
 from polymarket.streams._specs import PriceProviderInput
 
 ACCEPTANCE_TIMEOUT_S = 30.0
@@ -161,10 +167,32 @@ class PriceSession:
         self._wake.set()
 
     def _event(self, event: PriceEvent) -> None:
-        state = self._keys.get(PriceKey(event.topic, event.payload.symbol, self._provider))
+        key = (
+            PriceKey(event.topic, asset_id=event.payload.asset_id)
+            if event.topic == "prices.polymarket"
+            else PriceKey(event.topic, event.payload.symbol, self._provider)
+        )
+        state = self._keys.get(key)
         if state is None:
             return
-        state.snapshot = refresh_snapshot(state.snapshot, event)
+        if event.topic == "prices.polymarket":
+            state.snapshot = (
+                event
+                if event.type == "subscribe"
+                else PolymarketPriceSnapshotEvent(
+                    timestamp=event.timestamp,
+                    seq=event.seq,
+                    dropped=event.dropped,
+                    payload=PolymarketPriceSnapshot(
+                        asset_id=event.payload.asset_id, data=(event.payload,)
+                    ),
+                )
+            )
+        else:
+            previous = state.snapshot
+            if previous is not None and previous.topic == "prices.polymarket":
+                previous = None
+            state.snapshot = refresh_snapshot(previous, event)
         for listener in tuple(state.listeners):
             listener.event(event)
 
