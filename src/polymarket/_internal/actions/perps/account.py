@@ -198,10 +198,31 @@ def list_deposits(
         default_window_ms=NINETY_DAYS_MS,
         start=start,
         end=end,
-        get_key=lambda item: str(item.get("hash")),
+        get_key=_deposit_key,
         get_timestamp=lambda item: item.get("confirmed_timestamp") or item.get("created_timestamp"),
         extra_params={"deposit_status": deposit_status, "hash": hash},
+        filter_page=_drop_repeated_deposit_events,
     )
+
+
+def _deposit_key(item: dict[str, Any]) -> str:
+    log_index = item.get("log_index")
+    return str(item.get("hash")) if log_index is None else f"{item.get('hash')}:{log_index}"
+
+
+def _drop_repeated_deposit_events(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    # Only deposits with a log index carry an event identity, so legacy rows
+    # sharing a transaction hash are all kept within a page.
+    kept: list[dict[str, Any]] = []
+    events: set[str] = set()
+    for item in items:
+        if item.get("log_index") is not None:
+            key = _deposit_key(item)
+            if key in events:
+                continue
+            events.add(key)
+        kept.append(item)
+    return kept
 
 
 def list_withdrawals(
@@ -466,6 +487,7 @@ def _descending_history(
     get_key: Callable[[dict[str, Any]], str],
     get_timestamp: Callable[[dict[str, Any]], Any],
     extra_params: dict[str, Any] | None = None,
+    filter_page: Callable[[list[dict[str, Any]]], list[dict[str, Any]]] | None = None,
 ) -> AsyncPaginator[_M]:
     start_ms = to_epoch_ms("start", start)
     end_ms = to_epoch_ms("end", end)
@@ -498,6 +520,8 @@ def _descending_history(
             item = as_json_dict(raw_item)
             if item is not None and get_key(item) not in seen:
                 fresh.append(item)
+        if filter_page is not None:
+            fresh = filter_page(fresh)
         items = tuple(model.parse_response(item) for item in fresh)
         raw_last = as_json_dict(data[-1]) if data else None
         last = fresh[-1] if fresh else None
@@ -508,7 +532,14 @@ def _descending_history(
             if raw_last is not None
             else None
         )
-        has_more = more and isinstance(cursor_ts, int) and cursor_ts > int(state["start_timestamp"])
+        has_more = (
+            more
+            and isinstance(cursor_ts, int)
+            and (
+                cursor_ts > int(state["start_timestamp"])
+                or (cursor_ts == int(state["start_timestamp"]) and last is not None)
+            )
+        )
         if not has_more or not isinstance(cursor_ts, int):
             return Page(items=items, has_more=False)
         next_state: dict[str, Any]
