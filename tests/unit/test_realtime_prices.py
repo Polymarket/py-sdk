@@ -213,7 +213,16 @@ def test_price_specs_reject_unsupported_providers(
     ],
 )
 @pytest.mark.parametrize(
-    "provider", [None, "pyth", "chainlink", KnownPriceSource.CHAINLINK, KnownPriceSource.PYTH]
+    "provider",
+    [
+        None,
+        "pyth",
+        "chainlink",
+        "binance",
+        KnownPriceSource.CHAINLINK,
+        KnownPriceSource.PYTH,
+        KnownPriceSource.BINANCE,
+    ],
 )
 def test_price_provider_subscribe_and_unsubscribe_requests(
     spec_type: Any,
@@ -353,7 +362,7 @@ def test_idle_provider_group_survives_cancellation_and_reconnect(
     "channel", ["price.crypto", "price.crypto.twap", "price.equity", "price.equity.twap"]
 )
 @pytest.mark.parametrize("snapshot", [False, True])
-@pytest.mark.parametrize("source", ["pyth", "chainlink", "massive", "future-vendor"])
+@pytest.mark.parametrize("source", ["pyth", "chainlink", "massive", "binance", "future-vendor"])
 def test_price_frames_preserve_exact_values_and_public_types(
     channel: str, snapshot: bool, source: str
 ) -> None:
@@ -406,7 +415,7 @@ def test_price_frames_reject_non_string_sources(
 @pytest.mark.parametrize(
     "channel", ["price.crypto", "price.crypto.twap", "price.equity", "price.equity.twap"]
 )
-@pytest.mark.parametrize("source", ["pyth", "chainlink", "massive", "future-vendor"])
+@pytest.mark.parametrize("source", ["pyth", "chainlink", "massive", "binance", "future-vendor"])
 @pytest.mark.parametrize("empty", [False, True])
 def test_snapshot_and_refreshed_history_preserve_source(
     channel: str, source: str, empty: bool

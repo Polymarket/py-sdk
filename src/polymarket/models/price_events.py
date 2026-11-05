@@ -13,6 +13,7 @@ from polymarket.models.base import BaseModel
 class KnownPriceSource(StrEnum):
     """Known price sources; additional sources are preserved as plain strings."""
 
+    BINANCE = "binance"
     PYTH = "pyth"
     CHAINLINK = "chainlink"
     MASSIVE = "massive"
