@@ -105,12 +105,18 @@ class RequestRejectedError(PolymarketError):
         code: str | None = None,
         retry_after: float | None = None,
         restriction: TradingRestriction | None = None,
+        retryable: bool | None = None,
+        trace_id: str | None = None,
+        parameter: str | None = None,
     ) -> None:
         super().__init__(message)
         self.status = status
         self.code = code
         self.retry_after = retry_after
         self.restriction = restriction
+        self.retryable = retryable
+        self.trace_id = trace_id
+        self.parameter = parameter
 
 
 class OrderHeartbeatMismatchError(RequestRejectedError):
@@ -121,8 +127,21 @@ class OrderHeartbeatMismatchError(RequestRejectedError):
     after a legacy heartbeat.
     """
 
-    def __init__(self, heartbeat_id: str) -> None:
-        super().__init__("Invalid Heartbeat ID", status=400)
+    def __init__(
+        self,
+        heartbeat_id: str,
+        *,
+        retryable: bool | None = None,
+        trace_id: str | None = None,
+        parameter: str | None = None,
+    ) -> None:
+        super().__init__(
+            "Invalid Heartbeat ID",
+            status=400,
+            retryable=retryable,
+            trace_id=trace_id,
+            parameter=parameter,
+        )
         self.heartbeat_id = heartbeat_id
 
 
@@ -151,10 +170,16 @@ class RateLimitError(PolymarketError):
         *,
         retry_after: float | None = None,
         rate_limit: RateLimitUpdate | None = None,
+        retryable: bool | None = None,
+        trace_id: str | None = None,
+        parameter: str | None = None,
     ) -> None:
         super().__init__(message)
         self.retry_after = retry_after
         self.rate_limit = rate_limit
+        self.retryable = retryable
+        self.trace_id = trace_id
+        self.parameter = parameter
 
 
 class TimeoutError(PolymarketError):
