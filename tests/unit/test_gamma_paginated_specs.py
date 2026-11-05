@@ -731,3 +731,31 @@ def test_list_markets_spec_rejects_malformed_protocol_selection(version: object)
 def test_list_markets_spec_rejects_malformed_id_filter_shapes(name: str, invalid: object) -> None:
     with pytest.raises(UserInputError, match=name):
         gamma_actions.list_markets_spec(**{name: invalid})  # type: ignore[arg-type]
+
+
+def test_perps_asset_comments_preserve_request_filters_and_mixed_parents() -> None:
+    rows = [
+        {"id": "1", "parentEntityType": "Event", "parentEntityID": 1},
+        {"id": "2", "parentEntityType": "PerpsAsset", "parentEntityID": 7},
+        {"id": "3", "parentEntityType": "Series", "parentEntityID": 2},
+        {"id": "4", "parentEntityType": "FutureParent", "parentEntityID": 3},
+    ]
+    offset = gamma_actions.list_comments_spec(parent_entity_id="7", parent_entity_type="PerpsAsset")
+    keyset = gamma_actions.list_comments_keyset_spec(
+        parent_entity_id="7", parent_entity_type="PerpsAsset"
+    )
+    for spec in (offset, keyset):
+        assert spec.base_params is not None
+        assert spec.base_params["parent_entity_type"] == "PerpsAsset"
+        assert spec.base_params["parent_entity_id"] == "7"
+    for comments in (
+        offset.parse_items(rows),
+        keyset.parse_page({"comments": rows}).items,
+    ):
+        assert [comment.id for comment in comments] == ["1", "2", "3", "4"]
+        assert [comment.parent_entity_type for comment in comments] == [
+            "Event",
+            "PerpsAsset",
+            "Series",
+            "FutureParent",
+        ]
