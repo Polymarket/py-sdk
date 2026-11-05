@@ -374,19 +374,11 @@ class ThresholdDecomposeActivity(_ThresholdActivity):
 class UnknownActivity(BaseModel):
     """Wallet activity whose type this SDK version does not list in ``ActivityType``.
 
-    ``type`` holds the type as served and ``raw`` keeps the full row. When
-    ``is_combo`` is true, ``condition_id`` is the Combo's condition id and the
-    market metadata does not apply.
+    Only the shared account fields are modeled. ``type`` holds the type as
+    served and ``raw`` keeps the full row.
     """
 
     type: str
-    is_combo: bool = False
-    amount: Decimal | None = Field(default=None, validation_alias="usdc_size")
-    condition_id: ConditionId | None = None
-    title: str | None = None
-    slug: str | None = None
-    icon: str | None = None
-    event_slug: str | None = None
     wallet: EvmAddress | None = Field(default=None, validation_alias="proxy_wallet")
     timestamp: datetime | None = None
     transaction_hash: TransactionHash | None = Field(
@@ -404,33 +396,6 @@ class UnknownActivity(BaseModel):
     _profile_text = field_validator(
         "name", "pseudonym", "bio", "profile_image", "profile_image_optimized", mode="before"
     )(optional_text)
-    _display_text = field_validator("title", "slug", "icon", "event_slug", mode="before")(
-        optional_text
-    )
-
-    @field_validator("is_combo", mode="before")
-    @classmethod
-    def _parse_is_combo(cls, value: object) -> bool:
-        return value is True
-
-    @field_validator("amount", mode="before")
-    @classmethod
-    def _parse_amount(cls, value: object) -> Decimal | None:
-        try:
-            return optional_decimal_from_number(value)
-        except ValueError:
-            return None
-
-    @field_validator("condition_id", mode="before")
-    @classmethod
-    def _parse_condition_id(cls, value: object) -> ConditionId | None:
-        text = optional_text(value)
-        if text is None:
-            return None
-        try:
-            return validate_condition_id_response(text)
-        except ValueError:
-            return None
 
     @field_validator("timestamp", mode="before")
     @classmethod

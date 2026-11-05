@@ -131,20 +131,6 @@ def test_unknown_activity_and_bad_shapes() -> None:
     unknown = parse_activity({"type": "FUTURE_EVENT", "new_field": 123, "name": ""})
     assert isinstance(unknown, UnknownActivity) and unknown.raw["new_field"] == 123
     assert unknown.name is None and unknown.raw["name"] == ""
-    assert unknown.is_combo is False and unknown.amount is None
-    combo_condition_id = f"0x03{'ab' * 30}"
-    combo = parse_activity(
-        {
-            "type": "FUTURE_COMBO_EVENT",
-            "is_combo": True,
-            "condition_id": combo_condition_id,
-            "usdc_size": 3,
-            "title": "",
-        }
-    )
-    assert isinstance(combo, UnknownActivity) and combo.is_combo is True
-    assert combo.condition_id == combo_condition_id and combo.amount == Decimal("3")
-    assert combo.title is None
     bad_payloads: tuple[object, ...] = (None, [], 1)
     for payload in bad_payloads:
         with pytest.raises(UnexpectedResponseError):
