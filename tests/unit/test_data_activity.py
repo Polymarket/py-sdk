@@ -80,7 +80,9 @@ def test_trade_amount_sentinels_and_combo_discriminator() -> None:
 def test_activity_variants(kind: str) -> None:
     payload = {**sample("activity")[0], "type": kind, "usdc_size": 1.25, "side": ""}
     row = parse_activity(payload)
-    assert not isinstance(row, UnknownActivity)
+    assert not isinstance(
+        row, UnknownActivity | ThresholdComposeActivity | ThresholdDecomposeActivity
+    )
     assert row.type is ActivityType(kind) and row.amount == Decimal("1.25")
     if isinstance(row, TipActivity):
         assert row.side is None
@@ -105,18 +107,22 @@ def test_directional_activity_is_event_level(kind: str) -> None:
 
 
 @pytest.mark.parametrize("kind", ["THRESHOLD_COMPOSE", "THRESHOLD_DECOMPOSE"])
-def test_threshold_activity_carries_line_market_and_side(kind: str) -> None:
+def test_threshold_activity_carries_line_market_side_and_shares(kind: str) -> None:
+    # Served like indexer vector v13_threshold_compose_module4_line: the moved
+    # line tokens in size, no collateral in usdc_size.
     payload = {
         **sample("activity")[0],
         "type": kind,
         "side": "",
-        "usdc_size": 4,
+        "size": 100,
+        "usdc_size": 0,
         "outcome": "Yes",
         "outcome_index": 0,
     }
     row = parse_activity(payload)
     assert isinstance(row, ThresholdComposeActivity | ThresholdDecomposeActivity)
-    assert row.type is ActivityType(kind) and row.amount == Decimal("4")
+    assert row.type is ActivityType(kind) and row.shares == Decimal("100")
+    assert not hasattr(row, "amount")
     assert row.condition_id == payload["condition_id"]
     assert row.outcome == "Yes" and row.outcome_index == 0
 
@@ -125,6 +131,20 @@ def test_unknown_activity_and_bad_shapes() -> None:
     unknown = parse_activity({"type": "FUTURE_EVENT", "new_field": 123, "name": ""})
     assert isinstance(unknown, UnknownActivity) and unknown.raw["new_field"] == 123
     assert unknown.name is None and unknown.raw["name"] == ""
+    assert unknown.is_combo is False and unknown.amount is None
+    combo_condition_id = f"0x03{'ab' * 30}"
+    combo = parse_activity(
+        {
+            "type": "FUTURE_COMBO_EVENT",
+            "is_combo": True,
+            "condition_id": combo_condition_id,
+            "usdc_size": 3,
+            "title": "",
+        }
+    )
+    assert isinstance(combo, UnknownActivity) and combo.is_combo is True
+    assert combo.condition_id == combo_condition_id and combo.amount == Decimal("3")
+    assert combo.title is None
     bad_payloads: tuple[object, ...] = (None, [], 1)
     for payload in bad_payloads:
         with pytest.raises(UnexpectedResponseError):
