@@ -297,7 +297,87 @@ class YieldActivity(_AccountCreditActivity):
     type: Literal[ActivityType.YIELD]
 
 
+class _DirectionalActivity(_KnownActivityBase):
+    """A range-event split or merge; the row belongs to the whole event, not one market."""
+
+    amount: Decimal = Field(validation_alias="usdc_size")
+    title: str | None = None
+    icon: str | None = None
+    event_slug: str | None = None
+
+    _display_text = field_validator("title", "icon", "event_slug", mode="before")(optional_text)
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def _parse_decimal(cls, value: object) -> Decimal | None:
+        return optional_decimal_from_number(value)
+
+
+class DirectionalSplitActivity(_DirectionalActivity):
+    """Collateral plus the buckets between two lines split into ABOVE the lower line
+    and BELOW the higher one."""
+
+    type: Literal[ActivityType.DIRECTIONAL_SPLIT]
+
+
+class DirectionalMergeActivity(_DirectionalActivity):
+    """ABOVE and BELOW line positions merged back into collateral plus the buckets
+    between the two lines."""
+
+    type: Literal[ActivityType.DIRECTIONAL_MERGE]
+
+
+class _ThresholdActivity(_KnownActivityBase):
+    """A range-event conversion between buckets and one line position.
+
+    ``condition_id`` is the line's market and ``outcome`` names the line side.
+    No collateral moves, so the row reports ``shares`` instead of a USDC amount.
+    """
+
+    condition_id: ConditionId = Field(validation_alias="condition_id")
+    shares: Decimal = Field(validation_alias="size")
+    title: str | None = None
+    slug: str | None = None
+    icon: str | None = None
+    event_slug: str | None = None
+    outcome: str | None = None
+    outcome_index: int | None = None
+
+    _display_text = field_validator(
+        "title", "slug", "icon", "event_slug", "outcome", mode="before"
+    )(optional_text)
+    _outcome_index = field_validator("outcome_index", mode="before")(optional_outcome_index)
+
+    @field_validator("condition_id", mode="before")
+    @classmethod
+    def _validate_condition_id(cls, value: object) -> ConditionId:
+        return validate_condition_id_response(value)
+
+    @field_validator("shares", mode="before")
+    @classmethod
+    def _parse_decimal(cls, value: object) -> Decimal | None:
+        return optional_decimal_from_number(value)
+
+
+class ThresholdComposeActivity(_ThresholdActivity):
+    """Range-event buckets composed into one line position."""
+
+    type: Literal[ActivityType.THRESHOLD_COMPOSE]
+
+
+class ThresholdDecomposeActivity(_ThresholdActivity):
+    """A range-event line position decomposed back into buckets."""
+
+    type: Literal[ActivityType.THRESHOLD_DECOMPOSE]
+
+
 class UnknownActivity(BaseModel):
+    """Wallet activity whose type this SDK version does not list in ``ActivityType``.
+
+    Only the shared account fields are modeled. ``type`` holds the type as
+    served and ``raw`` keeps the full row.
+    """
+
     type: str
     wallet: EvmAddress | None = Field(default=None, validation_alias="proxy_wallet")
     timestamp: datetime | None = None
@@ -355,6 +435,10 @@ Activity = (
     | YieldActivity
     | MigrationActivity
     | TipActivity
+    | DirectionalSplitActivity
+    | DirectionalMergeActivity
+    | ThresholdComposeActivity
+    | ThresholdDecomposeActivity
     | UnknownActivity
 )
 
@@ -443,6 +527,10 @@ _KNOWN_ACTIVITY_TYPES: dict[str, type[_KnownActivityBase]] = {
     ActivityType.YIELD: YieldActivity,
     ActivityType.MIGRATION: MigrationActivity,
     ActivityType.TIP: TipActivity,
+    ActivityType.DIRECTIONAL_SPLIT: DirectionalSplitActivity,
+    ActivityType.DIRECTIONAL_MERGE: DirectionalMergeActivity,
+    ActivityType.THRESHOLD_COMPOSE: ThresholdComposeActivity,
+    ActivityType.THRESHOLD_DECOMPOSE: ThresholdDecomposeActivity,
 }
 
 _COMBO_ACTIVITY_TYPES: dict[str, type[_ComboActivityBase]] = {
@@ -506,6 +594,8 @@ __all__ = [
     "ComboWrapActivity",
     "ConversionActivity",
     "DepositActivity",
+    "DirectionalMergeActivity",
+    "DirectionalSplitActivity",
     "MakerRebateActivity",
     "MergeActivity",
     "RedeemActivity",
@@ -513,6 +603,8 @@ __all__ = [
     "RewardActivity",
     "SplitActivity",
     "TakerRebateActivity",
+    "ThresholdComposeActivity",
+    "ThresholdDecomposeActivity",
     "Trade",
     "TradeActivity",
     "UnknownActivity",

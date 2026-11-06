@@ -1,5 +1,47 @@
 # Changelog
 
+## [0.17.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.16.0...polymarket-client-v0.17.0) (2026-11-05)
+
+
+### Features
+
+* **data:** add range-event activity types ([acc548c](https://github.com/Polymarket/py-sdk/commit/acc548c3a5e356b216bd24469efb06a78ca300ba))
+* **data:** add range-event activity types ([f517647](https://github.com/Polymarket/py-sdk/commit/f5176472c3aa7692292825375d570a3a11723683))
+* **streams:** support Binance price provider ([93e9ec1](https://github.com/Polymarket/py-sdk/commit/93e9ec1a3b1306f3d7463fede22dfe0ded763673))
+* **streams:** support Binance price provider ([f4bce02](https://github.com/Polymarket/py-sdk/commit/f4bce022f8e0a9dfbd13e82b791b1f4687a3ab43))
+
+
+### Bug Fixes
+
+* **data:** report threshold shares and expose combo fields on UnknownActivity ([d5b2d88](https://github.com/Polymarket/py-sdk/commit/d5b2d8810b532d7531060730eebd7b0c13b4bfd6))
+
+
+### Documentation
+
+* **data:** note threshold shares and unlisted rows in list_activity ([e5191e6](https://github.com/Polymarket/py-sdk/commit/e5191e68d3bd7e615169b1e67759b3b6ae58faa3))
+
+## [0.16.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.15.0...polymarket-client-v0.16.0) (2026-11-02)
+
+### Breaking Changes
+
+- Remove `download_accounting_snapshot` from `PublicClient`, `SecureClient`, `AsyncPublicClient`, and `AsyncSecureClient`. The accounting snapshot route has no V2 replacement. Remove calls to this download; portfolio, position, and activity reads do not provide an equivalent ZIP/CSV export.
+
+### Documentation
+
+* **changelog:** remove snapshot release policy ([2118eb4](https://github.com/Polymarket/py-sdk/commit/2118eb467e643155fe8b7ef0506014017ed52ab7))
+
+## [0.15.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.14.0...polymarket-client-v0.15.0) (2026-10-29)
+
+
+### Features
+
+* **models:** add taker delay in milliseconds ([fb4fea3](https://github.com/Polymarket/py-sdk/commit/fb4fea32089b276706e6d40e6333fc49fe043772))
+
+
+### Bug Fixes
+
+* **perps:** accept pre_ipo and future instrument categories ([#396](https://github.com/Polymarket/py-sdk/issues/396)) ([173fc78](https://github.com/Polymarket/py-sdk/commit/173fc78515a6705452abf3758f6bf6dd75a8bba1))
+
 ## [0.14.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.13.0...polymarket-client-v0.14.0) (2026-10-21)
 
 ### Features

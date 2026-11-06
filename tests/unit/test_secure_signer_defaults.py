@@ -125,47 +125,6 @@ def test_secure_get_user_stats_respects_explicit_user(
     assert _qs_user(captured[0]) == OTHER_WALLET
 
 
-# ---- download_accounting_snapshot ----
-
-
-def test_secure_download_accounting_snapshot_defaults_to_signer(
-    captured: list[httpx.Request],
-) -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured.append(request)
-        return httpx.Response(200, content=b"PK\x03\x04", request=request)
-
-    with SecureClient._create(
-        private_key=PRIVATE_KEY,
-        wallet=SIGNER_ADDRESS,
-        credentials=FAKE_CREDS,
-        validate_credentials=False,
-    ) as client:
-        _install_sync_data(client, httpx.MockTransport(handler))
-        client.download_accounting_snapshot()
-
-    assert _qs_user(captured[0]) == SIGNER_ADDRESS
-
-
-def test_secure_download_accounting_snapshot_respects_explicit_user(
-    captured: list[httpx.Request],
-) -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured.append(request)
-        return httpx.Response(200, content=b"PK\x03\x04", request=request)
-
-    with SecureClient._create(
-        private_key=PRIVATE_KEY,
-        wallet=SIGNER_ADDRESS,
-        credentials=FAKE_CREDS,
-        validate_credentials=False,
-    ) as client:
-        _install_sync_data(client, httpx.MockTransport(handler))
-        client.download_accounting_snapshot(user=OTHER_WALLET)
-
-    assert _qs_user(captured[0]) == OTHER_WALLET
-
-
 # ---- list_positions ----
 
 
@@ -308,30 +267,6 @@ def test_async_secure_list_positions_defaults_to_wallet_when_proxy() -> None:
     asyncio.run(run())
     assert _qs_user(captured[0]).lower() == proxy_wallet.lower()
     assert _qs_user(captured[0]).lower() != SIGNER_ADDRESS.lower()
-
-
-def test_async_secure_download_accounting_snapshot_defaults_to_signer() -> None:
-    captured: list[httpx.Request] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured.append(request)
-        return httpx.Response(200, content=b"PK\x03\x04", request=request)
-
-    async def run() -> None:
-        client = await AsyncSecureClient._create(
-            private_key=PRIVATE_KEY,
-            wallet=SIGNER_ADDRESS,
-            credentials=FAKE_CREDS,
-            validate_credentials=False,
-        )
-        try:
-            _install_async_data(client, httpx.MockTransport(handler))
-            await client.download_accounting_snapshot()
-        finally:
-            await client.close()
-
-    asyncio.run(run())
-    assert _qs_user(captured[0]) == SIGNER_ADDRESS
 
 
 # ---- empty-string is not None ----

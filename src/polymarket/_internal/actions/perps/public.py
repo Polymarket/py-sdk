@@ -3,7 +3,7 @@
 import asyncio
 import time
 from datetime import datetime
-from typing import Any, cast
+from typing import Any, cast, overload
 
 from polymarket._internal.actions.perps.builders import validate_address
 from polymarket._internal.actions.perps.paging import (
@@ -25,6 +25,7 @@ from polymarket.models.perps.market import (
     PerpsFeeScheduleEntry,
     PerpsFundingRate,
     PerpsInstrument,
+    PerpsInstrumentFeeSchedule,
     PerpsStatistic,
     PerpsTicker,
     PerpsTrade,
@@ -37,7 +38,6 @@ from polymarket.models.perps.types import (
 from polymarket.pagination import AsyncPaginator, Page
 
 _BOOK_DEPTHS = (10, 100, 500, 1000)
-_CATEGORIES = ("equity", "commodity", "index", "crypto")
 _KLINE_INTERVALS = ("1s", "1m", "5m", "15m", "1h", "4h", "1d", "1w")
 
 
@@ -66,8 +66,8 @@ async def fetch_instruments(
     category: PerpsInstrumentCategory | None = None,
 ) -> tuple[PerpsInstrument, ...]:
     _validate_instrument_id(instrument_id, optional=True)
-    if category is not None and category not in _CATEGORIES:
-        raise UserInputError(f"category must be one of {list(_CATEGORIES)}, got {category!r}")
+    if category is not None and (not isinstance(cast(object, category), str) or not category):
+        raise UserInputError("category must be a non-empty string")
     payload = await perps.get_json(
         "/v1/info/instruments",
         params={"instrument_id": instrument_id, "category": category},
@@ -120,10 +120,35 @@ async def fetch_book(
     return PerpsBook.parse_response(payload)
 
 
-async def fetch_fees(perps: AsyncTransport) -> tuple[PerpsFeeScheduleEntry, ...]:
-    payload = as_json_dict(await perps.get_json("/v1/info/fees"))
+@overload
+async def fetch_fees(
+    perps: AsyncTransport, *, instrument_id: None = None
+) -> tuple[PerpsFeeScheduleEntry, ...]: ...
+
+
+@overload
+async def fetch_fees(
+    perps: AsyncTransport, *, instrument_id: int
+) -> tuple[PerpsInstrumentFeeSchedule, ...]: ...
+
+
+@overload
+async def fetch_fees(
+    perps: AsyncTransport, *, instrument_id: int | None
+) -> tuple[PerpsFeeScheduleEntry, ...] | tuple[PerpsInstrumentFeeSchedule, ...]: ...
+
+
+async def fetch_fees(
+    perps: AsyncTransport, *, instrument_id: int | None = None
+) -> tuple[PerpsFeeScheduleEntry, ...] | tuple[PerpsInstrumentFeeSchedule, ...]:
+    _validate_instrument_id(instrument_id, optional=True)
+    payload = as_json_dict(
+        await perps.get_json("/v1/info/fees", params={"instrument_id": instrument_id})
+    )
     if payload is None or not isinstance(payload.get("fee_schedule"), list):
         raise UnexpectedResponseError("Perps fees response did not match expected shape")
+    if instrument_id is not None:
+        return PerpsInstrumentFeeSchedule.parse_response_list(payload["fee_schedule"])
     return PerpsFeeScheduleEntry.parse_response_list(payload["fee_schedule"])
 
 

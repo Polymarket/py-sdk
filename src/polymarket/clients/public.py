@@ -176,6 +176,10 @@ class PublicClient:
         ``RedeemActivity``; check ``is_combo`` to identify a basket.
         A basket's outcome names its token side, not a selected leg.
 
+        Threshold compose and decompose rows move no collateral, so they report
+        ``shares`` and have no ``amount``. Rows with a type this SDK version does
+        not list return ``UnknownActivity``, which keeps the full row in ``raw``.
+
         Resuming a cursor uses the page size stored by that cursor."""
         spec = _data_actions.list_activity_spec(
             user=user,
@@ -833,11 +837,6 @@ class PublicClient:
             return _builders_actions.parse_builder_trades_page(payload)
 
         return Paginator(fetch=fetch)
-
-    def download_accounting_snapshot(self, *, user: str) -> bytes:
-        """Download the accounting snapshot archive for a user."""
-        path, params = _data_actions.build_accounting_snapshot_request(user=user)
-        return self._ctx.data.get_bytes(path, params=params)
 
     def list_events(
         self,

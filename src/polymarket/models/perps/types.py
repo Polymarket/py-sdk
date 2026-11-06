@@ -31,7 +31,17 @@ class PerpsInternalTransferDirection(StrEnum):
     OUT = "out"
 
 
-PerpsInstrumentCategory: TypeAlias = Literal["equity", "commodity", "index", "crypto"]
+class PerpsKnownInstrumentCategory(StrEnum):
+    """Known instrument categories; additional categories may appear over time."""
+
+    EQUITY = "equity"
+    COMMODITY = "commodity"
+    INDEX = "index"
+    CRYPTO = "crypto"
+    PRE_IPO = "pre_ipo"
+
+
+PerpsInstrumentCategory: TypeAlias = PerpsKnownInstrumentCategory | str
 PerpsMarginType: TypeAlias = Literal["cross", "isolated"]
 PerpsNotificationOrderType: TypeAlias = Literal["market", "limit", "take_profit", "stop_loss"]
 PerpsNotificationType: TypeAlias = Literal[
@@ -110,6 +120,7 @@ __all__ = [
     "PerpsEntityId",
     "PerpsFundingPaymentId",
     "PerpsInstrumentCategory",
+    "PerpsKnownInstrumentCategory",
     "PerpsInstrumentId",
     "PerpsKlineInterval",
     "PerpsKnownWithdrawalStatus",
