@@ -153,11 +153,12 @@ establish portfolio visibility or a collateral-return PnL policy.
 ## Activity and validation
 
 Activity feeds model `DIRECTIONAL_MERGE` / `DIRECTIONAL_SPLIT` as event-level rows
-with `event_id`, `pairs` and collateral `amount`. `THRESHOLD_COMPOSE` /
-`THRESHOLD_DECOMPOSE` carry `condition_id`, `line`, `side` and `shares`, with no
-collateral movement. Quantities in activity models are `Decimal`. Missing labels
-remain `None`. Filters accept the dedicated activity names; `MERGE` / `SPLIT`
-do not include the corresponding directional operations.
+with collateral `amount`. `THRESHOLD_COMPOSE` /
+`THRESHOLD_DECOMPOSE` carry the line market `condition_id`, `outcome`,
+`outcome_index` and `shares`, with no collateral movement or `amount` field.
+Quantities in activity models are `Decimal`. Missing labels remain `None`.
+Filters accept the dedicated activity names; `MERGE` / `SPLIT` do not include the
+corresponding directional operations.
 
 Run local verification and the credential-free example:
 

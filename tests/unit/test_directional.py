@@ -7,7 +7,6 @@ from data_v2_samples import sample
 from polymarket import (
     DirectionalInstrumentKind,
     DirectionalSide,
-    ThresholdSide,
     UserInputError,
     decode_position_id,
     derive_directional_bucket_positions,
@@ -34,7 +33,6 @@ from polymarket.calls import (
     router_merge_directional_call,
     router_split_directional_call,
 )
-from polymarket.errors import UnexpectedResponseError
 from polymarket.models.data.activity import (
     DirectionalMergeActivity,
     DirectionalSplitActivity,
@@ -216,13 +214,13 @@ def test_directional_activities_preserve_economics_with_missing_metadata() -> No
         row = parse_activity({**base, "type": kind, "condition_id": EVENT})
         assert isinstance(row, cls)
         assert isinstance(row, (DirectionalMergeActivity, DirectionalSplitActivity))
-        assert row.event_id == EVENT and row.pairs == Decimal("12.5")
+        assert not hasattr(row, "condition_id")
         assert row.amount == Decimal("12.5") and row.title is None
     for kind, cls in [
         ("THRESHOLD_COMPOSE", ThresholdComposeActivity),
         ("THRESHOLD_DECOMPOSE", ThresholdDecomposeActivity),
     ]:
-        for outcome, side in [(0, ThresholdSide.ABOVE), (1, ThresholdSide.BELOW)]:
+        for outcome in (0, 1):
             row = parse_activity(
                 {
                     **base,
@@ -234,12 +232,6 @@ def test_directional_activities_preserve_economics_with_missing_metadata() -> No
             )
             assert isinstance(row, cls)
             assert isinstance(row, (ThresholdComposeActivity, ThresholdDecomposeActivity))
-            assert (row.event_id, row.line, row.side, row.shares, row.amount) == (
-                EVENT,
-                2,
-                side,
-                Decimal("12.5"),
-                Decimal(0),
-            )
-        with pytest.raises(UnexpectedResponseError):
-            parse_activity({**base, "type": kind, "condition_id": EVENT + "0002"})
+            assert row.condition_id == EVENT + "8002"
+            assert row.outcome_index == outcome and row.shares == Decimal("12.5")
+            assert not hasattr(row, "amount")

@@ -99,7 +99,7 @@ async def test_directional_merge_reverse_live(
             rows = [row for row in page.items if row.transaction_hash == outcome.transaction_hash]
             if rows:
                 assert len(rows) == 1 and isinstance(rows[0], DirectionalMergeActivity)
-                assert rows[0].pairs == 1 and rows[0].amount == 1
+                assert rows[0].amount == 1
                 break
             if time.monotonic() >= deadline:
                 pytest.fail("Confirmed merge has no activity row after 30 seconds")

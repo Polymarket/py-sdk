@@ -204,6 +204,8 @@ from polymarket.models.data import (
     ComboWrapActivity,
     ConversionActivity,
     DepositActivity,
+    DirectionalMergeActivity,
+    DirectionalSplitActivity,
     Holder,
     LeaderboardWindow,
     LiveVolume,
@@ -235,6 +237,8 @@ from polymarket.models.data import (
     SortDirection,
     SplitActivity,
     TakerRebateActivity,
+    ThresholdComposeActivity,
+    ThresholdDecomposeActivity,
     TipActivity,
     TipSide,
     TokenModule,
@@ -256,12 +260,6 @@ from polymarket.models.data import (
     UserVolume,
     WithdrawalActivity,
     YieldActivity,
-)
-from polymarket.models.data.activity import (
-    DirectionalMergeActivity,
-    DirectionalSplitActivity,
-    ThresholdComposeActivity,
-    ThresholdDecomposeActivity,
 )
 from polymarket.models.directional import (
     DecodedPositionId,
@@ -363,10 +361,6 @@ from polymarket.types import EvmAddress, HexString, TransactionHash
 from polymarket.version import __version__
 
 __all__ = [
-    "DirectionalSplitActivity",
-    "DirectionalMergeActivity",
-    "ThresholdComposeActivity",
-    "ThresholdDecomposeActivity",
     "decode_position_id",
     "derive_directional_bucket_positions",
     "derive_directional_threshold_positions",
@@ -438,6 +432,8 @@ __all__ = [
     "ComboWrapActivity",
     "ConversionActivity",
     "DepositActivity",
+    "DirectionalMergeActivity",
+    "DirectionalSplitActivity",
     "Holder",
     "LeaderboardWindow",
     "LiveVolume",
@@ -471,6 +467,8 @@ __all__ = [
     "SortDirection",
     "SplitActivity",
     "TakerRebateActivity",
+    "ThresholdComposeActivity",
+    "ThresholdDecomposeActivity",
     "TipActivity",
     "TipSide",
     "Trade",

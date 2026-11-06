@@ -94,10 +94,6 @@ from polymarket.models.data.resolutions import (
 from polymarket.models.data.tokens import TokenModule, TokenReference
 
 __all__ = [
-    "DirectionalSplitActivity",
-    "DirectionalMergeActivity",
-    "ThresholdComposeActivity",
-    "ThresholdDecomposeActivity",
     "Activity",
     "ActivityType",
     "ActivityTypeFilter",
@@ -125,6 +121,8 @@ __all__ = [
     "ComboWrapActivity",
     "ConversionActivity",
     "DepositActivity",
+    "DirectionalMergeActivity",
+    "DirectionalSplitActivity",
     "Holder",
     "LeaderboardWindow",
     "LiveVolume",
@@ -158,6 +156,8 @@ __all__ = [
     "SortDirection",
     "SplitActivity",
     "TakerRebateActivity",
+    "ThresholdComposeActivity",
+    "ThresholdDecomposeActivity",
     "TipActivity",
     "TipSide",
     "Trade",

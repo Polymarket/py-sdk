@@ -6,7 +6,7 @@ from typing import Any, Literal, Self, cast
 
 from pydantic import Field, computed_field, field_validator, model_validator
 
-from polymarket.errors import UnexpectedResponseError, UserInputError
+from polymarket.errors import UnexpectedResponseError
 from polymarket.models.base import BaseModel
 from polymarket.models.data.common import (
     ActivityType,
@@ -20,13 +20,11 @@ from polymarket.models.data.common import (
     optional_text,
 )
 from polymarket.models.data.portfolio import ComboPositionLeg
-from polymarket.models.directional import ThresholdSide
 from polymarket.models.types import (
     ClobAssetId,
     ComboActivityId,
     ComboConditionId,
     ConditionId,
-    DirectionalEventId,
     OrderSide,
     PositionId,
     validate_combo_condition_id,
@@ -251,90 +249,6 @@ class ConversionActivity(_MarketEventActivity):
     type: Literal[ActivityType.CONVERSION]
 
 
-class _DirectionalActivity(_KnownActivityBase):
-    """An event-level collateral movement and the number of pairs exchanged."""
-
-    event_id: DirectionalEventId = Field(validation_alias="condition_id")
-    pairs: Decimal = Field(validation_alias="size")
-    amount: Decimal = Field(validation_alias="usdc_size")
-    title: str | None = None
-    slug: str | None = None
-    icon: str | None = None
-    event_slug: str | None = None
-
-    _amounts = field_validator("pairs", "amount", mode="before")(decimal_from_number)
-    _text = field_validator("title", "slug", "icon", "event_slug", mode="before")(optional_text)
-
-    @field_validator("event_id", mode="before")
-    @classmethod
-    def _event(cls, value: object) -> DirectionalEventId:
-        from polymarket._internal.directional import normalize_directional_event_id
-
-        if not isinstance(value, str):
-            raise ValueError("Expected a directional event ID")
-        try:
-            return normalize_directional_event_id(value)
-        except UserInputError as error:
-            raise ValueError(str(error)) from error
-
-
-class DirectionalSplitActivity(_DirectionalActivity):
-    type: Literal[ActivityType.DIRECTIONAL_SPLIT]
-
-
-class DirectionalMergeActivity(_DirectionalActivity):
-    type: Literal[ActivityType.DIRECTIONAL_MERGE]
-
-
-class _ThresholdActivity(_MarketEventActivity):
-    """Inventory conversion for one threshold side, with no collateral movement."""
-
-    shares: Decimal = Field(validation_alias="size")
-    outcome_index: Literal[0, 1]
-    outcome: str | None = None
-
-    _shares = field_validator("shares", mode="before")(decimal_from_number)
-    _outcome = field_validator("outcome", mode="before")(optional_text)
-
-    @field_validator("condition_id", mode="before")
-    @classmethod
-    def _threshold_condition(cls, value: object) -> ConditionId:
-        from polymarket._internal.directional import normalize_directional_condition_id
-
-        if not isinstance(value, str):
-            raise ValueError("Expected a threshold condition ID")
-        try:
-            condition = normalize_directional_condition_id(value)
-        except UserInputError as error:
-            raise ValueError(str(error)) from error
-        if not int(condition[60:], 16) & 0x8000:
-            raise ValueError("Expected a threshold condition ID")
-        return condition
-
-    @computed_field
-    @property
-    def event_id(self) -> DirectionalEventId:
-        return DirectionalEventId(self.condition_id[:60])
-
-    @computed_field
-    @property
-    def line(self) -> int:
-        return int(self.condition_id[60:], 16) & 0x7FFF
-
-    @computed_field
-    @property
-    def side(self) -> ThresholdSide:
-        return ThresholdSide.ABOVE if self.outcome_index == 0 else ThresholdSide.BELOW
-
-
-class ThresholdComposeActivity(_ThresholdActivity):
-    type: Literal[ActivityType.THRESHOLD_COMPOSE]
-
-
-class ThresholdDecomposeActivity(_ThresholdActivity):
-    type: Literal[ActivityType.THRESHOLD_DECOMPOSE]
-
-
 class _AccountCreditActivity(_KnownActivityBase):
     amount: Decimal = Field(validation_alias="usdc_size")
 
@@ -383,7 +297,87 @@ class YieldActivity(_AccountCreditActivity):
     type: Literal[ActivityType.YIELD]
 
 
+class _DirectionalActivity(_KnownActivityBase):
+    """A range-event split or merge; the row belongs to the whole event, not one market."""
+
+    amount: Decimal = Field(validation_alias="usdc_size")
+    title: str | None = None
+    icon: str | None = None
+    event_slug: str | None = None
+
+    _display_text = field_validator("title", "icon", "event_slug", mode="before")(optional_text)
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def _parse_decimal(cls, value: object) -> Decimal | None:
+        return optional_decimal_from_number(value)
+
+
+class DirectionalSplitActivity(_DirectionalActivity):
+    """Collateral plus the buckets between two lines split into ABOVE the lower line
+    and BELOW the higher one."""
+
+    type: Literal[ActivityType.DIRECTIONAL_SPLIT]
+
+
+class DirectionalMergeActivity(_DirectionalActivity):
+    """ABOVE and BELOW line positions merged back into collateral plus the buckets
+    between the two lines."""
+
+    type: Literal[ActivityType.DIRECTIONAL_MERGE]
+
+
+class _ThresholdActivity(_KnownActivityBase):
+    """A range-event conversion between buckets and one line position.
+
+    ``condition_id`` is the line's market and ``outcome`` names the line side.
+    No collateral moves, so the row reports ``shares`` instead of a USDC amount.
+    """
+
+    condition_id: ConditionId = Field(validation_alias="condition_id")
+    shares: Decimal = Field(validation_alias="size")
+    title: str | None = None
+    slug: str | None = None
+    icon: str | None = None
+    event_slug: str | None = None
+    outcome: str | None = None
+    outcome_index: int | None = None
+
+    _display_text = field_validator(
+        "title", "slug", "icon", "event_slug", "outcome", mode="before"
+    )(optional_text)
+    _outcome_index = field_validator("outcome_index", mode="before")(optional_outcome_index)
+
+    @field_validator("condition_id", mode="before")
+    @classmethod
+    def _validate_condition_id(cls, value: object) -> ConditionId:
+        return validate_condition_id_response(value)
+
+    @field_validator("shares", mode="before")
+    @classmethod
+    def _parse_decimal(cls, value: object) -> Decimal | None:
+        return optional_decimal_from_number(value)
+
+
+class ThresholdComposeActivity(_ThresholdActivity):
+    """Range-event buckets composed into one line position."""
+
+    type: Literal[ActivityType.THRESHOLD_COMPOSE]
+
+
+class ThresholdDecomposeActivity(_ThresholdActivity):
+    """A range-event line position decomposed back into buckets."""
+
+    type: Literal[ActivityType.THRESHOLD_DECOMPOSE]
+
+
 class UnknownActivity(BaseModel):
+    """Wallet activity whose type this SDK version does not list in ``ActivityType``.
+
+    Only the shared account fields are modeled. ``type`` holds the type as
+    served and ``raw`` keeps the full row.
+    """
+
     type: str
     wallet: EvmAddress | None = Field(default=None, validation_alias="proxy_wallet")
     timestamp: datetime | None = None
@@ -427,10 +421,6 @@ class UnknownActivity(BaseModel):
 
 Activity = (
     TradeActivity
-    | DirectionalSplitActivity
-    | DirectionalMergeActivity
-    | ThresholdComposeActivity
-    | ThresholdDecomposeActivity
     | ComboTradeActivity
     | SplitActivity
     | MergeActivity
@@ -445,6 +435,10 @@ Activity = (
     | YieldActivity
     | MigrationActivity
     | TipActivity
+    | DirectionalSplitActivity
+    | DirectionalMergeActivity
+    | ThresholdComposeActivity
+    | ThresholdDecomposeActivity
     | UnknownActivity
 )
 
@@ -519,10 +513,6 @@ ComboActivity = (
 
 
 _KNOWN_ACTIVITY_TYPES: dict[str, type[_KnownActivityBase]] = {
-    ActivityType.DIRECTIONAL_SPLIT: DirectionalSplitActivity,
-    ActivityType.DIRECTIONAL_MERGE: DirectionalMergeActivity,
-    ActivityType.THRESHOLD_COMPOSE: ThresholdComposeActivity,
-    ActivityType.THRESHOLD_DECOMPOSE: ThresholdDecomposeActivity,
     ActivityType.TRADE: TradeActivity,
     ActivityType.SPLIT: SplitActivity,
     ActivityType.MERGE: MergeActivity,
@@ -537,6 +527,10 @@ _KNOWN_ACTIVITY_TYPES: dict[str, type[_KnownActivityBase]] = {
     ActivityType.YIELD: YieldActivity,
     ActivityType.MIGRATION: MigrationActivity,
     ActivityType.TIP: TipActivity,
+    ActivityType.DIRECTIONAL_SPLIT: DirectionalSplitActivity,
+    ActivityType.DIRECTIONAL_MERGE: DirectionalMergeActivity,
+    ActivityType.THRESHOLD_COMPOSE: ThresholdComposeActivity,
+    ActivityType.THRESHOLD_DECOMPOSE: ThresholdDecomposeActivity,
 }
 
 _COMBO_ACTIVITY_TYPES: dict[str, type[_ComboActivityBase]] = {
@@ -588,10 +582,6 @@ def parse_combo_activities(payload: object) -> tuple[ComboActivity, ...]:
 
 
 __all__ = [
-    "DirectionalSplitActivity",
-    "DirectionalMergeActivity",
-    "ThresholdComposeActivity",
-    "ThresholdDecomposeActivity",
     "Activity",
     "ComboActivity",
     "ComboCompressActivity",
@@ -604,6 +594,8 @@ __all__ = [
     "ComboWrapActivity",
     "ConversionActivity",
     "DepositActivity",
+    "DirectionalMergeActivity",
+    "DirectionalSplitActivity",
     "MakerRebateActivity",
     "MergeActivity",
     "RedeemActivity",
@@ -611,6 +603,8 @@ __all__ = [
     "RewardActivity",
     "SplitActivity",
     "TakerRebateActivity",
+    "ThresholdComposeActivity",
+    "ThresholdDecomposeActivity",
     "Trade",
     "TradeActivity",
     "UnknownActivity",

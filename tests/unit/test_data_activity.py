@@ -11,10 +11,14 @@ from polymarket import (
     ComboActivityType,
     ComboTradeActivity,
     ConditionId,
+    DirectionalMergeActivity,
+    DirectionalSplitActivity,
     MergeActivity,
     PublicClient,
     RedeemActivity,
     SplitActivity,
+    ThresholdComposeActivity,
+    ThresholdDecomposeActivity,
     TipActivity,
     TradeActivity,
     UnknownActivity,
@@ -76,10 +80,51 @@ def test_trade_amount_sentinels_and_combo_discriminator() -> None:
 def test_activity_variants(kind: str) -> None:
     payload = {**sample("activity")[0], "type": kind, "usdc_size": 1.25, "side": ""}
     row = parse_activity(payload)
-    assert not isinstance(row, UnknownActivity)
+    assert not isinstance(
+        row, UnknownActivity | ThresholdComposeActivity | ThresholdDecomposeActivity
+    )
     assert row.type is ActivityType(kind) and row.amount == Decimal("1.25")
     if isinstance(row, TipActivity):
         assert row.side is None
+
+
+@pytest.mark.parametrize("kind", ["DIRECTIONAL_SPLIT", "DIRECTIONAL_MERGE"])
+def test_directional_activity_is_event_level(kind: str) -> None:
+    payload = {
+        **sample("activity")[0],
+        "type": kind,
+        "condition_id": "",
+        "side": "",
+        "outcome": "",
+        "outcome_index": 999,
+        "usdc_size": 25,
+    }
+    row = parse_activity(payload)
+    assert isinstance(row, DirectionalSplitActivity | DirectionalMergeActivity)
+    assert row.type is ActivityType(kind) and row.amount == Decimal("25")
+    assert row.title == payload["title"] and row.event_slug == payload["event_slug"]
+    assert not hasattr(row, "condition_id")
+
+
+@pytest.mark.parametrize("kind", ["THRESHOLD_COMPOSE", "THRESHOLD_DECOMPOSE"])
+def test_threshold_activity_carries_line_market_side_and_shares(kind: str) -> None:
+    # Served like indexer vector v13_threshold_compose_module4_line: the moved
+    # line tokens in size, no collateral in usdc_size.
+    payload = {
+        **sample("activity")[0],
+        "type": kind,
+        "side": "",
+        "size": 100,
+        "usdc_size": 0,
+        "outcome": "Yes",
+        "outcome_index": 0,
+    }
+    row = parse_activity(payload)
+    assert isinstance(row, ThresholdComposeActivity | ThresholdDecomposeActivity)
+    assert row.type is ActivityType(kind) and row.shares == Decimal("100")
+    assert not hasattr(row, "amount")
+    assert row.condition_id == payload["condition_id"]
+    assert row.outcome == "Yes" and row.outcome_index == 0
 
 
 def test_unknown_activity_and_bad_shapes() -> None:

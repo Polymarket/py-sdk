@@ -426,11 +426,21 @@ def test_subscribe_rejects_empty_token_id_string() -> None:
     asyncio.run(run())
 
 
-def test_subscribe_while_reconnect_pending_reopens_immediately() -> None:
+def test_subscribe_while_reconnect_pending_reopens_immediately(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """If the socket has dropped and a reconnect timer is queued, a new
     subscribe() must call connect() and bring the socket back up rather
     than waiting behind the backoff.
     """
+    from polymarket._internal.streams import reconnect
+
+    def fixed_backoff(attempt: int, *, base_s: float, max_s: float) -> float:
+        return max_s
+
+    # The configured backoff is a cap: jitter can otherwise reconnect before
+    # this test observes the close and adds the second subscription.
+    monkeypatch.setattr(reconnect, "jittered_backoff", fixed_backoff)
     connect_count = 0
     initial_frames: list[dict[str, Any]] = []
 
@@ -454,12 +464,13 @@ def test_subscribe_while_reconnect_pending_reopens_immediately() -> None:
             from polymarket._internal.streams.reconnect import ReconnectScheduler
 
             mgr = ClobMarketStreamManager(url=url)
-            mgr._scheduler = ReconnectScheduler(base_s=30.0, max_s=30.0)  # pyright: ignore[reportPrivateUsage]
+            scheduler = ReconnectScheduler(base_s=30.0, max_s=30.0)
+            mgr._scheduler = scheduler  # pyright: ignore[reportPrivateUsage]
             try:
                 h1 = await mgr.subscribe(token_ids=["a"])
                 # Wait for the server-initiated close to register.
                 deadline = asyncio.get_event_loop().time() + 2.0
-                while mgr.is_open:
+                while mgr.is_open or not scheduler.is_pending:
                     if asyncio.get_event_loop().time() > deadline:
                         raise AssertionError("server-close not observed")
                     await asyncio.sleep(0.02)
