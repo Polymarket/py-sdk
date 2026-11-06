@@ -1,0 +1,163 @@
+# pyright: reportPrivateUsage=false
+import asyncio
+import dataclasses
+from datetime import UTC, datetime
+from decimal import Decimal
+
+import httpx
+import pytest
+import respx
+from _relayer_helpers import FAKE_CREDS, make_deposit_client, make_sync_deposit_client
+
+from polymarket._internal.actions.account import (
+    build_list_wallet_open_orders_request,
+    parse_wallet_open_orders_page,
+)
+from polymarket._internal.actions.orders.cancel import build_cancel_wallet_orders_request
+from polymarket.errors import UserInputError
+
+
+def test_wallet_orders_filters_and_redacted_owner() -> None:
+    signer = "0x" + "12" * 20
+    path, params = build_list_wallet_open_orders_request(
+        asset_id="123", market="condition", session_keys=[signer], cursor="next"
+    )
+    assert path == "/data/wallet-open-orders"
+    assert params == {
+        "asset_id": "123",
+        "market": "condition",
+        "session_keys": signer,
+        "cursor": "next",
+    }
+    page = parse_wallet_open_orders_page(
+        {
+            "data": [
+                {
+                    "id": "order",
+                    "asset_id": "123",
+                    "market": "condition",
+                    "signer_address": signer,
+                    "maker_address": "0x" + "34" * 20,
+                    "owner": "",
+                    "side": "BUY",
+                    "price": "0.05",
+                    "original_size": "10",
+                    "size_matched": "5",
+                    "outcome": "Yes",
+                    "order_type": "GTC",
+                    "status": "LIVE",
+                    "created_at": 1700000000,
+                    "expiration": "0",
+                }
+            ],
+            "next_cursor": "",
+        }
+    )
+    order = page.items[0]
+    assert order.owner is None
+    assert order.signer_address == signer
+    assert order.price == Decimal("0.05")
+    assert order.size_matched == Decimal("5")
+    assert order.created_at == datetime.fromtimestamp(1700000000, tz=UTC)
+    assert order.expires_at is None
+    assert not page.has_more
+
+
+def test_empty_wallet_order_page_can_continue() -> None:
+    page = parse_wallet_open_orders_page({"data": [], "next_cursor": "next"})
+    assert page.items == ()
+    assert page.has_more
+    assert page.next_cursor == "next"
+
+
+@pytest.mark.parametrize(
+    "order_ids,all_orders",
+    [
+        (None, None),
+        ([], None),
+        (["id"], True),
+        (None, False),
+        (["id"] * 1001, None),
+        (["malformed"], None),
+    ],
+)
+def test_wallet_cancel_requires_one_explicit_mode(
+    order_ids: list[str] | None, all_orders: object
+) -> None:
+    with pytest.raises(UserInputError):
+        build_cancel_wallet_orders_request(order_ids=order_ids, all=all_orders)  # type: ignore[arg-type]
+
+
+def test_wallet_cancel_keeps_requested_ids_and_explicit_all() -> None:
+    order_id = "0x" + "12" * 32
+    assert build_cancel_wallet_orders_request(order_ids=[order_id]) == (
+        "/cancel-wallet-orders",
+        {"order_ids": [order_id]},
+    )
+    assert build_cancel_wallet_orders_request(all=True) == ("/cancel-wallet-orders", {"all": True})
+
+
+@pytest.mark.parametrize("async_client", [False, True])
+def test_wallet_order_clients_follow_empty_pages_and_cancel(async_client: bool) -> None:
+    order_id = "0x" + "12" * 32
+    session_address = "0x" + "34" * 20
+    with respx.mock as router:
+
+        def wallet_orders(request: httpx.Request) -> httpx.Response:
+            assert request.headers["POLY_API_KEY"] == FAKE_CREDS.key
+            assert request.headers["POLY_SIGNATURE"]
+            assert request.url.params["session_keys"] == session_address
+            assert request.url.params["asset_id"] == "123"
+            assert "next_cursor" not in request.url.params
+            if "cursor" not in request.url.params:
+                return httpx.Response(200, json={"data": [], "next_cursor": "next"})
+            assert request.url.params["cursor"] == "next"
+            return httpx.Response(200, json={"data": [], "next_cursor": ""})
+
+        router.get("https://clob.polymarket.com/data/wallet-open-orders").mock(
+            side_effect=wallet_orders
+        )
+        cancel_route = router.delete("https://clob.polymarket.com/cancel-wallet-orders").respond(
+            200, json={"canceled": [order_id], "not_canceled": {}}
+        )
+
+        async def run() -> None:
+            client = await make_deposit_client()
+            try:
+                pages = [
+                    page
+                    async for page in client.list_wallet_open_orders(
+                        asset_id="123", session_keys=[session_address]
+                    )
+                ]
+                assert len(pages) == 2
+                assert pages[0].items == () and pages[0].has_more
+                assert not pages[1].has_more
+                cancellation = await client.cancel_wallet_orders(order_ids=[order_id])
+                assert cancellation.canceled == (order_id,)
+                owner_context = client._ctx
+                client._ctx = dataclasses.replace(owner_context, signer_type="SESSION_KEY")
+                with pytest.raises(UserInputError, match="Deposit Wallet owner"):
+                    await client.cancel_wallet_orders(all=True)
+                client._ctx = owner_context
+            finally:
+                await client.close()
+
+        if async_client:
+            asyncio.run(run())
+        else:
+            with make_sync_deposit_client() as client:
+                pages = list(
+                    client.list_wallet_open_orders(asset_id="123", session_keys=[session_address])
+                )
+                assert len(pages) == 2
+                assert pages[0].items == () and pages[0].has_more
+                assert not pages[1].has_more
+                cancellation = client.cancel_wallet_orders(order_ids=[order_id])
+                assert cancellation.canceled == (order_id,)
+                owner_context = client._ctx
+                client._ctx = dataclasses.replace(owner_context, signer_type="SESSION_KEY")
+                with pytest.raises(UserInputError, match="Deposit Wallet owner"):
+                    client.cancel_wallet_orders(all=True)
+                client._ctx = owner_context
+        assert cancel_route.call_count == 1

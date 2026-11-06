@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import re
 
@@ -15,6 +16,7 @@ from polymarket import (
     RelayerApiKey,
     SessionKeyKnownScope,
     UserInputError,
+    WalletOpenOrder,
 )
 
 pytestmark = pytest.mark.anyio
@@ -94,7 +96,24 @@ async def test_session_key_authorizes_lists_trades_and_revokes(
             order_id = str(placed.order_id)
             assert placed.status == "live"
 
-            cancellation = await session_client.cancel_order(order_id=order_id)
+            placed_order: WalletOpenOrder | None = None
+            for attempt in range(16):
+                wallet_orders = [
+                    order
+                    async for order in deposit_wallet_client.list_wallet_open_orders(
+                        session_keys=[session_account.address], asset_id=str(token_id)
+                    ).iter_items()
+                ]
+                placed_order = next(
+                    (order for order in wallet_orders if order.id == order_id), None
+                )
+                if placed_order is not None:
+                    break
+                if attempt < 15:
+                    await asyncio.sleep(1)
+            assert placed_order is not None
+            assert placed_order.signer_address.lower() == session_account.address.lower()
+            cancellation = await deposit_wallet_client.cancel_wallet_orders(order_ids=[order_id])
             assert order_id in cancellation.canceled
             order_id = None
 

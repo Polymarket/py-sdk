@@ -183,6 +183,7 @@ from polymarket.models import (
     TagReference,
     Team,
     TradingApprovalsState,
+    WalletOpenOrder,
 )
 from polymarket.models.clob.api_key import BuilderApiKeyInfo
 from polymarket.models.clob.cancel import CancelOrdersResponse
@@ -2514,6 +2515,42 @@ class AsyncSecureClient:
 
         return AsyncPaginator(fetch=fetch)
 
+    def list_wallet_open_orders(
+        self,
+        *,
+        market: str | None = None,
+        asset_id: str | None = None,
+        session_keys: Sequence[str] | None = None,
+        cursor: str | None = None,
+    ) -> AsyncPaginator[WalletOpenOrder]:
+        """List live orders across the Deposit Wallet's owner and session signers.
+
+        Owners and non-revoked session signers can list the wallet's orders.
+        ``session_keys`` selects up to 50 signer addresses. A short or empty
+        page can have a continuation cursor. Iteration follows that cursor.
+
+        Example::
+
+            async for order in client.list_wallet_open_orders().iter_items():
+                print(order.id, order.signer_address, order.owner)
+        """
+        if self._ctx.wallet_type != "DEPOSIT_WALLET":
+            raise UserInputError("Wallet-wide orders require a Deposit Wallet.")
+        _, validated = _account_actions.build_list_wallet_open_orders_request(
+            market=market, asset_id=asset_id, session_keys=session_keys, cursor=cursor
+        )
+
+        async def fetch(next_cursor: str | None) -> Page[WalletOpenOrder]:
+            params = dict(validated)
+            params.pop("cursor", None)
+            if next_cursor is not None:
+                params["cursor"] = next_cursor
+            path = "/data/wallet-open-orders"
+            payload = await self._ctx.secure_clob.get_json(path, params=params)
+            return _account_actions.parse_wallet_open_orders_page(payload)
+
+        return AsyncPaginator(fetch=fetch, initial_cursor=cursor)
+
     async def get_order(self, *, order_id: str) -> OpenOrder:
         """Get one open order for the authenticated account."""
         path, params = _account_actions.build_get_order_request(order_id=order_id)
@@ -3744,6 +3781,30 @@ class AsyncSecureClient:
     async def cancel_all(self) -> CancelOrdersResponse:
         """Cancel all open orders for the authenticated account."""
         path, body = _cancel_actions.build_cancel_all_request()
+        return _cancel_actions.parse_cancel_orders_response(
+            await self._ctx.secure_clob.delete_json(path, json=body)
+        )
+
+    async def cancel_wallet_orders(
+        self, *, order_ids: Sequence[str] | None = None, all: Literal[True] | None = None
+    ) -> CancelOrdersResponse:
+        """Cancel selected or all live orders across the owner's Deposit Wallet.
+
+        Set exactly one of ``order_ids`` (1 to 1,000 IDs) or ``all=True``.
+        Session signers cannot use this operation. Unsuccessful IDs appear
+        in ``not_canceled`` without rejecting successful cancellations.
+        After an uncertain outcome, read wallet orders before retrying.
+
+        Example::
+
+            cancellation = await client.cancel_wallet_orders(order_ids=[order_id])
+            await client.cancel_wallet_orders(all=True)
+        """
+        if self._ctx.wallet_type != "DEPOSIT_WALLET" or self._ctx.signer_type != "OWNER":
+            raise UserInputError("Wallet-wide cancellation requires the Deposit Wallet owner.")
+        path, body = _cancel_actions.build_cancel_wallet_orders_request(
+            order_ids=order_ids, all=all
+        )
         return _cancel_actions.parse_cancel_orders_response(
             await self._ctx.secure_clob.delete_json(path, json=body)
         )

@@ -5,6 +5,7 @@ from polymarket.models.clob.account import (
     MakerOrder,
     OpenOrder,
     TradeStatus,
+    WalletOpenOrder,
 )
 from polymarket.models.clob.api_key import ApiKeyCreds, BuilderApiKeyInfo
 from polymarket.models.clob.builder import BuilderFeeRates, BuilderTrade
@@ -115,6 +116,7 @@ __all__ = [
     "Notification",
     "NotificationType",
     "OpenOrder",
+    "WalletOpenOrder",
     "OrderCancellationNotification",
     "OrderFillFailedNotification",
     "OrderFillNotification",
