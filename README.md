@@ -187,3 +187,23 @@ POLYMARKET_RUN_METERED_TESTS=1 make test-integration
 
 We welcome bug reports, feature requests, and feedback through GitHub Issues.
 See [CONTRIBUTING.md](CONTRIBUTING.md) before proposing code changes.
+
+## Directional collateral return
+
+Merge two compatible threshold positions using their IDs in either order:
+
+```python
+client.setup_trading_approvals()
+pairs = client.find_directional_pairs()
+if pairs:
+    selected = pairs[0]
+    client.merge_directional(
+        selected.above_position_id,
+        selected.below_position_id,
+        amount=selected.amount,
+    ).wait()
+```
+
+The same methods are available on `AsyncSecureClient` with `await`. Bucket,
+threshold, whole-event and custom-signing operations are covered in the
+[directional integration guide](docs/directional-markets.md).

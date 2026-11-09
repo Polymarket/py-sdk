@@ -36,3 +36,12 @@ Version
    :type: str
 
    The installed SDK version.
+
+Directional identifiers
+------------------------
+
+.. autofunction:: polymarket.decode_position_id
+
+.. autofunction:: polymarket.derive_directional_bucket_positions
+
+.. autofunction:: polymarket.derive_directional_threshold_positions
