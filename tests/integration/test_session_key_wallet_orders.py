@@ -5,6 +5,7 @@ import contextlib
 from decimal import Decimal
 
 import pytest
+from _session_keys import run_session_key_operation_when_ready
 from eth_account import Account
 
 from polymarket import (
@@ -24,6 +25,7 @@ pytestmark = pytest.mark.anyio
 
 @pytest.mark.integration
 @pytest.mark.metered
+@pytest.mark.usefixtures("serial_session_key_wallet")
 async def test_session_key_wallet_orders_are_read_and_cancelled_by_owner(
     relayer_api_key: RelayerApiKey,
     deposit_wallet_private_key: str,
@@ -57,9 +59,11 @@ async def test_session_key_wallet_orders_are_read_and_cancelled_by_owner(
     orders_may_remain = False
     try:
         authorization_attempted = True
-        authorization = await owner.authorize_session_key(
-            address=session_account.address,
-            scopes=(SessionKeyKnownScope.CLOB,),
+        authorization = await run_session_key_operation_when_ready(
+            lambda: owner.authorize_session_key(
+                address=session_account.address,
+                scopes=(SessionKeyKnownScope.CLOB,),
+            )
         )
         assert authorization.session_key.address.lower() == session_account.address.lower()
         assert authorization.session_key in await owner.fetch_session_keys()
@@ -131,7 +135,9 @@ async def test_session_key_wallet_orders_are_read_and_cancelled_by_owner(
         remaining = await _collect(owner.list_wallet_open_orders(asset_id=asset_id))
         assert {session_order_id, owner_order_id}.isdisjoint(order.id for order in remaining)
 
-        await owner.revoke_session_key(address=session_account.address)
+        await run_session_key_operation_when_ready(
+            lambda: owner.revoke_session_key(address=session_account.address)
+        )
         revoked = True
         assert all(
             key.address.lower() != session_account.address.lower()
@@ -143,10 +149,13 @@ async def test_session_key_wallet_orders_are_read_and_cancelled_by_owner(
                 await owner.cancel_all_wallet_orders()
         if session is not None:
             await session.close()
-        if authorization_attempted and not revoked:
-            with contextlib.suppress(Exception):
-                await owner.revoke_session_key(address=session_account.address)
-        await owner.close()
+        try:
+            if authorization_attempted and not revoked:
+                await run_session_key_operation_when_ready(
+                    lambda: owner.revoke_session_key(address=session_account.address)
+                )
+        finally:
+            await owner.close()
 
 
 async def _place_resting_order(
