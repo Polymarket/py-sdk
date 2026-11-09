@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.18.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.17.0...polymarket-client-v0.18.0) (2026-11-09)
+
+
+### Features
+
+* **client:** add wallet-wide order management ([63575b1](https://github.com/Polymarket/py-sdk/commit/63575b1ba3a0626af7244a95631ffcbe41960a05))
+* **client:** add wallet-wide orders and broaden session-key auth ([f6e5131](https://github.com/Polymarket/py-sdk/commit/f6e513161842519da54e170500a6252452ad6c56))
+* **client:** support relayer keys for session authorization ([4a4cd96](https://github.com/Polymarket/py-sdk/commit/4a4cd9621cf1ddb1e81feda42320d42db5986d42))
+
 ## [0.17.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.16.0...polymarket-client-v0.17.0) (2026-11-05)
 
 
