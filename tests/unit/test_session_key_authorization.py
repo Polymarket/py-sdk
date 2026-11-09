@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 import httpx
 import pytest
 from _relayer_helpers import (
+    PK_DEPLOY_WALLET,
     PK_PROXY_WALLET,
     SPENDER,
     TOKEN,
@@ -688,33 +689,57 @@ def test_authorize_session_key_rejects_invalid_scope_combinations() -> None:
         client.close()
 
 
-def test_authorize_session_key_requires_builder_api_key() -> None:
+def test_authorize_session_key_requires_gasless_api_key() -> None:
     with make_sync_deposit_client() as client:
         client._ctx = dataclasses.replace(client._ctx, api_key=None)
         with pytest.raises(
             UserInputError,
-            match="Session-key authorization requires builder API-key authentication",
+            match="Session-key management requires API-key authentication",
         ):
             client.authorize_session_key(
                 address=_SESSION_ADDRESS,
             )
 
 
-def test_authorize_session_key_rejects_relayer_api_key() -> None:
+@pytest.mark.parametrize("async_client", [False, True])
+def test_authorize_session_key_accepts_owner_relayer_api_key(async_client: bool) -> None:
     relayer_api_key = RelayerApiKey(
         key="relayer-key",
-        address="0x0000000000000000000000000000000000000001",
+        address=Account.from_key(PK_DEPLOY_WALLET).address,
     )
+    captured: list[httpx.Request] = []
 
-    with make_sync_deposit_client() as client:
-        client._ctx = dataclasses.replace(client._ctx, api_key=relayer_api_key)
-        with pytest.raises(
-            UserInputError,
-            match="Session-key authorization requires builder API-key authentication",
-        ):
-            client.authorize_session_key(
+    async def run() -> AuthorizeSessionKeyResult:
+        client = await make_deposit_client(api_key=relayer_api_key)
+        handler = _authorization_handler(captured, wallet=str(client.wallet))
+        install_relayer_handler(client, handler)
+        _install_secure_clob_handler(client, handler)
+        try:
+            return await client.authorize_session_key(
                 address=_SESSION_ADDRESS,
+                scopes=(SessionKeyKnownScope.CLOB,),
             )
+        finally:
+            await client.close()
+
+    if async_client:
+        authorization = asyncio.run(run())
+    else:
+        with make_sync_deposit_client(api_key=relayer_api_key) as client:
+            handler = _authorization_handler(captured, wallet=str(client.wallet))
+            install_sync_relayer_handler(client, handler)
+            _install_sync_secure_clob_handler(client, handler)
+            authorization = client.authorize_session_key(
+                address=_SESSION_ADDRESS,
+                scopes=(SessionKeyKnownScope.CLOB,),
+            )
+
+    assert authorization.session_key.address.lower() == _SESSION_ADDRESS.lower()
+    assert authorization.transaction.transaction_hash == _TRANSACTION_HASH
+    submission = next(request for request in captured if request.url.path == _AUTHORIZATIONS_PATH)
+    assert submission.headers["RELAYER_API_KEY"] == relayer_api_key.key
+    assert submission.headers["RELAYER_API_KEY_ADDRESS"] == relayer_api_key.address
+    assert not any(name.startswith("poly_builder_") for name in submission.headers)
 
 
 def test_revoke_session_key_requires_gasless_api_key() -> None:
@@ -722,7 +747,7 @@ def test_revoke_session_key_requires_gasless_api_key() -> None:
         client._ctx = dataclasses.replace(client._ctx, api_key=None)
         with pytest.raises(
             UserInputError,
-            match="Session-key revocation requires API-key authentication",
+            match="Session-key management requires API-key authentication",
         ):
             client.revoke_session_key(address=_SESSION_ADDRESS)
 

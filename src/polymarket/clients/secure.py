@@ -949,8 +949,8 @@ class SecureClient:
 
         The SDK receives only the public address. The application remains
         responsible for generating, storing, and protecting the private key.
-        Requires a :class:`BuilderApiKey` passed as ``api_key=`` when
-        constructing the client.
+        Requires a ``BuilderApiKey`` or ``RelayerApiKey`` passed as ``api_key=``
+        when constructing the client. Account credentials alone are insufficient.
         Scope names are normalized to uppercase. Unknown names remain usable
         before this SDK enumerates them. When scopes are omitted,
         authorization defaults to ``ALL``.

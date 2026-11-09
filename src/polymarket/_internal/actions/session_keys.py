@@ -24,7 +24,6 @@ from polymarket._internal.actions.relayer.gasless import (
     build_signed_deposit_wallet_batch_sync,
 )
 from polymarket._internal.context import AsyncSecureClientContext, SyncSecureClientContext
-from polymarket.auth import BuilderApiKey
 from polymarket.errors import (
     RateLimitError,
     RequestRejectedError,
@@ -197,7 +196,7 @@ async def authorize_session_key(
     idempotency_key: str | None,
 ) -> AuthorizeSessionKeyResult:
     _assert_owner_deposit_wallet(ctx)
-    _require_builder_api_key(ctx)
+    _require_gasless_api_key(ctx)
     request = _parse_authorize_session_key_request(
         address=address,
         scopes=scopes,
@@ -241,7 +240,7 @@ def authorize_session_key_sync(
     idempotency_key: str | None,
 ) -> AuthorizeSessionKeyResult:
     _assert_owner_deposit_wallet(ctx)
-    _require_builder_api_key(ctx)
+    _require_gasless_api_key(ctx)
     request = _parse_authorize_session_key_request(
         address=address,
         scopes=scopes,
@@ -429,15 +428,10 @@ def _assert_owner_deposit_wallet(ctx: _SecureContext) -> None:
         raise UserInputError("Session keys can only be managed by the Deposit Wallet owner.")
 
 
-def _require_builder_api_key(ctx: _SecureContext) -> None:
-    if not isinstance(ctx.api_key, BuilderApiKey):
-        raise UserInputError("Session-key authorization requires builder API-key authentication.")
-
-
 def _require_gasless_api_key(ctx: _SecureContext) -> None:
     if ctx.api_key is None:
         raise UserInputError(
-            "Session-key revocation requires API-key authentication that supports "
+            "Session-key management requires API-key authentication that supports "
             "gasless transactions."
         )
 
