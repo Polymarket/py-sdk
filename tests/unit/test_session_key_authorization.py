@@ -694,7 +694,7 @@ def test_authorize_session_key_requires_gasless_api_key() -> None:
         client._ctx = dataclasses.replace(client._ctx, api_key=None)
         with pytest.raises(
             UserInputError,
-            match="Session-key management requires API-key authentication",
+            match="Session-key management requires api_key=",
         ):
             client.authorize_session_key(
                 address=_SESSION_ADDRESS,
@@ -747,7 +747,7 @@ def test_revoke_session_key_requires_gasless_api_key() -> None:
         client._ctx = dataclasses.replace(client._ctx, api_key=None)
         with pytest.raises(
             UserInputError,
-            match="Session-key management requires API-key authentication",
+            match="Session-key management requires api_key=",
         ):
             client.revoke_session_key(address=_SESSION_ADDRESS)
 

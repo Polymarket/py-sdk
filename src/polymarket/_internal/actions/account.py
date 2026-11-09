@@ -104,7 +104,7 @@ def build_list_wallet_open_orders_request(
     *,
     market: str | None = None,
     asset_id: str | None = None,
-    session_keys: Sequence[str] | None = None,
+    signer_addresses: Sequence[str] | None = None,
     cursor: str | None = None,
 ) -> tuple[str, dict[str, QueryParamValue]]:
     params: dict[str, QueryParamValue] = {}
@@ -112,20 +112,19 @@ def build_list_wallet_open_orders_request(
         params["market"] = require_nonempty("market", market)
     if asset_id is not None:
         params["asset_id"] = require_nonempty("asset_id", asset_id)
-    if session_keys is not None:
-        if isinstance(session_keys, str | bytes):
-            raise UserInputError("session_keys must be a sequence of EVM addresses.")
-        if len(session_keys) > 50:
-            raise UserInputError("session_keys cannot exceed 50 addresses.")
-        for address in cast(Sequence[object], session_keys):
+    if signer_addresses is not None:
+        if isinstance(signer_addresses, str | bytes):
+            raise UserInputError("signer_addresses must be a sequence of EVM addresses.")
+        if not signer_addresses or len(signer_addresses) > 50:
+            raise UserInputError("signer_addresses must contain between 1 and 50 addresses.")
+        for address in cast(Sequence[object], signer_addresses):
             if (
                 not isinstance(address, str)
                 or not address.startswith("0x")
                 or not is_address(address)
             ):
-                raise UserInputError("session_keys must contain valid EVM addresses.")
-        if session_keys:
-            params["session_keys"] = ",".join(session_keys)
+                raise UserInputError("signer_addresses must contain valid EVM addresses.")
+        params["session_keys"] = ",".join(signer_addresses)
     validated_cursor = validate_cursor(cursor)
     if validated_cursor is not None:
         params["cursor"] = validated_cursor

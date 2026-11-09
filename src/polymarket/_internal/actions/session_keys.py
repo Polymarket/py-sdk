@@ -431,8 +431,8 @@ def _assert_owner_deposit_wallet(ctx: _SecureContext) -> None:
 def _require_gasless_api_key(ctx: _SecureContext) -> None:
     if ctx.api_key is None:
         raise UserInputError(
-            "Session-key management requires API-key authentication that supports "
-            "gasless transactions."
+            "Session-key management requires api_key=BuilderApiKey(...) or "
+            "api_key=RelayerApiKey(...)."
         )
 
 

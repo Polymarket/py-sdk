@@ -998,7 +998,8 @@ class SecureClient:
         """Revoke a session key authorized for the Deposit Wallet.
 
         Returns once the key is absent from the active-key registry and unusable.
-        Requires an ``api_key=`` that supports gasless transactions.
+        Requires a ``BuilderApiKey`` or ``RelayerApiKey`` passed as ``api_key=``
+        when constructing the client.
 
         Raises:
             UserInputError: If the client or revocation input is invalid.
@@ -2042,7 +2043,10 @@ class SecureClient:
         id: str | None = None,
         market: str | None = None,
     ) -> Paginator[OpenOrder]:
-        """List open orders for the authenticated account.
+        """List open orders placed with this client's credentials.
+
+        On a Deposit Wallet, use :meth:`list_wallet_open_orders` to include
+        orders placed by the owner and its session keys.
 
         Returns:
             A paginator over matching open orders.
@@ -2062,14 +2066,16 @@ class SecureClient:
         *,
         market: str | None = None,
         asset_id: str | None = None,
-        session_keys: Sequence[str] | None = None,
+        signer_addresses: Sequence[str] | None = None,
         cursor: str | None = None,
     ) -> Paginator[WalletOpenOrder]:
         """List live orders across the Deposit Wallet's owner and session signers.
 
         Owners and non-revoked session signers can list the wallet's orders.
-        ``session_keys`` selects up to 50 signer addresses. A short or empty
-        page can have a continuation cursor. Iteration follows that cursor.
+        ``signer_addresses`` selects orders placed by the owner or its session
+        keys and accepts 1 to 50 addresses. Omit it to include every signer.
+        A short or empty page can have a continuation cursor. Iteration
+        follows that cursor.
 
         Example::
 
@@ -2079,7 +2085,10 @@ class SecureClient:
         if self._ctx.wallet_type != "DEPOSIT_WALLET":
             raise UserInputError("Wallet-wide orders require a Deposit Wallet.")
         _, validated = _account_actions.build_list_wallet_open_orders_request(
-            market=market, asset_id=asset_id, session_keys=session_keys, cursor=cursor
+            market=market,
+            asset_id=asset_id,
+            signer_addresses=signer_addresses,
+            cursor=cursor,
         )
 
         def fetch(next_cursor: str | None) -> Page[WalletOpenOrder]:
@@ -2453,21 +2462,33 @@ class SecureClient:
         )
 
     def cancel_order(self, *, order_id: str) -> CancelOrdersResponse:
-        """Cancel one open order for the authenticated account."""
+        """Cancel one open order placed with this client's credentials.
+
+        On a Deposit Wallet, the owner can use :meth:`cancel_wallet_orders`
+        for orders placed by session keys.
+        """
         path, body = _cancel_actions.build_cancel_order_request(order_id=order_id)
         return _cancel_actions.parse_cancel_orders_response(
             self._ctx.secure_clob.delete_json(path, json=body)
         )
 
     def cancel_orders(self, *, order_ids: Sequence[str]) -> CancelOrdersResponse:
-        """Cancel multiple open orders for the authenticated account."""
+        """Cancel multiple open orders placed with this client's credentials.
+
+        On a Deposit Wallet, the owner can use :meth:`cancel_wallet_orders`
+        for orders placed by session keys.
+        """
         path, body = _cancel_actions.build_cancel_orders_request(order_ids=order_ids)
         return _cancel_actions.parse_cancel_orders_response(
             self._ctx.secure_clob.delete_json(path, json=body)
         )
 
     def cancel_all(self) -> CancelOrdersResponse:
-        """Cancel all open orders for the authenticated account."""
+        """Cancel all open orders placed with this client's credentials.
+
+        On a Deposit Wallet, the owner can use
+        :meth:`cancel_all_wallet_orders` to include orders placed by session keys.
+        """
         path, body = _cancel_actions.build_cancel_all_request()
         return _cancel_actions.parse_cancel_orders_response(
             self._ctx.secure_clob.delete_json(path, json=body)

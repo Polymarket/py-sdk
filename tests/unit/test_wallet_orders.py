@@ -20,14 +20,15 @@ from polymarket.errors import UserInputError
 
 def test_wallet_orders_filters_and_redacted_owner() -> None:
     signer = "0x" + "12" * 20
+    owner = "0x" + "56" * 20
     path, params = build_list_wallet_open_orders_request(
-        asset_id="123", market="condition", session_keys=[signer], cursor="next"
+        asset_id="123", market="condition", signer_addresses=[signer, owner], cursor="next"
     )
     assert path == "/data/wallet-open-orders"
     assert params == {
         "asset_id": "123",
         "market": "condition",
-        "session_keys": signer,
+        "session_keys": f"{signer},{owner}",
         "cursor": "next",
     }
     page = parse_wallet_open_orders_page(
@@ -62,6 +63,13 @@ def test_wallet_orders_filters_and_redacted_owner() -> None:
     assert order.created_at == datetime.fromtimestamp(1700000000, tz=UTC)
     assert order.expires_at is None
     assert not page.has_more
+
+
+@pytest.mark.parametrize("signer_addresses", [[], ["0x" + "12" * 20] * 51, ["not-an-address"]])
+def test_wallet_orders_reject_invalid_signer_filters(signer_addresses: list[str]) -> None:
+    # An empty filter must not widen into every signer's orders.
+    with pytest.raises(UserInputError, match="signer_addresses"):
+        build_list_wallet_open_orders_request(signer_addresses=signer_addresses)
 
 
 def test_empty_wallet_order_page_can_continue() -> None:
@@ -136,7 +144,7 @@ def test_wallet_order_clients_follow_empty_pages_and_cancel(async_client: bool) 
                 pages = [
                     page
                     async for page in client.list_wallet_open_orders(
-                        asset_id="123", session_keys=[session_address]
+                        asset_id="123", signer_addresses=[session_address]
                     )
                 ]
                 assert len(pages) == 2
@@ -161,7 +169,9 @@ def test_wallet_order_clients_follow_empty_pages_and_cancel(async_client: bool) 
         else:
             with make_sync_deposit_client() as client:
                 pages = list(
-                    client.list_wallet_open_orders(asset_id="123", session_keys=[session_address])
+                    client.list_wallet_open_orders(
+                        asset_id="123", signer_addresses=[session_address]
+                    )
                 )
                 assert len(pages) == 2
                 assert pages[0].items == () and pages[0].has_more
