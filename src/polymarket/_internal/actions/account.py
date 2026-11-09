@@ -113,17 +113,14 @@ def build_list_wallet_open_orders_request(
     if asset_id is not None:
         params["asset_id"] = require_nonempty("asset_id", asset_id)
     if signer_addresses is not None:
-        if isinstance(signer_addresses, str | bytes):
-            raise UserInputError("signer_addresses must be a sequence of EVM addresses.")
-        if not signer_addresses or len(signer_addresses) > 50:
+        # An empty filter must not widen into every signer's orders.
+        if isinstance(signer_addresses, str | bytes) or not 1 <= len(signer_addresses) <= 50:
             raise UserInputError("signer_addresses must contain between 1 and 50 addresses.")
-        for address in cast(Sequence[object], signer_addresses):
-            if (
-                not isinstance(address, str)
-                or not address.startswith("0x")
-                or not is_address(address)
-            ):
-                raise UserInputError("signer_addresses must contain valid EVM addresses.")
+        if not all(
+            isinstance(a, str) and a.startswith("0x") and is_address(a)
+            for a in cast(Sequence[object], signer_addresses)
+        ):
+            raise UserInputError("signer_addresses must contain valid EVM addresses.")
         params["session_keys"] = ",".join(signer_addresses)
     validated_cursor = validate_cursor(cursor)
     if validated_cursor is not None:

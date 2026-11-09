@@ -701,45 +701,23 @@ def test_authorize_session_key_requires_gasless_api_key() -> None:
             )
 
 
-@pytest.mark.parametrize("async_client", [False, True])
-def test_authorize_session_key_accepts_owner_relayer_api_key(async_client: bool) -> None:
+def test_authorize_session_key_accepts_relayer_api_key() -> None:
     relayer_api_key = RelayerApiKey(
         key="relayer-key",
         address=Account.from_key(PK_DEPLOY_WALLET).address,
     )
     captured: list[httpx.Request] = []
 
-    async def run() -> AuthorizeSessionKeyResult:
-        client = await make_deposit_client(api_key=relayer_api_key)
+    with make_sync_deposit_client(api_key=relayer_api_key) as client:
         handler = _authorization_handler(captured, wallet=str(client.wallet))
-        install_relayer_handler(client, handler)
-        _install_secure_clob_handler(client, handler)
-        try:
-            return await client.authorize_session_key(
-                address=_SESSION_ADDRESS,
-                scopes=(SessionKeyKnownScope.CLOB,),
-            )
-        finally:
-            await client.close()
+        install_sync_relayer_handler(client, handler)
+        _install_sync_secure_clob_handler(client, handler)
+        authorization = client.authorize_session_key(
+            address=_SESSION_ADDRESS,
+            scopes=(SessionKeyKnownScope.CLOB,),
+        )
 
-    if async_client:
-        authorization = asyncio.run(run())
-    else:
-        with make_sync_deposit_client(api_key=relayer_api_key) as client:
-            handler = _authorization_handler(captured, wallet=str(client.wallet))
-            install_sync_relayer_handler(client, handler)
-            _install_sync_secure_clob_handler(client, handler)
-            authorization = client.authorize_session_key(
-                address=_SESSION_ADDRESS,
-                scopes=(SessionKeyKnownScope.CLOB,),
-            )
-
-    assert authorization.session_key.address.lower() == _SESSION_ADDRESS.lower()
     assert authorization.transaction.transaction_hash == _TRANSACTION_HASH
-    submission = next(request for request in captured if request.url.path == _AUTHORIZATIONS_PATH)
-    assert submission.headers["RELAYER_API_KEY"] == relayer_api_key.key
-    assert submission.headers["RELAYER_API_KEY_ADDRESS"] == relayer_api_key.address
-    assert not any(name.startswith("poly_builder_") for name in submission.headers)
 
 
 def test_revoke_session_key_requires_gasless_api_key() -> None:

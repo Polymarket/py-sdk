@@ -10,7 +10,6 @@ from eth_account import Account
 from polymarket import (
     AcceptedOrder,
     AsyncSecureClient,
-    BuilderApiKey,
     Environment,
     Market,
     RelayerApiKey,
@@ -25,10 +24,8 @@ pytestmark = pytest.mark.anyio
 
 @pytest.mark.integration
 @pytest.mark.metered
-@pytest.mark.parametrize("api_key_fixture", ["relayer_api_key", "builder_api_key"])
 async def test_session_key_wallet_orders_are_read_and_cancelled_by_owner(
-    api_key_fixture: str,
-    request: pytest.FixtureRequest,
+    relayer_api_key: RelayerApiKey,
     deposit_wallet_private_key: str,
     deposit_wallet_address: str,
     tradable_market: Market,
@@ -37,7 +34,6 @@ async def test_session_key_wallet_orders_are_read_and_cancelled_by_owner(
     # Live side effects: authorizes and revokes an ephemeral CLOB-scoped session
     # key, places two minimum-size post-only orders, and cancels every resting
     # order on the integration Deposit Wallet.
-    api_key: BuilderApiKey | RelayerApiKey = request.getfixturevalue(api_key_fixture)
     token_id = tradable_market.outcomes.yes.token_id
     price = tradable_market.trading.minimum_tick_size
     size = tradable_market.trading.minimum_order_size
@@ -52,7 +48,7 @@ async def test_session_key_wallet_orders_are_read_and_cancelled_by_owner(
     owner = await AsyncSecureClient.create(
         private_key=deposit_wallet_private_key,
         wallet=deposit_wallet_address,
-        api_key=api_key,
+        api_key=relayer_api_key,
         environment=integration_environment,
     )
     session: AsyncSecureClient | None = None

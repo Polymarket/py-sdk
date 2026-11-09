@@ -29,7 +29,7 @@ TOKEN = "0xDDeeAa11220000000000000000000000000000aA"
 SPENDER = "0x000000000000000000000000000000000000dEaD"
 
 
-async def make_deposit_client(*, api_key: ApiKey | None = BUILDER_AUTH) -> AsyncSecureClient:
+async def make_deposit_client() -> AsyncSecureClient:
     from eth_account import Account
 
     from polymarket._internal.wallet import derive_uups_deposit_wallet_address
@@ -40,7 +40,7 @@ async def make_deposit_client(*, api_key: ApiKey | None = BUILDER_AUTH) -> Async
         private_key=PK_DEPLOY_WALLET,
         wallet=wallet,
         credentials=FAKE_CREDS,
-        api_key=api_key,
+        api_key=BUILDER_AUTH,
         validate_credentials=False,
     )
 

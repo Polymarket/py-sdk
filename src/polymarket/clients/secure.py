@@ -5,6 +5,7 @@ import time
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from decimal import Decimal
+from functools import partial
 from types import TracebackType
 from typing import TYPE_CHECKING, Literal, Self, cast, overload
 
@@ -2084,19 +2085,16 @@ class SecureClient:
         """
         if self._ctx.wallet_type != "DEPOSIT_WALLET":
             raise UserInputError("Wallet-wide orders require a Deposit Wallet.")
-        _, validated = _account_actions.build_list_wallet_open_orders_request(
+        build = partial(
+            _account_actions.build_list_wallet_open_orders_request,
             market=market,
             asset_id=asset_id,
             signer_addresses=signer_addresses,
-            cursor=cursor,
         )
+        build(cursor=cursor)  # Validate eagerly so bad filters fail at the call site.
 
         def fetch(next_cursor: str | None) -> Page[WalletOpenOrder]:
-            params = dict(validated)
-            params.pop("cursor", None)
-            if next_cursor is not None:
-                params["cursor"] = next_cursor
-            path = "/data/wallet-open-orders"
+            path, params = build(cursor=next_cursor)
             payload = self._ctx.secure_clob.get_json(path, params=params)
             return _account_actions.parse_wallet_open_orders_page(payload)
 
@@ -2506,8 +2504,7 @@ class SecureClient:
 
             cancellation = client.cancel_wallet_orders(order_ids=[order_id])
         """
-        if self._ctx.wallet_type != "DEPOSIT_WALLET" or self._ctx.signer_type != "OWNER":
-            raise UserInputError("Wallet-wide cancellation requires the Deposit Wallet owner.")
+        _cancel_actions.require_deposit_wallet_owner(self._ctx)
         path, body = _cancel_actions.build_cancel_wallet_orders_request(order_ids=order_ids)
         return _cancel_actions.parse_cancel_orders_response(
             self._ctx.secure_clob.delete_json(path, json=body)
@@ -2524,8 +2521,7 @@ class SecureClient:
 
             cancellation = client.cancel_all_wallet_orders()
         """
-        if self._ctx.wallet_type != "DEPOSIT_WALLET" or self._ctx.signer_type != "OWNER":
-            raise UserInputError("Wallet-wide cancellation requires the Deposit Wallet owner.")
+        _cancel_actions.require_deposit_wallet_owner(self._ctx)
         path, body = _cancel_actions.build_cancel_all_wallet_orders_request()
         return _cancel_actions.parse_cancel_orders_response(
             self._ctx.secure_clob.delete_json(path, json=body)

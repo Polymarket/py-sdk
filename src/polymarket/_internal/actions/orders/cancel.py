@@ -3,11 +3,13 @@ from collections.abc import Sequence
 from typing import Any, cast
 
 from polymarket._internal.actions.exchange_asset import resolve_optional_asset_id
+from polymarket._internal.context import AsyncSecureClientContext, SyncSecureClientContext
 from polymarket._internal.validation import require_nonempty
 from polymarket.errors import UserInputError
 from polymarket.models.clob.cancel import CancelOrdersResponse
 
 _MAX_CANCEL_BATCH = 3000
+_ORDER_HASH = re.compile(r"0x[0-9a-fA-F]{64}")
 
 
 def build_cancel_order_request(*, order_id: str) -> tuple[str, dict[str, str]]:
@@ -31,18 +33,20 @@ def build_cancel_all_request() -> tuple[str, None]:
     return "/cancel-all", None
 
 
+def require_deposit_wallet_owner(ctx: AsyncSecureClientContext | SyncSecureClientContext) -> None:
+    if ctx.wallet_type != "DEPOSIT_WALLET" or ctx.signer_type != "OWNER":
+        raise UserInputError("Wallet-wide cancellation requires the Deposit Wallet owner.")
+
+
 def build_cancel_wallet_orders_request(
     *, order_ids: Sequence[str]
 ) -> tuple[str, dict[str, object]]:
-    if (
-        isinstance(order_ids, str | bytes) or not isinstance(order_ids, Sequence)  # pyright: ignore[reportUnnecessaryIsInstance]
+    if isinstance(order_ids, str | bytes) or not 1 <= len(order_ids) <= 1000:
+        raise UserInputError("order_ids must contain between 1 and 1000 order hashes.")
+    if not all(
+        isinstance(i, str) and _ORDER_HASH.fullmatch(i) for i in cast(Sequence[object], order_ids)
     ):
-        raise UserInputError("order_ids must be a non-empty sequence of strings.")
-    if not order_ids or len(order_ids) > 1000:
-        raise UserInputError("order_ids must contain between 1 and 1000 entries.")
-    for order_id in cast(Sequence[object], order_ids):
-        if not isinstance(order_id, str) or re.fullmatch(r"0x[0-9a-fA-F]{64}", order_id) is None:
-            raise UserInputError("order_ids must contain 0x-prefixed 32-byte order hashes.")
+        raise UserInputError("order_ids must contain 0x-prefixed 32-byte order hashes.")
     return "/cancel-wallet-orders", {"order_ids": list(order_ids)}
 
 
@@ -84,4 +88,5 @@ __all__ = [
     "build_cancel_orders_request",
     "build_cancel_wallet_orders_request",
     "parse_cancel_orders_response",
+    "require_deposit_wallet_owner",
 ]
