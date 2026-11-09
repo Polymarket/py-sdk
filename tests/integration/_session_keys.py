@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
@@ -8,6 +9,7 @@ from polymarket import RequestRejectedError
 
 _Result = TypeVar("_Result")
 _WALLET_ACTION_MAX_ATTEMPTS = 61
+_WALLET_IN_FLIGHT_RE = re.compile(r"wallet has in-flight action", re.IGNORECASE)
 
 
 async def run_session_key_operation_when_ready(
@@ -20,7 +22,7 @@ async def run_session_key_operation_when_ready(
             return await operation()
         except RequestRejectedError as error:
             if (
-                str(error) != "wallet has in-flight action"
+                _WALLET_IN_FLIGHT_RE.search(str(error)) is None
                 or attempt == _WALLET_ACTION_MAX_ATTEMPTS - 1
             ):
                 raise

@@ -120,11 +120,13 @@ async def test_session_key_authorizes_lists_trades_and_revokes(
                 await session_client.close()
     finally:
         try:
+            # Best-effort cleanup only runs after a failure; keep that error visible.
             if authorization_attempted and not revocation_accepted:
-                await run_session_key_operation_when_ready(
-                    lambda: deposit_wallet_client.revoke_session_key(
-                        address=session_account.address
+                with contextlib.suppress(Exception):
+                    await run_session_key_operation_when_ready(
+                        lambda: deposit_wallet_client.revoke_session_key(
+                            address=session_account.address
+                        )
                     )
-                )
         finally:
             await deposit_wallet_client.close()

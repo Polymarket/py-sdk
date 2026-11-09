@@ -150,10 +150,12 @@ async def test_session_key_wallet_orders_are_read_and_cancelled_by_owner(
         if session is not None:
             await session.close()
         try:
+            # Best-effort cleanup only runs after a failure; keep that error visible.
             if authorization_attempted and not revoked:
-                await run_session_key_operation_when_ready(
-                    lambda: owner.revoke_session_key(address=session_account.address)
-                )
+                with contextlib.suppress(Exception):
+                    await run_session_key_operation_when_ready(
+                        lambda: owner.revoke_session_key(address=session_account.address)
+                    )
         finally:
             await owner.close()
 

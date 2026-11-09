@@ -20,7 +20,10 @@ async def test_waits_for_previous_wallet_action(monkeypatch: pytest.MonkeyPatch)
     sleep = AsyncMock()
     monkeypatch.setattr("_session_keys.asyncio.sleep", sleep)
     operation = AsyncMock(
-        side_effect=[RequestRejectedError("wallet has in-flight action", status=400), "authorized"]
+        side_effect=[
+            RequestRejectedError("Wallet has in-flight action queued", status=400),
+            "authorized",
+        ]
     )
 
     assert await run_session_key_operation_when_ready(operation) == "authorized"
