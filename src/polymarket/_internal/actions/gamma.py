@@ -42,7 +42,7 @@ from polymarket.models import (
 )
 from polymarket.models.gamma.common import parse_string_sequence
 
-CommentParentEntityType = Literal["Event", "Series"]
+CommentParentEntityType = Literal["Event", "Series", "PerpsAsset"]
 TagMatch = Literal["any", "all"]
 Recurrence = Literal["daily", "weekly", "monthly"]
 SearchSort = Literal[
@@ -227,8 +227,8 @@ def _check_tag_match(value: TagMatch | None) -> None:
 
 
 def _check_parent_entity_type(value: CommentParentEntityType) -> None:
-    if value not in {"Event", "Series"}:
-        raise UserInputError("parent_entity_type must be one of: Event, Series")
+    if value not in {"Event", "Series", "PerpsAsset"}:
+        raise UserInputError("parent_entity_type must be one of: Event, Series, PerpsAsset")
 
 
 # The orders the cursor-paginated comments listing accepts.
