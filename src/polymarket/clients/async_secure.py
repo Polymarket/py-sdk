@@ -3785,12 +3785,10 @@ class AsyncSecureClient:
             await self._ctx.secure_clob.delete_json(path, json=body)
         )
 
-    async def cancel_wallet_orders(
-        self, *, order_ids: Sequence[str] | None = None, all: Literal[True] | None = None
-    ) -> CancelOrdersResponse:
-        """Cancel selected or all live orders across the owner's Deposit Wallet.
+    async def cancel_wallet_orders(self, *, order_ids: Sequence[str]) -> CancelOrdersResponse:
+        """Cancel selected live orders across the owner's Deposit Wallet.
 
-        Set exactly one of ``order_ids`` (1 to 1,000 IDs) or ``all=True``.
+        Supply 1 to 1,000 order IDs.
         Session signers cannot use this operation. Unsuccessful IDs appear
         in ``not_canceled`` without rejecting successful cancellations.
         After an uncertain outcome, read wallet orders before retrying.
@@ -3798,13 +3796,28 @@ class AsyncSecureClient:
         Example::
 
             cancellation = await client.cancel_wallet_orders(order_ids=[order_id])
-            await client.cancel_wallet_orders(all=True)
         """
         if self._ctx.wallet_type != "DEPOSIT_WALLET" or self._ctx.signer_type != "OWNER":
             raise UserInputError("Wallet-wide cancellation requires the Deposit Wallet owner.")
-        path, body = _cancel_actions.build_cancel_wallet_orders_request(
-            order_ids=order_ids, all=all
+        path, body = _cancel_actions.build_cancel_wallet_orders_request(order_ids=order_ids)
+        return _cancel_actions.parse_cancel_orders_response(
+            await self._ctx.secure_clob.delete_json(path, json=body)
         )
+
+    async def cancel_all_wallet_orders(self) -> CancelOrdersResponse:
+        """Cancel all live orders across the owner's Deposit Wallet.
+
+        Session signers cannot use this operation. Unsuccessful IDs appear
+        in ``not_canceled`` without rejecting successful cancellations.
+        After an uncertain outcome, read wallet orders before retrying.
+
+        Example::
+
+            cancellation = await client.cancel_all_wallet_orders()
+        """
+        if self._ctx.wallet_type != "DEPOSIT_WALLET" or self._ctx.signer_type != "OWNER":
+            raise UserInputError("Wallet-wide cancellation requires the Deposit Wallet owner.")
+        path, body = _cancel_actions.build_cancel_all_wallet_orders_request()
         return _cancel_actions.parse_cancel_orders_response(
             await self._ctx.secure_clob.delete_json(path, json=body)
         )

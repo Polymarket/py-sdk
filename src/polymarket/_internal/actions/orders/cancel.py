@@ -1,6 +1,6 @@
 import re
 from collections.abc import Sequence
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 from polymarket._internal.actions.exchange_asset import resolve_optional_asset_id
 from polymarket._internal.validation import require_nonempty
@@ -32,13 +32,11 @@ def build_cancel_all_request() -> tuple[str, None]:
 
 
 def build_cancel_wallet_orders_request(
-    *, order_ids: Sequence[str] | None = None, all: Literal[True] | None = None
+    *, order_ids: Sequence[str]
 ) -> tuple[str, dict[str, object]]:
-    if (order_ids is None) == (all is None) or (all is not None and all is not True):
-        raise UserInputError("Set exactly one of order_ids or all=True.")
-    if all is True:
-        return "/cancel-wallet-orders", {"all": True}
-    if isinstance(order_ids, str | bytes) or not isinstance(order_ids, Sequence):
+    if (
+        isinstance(order_ids, str | bytes) or not isinstance(order_ids, Sequence)  # pyright: ignore[reportUnnecessaryIsInstance]
+    ):
         raise UserInputError("order_ids must be a non-empty sequence of strings.")
     if not order_ids or len(order_ids) > 1000:
         raise UserInputError("order_ids must contain between 1 and 1000 entries.")
@@ -46,6 +44,10 @@ def build_cancel_wallet_orders_request(
         if not isinstance(order_id, str) or re.fullmatch(r"0x[0-9a-fA-F]{64}", order_id) is None:
             raise UserInputError("order_ids must contain 0x-prefixed 32-byte order hashes.")
     return "/cancel-wallet-orders", {"order_ids": list(order_ids)}
+
+
+def build_cancel_all_wallet_orders_request() -> tuple[str, dict[str, bool]]:
+    return "/cancel-wallet-orders", {"all": True}
 
 
 def build_cancel_market_orders_request(
@@ -76,6 +78,7 @@ def parse_cancel_orders_response(data: object) -> CancelOrdersResponse:
 
 __all__ = [
     "build_cancel_all_request",
+    "build_cancel_all_wallet_orders_request",
     "build_cancel_market_orders_request",
     "build_cancel_order_request",
     "build_cancel_orders_request",

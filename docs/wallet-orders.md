@@ -12,7 +12,7 @@ for page in client.list_wallet_open_orders(session_keys=[session_address]):
 cancellation = client.cancel_wallet_orders(order_ids=[order_id])
 print(cancellation.canceled, cancellation.not_canceled)
 
-client.cancel_wallet_orders(all=True)
+client.cancel_all_wallet_orders()
 ```
 
 `list_wallet_open_orders` returns `Paginator[WalletOpenOrder]`. Optional
@@ -26,8 +26,9 @@ withheld. `signer_address` identifies the owner or session signer that placed
 the order. Prices and sizes are `Decimal` values. Timestamps are timezone-aware
 `datetime` values. `expires_at` is `None` when the order has no expiration.
 
-Supply either 1–1,000 canonical order hashes through `order_ids`, or explicitly
-choose `all=True`. The method returns the existing `CancelOrdersResponse`:
+Supply 1–1,000 canonical order hashes to `cancel_wallet_orders(order_ids=...)`,
+or use `cancel_all_wallet_orders()` to cancel every live order across the wallet.
+Both methods return the existing `CancelOrdersResponse`:
 successful IDs in `canceled`, and unsuccessful IDs with reasons in
 `not_canceled`. It does not split requests or retry cancellations automatically.
 Read wallet orders after an uncertain outcome before deciding whether to retry.
@@ -38,7 +39,7 @@ The async clients use the same methods and models:
 ```python
 async for order in async_client.list_wallet_open_orders().iter_items():
     print(order.id, order.signer_address)
-await async_client.cancel_wallet_orders(all=True)
+await async_client.cancel_all_wallet_orders()
 ```
 
 The server must deploy and enable wallet-wide cancellation before it is
