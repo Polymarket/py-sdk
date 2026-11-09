@@ -270,3 +270,11 @@ def _has_tradable_prices(market: Market) -> bool:
 def _has_clob_liquidity(market: Market) -> bool:
     liquidity = market.metrics.liquidity_clob or market.metrics.liquidity_num or Decimal(0)
     return liquidity > Decimal(0)
+
+
+@pytest.fixture
+def serial_session_key_wallet() -> None:
+    # These tests mutate the same wallet and include wallet-wide cancellation.
+    # Retrying a busy wallet does not make concurrent order assertions safe.
+    if os.environ.get("PYTEST_XDIST_WORKER") is not None:
+        pytest.fail("Run live session-key tests serially: disable pytest-xdist with -n 0.")

@@ -15,6 +15,7 @@ from polymarket._internal.environment import (
     PRODUCTION_CONFIG,
     with_environment_config,
 )
+from polymarket.auth import ApiKey
 from polymarket.clients._transport import AsyncTransport
 
 PK_DEPLOY_WALLET = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -399,7 +400,7 @@ def make_sync_eoa_client(*, with_api_key: bool = True) -> SecureClient:
     )
 
 
-def make_sync_deposit_client() -> SecureClient:
+def make_sync_deposit_client(*, api_key: ApiKey | None = BUILDER_AUTH) -> SecureClient:
     from eth_account import Account
 
     from polymarket._internal.wallet import derive_uups_deposit_wallet_address
@@ -410,7 +411,7 @@ def make_sync_deposit_client() -> SecureClient:
         private_key=PK_DEPLOY_WALLET,
         wallet=wallet,
         credentials=FAKE_CREDS,
-        api_key=BUILDER_AUTH,
+        api_key=api_key,
         validate_credentials=False,
     )
 

@@ -13,6 +13,7 @@ from polymarket.models.clob._validators import (
     _require_epoch_or_iso_timestamp,  # pyright: ignore[reportPrivateUsage]
 )
 from polymarket.models.types import ClobAssetId, ConditionId, OrderSide
+from polymarket.types import EvmAddress
 
 AssetType: TypeAlias = Literal["COLLATERAL", "CONDITIONAL", "CONDITIONAL-V2"]
 
@@ -101,6 +102,38 @@ class OpenOrder(BaseModel):
             return card(title, rows=rows)
 
         return render(self)
+
+
+class WalletOpenOrder(BaseModel):
+    """Live order on a Deposit Wallet, with the signer that placed it."""
+
+    id: str
+    condition_id: ConditionId = Field(validation_alias="market")
+    asset_id: ClobAssetId
+    maker_address: EvmAddress
+    signer_address: EvmAddress
+    owner: str | None = Field(
+        default=None,
+        description="API key identifier when disclosed, or None when withheld.",
+    )
+    side: OrderSide
+    price: Decimal
+    original_size: Decimal
+    size_matched: Decimal
+    outcome: str
+    order_type: str
+    status: str
+    created_at: datetime
+    expires_at: datetime | None = Field(default=None, validation_alias="expiration")
+
+    _validate_owner = field_validator("owner", mode="before")(_empty_string_to_none)
+    _validate_decimals = field_validator("price", "original_size", "size_matched", mode="before")(
+        parse_decimal_string
+    )
+    _validate_created_at = field_validator("created_at", mode="before")(
+        _require_epoch_or_iso_timestamp
+    )
+    _validate_expires_at = field_validator("expires_at", mode="before")(_parse_expiration_timestamp)
 
 
 class MakerOrder(BaseModel):
@@ -247,4 +280,5 @@ __all__ = [
     "ClobTrade",
     "MakerOrder",
     "OpenOrder",
+    "WalletOpenOrder",
 ]

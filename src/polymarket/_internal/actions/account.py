@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 from typing import cast
 
+from eth_utils.address import is_address
 from pydantic import TypeAdapter, ValidationError
 
 from polymarket._internal.actions._cursor import (
@@ -18,10 +19,12 @@ from polymarket.models.clob import (
     ClobTrade,
     Notification,
     OpenOrder,
+    WalletOpenOrder,
 )
 from polymarket.pagination import Page
 
 _OpenOrdersAdapter = TypeAdapter(tuple[OpenOrder, ...])
+_WalletOpenOrdersAdapter = TypeAdapter(tuple[WalletOpenOrder, ...])
 _ClobTradesAdapter = TypeAdapter(tuple[ClobTrade, ...])
 _NotificationsAdapter = TypeAdapter(tuple[Notification, ...])
 
@@ -95,6 +98,48 @@ def parse_open_orders_page(data: object) -> Page[OpenOrder]:
         has_more=next_cursor is not None,
         next_cursor=next_cursor,
     )
+
+
+def build_list_wallet_open_orders_request(
+    *,
+    market: str | None = None,
+    asset_id: str | None = None,
+    signer_addresses: Sequence[str] | None = None,
+    cursor: str | None = None,
+) -> tuple[str, dict[str, QueryParamValue]]:
+    params: dict[str, QueryParamValue] = {}
+    if market is not None:
+        params["market"] = require_nonempty("market", market)
+    if asset_id is not None:
+        params["asset_id"] = require_nonempty("asset_id", asset_id)
+    if signer_addresses is not None:
+        # An empty filter must not widen into every signer's orders.
+        if isinstance(signer_addresses, str | bytes) or not 1 <= len(signer_addresses) <= 50:
+            raise UserInputError("signer_addresses must contain between 1 and 50 addresses.")
+        if not all(
+            isinstance(a, str) and a.startswith("0x") and is_address(a)
+            for a in cast(Sequence[object], signer_addresses)
+        ):
+            raise UserInputError("signer_addresses must contain valid EVM addresses.")
+        params["session_keys"] = ",".join(signer_addresses)
+    validated_cursor = validate_cursor(cursor)
+    if validated_cursor is not None:
+        params["cursor"] = validated_cursor
+    return "/data/wallet-open-orders", params
+
+
+def parse_wallet_open_orders_page(data: object) -> Page[WalletOpenOrder]:
+    if not isinstance(data, dict):
+        raise UnexpectedResponseError("wallet open orders response did not match expected shape")
+    payload = cast(dict[str, object], data)
+    try:
+        items = _WalletOpenOrdersAdapter.validate_python(payload.get("data"))
+    except ValidationError as error:
+        raise UnexpectedResponseError("wallet open orders response items malformed") from error
+    cursor = payload.get("next_cursor")
+    if not isinstance(cursor, str):
+        raise UnexpectedResponseError("wallet open orders next_cursor must be a string")
+    return Page(items=items, has_more=bool(cursor), next_cursor=cursor or None)
 
 
 def build_get_order_request(*, order_id: str) -> tuple[str, dict[str, str]]:
@@ -235,6 +280,7 @@ __all__ = [
     "build_get_order_request",
     "build_list_account_trades_request",
     "build_list_open_orders_request",
+    "build_list_wallet_open_orders_request",
     "build_notifications_request",
     "build_update_balance_allowance_request",
     "parse_account_trades_page",
@@ -243,4 +289,5 @@ __all__ = [
     "parse_notifications",
     "parse_open_order",
     "parse_open_orders_page",
+    "parse_wallet_open_orders_page",
 ]

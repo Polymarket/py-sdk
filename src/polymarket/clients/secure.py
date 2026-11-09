@@ -5,6 +5,7 @@ import time
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from decimal import Decimal
+from functools import partial
 from types import TracebackType
 from typing import TYPE_CHECKING, Literal, Self, cast, overload
 
@@ -163,6 +164,7 @@ from polymarket.models import (
     TagReference,
     Team,
     TradingApprovalsState,
+    WalletOpenOrder,
 )
 from polymarket.models.clob import BuilderApiKeyInfo, BuilderTrade
 from polymarket.models.clob.cancel import CancelOrdersResponse
@@ -948,8 +950,8 @@ class SecureClient:
 
         The SDK receives only the public address. The application remains
         responsible for generating, storing, and protecting the private key.
-        Requires a :class:`BuilderApiKey` passed as ``api_key=`` when
-        constructing the client.
+        Requires a ``BuilderApiKey`` or ``RelayerApiKey`` passed as ``api_key=``
+        when constructing the client. Account credentials alone are insufficient.
         Scope names are normalized to uppercase. Unknown names remain usable
         before this SDK enumerates them. When scopes are omitted,
         authorization defaults to ``ALL``.
@@ -997,7 +999,8 @@ class SecureClient:
         """Revoke a session key authorized for the Deposit Wallet.
 
         Returns once the key is absent from the active-key registry and unusable.
-        Requires an ``api_key=`` that supports gasless transactions.
+        Requires a ``BuilderApiKey`` or ``RelayerApiKey`` passed as ``api_key=``
+        when constructing the client.
 
         Raises:
             UserInputError: If the client or revocation input is invalid.
@@ -2041,7 +2044,10 @@ class SecureClient:
         id: str | None = None,
         market: str | None = None,
     ) -> Paginator[OpenOrder]:
-        """List open orders for the authenticated account.
+        """List open orders placed with this client's credentials.
+
+        On a Deposit Wallet, use :meth:`list_wallet_open_orders` to include
+        orders placed by the owner and its session keys.
 
         Returns:
             A paginator over matching open orders.
@@ -2055,6 +2061,44 @@ class SecureClient:
             return _account_actions.parse_open_orders_page(payload)
 
         return Paginator(fetch=fetch)
+
+    def list_wallet_open_orders(
+        self,
+        *,
+        market: str | None = None,
+        asset_id: str | None = None,
+        signer_addresses: Sequence[str] | None = None,
+        cursor: str | None = None,
+    ) -> Paginator[WalletOpenOrder]:
+        """List live orders across the Deposit Wallet's owner and session signers.
+
+        Owners and non-revoked session signers can list the wallet's orders.
+        ``signer_addresses`` selects orders placed by the owner or its session
+        keys and accepts 1 to 50 addresses. Omit it to include every signer.
+        A short or empty page can have a continuation cursor. Iteration
+        follows that cursor.
+
+        Example::
+
+            for order in client.list_wallet_open_orders().iter_items():
+                print(order.id, order.signer_address, order.owner)
+        """
+        if self._ctx.wallet_type != "DEPOSIT_WALLET":
+            raise UserInputError("Wallet-wide orders require a Deposit Wallet.")
+        build = partial(
+            _account_actions.build_list_wallet_open_orders_request,
+            market=market,
+            asset_id=asset_id,
+            signer_addresses=signer_addresses,
+        )
+        build(cursor=cursor)  # Validate eagerly so bad filters fail at the call site.
+
+        def fetch(next_cursor: str | None) -> Page[WalletOpenOrder]:
+            path, params = build(cursor=next_cursor)
+            payload = self._ctx.secure_clob.get_json(path, params=params)
+            return _account_actions.parse_wallet_open_orders_page(payload)
+
+        return Paginator(fetch=fetch, initial_cursor=cursor)
 
     def get_order(self, *, order_id: str) -> OpenOrder:
         """Get one open order for the authenticated account."""
@@ -2416,22 +2460,69 @@ class SecureClient:
         )
 
     def cancel_order(self, *, order_id: str) -> CancelOrdersResponse:
-        """Cancel one open order for the authenticated account."""
+        """Cancel one open order placed with this client's credentials.
+
+        On a Deposit Wallet, the owner can use :meth:`cancel_wallet_orders`
+        for orders placed by session keys.
+        """
         path, body = _cancel_actions.build_cancel_order_request(order_id=order_id)
         return _cancel_actions.parse_cancel_orders_response(
             self._ctx.secure_clob.delete_json(path, json=body)
         )
 
     def cancel_orders(self, *, order_ids: Sequence[str]) -> CancelOrdersResponse:
-        """Cancel multiple open orders for the authenticated account."""
+        """Cancel multiple open orders placed with this client's credentials.
+
+        On a Deposit Wallet, the owner can use :meth:`cancel_wallet_orders`
+        for orders placed by session keys.
+        """
         path, body = _cancel_actions.build_cancel_orders_request(order_ids=order_ids)
         return _cancel_actions.parse_cancel_orders_response(
             self._ctx.secure_clob.delete_json(path, json=body)
         )
 
     def cancel_all(self) -> CancelOrdersResponse:
-        """Cancel all open orders for the authenticated account."""
+        """Cancel all open orders placed with this client's credentials.
+
+        On a Deposit Wallet, the owner can use
+        :meth:`cancel_all_wallet_orders` to include orders placed by session keys.
+        """
         path, body = _cancel_actions.build_cancel_all_request()
+        return _cancel_actions.parse_cancel_orders_response(
+            self._ctx.secure_clob.delete_json(path, json=body)
+        )
+
+    def cancel_wallet_orders(self, *, order_ids: Sequence[str]) -> CancelOrdersResponse:
+        """Cancel selected live orders across the owner's Deposit Wallet.
+
+        Supply 1 to 1,000 order IDs.
+        Session signers cannot use this operation. Unsuccessful IDs appear
+        in ``not_canceled`` without rejecting successful cancellations.
+        After an uncertain outcome, read wallet orders before retrying.
+
+        Example::
+
+            cancellation = client.cancel_wallet_orders(order_ids=[order_id])
+        """
+        _cancel_actions.require_deposit_wallet_owner(self._ctx)
+        path, body = _cancel_actions.build_cancel_wallet_orders_request(order_ids=order_ids)
+        return _cancel_actions.parse_cancel_orders_response(
+            self._ctx.secure_clob.delete_json(path, json=body)
+        )
+
+    def cancel_all_wallet_orders(self) -> CancelOrdersResponse:
+        """Cancel all live orders across the owner's Deposit Wallet.
+
+        Session signers cannot use this operation. Unsuccessful IDs appear
+        in ``not_canceled`` without rejecting successful cancellations.
+        After an uncertain outcome, read wallet orders before retrying.
+
+        Example::
+
+            cancellation = client.cancel_all_wallet_orders()
+        """
+        _cancel_actions.require_deposit_wallet_owner(self._ctx)
+        path, body = _cancel_actions.build_cancel_all_wallet_orders_request()
         return _cancel_actions.parse_cancel_orders_response(
             self._ctx.secure_clob.delete_json(path, json=body)
         )
