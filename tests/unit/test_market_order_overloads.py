@@ -7,14 +7,14 @@ from decimal import Decimal
 from typing import Any, cast, get_overloads, get_type_hints
 
 import pytest
+from _bearer import bearer_credentials_for
 
-from polymarket import ApiKeyCreds, AsyncSecureClient
+from polymarket import AsyncSecureClient
 from polymarket.errors import UserInputError
 from polymarket.models.types import OrderSide
 
 _PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 _SIGNER = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-_FAKE_CREDS = ApiKeyCreds(key="k", passphrase="p", secret="dGVzdA==")
 
 
 def _make_client() -> AsyncSecureClient:
@@ -22,7 +22,7 @@ def _make_client() -> AsyncSecureClient:
         AsyncSecureClient._create(
             private_key=_PRIVATE_KEY,
             wallet=_SIGNER,
-            credentials=_FAKE_CREDS,
+            credentials=bearer_credentials_for(_PRIVATE_KEY),
             validate_credentials=False,
         )
     )

@@ -1,7 +1,6 @@
 import asyncio
 import contextlib
 import logging
-import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime
 from decimal import Decimal
@@ -19,18 +18,17 @@ from typing import (
     overload,
 )
 
-from eth_account import Account
 from eth_account.signers.local import LocalAccount
 from eth_utils.address import to_checksum_address
 
 from polymarket._internal.actions import account as _account_actions
-from polymarket._internal.actions import auth as _auth_actions
 from polymarket._internal.actions import builders as _builders_actions
 from polymarket._internal.actions import clob as _clob_actions
 from polymarket._internal.actions import combo_rfq as _combo_rfq_actions
 from polymarket._internal.actions import combos as _combos_actions
 from polymarket._internal.actions import data as _data_actions
 from polymarket._internal.actions import gamma as _gamma_actions
+from polymarket._internal.actions import identity as _identity_actions
 from polymarket._internal.actions import order_heartbeats as _order_heartbeat_actions
 from polymarket._internal.actions import rewards as _rewards_actions
 from polymarket._internal.actions import rfq as _rfq_actions
@@ -119,6 +117,11 @@ from polymarket._internal.actions.relayer.positions import (
     parse_market_id,
     resolve_merge_amount_from_balances,
 )
+from polymarket._internal.auth_session import (
+    AsyncAuthSession,
+    CredentialsChanged,
+    DeferredCredentialsListener,
+)
 from polymarket._internal.context import AsyncSecureClientContext
 from polymarket._internal.dispatch import (
     async_dispatch,
@@ -130,8 +133,6 @@ from polymarket._internal.dispatch import (
 from polymarket._internal.environment import EnvironmentConfig, get_environment_config
 from polymarket._internal.eoa.broadcast import broadcast_eoa_call
 from polymarket._internal.eoa.rpc import JsonRpcClient
-from polymarket._internal.hmac import build_hmac_signature
-from polymarket._internal.l1_auth import sign_api_key_auth
 from polymarket._internal.rfq import RfqSessionContext
 from polymarket._internal.streams.handle import AsyncSubscriptionHandle, SubscriptionHandle
 from polymarket._internal.wallet import (
@@ -143,7 +144,7 @@ from polymarket._internal.wallet import (
     signature_type_for,
     wrap_deposit_wallet_signature,
 )
-from polymarket.auth import ApiKey, BuilderApiKey
+from polymarket.auth import ApiKey, BearerCredentials, BuilderApiKey
 from polymarket.clients._transport import AsyncTransport
 from polymarket.clients.async_public import AsyncPublicClient
 from polymarket.environments import PRODUCTION, Environment
@@ -186,7 +187,6 @@ from polymarket.models import (
     TradingApprovalsState,
     WalletOpenOrder,
 )
-from polymarket.models.clob.api_key import BuilderApiKeyInfo
 from polymarket.models.clob.cancel import CancelOrdersResponse
 from polymarket.models.clob.market_events import MarketEvent
 from polymarket.models.clob.order_heartbeats import OrderHeartbeat
@@ -339,7 +339,7 @@ if TYPE_CHECKING:
 
 _CREATE_TOKEN = object()
 
-_L2HeaderResolver: TypeAlias = Callable[[str, str, str | None], Awaitable[Mapping[str, str]]]
+_HeaderResolver: TypeAlias = Callable[[str, str, str | None], Awaitable[Mapping[str, str]]]
 
 
 class AsyncCloseable(Protocol):
@@ -357,8 +357,8 @@ class _RfqSessionCloser:
 class AsyncSecureClient:
     """Async client for authenticated account, trading, wallet, and stream workflows.
 
-    Create instances with :meth:`AsyncSecureClient.create` so the SDK can derive
-    or validate credentials before authenticated requests are made.
+    Create instances with :meth:`AsyncSecureClient.create`, which signs in or
+    restores a saved session before authenticated requests are made.
     """
 
     def list_trades(
@@ -802,6 +802,7 @@ class AsyncSecureClient:
         self._rfq_session: RfqQuoterSession | None = None
         self._rfq_session_connecting: RfqQuoterSession | None = None
         self._rfq_session_opening: asyncio.Task[RfqQuoterSession] | None = None
+        self._ending_authentication: asyncio.Task[None] | None = None
         self._streams_logger = logger
 
     @property
@@ -824,45 +825,57 @@ class AsyncSecureClient:
         private_key: str,
         wallet: str | None = None,
         environment: Environment = PRODUCTION,
-        credentials: ApiKeyCreds | None = None,
+        credentials: BearerCredentials | ApiKeyCreds | None = None,
         api_key: ApiKey | None = None,
         nonce: int = 0,
+        on_credentials_changed: CredentialsChanged | None = None,
         logger: logging.Logger | None = None,
         on_rate_limit_update: RateLimitUpdateListener | None = None,
     ) -> Self:
         """Create an authenticated async client.
 
+        Without ``credentials``, the client signs in with ``private_key``. Saved
+        :class:`BearerCredentials` restore that session, and saved
+        :class:`ApiKeyCreds` are exchanged for a new session. Neither needs a new
+        wallet signature. Save :attr:`credentials` after creation, and every pair
+        passed to ``on_credentials_changed``, to restore the session later.
+
         Args:
             private_key: EVM private key used for signing.
             wallet: Wallet address to act for. Defaults to the signer's Deposit Wallet.
-            credentials: Existing API credentials. When omitted, credentials are
-                derived during client creation.
+                Saved session credentials that are bound to a wallet keep it.
+            credentials: Saved session or API credentials. Credentials that no longer
+                work raise instead of signing in again.
             api_key: Optional key for gasless wallet and relayed transaction workflows.
-            nonce: Credential derivation nonce. Cannot be combined with ``credentials``.
+            nonce: Sign-in nonce. Cannot be combined with ``credentials``.
+            on_credentials_changed: Called with the new credentials after each
+                renewal. Exceptions it raises are logged and ignored, so handle
+                storage failures inside it.
             on_rate_limit_update: Listener invoked whenever a response reports
                 per-signer rate-limit state, as order and cancellation responses
                 do. Errors raised by the listener are ignored.
 
         Raises:
             UserInputError: If key material, wallet, nonce, or credentials are invalid.
-            RequestRejectedError: If credential derivation or validation is rejected.
+            SigningError: If the ownership signature or proof cannot be produced.
+            RequestRejectedError: If sign-in, the credential exchange, or the saved
+                session is rejected.
+            RateLimitError: If an authentication request is rate-limited.
+            TransportError: If a network request fails.
+            UnexpectedResponseError: If an authentication response is invalid.
         """
-        client = await cls._create(
+        return await cls._create(
             private_key=private_key,
             wallet=wallet,
             environment=environment,
             credentials=credentials,
             api_key=api_key,
             nonce=nonce,
+            on_credentials_changed=on_credentials_changed,
             validate_credentials=True,
             logger=logger,
             on_rate_limit_update=on_rate_limit_update,
         )
-        try:
-            return await client._ensure_wallet_ready()
-        except BaseException:
-            await client.close()
-            raise
 
     @classmethod
     async def _create(
@@ -871,66 +884,125 @@ class AsyncSecureClient:
         private_key: str,
         wallet: str | None = None,
         environment: Environment = PRODUCTION,
-        credentials: ApiKeyCreds | None = None,
+        credentials: BearerCredentials | ApiKeyCreds | None = None,
         api_key: ApiKey | None = None,
         nonce: int = 0,
+        on_credentials_changed: CredentialsChanged | None = None,
         validate_credentials: bool = True,
         logger: logging.Logger | None = None,
         on_rate_limit_update: RateLimitUpdateListener | None = None,
     ) -> Self:
-        if not private_key:
-            raise UserInputError("private_key is required")
+        # Without validation, saved session credentials are trusted as given and
+        # no authentication or wallet request is made.
         _validate_nonce(nonce)
         if credentials is not None and nonce != 0:
             raise UserInputError("nonce cannot be combined with credentials.")
+        if not validate_credentials and not isinstance(credentials, BearerCredentials):
+            raise UserInputError("Saved session credentials are required.")
+        signer = _identity_actions.signer_from_private_key(private_key)
         config = get_environment_config(environment)
-        try:
-            signer = cast(LocalAccount, Account.from_key(private_key))
-        except (ValueError, TypeError) as error:
-            raise UserInputError(f"Invalid private_key: {error}") from error
-
-        resolved_wallet = await _resolve_requested_wallet(
-            signer=signer,
-            wallet=wallet,
-            config=config,
-            logger=logger,
+        restored = isinstance(credentials, BearerCredentials)
+        notifier = DeferredCredentialsListener(
+            on_credentials_changed, publish=restored, logger=logger
         )
-        account = classify_account(
-            signer=signer.address,
-            wallet=resolved_wallet,
-            config=config.wallet_derivation,
-        )
-        try:
-            wallet_checksum = to_checksum_address(resolved_wallet)
-        except ValueError as error:
-            raise UserInputError(f"Invalid wallet address: {error}") from error
 
-        bootstrap_clob = AsyncTransport(base_url=config.clob_url, logger=logger)
+        auth = AsyncTransport(base_url=config.predictions_url, logger=logger)
+        issued: _identity_actions.IssuedTokens | None = None
+        bind_wallet = False
         try:
-            resolved_credentials = await _bootstrap_credentials(
-                config=config,
+            if isinstance(credentials, BearerCredentials):
+                claims = _identity_actions.parse_access_token_claims(credentials.access_token)
+                if claims.sub.lower() != signer.address.lower():
+                    raise UserInputError("The saved credentials belong to a different signer.")
+                if claims.wallet is None:
+                    resolved_wallet = _identity_actions.checksum_wallet(
+                        await _resolve_requested_wallet(
+                            signer=signer, wallet=wallet, config=config, logger=logger
+                        )
+                    )
+                    bind_wallet = True
+                else:
+                    if wallet is not None and wallet.lower() != claims.wallet.lower():
+                        raise UserInputError(
+                            f"The saved credentials are bound to wallet {claims.wallet}. "
+                            "Omit wallet or pass that wallet."
+                        )
+                    resolved_wallet = claims.wallet
+                account = classify_account(
+                    signer=signer.address, wallet=resolved_wallet, config=config.wallet_derivation
+                )
+                session_credentials = credentials
+            else:
+                resolved_wallet = _identity_actions.checksum_wallet(
+                    await _resolve_requested_wallet(
+                        signer=signer, wallet=wallet, config=config, logger=logger
+                    )
+                )
+                # Validate the wallet identity before authentication has side effects.
+                account = classify_account(
+                    signer=signer.address, wallet=resolved_wallet, config=config.wallet_derivation
+                )
+                if credentials is None:
+                    issued = await _identity_actions.issue_login_session(
+                        auth,
+                        signer=signer,
+                        chain_id=config.chain_id,
+                        wallet=resolved_wallet,
+                        nonce=nonce,
+                    )
+                else:
+                    issued = await _identity_actions.issue_migrated_session(
+                        auth, credentials=credentials, signer=signer.address, wallet=resolved_wallet
+                    )
+                session_credentials = issued.credentials
+        except BaseException:
+            await auth.close()
+            raise
+
+        client: Self | None = None
+        try:
+            if issued is not None and not _identity_actions.issued_for(
+                issued, signer=signer.address, wallet=resolved_wallet
+            ):
+                raise UnexpectedResponseError(
+                    "The issued session does not match the requested signer and wallet."
+                )
+            client = cls._construct_for_wallet(
                 signer=signer,
-                clob=bootstrap_clob,
-                provided=credentials,
-                nonce=nonce,
-                validate=validate_credentials,
+                wallet=resolved_wallet,
+                wallet_type=account.wallet_type,
+                signer_type=account.signer_type,
+                environment=environment,
+                config=config,
+                auth=auth,
+                credentials=session_credentials,
+                expires_in=None if issued is None else issued.expires_in,
+                on_credentials_changed=notifier,
+                api_key=api_key,
                 logger=logger,
+                on_rate_limit_update=on_rate_limit_update,
             )
-        finally:
-            await bootstrap_clob.close()
-
-        return cls._construct_for_wallet(
-            signer=signer,
-            wallet=wallet_checksum,
-            wallet_type=account.wallet_type,
-            signer_type=account.signer_type,
-            environment=environment,
-            config=config,
-            credentials=resolved_credentials,
-            api_key=api_key,
-            logger=logger,
-            on_rate_limit_update=on_rate_limit_update,
-        )
+            if not validate_credentials:
+                return client
+            session = client._ctx.session
+            if restored:
+                await session.refresh()
+            else:
+                await session.ready()
+            if bind_wallet:
+                await session.bind_wallet(
+                    resolved_wallet,
+                    partial(_upgrade_session, auth, wallet=resolved_wallet),
+                )
+            session.start()
+            await client._ensure_wallet_ready()
+        except BaseException:
+            await _discard_failed_creation(
+                client, auth=auth, credentials=session_credentials, restored=restored
+            )
+            raise
+        notifier.publish()
+        return client
 
     @classmethod
     def _construct_for_wallet(
@@ -942,13 +1014,22 @@ class AsyncSecureClient:
         signer_type: SignerType,
         environment: Environment,
         config: EnvironmentConfig,
-        credentials: ApiKeyCreds,
+        auth: AsyncTransport,
+        credentials: BearerCredentials,
+        expires_in: int | None,
+        on_credentials_changed: CredentialsChanged | None,
         api_key: ApiKey | None,
         logger: logging.Logger | None,
         on_rate_limit_update: RateLimitUpdateListener | None,
     ) -> Self:
-        wallet_checksum = to_checksum_address(wallet)
-        branded_wallet = cast(EvmAddress, wallet_checksum)
+        branded_wallet = _identity_actions.checksum_wallet(wallet)
+        session = AsyncAuthSession(
+            credentials=credentials,
+            expires_in=expires_in,
+            refresh=partial(_identity_actions.refresh_session, auth),
+            on_credentials_changed=on_credentials_changed,
+            logger=logger,
+        )
 
         gamma = AsyncTransport(base_url=config.gamma_url, logger=logger)
         data = AsyncTransport(base_url=config.data_url, logger=logger)
@@ -972,13 +1053,15 @@ class AsyncSecureClient:
         builder_gateway = AsyncTransport(
             base_url=config.builder_gateway_url,
             logger=logger,
-            header_resolver=_make_builder_gateway_header_resolver(api_key, signer, credentials),
+            header_resolver=_make_builder_gateway_header_resolver(api_key, session),
+            recover_expired_token=session.recover,
         )
         secure_clob = AsyncTransport(
             base_url=config.clob_url,
             logger=logger,
-            header_resolver=_make_l2_header_resolver(signer, credentials),
+            header_resolver=_make_bearer_header_resolver(session),
             on_rate_limit_update=on_rate_limit_update,
+            recover_expired_token=session.recover,
         )
         rpc_transport = AsyncTransport(base_url=config.rpc_url, logger=logger)
         rpc = JsonRpcClient(rpc_transport)
@@ -991,8 +1074,9 @@ class AsyncSecureClient:
             rfq=rfq,
             clob=clob,
             perps=AsyncTransport(base_url=config.perps_url, logger=logger),
+            auth=auth,
             signer=signer,
-            credentials=credentials,
+            session=session,
             secure_clob=secure_clob,
             wallet=branded_wallet,
             wallet_type=wallet_type,
@@ -1027,9 +1111,30 @@ class AsyncSecureClient:
         return self._ctx.wallet_type
 
     @property
-    def credentials(self) -> ApiKeyCreds:
-        """API credentials used for authenticated requests."""
-        return self._ctx.credentials
+    def credentials(self) -> BearerCredentials:
+        """Current session credentials.
+
+        Both tokens are secrets. Store them securely to restore this session
+        with :meth:`create` without a new wallet signature.
+        """
+        return self._ctx.session.credentials
+
+    async def refresh_credentials(self) -> BearerCredentials:
+        """Renew the session now and return the renewed credentials.
+
+        The client renews its session before the access token expires, so most
+        applications never call this. A call made while a renewal is in progress
+        joins it instead of starting another. ``on_credentials_changed`` receives
+        the renewed pair. A failure that ends the session also fails every later
+        authenticated request and ends authenticated subscriptions.
+
+        Raises:
+            RequestRejectedError: If the session is rejected.
+            RateLimitError: If renewal is rate-limited.
+            TransportError: If a network request fails or the session is closed.
+            UnexpectedResponseError: If the renewal response is invalid.
+        """
+        return await self._ctx.session.refresh()
 
     async def authorize_session_key(
         self,
@@ -1333,7 +1438,7 @@ class AsyncSecureClient:
             self._realtime_manager = RealtimeStreamManager(
                 url=self._ctx.environment_config.realtime_ws_url,
                 headers=self._ctx.environment_config.realtime_ws_headers,
-                credentials=self._ctx.credentials,
+                session=self._ctx.session,
                 logger=self._streams_logger,
             )
         return self._realtime_manager
@@ -1374,7 +1479,7 @@ class AsyncSecureClient:
 
             self._user_manager = ClobUserStreamManager(
                 url=self._ctx.environment_config.clob_user_ws_url,
-                resolve_credentials=self._resolve_api_key_credentials,
+                session=self._ctx.session,
                 logger=self._streams_logger,
             )
         return self._user_manager
@@ -1388,9 +1493,6 @@ class AsyncSecureClient:
                 logger=self._streams_logger,
             )
         return self._perps_manager
-
-    async def _resolve_api_key_credentials(self) -> ApiKeyCreds:
-        return self._ctx.credentials
 
     async def open_perps_session(
         self,
@@ -1597,7 +1699,7 @@ class AsyncSecureClient:
 
         session = RfqQuoterSession(
             chain_id=self._ctx.environment_config.chain_id,
-            credentials=self._ctx.credentials,
+            session=self._ctx.session,
             exchange=EvmAddress(self._ctx.environment_config.exchange_v3),
             headers=self._ctx.environment_config.rfq_quoter_ws_headers,
             logger=self._streams_logger,
@@ -1628,6 +1730,7 @@ class AsyncSecureClient:
     async def close(self) -> None:
         """Close the underlying network transports and any open streams."""
         ctx = self._ctx_inner
+        ctx.session.close()
         await _close_all(
             ctx.order_metadata,
             self._market_manager,
@@ -1648,6 +1751,7 @@ class AsyncSecureClient:
             ctx.combos,
             ctx.builder_gateway,
             ctx.rpc,
+            ctx.auth,
         )
 
     async def _close_rfq_session(self) -> None:
@@ -2444,48 +2548,33 @@ class AsyncSecureClient:
             await self._ctx.clob.post_json(path, json=body)
         )
 
-    async def fetch_api_keys(self) -> tuple[str, ...]:
-        """Fetch API key identifiers for the authenticated account."""
-        return await _auth_actions.fetch_api_keys(self._ctx.secure_clob)
-
-    async def delete_api_key(self) -> None:
-        """Delete the API key currently used by this client."""
-        await _auth_actions.delete_api_key(self._ctx.secure_clob)
-
-    async def create_builder_api_key(self) -> BuilderApiKey:
-        """Create a new builder API key for the authenticated account."""
-        return await _auth_actions.create_builder_api_key(self._ctx.secure_clob)
-
-    async def fetch_builder_api_keys(self) -> tuple[BuilderApiKeyInfo, ...]:
-        """List the builder API keys for the authenticated account."""
-        return await _auth_actions.fetch_builder_api_keys(self._ctx.secure_clob)
-
-    async def revoke_builder_api_key(self) -> None:
-        """Revoke the builder API key this client is configured with.
-
-        The revocation is authenticated by the builder key itself, so the client must have been
-        created with the key to revoke (``AsyncSecureClient.create(api_key=BuilderApiKey(...))``).
-        """
-        builder_key = self._ctx.api_key
-        if not isinstance(builder_key, BuilderApiKey):
-            raise UserInputError(
-                "revoke_builder_api_key requires a client created with the builder key to "
-                "revoke (pass api_key=BuilderApiKey(...) to AsyncSecureClient.create)."
-            )
-        await _auth_actions.revoke_builder_api_key(self._ctx.clob, builder_key)
-
     async def end_authentication(self) -> "AsyncPublicClient":
-        """Delete current credentials, close this client, and return an async public client."""
-        environment = self._ctx.environment
+        """End the session, close this client, and return an async public client.
+
+        The refresh token stops working. Access tokens already issued stay valid
+        until they expire. API credentials exchanged for this session are not
+        revoked. Subscriptions and local resources are closed even when the
+        session cannot be ended. Concurrent calls share one logout.
+
+        Raises:
+            RequestRejectedError: If ending the session is rejected.
+            RateLimitError: If ending the session is rate-limited.
+            TransportError: If a network request fails.
+            UnexpectedResponseError: If a renewal needed to end the session is invalid.
+        """
+        environment = self._ctx_inner.environment
+        if self._ending_authentication is None:
+            self._ending_authentication = asyncio.ensure_future(self._end_session())
+        await asyncio.shield(self._ending_authentication)
+        return AsyncPublicClient(environment=environment)
+
+    async def _end_session(self) -> None:
+        ctx = self._ctx
         try:
-            await self.delete_api_key()
-        except RequestRejectedError as error:
-            if error.status not in (401, 404):
-                raise
+            await ctx.session.logout(partial(_identity_actions.revoke_session, ctx.auth))
         finally:
             await self.close()
             self._ended = True
-        return AsyncPublicClient(environment=environment)
 
     async def get_closed_only_mode(self) -> bool:
         """Return whether the authenticated account is in closed-only mode."""
@@ -3730,7 +3819,7 @@ class AsyncSecureClient:
     async def post_order(self, signed_order: SignedOrder) -> OrderResponse:
         """Post a signed order for the authenticated account."""
         path, payload = _post_actions.build_post_order_request(
-            signed_order, owner_api_key=self._ctx.credentials.key
+            signed_order, owner_api_key=_identity_actions.trading_identity(self._ctx.session.claims)
         )
         return _post_actions.parse_order_response(
             await self._ctx.secure_clob.post_json(path, json=payload)
@@ -3739,7 +3828,8 @@ class AsyncSecureClient:
     async def post_orders(self, signed_orders: Sequence[SignedOrder]) -> tuple[OrderResponse, ...]:
         """Post multiple signed orders for the authenticated account."""
         path, payload = _post_actions.build_post_orders_request(
-            signed_orders, owner_api_key=self._ctx.credentials.key
+            signed_orders,
+            owner_api_key=_identity_actions.trading_identity(self._ctx.session.claims),
         )
         return _post_actions.parse_order_responses(
             await self._ctx.secure_clob.post_json(path, json=payload)
@@ -4303,34 +4393,36 @@ async def _close_all(*resources: AsyncCloseable | None) -> None:
         raise first_error
 
 
-async def _bootstrap_credentials(
-    *,
-    config: EnvironmentConfig,
-    signer: LocalAccount,
-    clob: AsyncTransport,
-    provided: ApiKeyCreds | None,
-    nonce: int,
-    validate: bool,
-    logger: logging.Logger | None,
-) -> ApiKeyCreds:
-    if provided is not None and (
-        not validate
-        or await _credentials_are_active(
-            config=config,
-            signer=signer,
-            credentials=provided,
-            logger=logger,
-        )
-    ):
-        return provided
+async def _upgrade_session(
+    auth: AsyncTransport, access_token: str, *, wallet: str
+) -> _identity_actions.AccessTokenGrant:
+    return await _identity_actions.upgrade_session(auth, access_token=access_token, wallet=wallet)
 
-    signature = sign_api_key_auth(
-        signer,
-        chain_id=config.chain_id,
-        timestamp=int(time.time()),
-        nonce=nonce,
-    )
-    return await _auth_actions.create_or_derive_api_key(clob, signature)
+
+async def _discard_failed_creation(
+    client: AsyncSecureClient | None,
+    *,
+    auth: AsyncTransport,
+    credentials: BearerCredentials,
+    restored: bool,
+) -> None:
+    """Release a client whose creation failed. Cleanup failures keep the original error.
+
+    A session opened during creation is ended. A restored session belongs to the
+    caller and is only closed locally.
+    """
+    if client is not None and not restored:
+        with contextlib.suppress(Exception):
+            await client._end_session()  # pyright: ignore[reportPrivateUsage]
+        return
+    if client is None and not restored:
+        with contextlib.suppress(Exception):
+            await _identity_actions.revoke_session(auth, credentials.access_token)
+    with contextlib.suppress(Exception):
+        if client is not None:
+            await client.close()
+        else:
+            await auth.close()
 
 
 async def _resolve_requested_wallet(
@@ -4370,63 +4462,24 @@ def _relayer_transaction_type_for_wallet(
     return None
 
 
-async def _credentials_are_active(
-    *,
-    config: EnvironmentConfig,
-    signer: LocalAccount,
-    credentials: ApiKeyCreds,
-    logger: logging.Logger | None,
-) -> bool:
-    probe = AsyncTransport(
-        base_url=config.clob_url,
-        logger=logger,
-        header_resolver=_make_l2_header_resolver(signer, credentials),
-    )
-    try:
-        keys = await _auth_actions.fetch_api_keys(probe)
-    except RequestRejectedError as error:
-        if error.status == 401:
-            return False
-        raise
-    finally:
-        await probe.close()
-    return credentials.key in keys
+def _make_bearer_header_resolver(session: AsyncAuthSession) -> _HeaderResolver:
+    async def resolver(method: str, path: str, body: str | None) -> Mapping[str, str]:
+        return _identity_actions.build_bearer_headers((await session.ready()).access_token)
+
+    return resolver
 
 
 def _make_builder_gateway_header_resolver(
-    api_key: ApiKey | None, signer: LocalAccount, credentials: ApiKeyCreds
-) -> _L2HeaderResolver:
-    l2_resolver = _make_l2_header_resolver(signer, credentials)
-
+    api_key: ApiKey | None, session: AsyncAuthSession
+) -> _HeaderResolver:
     async def resolver(method: str, path: str, body: str | None) -> Mapping[str, str]:
-        headers = dict(await l2_resolver(method, path, body))
-        # Status reads authenticate with account headers only; builder
-        # headers are required on the mutating requests.
+        headers = _identity_actions.build_bearer_headers((await session.ready()).access_token)
+        # Status reads authenticate with the session only; builder headers are
+        # required on the mutating requests.
         if method != "GET" and isinstance(api_key, BuilderApiKey):
             headers.update(
                 build_builder_key_headers(creds=api_key, method=method, path=path, body=body)
             )
         return headers
-
-    return resolver
-
-
-def _make_l2_header_resolver(signer: LocalAccount, credentials: ApiKeyCreds) -> _L2HeaderResolver:
-    async def resolver(method: str, path: str, body: str | None) -> Mapping[str, str]:
-        timestamp = int(time.time())
-        signature = build_hmac_signature(
-            secret=credentials.secret,
-            timestamp=timestamp,
-            method=method,
-            path=path,
-            body=body,
-        )
-        return {
-            "POLY_ADDRESS": signer.address,
-            "POLY_API_KEY": credentials.key,
-            "POLY_PASSPHRASE": credentials.passphrase,
-            "POLY_SIGNATURE": signature,
-            "POLY_TIMESTAMP": str(timestamp),
-        }
 
     return resolver

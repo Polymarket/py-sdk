@@ -5,8 +5,9 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import httpx
+from _bearer import bearer_credentials_for
 
-from polymarket import ApiKeyCreds, AsyncSecureClient
+from polymarket import AsyncSecureClient
 from polymarket._internal.actions.orders.allowance import fetch_current_order_allowance
 from polymarket.clients._transport import AsyncTransport
 from polymarket.models.types import TokenId
@@ -14,7 +15,6 @@ from polymarket.types import EvmAddress
 
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 SIGNER_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-FAKE_CREDS = ApiKeyCreds(key="test-key", passphrase="test-passphrase", secret="dGVzdA==")
 EXCHANGE = EvmAddress("0xE111180000d2663C0091e4f400237545B87B996B")
 _CTF_ASSET_ID = str((1 << 40) + 8_501_497)
 _V2_POSITION_ID = str(int("0x01" + "00" * 30 + "00", 16))
@@ -45,7 +45,7 @@ async def _make_client() -> AsyncSecureClient:
     return await AsyncSecureClient._create(
         private_key=PRIVATE_KEY,
         wallet=SIGNER_ADDRESS,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PRIVATE_KEY),
         validate_credentials=False,
     )
 

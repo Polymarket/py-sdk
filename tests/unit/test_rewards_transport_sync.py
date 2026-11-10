@@ -4,9 +4,9 @@ from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 import httpx
+from _bearer import bearer_credentials_for
 
 from polymarket import (
-    ApiKeyCreds,
     PublicClient,
     SecureClient,
 )
@@ -19,7 +19,6 @@ from polymarket.models.clob.rewards import (
 
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 SIGNER_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-FAKE_CREDS = ApiKeyCreds(key="test-key", passphrase="test-passphrase", secret="dGVzdA==")
 _CONDITION_ID = "0x5c19f205507ce03ff5f3be08a8090a5969ea6870cc07b902a4ca2e61dfe48fdd"
 
 
@@ -112,7 +111,7 @@ class TestListCurrentRewards:
         with SecureClient._create(
             private_key=PRIVATE_KEY,
             wallet=SIGNER_ADDRESS,
-            credentials=FAKE_CREDS,
+            credentials=bearer_credentials_for(PRIVATE_KEY),
             validate_credentials=False,
         ) as client:
             _install_sync_clob(
@@ -149,7 +148,7 @@ class TestListMarketRewards:
         with SecureClient._create(
             private_key=PRIVATE_KEY,
             wallet=SIGNER_ADDRESS,
-            credentials=FAKE_CREDS,
+            credentials=bearer_credentials_for(PRIVATE_KEY),
             validate_credentials=False,
         ) as client:
             _install_sync_clob(

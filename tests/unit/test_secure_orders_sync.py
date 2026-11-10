@@ -8,9 +8,10 @@ from urllib.parse import urlparse
 
 import httpx
 import pytest
+from _bearer import bearer_credentials_for
 from eth_account import Account
 
-from polymarket import ApiKeyCreds, SecureClient
+from polymarket import SecureClient
 from polymarket._internal.environment import PRODUCTION_CONFIG
 from polymarket._internal.wallet import derive_uups_deposit_wallet_address
 from polymarket.clients._transport import SyncTransport
@@ -21,7 +22,6 @@ from polymarket.models.types import TokenId
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 SESSION_PRIVATE_KEY = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 SIGNER_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-FAKE_CREDS = ApiKeyCreds(key="test-key", passphrase="test-passphrase", secret="dGVzdA==")
 _CONDITION_ID = "0x5c19f205507ce03ff5f3be08a8090a5969ea6870cc07b902a4ca2e61dfe48fdd"
 _SESSION_SIGNER_MAGIC_HEX = "6492" * 16
 
@@ -115,7 +115,7 @@ def _make_client() -> SecureClient:
     return SecureClient._create(
         private_key=PRIVATE_KEY,
         wallet=SIGNER_ADDRESS,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PRIVATE_KEY),
         validate_credentials=False,
     )
 
@@ -126,7 +126,7 @@ def _make_session_client() -> SecureClient:
     return SecureClient._create(
         private_key=SESSION_PRIVATE_KEY,
         wallet=wallet,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(SESSION_PRIVATE_KEY),
         validate_credentials=False,
     )
 
@@ -421,7 +421,7 @@ def test_place_limit_order_posts_after_signing() -> None:
     post_request = next(
         r for r in secure_captured if r.method == "POST" and urlparse(str(r.url)).path == "/order"
     )
-    assert post_request.headers.get("POLY_SIGNATURE")
+    assert post_request.headers.get("Authorization", "").startswith("Bearer ")
 
 
 def test_place_market_order_buy_signs_and_posts() -> None:

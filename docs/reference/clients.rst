@@ -30,6 +30,44 @@ could not be established at the depth limit. Converting a depth-limited
 ``Page`` directly preserves these same markers. Polars has no stable
 per-frame metadata; depth-limited exports emit a ``UserWarning`` instead.
 
+Sessions
+--------
+
+A secure client authenticates with a session. ``SecureClient.create`` signs in
+with the private key, or restores saved credentials without a new wallet
+signature. Saved ``BearerCredentials`` restore the session they belong to, and
+saved ``ApiKeyCreds`` are exchanged for a new session.
+
+Save ``client.credentials`` after creation, and every pair passed to
+``on_credentials_changed``, to restore the session later. Both tokens are
+secrets. The client renews its session before the access token expires, also
+while it is idle. Call ``refresh_credentials()`` to renew on your own schedule.
+
+Saved credentials stop working after ``end_authentication()`` or when the
+session expires without renewal. Creating a client from them then raises
+``RequestRejectedError`` instead of signing in again:
+
+.. code-block:: python
+
+   from polymarket import BearerCredentials, RequestRejectedError, SecureClient
+
+
+   def connect(private_key: str, saved: BearerCredentials | None) -> SecureClient:
+       try:
+           return SecureClient.create(
+               private_key=private_key,
+               credentials=saved,
+               on_credentials_changed=save_credentials,
+           )
+       except RequestRejectedError:
+           if saved is None:
+               raise
+           return SecureClient.create(
+               private_key=private_key, on_credentials_changed=save_credentials
+           )
+
+.. autoclass:: polymarket.BearerCredentials
+
 PublicClient
 ------------
 

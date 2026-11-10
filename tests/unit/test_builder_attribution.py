@@ -7,8 +7,9 @@ from urllib.parse import urlparse
 
 import httpx
 import pytest
+from _bearer import bearer_credentials_for
 
-from polymarket import ApiKeyCreds, AsyncSecureClient
+from polymarket import AsyncSecureClient
 from polymarket._internal.actions.orders.market import adjust_buy_amount_for_fees
 from polymarket._internal.actions.orders.market_data import PlatformFeeInfo
 from polymarket._internal.actions.orders.orders import create_unsigned_order
@@ -22,7 +23,6 @@ from polymarket.types import EvmAddress, HexString
 
 _PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 _SIGNER_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-_FAKE_CREDS = ApiKeyCreds(key="test-key", passphrase="test-passphrase", secret="dGVzdA==")
 
 _VALID_BUILDER = "0x" + "ab" * 32
 _OTHER_BUILDER = "0x" + "cd" * 32
@@ -194,7 +194,7 @@ async def _make_client() -> AsyncSecureClient:
     return await AsyncSecureClient._create(
         private_key=_PRIVATE_KEY,
         wallet=_SIGNER_ADDRESS,
-        credentials=_FAKE_CREDS,
+        credentials=bearer_credentials_for(_PRIVATE_KEY),
         validate_credentials=False,
     )
 

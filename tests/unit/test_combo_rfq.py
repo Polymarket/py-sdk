@@ -11,7 +11,8 @@ from typing import Any
 
 import httpx
 import pytest
-from _relayer_helpers import BUILDER_AUTH, FAKE_CREDS, PK_DEPLOY_WALLET, make_eoa_client
+from _bearer import bearer_credentials_for
+from _relayer_helpers import BUILDER_AUTH, PK_DEPLOY_WALLET, make_eoa_client
 
 from polymarket import (
     AsyncSecureClient,
@@ -93,7 +94,7 @@ def make_sync_eoa_client() -> SecureClient:
     return SecureClient._create(
         private_key=PK_DEPLOY_WALLET,
         wallet=signer.address,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PK_DEPLOY_WALLET),
         api_key=BUILDER_AUTH,
         validate_credentials=False,
     )

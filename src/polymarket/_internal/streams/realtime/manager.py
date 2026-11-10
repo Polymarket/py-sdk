@@ -3,12 +3,12 @@ import asyncio
 import logging
 from collections.abc import Callable, Mapping
 
+from polymarket._internal.auth_session import AsyncAuthSession
 from polymarket._internal.streams.handle import AsyncSubscriptionHandle
 from polymarket._internal.streams.realtime.protocol import PriceKey, subscriptions_for
 from polymarket._internal.streams.realtime.session import PriceListener, PriceSession
 from polymarket._internal.streams.realtime.socket import PriceConnection
 from polymarket.errors import TransportError
-from polymarket.models.clob.api_key import ApiKeyCreds
 from polymarket.models.price_events import PriceEvent
 from polymarket.streams._specs import EquityPriceSpec, PriceSpec
 
@@ -20,13 +20,13 @@ class RealtimeStreamManager:
         self,
         *,
         url: str,
-        credentials: ApiKeyCreds,
+        session: AsyncAuthSession,
         headers: Mapping[str, str] | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
-        self._url, self._credentials, self._headers, self._logger = (
+        self._url, self._session, self._headers, self._logger = (
             url,
-            credentials,
+            session,
             headers,
             logger,
         )
@@ -46,7 +46,7 @@ class RealtimeStreamManager:
         session = PriceSession(
             PriceConnection(
                 url=self._url,
-                credentials=self._credentials,
+                session=self._session,
                 headers=self._headers,
                 logger=self._logger,
             ),

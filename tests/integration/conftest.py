@@ -12,6 +12,7 @@ from _environment import (
 from dotenv import load_dotenv
 
 from polymarket import (
+    ApiKeyCreds,
     AsyncPublicClient,
     AsyncSecureClient,
     BuilderApiKey,
@@ -108,6 +109,16 @@ def relayer_api_key(require_env: Callable[[str], str]) -> RelayerApiKey:
     return RelayerApiKey(
         key=require_env("POLYMARKET_RELAYER_API_KEY"),
         address=require_env("POLYMARKET_RELAYER_API_KEY_ADDRESS"),
+    )
+
+
+@pytest.fixture
+def saved_api_credentials(require_env: Callable[[str], str]) -> ApiKeyCreds:
+    """API credentials previously issued to the Deposit Wallet signer."""
+    return ApiKeyCreds(
+        key=require_env("POLYMARKET_TEST_API_KEY"),
+        secret=require_env("POLYMARKET_TEST_API_SECRET"),
+        passphrase=require_env("POLYMARKET_TEST_API_PASSPHRASE"),
     )
 
 

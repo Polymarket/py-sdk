@@ -27,6 +27,16 @@ from polymarket.rate_limit import RateLimitUpdate, RateLimitUpdateListener
 
 SyncHeaderResolver: TypeAlias = Callable[[str, str, str | None], Mapping[str, str]]
 HeaderResolver: TypeAlias = Callable[[str, str, str | None], Awaitable[Mapping[str, str]]]
+# Called with the access token a request used after the server rejected it as expired.
+SyncExpiredTokenRecovery: TypeAlias = Callable[[str], None]
+ExpiredTokenRecovery: TypeAlias = Callable[[str], Awaitable[None]]
+
+_AUTH_PATH_PREFIX = "/v1/auth/"
+_EXPIRED_ACCESS_TOKEN = "expired_access_token"
+_SECRET_HEADER = re.compile(r"authorization|api.?key|passphrase|signature|secret", re.IGNORECASE)
+_REDACTED = "[REDACTED]"
+_AUTH_REJECTED_MESSAGE = "Authentication request rejected."
+_AUTH_TRANSPORT_MESSAGE = "Authentication transport failed."
 
 _DEFAULT_LIMITS = httpx.Limits(
     max_connections=100,
@@ -54,6 +64,7 @@ class SyncTransport:
         client: httpx.Client | None = None,
         header_resolver: SyncHeaderResolver | None = None,
         on_rate_limit_update: RateLimitUpdateListener | None = None,
+        recover_expired_token: SyncExpiredTokenRecovery | None = None,
     ) -> None:
         opts = options or TransportOptions()
         self._owns_client = client is None
@@ -67,6 +78,7 @@ class SyncTransport:
         self._logger = logger
         self._header_resolver = header_resolver
         self._on_rate_limit_update = on_rate_limit_update
+        self._recover_expired_token = recover_expired_token
         self._base_url = base_url
 
     def get_json(
@@ -102,6 +114,16 @@ class SyncTransport:
             "POST", path, params=params, json=json, headers=headers, timeout=timeout
         )
         return _read_json(response)
+
+    def post(
+        self,
+        path: str,
+        *,
+        json: object | None = None,
+        params: Mapping[str, QueryParamValue | None] | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> None:
+        self._request("POST", path, params=params, json=json, headers=headers)
 
     def delete_json(
         self,
@@ -147,27 +169,43 @@ class SyncTransport:
             content = body_str.encode("utf-8")
             merged_headers.setdefault("Content-Type", "application/json")
 
-        if self._header_resolver is not None:
-            resolved = self._header_resolver(method, path, body_str)
-            merged_headers.update(resolved)
+        # Replays reuse the serialized body and resolve headers again for the new attempt.
+        replayed = False
+        while True:
+            attempt_headers = dict(merged_headers)
+            if self._header_resolver is not None:
+                attempt_headers.update(self._header_resolver(method, path, body_str))
+            secrets = _request_secrets(attempt_headers)
 
-        started = time.perf_counter()
-        try:
-            response = self._client.request(
-                method,
-                self._base_url if path == "" else path,
-                params=_clean_params(params),
-                content=content,
-                headers=merged_headers or None,
-                timeout=timeout if timeout is not None else USE_CLIENT_DEFAULT,
-            )
-        except httpx.HTTPError as error:
-            _log_failure(self._logger, method, path, error, started)
-            raise TransportError(str(error) or "Request failed") from error
+            started = time.perf_counter()
+            outcome: httpx.Response | httpx.HTTPError
+            try:
+                outcome = self._client.request(
+                    method,
+                    self._base_url if path == "" else path,
+                    params=_clean_params(params),
+                    content=content,
+                    headers=attempt_headers or None,
+                    timeout=timeout if timeout is not None else USE_CLIENT_DEFAULT,
+                )
+            except httpx.HTTPError as error:
+                _log_failure(self._logger, method, path, error, started)
+                outcome = error
+            if isinstance(outcome, httpx.HTTPError):
+                # Raised outside the handler so a credentialed request keeps no reference
+                # to the failed request and its headers.
+                raise _transport_error(outcome, path=path, secrets=secrets)
+            response = outcome
 
-        _log_response(self._logger, method, path, response, started)
-        _notify_rate_limit_update(self._on_rate_limit_update, self._logger, response)
-        _raise_for_response_status(response, path=path)
+            _log_response(self._logger, method, path, response, started)
+            _notify_rate_limit_update(self._on_rate_limit_update, self._logger, response)
+            expired_token = _expired_access_token(response, path=path, headers=attempt_headers)
+            if replayed or self._recover_expired_token is None or expired_token is None:
+                break
+            self._recover_expired_token(expired_token)
+            replayed = True
+
+        _raise_for_response_status(response, path=path, secrets=secrets)
         return response
 
 
@@ -181,6 +219,7 @@ class AsyncTransport:
         client: httpx.AsyncClient | None = None,
         header_resolver: HeaderResolver | None = None,
         on_rate_limit_update: RateLimitUpdateListener | None = None,
+        recover_expired_token: ExpiredTokenRecovery | None = None,
     ) -> None:
         opts = options or TransportOptions()
         self._owns_client = client is None
@@ -194,6 +233,7 @@ class AsyncTransport:
         self._logger = logger
         self._header_resolver = header_resolver
         self._on_rate_limit_update = on_rate_limit_update
+        self._recover_expired_token = recover_expired_token
         self._base_url = base_url
 
     async def get_json(
@@ -241,6 +281,16 @@ class AsyncTransport:
         response = await self._request("PATCH", path, params=params, json=json, headers=headers)
         return _read_json(response)
 
+    async def post(
+        self,
+        path: str,
+        *,
+        json: object | None = None,
+        params: Mapping[str, QueryParamValue | None] | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> None:
+        await self._request("POST", path, params=params, json=json, headers=headers)
+
     async def delete_json(
         self,
         path: str,
@@ -285,27 +335,43 @@ class AsyncTransport:
             content = body_str.encode("utf-8")
             merged_headers.setdefault("Content-Type", "application/json")
 
-        if self._header_resolver is not None:
-            resolved = await self._header_resolver(method, path, body_str)
-            merged_headers.update(resolved)
+        # Replays reuse the serialized body and resolve headers again for the new attempt.
+        replayed = False
+        while True:
+            attempt_headers = dict(merged_headers)
+            if self._header_resolver is not None:
+                attempt_headers.update(await self._header_resolver(method, path, body_str))
+            secrets = _request_secrets(attempt_headers)
 
-        started = time.perf_counter()
-        try:
-            response = await self._client.request(
-                method,
-                self._base_url if path == "" else path,
-                params=_clean_params(params),
-                content=content,
-                headers=merged_headers or None,
-                timeout=timeout if timeout is not None else USE_CLIENT_DEFAULT,
-            )
-        except httpx.HTTPError as error:
-            _log_failure(self._logger, method, path, error, started)
-            raise TransportError(str(error) or "Request failed") from error
+            started = time.perf_counter()
+            outcome: httpx.Response | httpx.HTTPError
+            try:
+                outcome = await self._client.request(
+                    method,
+                    self._base_url if path == "" else path,
+                    params=_clean_params(params),
+                    content=content,
+                    headers=attempt_headers or None,
+                    timeout=timeout if timeout is not None else USE_CLIENT_DEFAULT,
+                )
+            except httpx.HTTPError as error:
+                _log_failure(self._logger, method, path, error, started)
+                outcome = error
+            if isinstance(outcome, httpx.HTTPError):
+                # Raised outside the handler so a credentialed request keeps no reference
+                # to the failed request and its headers.
+                raise _transport_error(outcome, path=path, secrets=secrets)
+            response = outcome
 
-        _log_response(self._logger, method, path, response, started)
-        _notify_rate_limit_update(self._on_rate_limit_update, self._logger, response)
-        _raise_for_response_status(response, path=path)
+            _log_response(self._logger, method, path, response, started)
+            _notify_rate_limit_update(self._on_rate_limit_update, self._logger, response)
+            expired_token = _expired_access_token(response, path=path, headers=attempt_headers)
+            if replayed or self._recover_expired_token is None or expired_token is None:
+                break
+            await self._recover_expired_token(expired_token)
+            replayed = True
+
+        _raise_for_response_status(response, path=path, secrets=secrets)
         return response
 
 
@@ -398,9 +464,72 @@ def _notify_rate_limit_update(
             logger.warning("polymarket rate-limit update listener failed", exc_info=True)
 
 
-def _raise_for_response_status(response: httpx.Response, *, path: str) -> None:
+def _request_secrets(headers: Mapping[str, str]) -> tuple[str, ...]:
+    secrets: list[str] = []
+    for name, value in headers.items():
+        if not value or not _SECRET_HEADER.search(name):
+            continue
+        secrets.append(value)
+        scheme, _, token = value.partition(" ")
+        if scheme.lower() == "bearer" and token:
+            secrets.append(token)
+    return tuple(secrets)
+
+
+def _redact(text: str, secrets: tuple[str, ...]) -> str:
+    for secret in sorted(secrets, key=len, reverse=True):
+        text = text.replace(secret, _REDACTED)
+    return text
+
+
+def _is_auth_path(path: str) -> bool:
+    return path.startswith(_AUTH_PATH_PREFIX)
+
+
+def _transport_error(
+    error: httpx.HTTPError, *, path: str, secrets: tuple[str, ...]
+) -> TransportError:
+    if _is_auth_path(path):
+        return TransportError(_AUTH_TRANSPORT_MESSAGE)
+    message = str(error) or "Request failed"
+    if secrets:
+        return TransportError(_redact(message, secrets))
+    transport_error = TransportError(message)
+    transport_error.__cause__ = error
+    return transport_error
+
+
+def _expired_access_token(
+    response: httpx.Response, *, path: str, headers: Mapping[str, str]
+) -> str | None:
+    """Return the access token the server rejected as expired, if it did."""
+    if response.status_code != 401 or _is_auth_path(path):
+        return None
+    if _extract_response_error_code(response) != _EXPIRED_ACCESS_TOKEN:
+        return None
+    for name, value in headers.items():
+        if name.lower() == "authorization":
+            scheme, _, token = value.partition(" ")
+            if scheme.lower() == "bearer" and token:
+                return token
+    return None
+
+
+def _raise_for_response_status(
+    response: httpx.Response, *, path: str, secrets: tuple[str, ...] = ()
+) -> None:
     if response.is_success:
         return
+
+    if _is_auth_path(path) and response.status_code != 429:
+        # Authentication responses can echo credentials, so only the status and
+        # a code are kept.
+        raise RequestRejectedError(
+            _AUTH_REJECTED_MESSAGE,
+            status=response.status_code,
+            code=_extract_response_error_code(response),
+            retry_after=_extract_retry_after(response),
+        )
 
     if response.status_code == 429:
         raise RateLimitError(
@@ -417,10 +546,16 @@ def _raise_for_response_status(response: httpx.Response, *, path: str) -> None:
         else:
             raise OrderHeartbeatMismatchError(mismatch.heartbeat_id)
 
+    message = _extract_response_error_message(response)
+    code = _extract_response_error_code(response)
+    if secrets:
+        message = _redact(message, secrets)
+        if code is not None and _redact(code, secrets) != code:
+            code = None
     raise RequestRejectedError(
-        _extract_response_error_message(response),
+        message,
         status=response.status_code,
-        code=_extract_response_error_code(response),
+        code=code,
         retry_after=_extract_retry_after(response),
         restriction=_detect_trading_restriction(response),
     )

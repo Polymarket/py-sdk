@@ -6,8 +6,9 @@ from urllib.parse import urlparse
 
 import httpx
 import pytest
+from _bearer import bearer_credentials_for
 
-from polymarket import ApiKeyCreds, AsyncSecureClient
+from polymarket import AsyncSecureClient
 from polymarket._internal.actions.orders.place import (
     is_balance_or_allowance_rejection,
     post_order_with_allowance_recovery,
@@ -21,7 +22,6 @@ from polymarket.clients._transport import AsyncTransport
 from polymarket.errors import RequestRejectedError
 
 _PRIVATE_KEY = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-_CREDS = ApiKeyCreds(key="k", passphrase="p", secret="dGVzdA==")
 _STANDARD_EXCHANGE = PRODUCTION_CONFIG.standard_exchange
 _CONDITION_ID = "0x5c19f205507ce03ff5f3be08a8090a5969ea6870cc07b902a4ca2e61dfe48fdd"
 _ASSET_ID = str((1 << 40) + 8_501_497)
@@ -43,7 +43,7 @@ async def _make_deposit_client() -> AsyncSecureClient:
     return await AsyncSecureClient._create(
         private_key=_PRIVATE_KEY,
         wallet=wallet,
-        credentials=_CREDS,
+        credentials=bearer_credentials_for(_PRIVATE_KEY),
         api_key=_builder_auth(),
         validate_credentials=False,
     )
