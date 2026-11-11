@@ -55,4 +55,27 @@ class RelayerApiKey:
 ApiKey: TypeAlias = BuilderApiKey | RelayerApiKey
 
 
-__all__ = ["ApiKey", "BuilderApiKey", "RelayerApiKey"]
+@dataclass(frozen=True, slots=True, kw_only=True)
+class BearerCredentials:
+    """Session credentials for a secure client.
+
+    Both tokens are secrets. Store them securely to restore the session later
+    without a new wallet signature.
+    """
+
+    access_token: str = field(repr=False)
+    refresh_token: str = field(repr=False)
+
+    def __repr__(self) -> str:
+        return "BearerCredentials(access_token=<redacted>, refresh_token=<redacted>)"
+
+    def _repr_html_(self) -> str:
+        from polymarket._jupyter import card
+
+        return card(
+            "BearerCredentials  ·  redacted",
+            rows=[("access_token", "***"), ("refresh_token", "***")],
+        )
+
+
+__all__ = ["ApiKey", "BearerCredentials", "BuilderApiKey", "RelayerApiKey"]

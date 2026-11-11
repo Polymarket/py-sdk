@@ -6,10 +6,9 @@ from polymarket._internal.streams.clob.user_protocol import (
     diff_state_frames,
     matcher_for,
 )
-from polymarket.models import ApiKeyCreds
 from polymarket.models.clob.user_events import UserEvent, parse_user_event
 
-_CREDS = ApiKeyCreds(key="K", secret="S", passphrase="P")
+_ACCESS_TOKEN = "access-token"
 
 
 def _order_event(market: str) -> UserEvent:
@@ -56,18 +55,18 @@ def test_derive_state_promotes_to_all_when_any_sub_is_all() -> None:
 
 def test_initial_frame_shape() -> None:
     state = UserServerState(include_all_markets=False, markets=("m1",))
-    assert build_initial_frame(state, _CREDS) == {
+    assert build_initial_frame(state, _ACCESS_TOKEN) == {
         "type": "user",
-        "auth": {"apiKey": "K", "secret": "S", "passphrase": "P"},
+        "auth": {"accessToken": "access-token"},
         "markets": ["m1"],
     }
 
 
 def test_initial_frame_all_markets_omits_market_filter() -> None:
     state = UserServerState(include_all_markets=True, markets=())
-    assert build_initial_frame(state, _CREDS) == {
+    assert build_initial_frame(state, _ACCESS_TOKEN) == {
         "type": "user",
-        "auth": {"apiKey": "K", "secret": "S", "passphrase": "P"},
+        "auth": {"accessToken": "access-token"},
     }
 
 

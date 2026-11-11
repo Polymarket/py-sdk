@@ -1,3 +1,4 @@
+# pyright: reportPrivateUsage=false
 import asyncio
 from collections.abc import Sequence
 from typing import Literal
@@ -5,9 +6,10 @@ from typing import Literal
 import httpx
 import pytest
 import respx
+from _bearer import bearer_credentials_for
 from eth_account import Account
 
-from polymarket import ApiKeyCreds, AsyncPublicClient, AsyncSecureClient, PublicClient, SecureClient
+from polymarket import AsyncPublicClient, AsyncSecureClient, PublicClient, SecureClient
 from polymarket._internal.actions import gamma as gamma_actions
 from polymarket._internal.pagination import fingerprint_query
 from polymarket._internal.request import (
@@ -149,7 +151,7 @@ def test_market_lists_preserve_v2_filters_and_bounds_across_pages(
     # Synthetic signing material is used only with controlled transports.
     test_key = "0x" + "01" * 32
     wallet = Account.from_key(test_key).address
-    credentials = ApiKeyCreds(key="test-key", passphrase="test-passphrase", secret="dGVzdA==")
+    credentials = bearer_credentials_for(test_key)
     requests: list[httpx.Request] = []
     responses = iter(
         [
@@ -163,16 +165,17 @@ def test_market_lists_preserve_v2_filters_and_bounds_across_pages(
         return next(responses)
 
     with respx.mock as router:
-        if secure:
-            router.get("https://clob.polymarket.com/auth/api-keys").respond(
-                json={"apiKeys": [credentials.key]},
-            )
         route = router.get("https://gamma-api.polymarket.com/markets/keyset")
         route.side_effect = respond
 
         if client_mode == "sync":
             client = (
-                SecureClient.create(private_key=test_key, wallet=wallet, credentials=credentials)
+                SecureClient._create(
+                    private_key=test_key,
+                    wallet=wallet,
+                    credentials=credentials,
+                    validate_credentials=False,
+                )
                 if secure
                 else PublicClient()
             )
@@ -194,10 +197,11 @@ def test_market_lists_preserve_v2_filters_and_bounds_across_pages(
 
             async def collect() -> int:
                 client = (
-                    await AsyncSecureClient.create(
+                    await AsyncSecureClient._create(
                         private_key=test_key,
                         wallet=wallet,
                         credentials=credentials,
+                        validate_credentials=False,
                     )
                     if secure
                     else AsyncPublicClient()

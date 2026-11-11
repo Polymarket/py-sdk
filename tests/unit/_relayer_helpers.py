@@ -8,9 +8,10 @@ from typing import Any, cast
 from urllib.parse import urlparse
 
 import httpx
+from _bearer import bearer_credentials_for
 from eth_utils.crypto import keccak
 
-from polymarket import ApiKeyCreds, AsyncSecureClient, BuilderApiKey, SecureClient
+from polymarket import AsyncSecureClient, BuilderApiKey, SecureClient
 from polymarket._internal.environment import (
     PRODUCTION_CONFIG,
     with_environment_config,
@@ -22,7 +23,6 @@ PK_DEPLOY_WALLET = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 PK_PROXY_WALLET = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 PK_SAFE_WALLET = "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 
-FAKE_CREDS = ApiKeyCreds(key="k", passphrase="p", secret="dGVzdA==")
 BUILDER_AUTH = BuilderApiKey(key="bk", secret="dGVzdA==", passphrase="bp")
 
 TOKEN = "0xDDeeAa11220000000000000000000000000000aA"
@@ -39,7 +39,7 @@ async def make_deposit_client() -> AsyncSecureClient:
     return await AsyncSecureClient._create(
         private_key=PK_DEPLOY_WALLET,
         wallet=wallet,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PK_DEPLOY_WALLET),
         api_key=BUILDER_AUTH,
         validate_credentials=False,
     )
@@ -55,7 +55,7 @@ async def make_session_client() -> AsyncSecureClient:
     return await AsyncSecureClient._create(
         private_key=PK_PROXY_WALLET,
         wallet=wallet,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PK_PROXY_WALLET),
         api_key=BUILDER_AUTH,
         validate_credentials=False,
     )
@@ -71,7 +71,7 @@ async def make_proxy_client() -> AsyncSecureClient:
     return await AsyncSecureClient._create(
         private_key=PK_PROXY_WALLET,
         wallet=wallet,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PK_PROXY_WALLET),
         api_key=BUILDER_AUTH,
         validate_credentials=False,
     )
@@ -84,7 +84,7 @@ async def make_eoa_client(*, with_api_key: bool = True) -> AsyncSecureClient:
     return await AsyncSecureClient._create(
         private_key=PK_DEPLOY_WALLET,
         wallet=signer.address,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PK_DEPLOY_WALLET),
         api_key=BUILDER_AUTH if with_api_key else None,
         validate_credentials=False,
     )
@@ -106,7 +106,7 @@ async def make_eoa_client_with_rpc(
     client = await AsyncSecureClient._create(
         private_key=PK_DEPLOY_WALLET,
         wallet=signer.address,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PK_DEPLOY_WALLET),
         api_key=BUILDER_AUTH,
         environment=env,
         validate_credentials=False,
@@ -291,7 +291,7 @@ async def make_safe_client() -> AsyncSecureClient:
     return await AsyncSecureClient._create(
         private_key=PK_SAFE_WALLET,
         wallet=wallet,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PK_SAFE_WALLET),
         api_key=BUILDER_AUTH,
         validate_credentials=False,
     )
@@ -394,7 +394,7 @@ def make_sync_eoa_client(*, with_api_key: bool = True) -> SecureClient:
     return SecureClient._create(
         private_key=PK_DEPLOY_WALLET,
         wallet=signer.address,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PK_DEPLOY_WALLET),
         api_key=BUILDER_AUTH if with_api_key else None,
         validate_credentials=False,
     )
@@ -410,7 +410,7 @@ def make_sync_deposit_client(*, api_key: ApiKey | None = BUILDER_AUTH) -> Secure
     return SecureClient._create(
         private_key=PK_DEPLOY_WALLET,
         wallet=wallet,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PK_DEPLOY_WALLET),
         api_key=api_key,
         validate_credentials=False,
     )
@@ -426,7 +426,7 @@ def make_sync_session_client() -> SecureClient:
     return SecureClient._create(
         private_key=PK_PROXY_WALLET,
         wallet=wallet,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PK_PROXY_WALLET),
         api_key=BUILDER_AUTH,
         validate_credentials=False,
     )
@@ -442,7 +442,7 @@ def make_sync_proxy_client() -> SecureClient:
     return SecureClient._create(
         private_key=PK_PROXY_WALLET,
         wallet=wallet,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PK_PROXY_WALLET),
         api_key=BUILDER_AUTH,
         validate_credentials=False,
     )
@@ -458,7 +458,7 @@ def make_sync_safe_client() -> SecureClient:
     return SecureClient._create(
         private_key=PK_SAFE_WALLET,
         wallet=wallet,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PK_SAFE_WALLET),
         api_key=BUILDER_AUTH,
         validate_credentials=False,
     )
@@ -548,7 +548,6 @@ def request_json(request: httpx.Request) -> Any:
 
 __all__ = [
     "BUILDER_AUTH",
-    "FAKE_CREDS",
     "PK_DEPLOY_WALLET",
     "PK_PROXY_WALLET",
     "PK_SAFE_WALLET",

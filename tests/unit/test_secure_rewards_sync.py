@@ -5,14 +5,14 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import httpx
+from _bearer import bearer_credentials_for
 
-from polymarket import ApiKeyCreds, SecureClient
+from polymarket import SecureClient
 from polymarket._internal.actions.rewards import END_CURSOR
 from polymarket.clients._transport import SyncTransport
 
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 SIGNER_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-FAKE_CREDS = ApiKeyCreds(key="test-key", passphrase="test-passphrase", secret="dGVzdA==")
 _CONDITION_ID = "0x5c19f205507ce03ff5f3be08a8090a5969ea6870cc07b902a4ca2e61dfe48fdd"
 
 
@@ -37,7 +37,7 @@ def _make_client() -> SecureClient:
     return SecureClient._create(
         private_key=PRIVATE_KEY,
         wallet=SIGNER_ADDRESS,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PRIVATE_KEY),
         validate_credentials=False,
     )
 
@@ -54,7 +54,7 @@ def test_get_order_scoring_routes_to_order_scoring_endpoint() -> None:
     assert urlparse(str(request.url)).path == "/order-scoring"
     qs = parse_qs(urlparse(str(request.url)).query)
     assert qs.get("order_id") == ["ord-1"]
-    assert request.headers.get("POLY_SIGNATURE")
+    assert request.headers.get("Authorization", "").startswith("Bearer ")
 
 
 def test_get_orders_scoring_posts_order_ids_and_parses_map() -> None:
@@ -150,9 +150,7 @@ def test_get_reward_percentages_routes_to_percentages_endpoint() -> None:
     assert qs.get("signature_type") == ["0"]
 
 
-def test_order_heartbeats_sign_exact_body_and_return_rotated_id() -> None:
-    from polymarket._internal.hmac import build_hmac_signature
-
+def test_order_heartbeats_send_exact_body_and_return_rotated_id() -> None:
     captured: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -164,6 +162,7 @@ def test_order_heartbeats_sign_exact_body_and_return_rotated_id() -> None:
         )
 
     with _make_client() as client:
+        access_token = client.credentials.access_token
         _install_secure_clob(client, httpx.MockTransport(handler))
         heartbeat = client.send_order_heartbeat()
         client.send_order_heartbeat(heartbeat_id=heartbeat.heartbeat_id)
@@ -173,15 +172,8 @@ def test_order_heartbeats_sign_exact_body_and_return_rotated_id() -> None:
     ]
     assert [request.url.path for request in captured] == ["/v1/heartbeats"] * 2
     for request in captured:
-        signature = build_hmac_signature(
-            secret=FAKE_CREDS.secret,
-            timestamp=int(request.headers["POLY_TIMESTAMP"]),
-            method="POST",
-            path=request.url.path,
-            body=request.content.decode() if request.content else None,
-        )
-        assert request.headers["POLY_SIGNATURE"] == signature
-        assert request.headers["POLY_API_KEY"] == FAKE_CREDS.key
+        assert request.headers["Authorization"] == f"Bearer {access_token}"
+        assert "POLY_SIGNATURE" not in request.headers
 
 
 def test_order_heartbeat_public_surface_has_one_workflow() -> None:

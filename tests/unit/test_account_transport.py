@@ -6,8 +6,9 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
+from _bearer import bearer_credentials_for
 
-from polymarket import ApiKeyCreds, AsyncSecureClient
+from polymarket import AsyncSecureClient
 from polymarket._internal.actions.account import END_CURSOR
 from polymarket._internal.environment import PRODUCTION_CONFIG
 from polymarket.clients._transport import AsyncTransport
@@ -15,7 +16,6 @@ from polymarket.errors import UserInputError
 
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 SIGNER_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-FAKE_CREDS = ApiKeyCreds(key="test-key", passphrase="test-passphrase", secret="dGVzdA==")
 
 _OPEN_ORDER_PAYLOAD: dict[str, Any] = {
     "asset_id": "8501497",
@@ -86,13 +86,11 @@ def _install_secure_clob(client: AsyncSecureClient, handler: httpx.MockTransport
     client._ctx = dataclasses.replace(client._ctx, secure_clob=transport)
 
 
-def _assert_l2_headers(request: httpx.Request) -> None:
+def _assert_session_headers(request: httpx.Request) -> None:
     headers = request.headers
-    assert headers.get("POLY_ADDRESS")
-    assert headers.get("POLY_API_KEY") == FAKE_CREDS.key
-    assert headers.get("POLY_PASSPHRASE") == FAKE_CREDS.passphrase
-    assert headers.get("POLY_SIGNATURE")
-    assert headers.get("POLY_TIMESTAMP")
+    assert headers.get("Authorization", "").startswith("Bearer ")
+    assert headers.get("POLY_API_KEY") is None
+    assert headers.get("POLY_SIGNATURE") is None
 
 
 def _make_client() -> AsyncSecureClient:
@@ -100,7 +98,7 @@ def _make_client() -> AsyncSecureClient:
         AsyncSecureClient._create(
             private_key=PRIVATE_KEY,
             wallet=SIGNER_ADDRESS,
-            credentials=FAKE_CREDS,
+            credentials=bearer_credentials_for(PRIVATE_KEY),
             validate_credentials=False,
         )
     )
@@ -113,7 +111,7 @@ def test_get_closed_only_mode_returns_bool_and_uses_l2_headers() -> None:
         client = await AsyncSecureClient._create(
             private_key=PRIVATE_KEY,
             wallet=SIGNER_ADDRESS,
-            credentials=FAKE_CREDS,
+            credentials=bearer_credentials_for(PRIVATE_KEY),
             validate_credentials=False,
         )
         try:
@@ -127,7 +125,7 @@ def test_get_closed_only_mode_returns_bool_and_uses_l2_headers() -> None:
     request = captured[0]
     assert request.method == "GET"
     assert urlparse(str(request.url)).path == "/auth/ban-status/closed-only"
-    _assert_l2_headers(request)
+    _assert_session_headers(request)
 
 
 def test_list_open_orders_paginates_until_end_cursor() -> None:
@@ -151,7 +149,7 @@ def test_list_open_orders_paginates_until_end_cursor() -> None:
         client = await AsyncSecureClient._create(
             private_key=PRIVATE_KEY,
             wallet=SIGNER_ADDRESS,
-            credentials=FAKE_CREDS,
+            credentials=bearer_credentials_for(PRIVATE_KEY),
             validate_credentials=False,
         )
         try:
@@ -181,7 +179,7 @@ def test_get_order_targets_data_order_path() -> None:
         client = await AsyncSecureClient._create(
             private_key=PRIVATE_KEY,
             wallet=SIGNER_ADDRESS,
-            credentials=FAKE_CREDS,
+            credentials=bearer_credentials_for(PRIVATE_KEY),
             validate_credentials=False,
         )
         try:
@@ -194,7 +192,7 @@ def test_get_order_targets_data_order_path() -> None:
     assert asyncio.run(run()) == "order-1"
     request = captured[0]
     assert urlparse(str(request.url)).path == "/data/order/order-1"
-    _assert_l2_headers(request)
+    _assert_session_headers(request)
 
 
 def test_list_account_trades_paginates_and_passes_filters() -> None:
@@ -213,7 +211,7 @@ def test_list_account_trades_paginates_and_passes_filters() -> None:
         client = await AsyncSecureClient._create(
             private_key=PRIVATE_KEY,
             wallet=SIGNER_ADDRESS,
-            credentials=FAKE_CREDS,
+            credentials=bearer_credentials_for(PRIVATE_KEY),
             validate_credentials=False,
         )
         try:
@@ -243,7 +241,7 @@ def test_get_notifications_includes_signature_type_for_eoa_wallet() -> None:
         client = await AsyncSecureClient._create(
             private_key=PRIVATE_KEY,
             wallet=SIGNER_ADDRESS,
-            credentials=FAKE_CREDS,
+            credentials=bearer_credentials_for(PRIVATE_KEY),
             validate_credentials=False,
         )
         try:
@@ -257,7 +255,7 @@ def test_get_notifications_includes_signature_type_for_eoa_wallet() -> None:
     assert urlparse(str(request.url)).path == "/notifications"
     qs = parse_qs(urlparse(str(request.url)).query)
     assert qs.get("signature_type") == ["0"]
-    _assert_l2_headers(request)
+    _assert_session_headers(request)
 
 
 def test_drop_notifications_uses_delete_with_comma_separated_ids() -> None:
@@ -267,7 +265,7 @@ def test_drop_notifications_uses_delete_with_comma_separated_ids() -> None:
         client = await AsyncSecureClient._create(
             private_key=PRIVATE_KEY,
             wallet=SIGNER_ADDRESS,
-            credentials=FAKE_CREDS,
+            credentials=bearer_credentials_for(PRIVATE_KEY),
             validate_credentials=False,
         )
         try:
@@ -290,7 +288,7 @@ def test_drop_notifications_rejects_empty_id_list() -> None:
         client = await AsyncSecureClient._create(
             private_key=PRIVATE_KEY,
             wallet=SIGNER_ADDRESS,
-            credentials=FAKE_CREDS,
+            credentials=bearer_credentials_for(PRIVATE_KEY),
             validate_credentials=False,
         )
         try:
@@ -309,7 +307,7 @@ def test_get_balance_allowance_for_collateral_omits_token_id() -> None:
         client = await AsyncSecureClient._create(
             private_key=PRIVATE_KEY,
             wallet=SIGNER_ADDRESS,
-            credentials=FAKE_CREDS,
+            credentials=bearer_credentials_for(PRIVATE_KEY),
             validate_credentials=False,
         )
         try:
@@ -338,7 +336,7 @@ def test_get_balance_allowance_for_conditional_includes_token_id() -> None:
         client = await AsyncSecureClient._create(
             private_key=PRIVATE_KEY,
             wallet=SIGNER_ADDRESS,
-            credentials=FAKE_CREDS,
+            credentials=bearer_credentials_for(PRIVATE_KEY),
             validate_credentials=False,
         )
         try:
@@ -370,7 +368,7 @@ def test_secure_client_normalizes_wallet_to_checksum() -> None:
         client = await AsyncSecureClient._create(
             private_key=PRIVATE_KEY,
             wallet=SIGNER_ADDRESS.lower(),
-            credentials=FAKE_CREDS,
+            credentials=bearer_credentials_for(PRIVATE_KEY),
             validate_credentials=False,
         )
         try:
@@ -386,7 +384,7 @@ def test_secure_client_rejects_invalid_wallet_address() -> None:
         await AsyncSecureClient._create(
             private_key=PRIVATE_KEY,
             wallet="not-an-address",
-            credentials=FAKE_CREDS,
+            credentials=bearer_credentials_for(PRIVATE_KEY),
             validate_credentials=False,
         )
 
@@ -407,7 +405,7 @@ def test_secure_client_defaults_wallet_to_current_deposit_wallet() -> None:
     async def run() -> str:
         client = await AsyncSecureClient._create(
             private_key=PRIVATE_KEY,
-            credentials=FAKE_CREDS,
+            credentials=bearer_credentials_for(PRIVATE_KEY),
             validate_credentials=False,
         )
         try:
@@ -424,7 +422,7 @@ def test_secure_client_accepts_unrelated_wallet_as_session_key_wallet() -> None:
         client = await AsyncSecureClient._create(
             private_key=PRIVATE_KEY,
             wallet="0x0000000000000000000000000000000000000002",
-            credentials=FAKE_CREDS,
+            credentials=bearer_credentials_for(PRIVATE_KEY),
             validate_credentials=False,
         )
         try:

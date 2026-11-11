@@ -5,10 +5,12 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import pytest
+from _bearer import async_test_session
 from websockets.asyncio.server import ServerConnection, serve
 
+from polymarket._internal.auth_session import AsyncAuthSession
 from polymarket._internal.streams.clob.user import ClobUserStreamManager
-from polymarket.models import ApiKeyCreds
+from polymarket.errors import RequestRejectedError, TransportError
 from polymarket.models.clob.user_events import UserOrderEvent
 
 Handler = Callable[[ServerConnection], Awaitable[None]]
@@ -23,13 +25,6 @@ async def ws_server(handler: Handler) -> AsyncGenerator[str, None]:
     finally:
         server.close()
         await server.wait_closed()
-
-
-_CREDS = ApiKeyCreds(key="test-key", secret="test-secret", passphrase="test-pass")
-
-
-async def _resolve() -> ApiKeyCreds:
-    return _CREDS
 
 
 def _order_frame(market: str) -> dict[str, Any]:
@@ -57,20 +52,22 @@ def test_initial_frame_contains_auth_and_markets() -> None:
                 continue
             received.append(json.loads(raw))
 
-    async def run() -> None:
+    async def run() -> str:
+        session = async_test_session()
         async with ws_server(handler) as url:
-            mgr = ClobUserStreamManager(url=url, resolve_credentials=_resolve)
+            mgr = ClobUserStreamManager(url=url, session=session)
             try:
                 handle = await mgr.subscribe(markets=["m1"])
                 await asyncio.sleep(0.1)
                 await handle.close()
             finally:
                 await mgr.close()
+        return session.credentials.access_token
 
-    asyncio.run(run())
+    access_token = asyncio.run(run())
     assert received[0] == {
         "type": "user",
-        "auth": {"apiKey": "test-key", "secret": "test-secret", "passphrase": "test-pass"},
+        "auth": {"accessToken": access_token},
         "markets": ["m1"],
     }
 
@@ -86,7 +83,7 @@ def test_initial_frame_for_all_markets_omits_market_filter() -> None:
 
     async def run() -> None:
         async with ws_server(handler) as url:
-            mgr = ClobUserStreamManager(url=url, resolve_credentials=_resolve)
+            mgr = ClobUserStreamManager(url=url, session=async_test_session())
             try:
                 handle = await mgr.subscribe()
                 await asyncio.sleep(0.1)
@@ -98,21 +95,17 @@ def test_initial_frame_for_all_markets_omits_market_filter() -> None:
     assert "markets" not in received[0]
 
 
-def test_credentials_resolved_fresh_per_connection() -> None:
-    resolve_calls = 0
-
-    async def counting_resolve() -> ApiKeyCreds:
-        nonlocal resolve_calls
-        resolve_calls += 1
-        return _CREDS
+def test_shared_connection_authenticates_once() -> None:
+    received: list[dict[str, Any]] = []
 
     async def handler(ws: ServerConnection) -> None:
-        async for _ in ws:
-            pass
+        async for raw in ws:
+            if raw != "PING":
+                received.append(json.loads(raw))
 
     async def run() -> None:
         async with ws_server(handler) as url:
-            mgr = ClobUserStreamManager(url=url, resolve_credentials=counting_resolve)
+            mgr = ClobUserStreamManager(url=url, session=async_test_session())
             try:
                 h1 = await mgr.subscribe(markets=["m1"])
                 h2 = await mgr.subscribe(markets=["m2"])
@@ -123,7 +116,63 @@ def test_credentials_resolved_fresh_per_connection() -> None:
                 await mgr.close()
 
     asyncio.run(run())
-    assert resolve_calls == 1
+    assert [frame for frame in received if "auth" in frame] == received[:1]
+
+
+def test_renewed_token_is_sent_on_the_open_connection() -> None:
+    received: list[dict[str, Any]] = []
+
+    async def handler(ws: ServerConnection) -> None:
+        async for raw in ws:
+            if raw == "PING":
+                continue
+            frame = json.loads(raw)
+            received.append(frame)
+            if frame.get("type") == "auth":
+                await ws.send(json.dumps({"type": "auth", "success": True}))
+
+    async def run() -> tuple[str, str]:
+        session = async_test_session()
+        async with ws_server(handler) as url:
+            mgr = ClobUserStreamManager(url=url, session=session)
+            try:
+                handle = await mgr.subscribe(markets=["m1"])
+                first = session.credentials.access_token
+                renewed = await session.refresh()
+                await asyncio.sleep(0.2)
+                await handle.close()
+            finally:
+                await mgr.close()
+        return first, renewed.access_token
+
+    first, renewed = asyncio.run(run())
+    assert first != renewed
+    assert received[0]["auth"] == {"accessToken": first}
+    assert received[1] == {"type": "auth", "auth": {"accessToken": renewed}}
+
+
+def test_policy_close_ends_subscriptions_as_rejected_authentication() -> None:
+    async def handler(ws: ServerConnection) -> None:
+        await ws.recv()
+        await ws.close(code=1008, reason="invalid token")
+
+    async def run() -> BaseException | None:
+        async with ws_server(handler) as url:
+            mgr = ClobUserStreamManager(url=url, session=async_test_session())
+            try:
+                handle = await mgr.subscribe(markets=["m1"])
+                try:
+                    async for _ in handle:
+                        pass
+                except RequestRejectedError as error:
+                    return error
+                return None
+            finally:
+                await mgr.close()
+
+    error = asyncio.run(run())
+    assert isinstance(error, RequestRejectedError)
+    assert error.status == 401
 
 
 def test_incremental_subscribe_for_added_market_omits_auth() -> None:
@@ -137,7 +186,7 @@ def test_incremental_subscribe_for_added_market_omits_auth() -> None:
 
     async def run() -> None:
         async with ws_server(handler) as url:
-            mgr = ClobUserStreamManager(url=url, resolve_credentials=_resolve)
+            mgr = ClobUserStreamManager(url=url, session=async_test_session())
             try:
                 h1 = await mgr.subscribe(markets=["m1"])
                 h2 = await mgr.subscribe(markets=["m2"])
@@ -164,7 +213,7 @@ def test_all_markets_promotion_unsubscribes_prior_narrows() -> None:
 
     async def run() -> None:
         async with ws_server(handler) as url:
-            mgr = ClobUserStreamManager(url=url, resolve_credentials=_resolve)
+            mgr = ClobUserStreamManager(url=url, session=async_test_session())
             try:
                 h_narrow = await mgr.subscribe(markets=["m1"])
                 h_broad = await mgr.subscribe()
@@ -191,7 +240,7 @@ def test_all_markets_demotion_resubscribes_remaining_narrow() -> None:
 
     async def run() -> None:
         async with ws_server(handler) as url:
-            mgr = ClobUserStreamManager(url=url, resolve_credentials=_resolve)
+            mgr = ClobUserStreamManager(url=url, session=async_test_session())
             try:
                 h_broad = await mgr.subscribe()
                 h_narrow = await mgr.subscribe(markets=["m1"])
@@ -218,7 +267,7 @@ def test_event_filtered_by_market_per_subscriber() -> None:
 
     async def run() -> str:
         async with ws_server(handler) as url:
-            mgr = ClobUserStreamManager(url=url, resolve_credentials=_resolve)
+            mgr = ClobUserStreamManager(url=url, session=async_test_session())
             try:
                 handle = await mgr.subscribe(markets=["m1"])
                 event = await asyncio.wait_for(handle.__aiter__().__anext__(), timeout=2.0)
@@ -242,7 +291,7 @@ def test_malformed_event_dropped_and_counter_increments() -> None:
 
     async def run() -> int:
         async with ws_server(handler) as url:
-            mgr = ClobUserStreamManager(url=url, resolve_credentials=_resolve)
+            mgr = ClobUserStreamManager(url=url, session=async_test_session())
             try:
                 handle = await mgr.subscribe(markets=["m1"])
                 event = await asyncio.wait_for(handle.__aiter__().__anext__(), timeout=2.0)
@@ -257,7 +306,7 @@ def test_malformed_event_dropped_and_counter_increments() -> None:
     assert asyncio.run(run()) == 1
 
 
-def test_reconnect_resolves_credentials_and_resends_initial_frame() -> None:
+def test_reconnect_reauthenticates_and_resends_initial_frame() -> None:
     connect_count = 0
     per_connection: list[list[dict[str, Any]]] = []
 
@@ -279,7 +328,7 @@ def test_reconnect_resolves_credentials_and_resends_initial_frame() -> None:
 
     async def run() -> None:
         async with ws_server(handler) as url:
-            mgr = ClobUserStreamManager(url=url, resolve_credentials=_resolve)
+            mgr = ClobUserStreamManager(url=url, session=async_test_session())
             try:
                 handle = await mgr.subscribe(markets=["m1"])
                 await asyncio.sleep(1.5)
@@ -293,7 +342,7 @@ def test_reconnect_resolves_credentials_and_resends_initial_frame() -> None:
     assert per_connection[0][0]["markets"] == ["m1"]
     assert per_connection[1][0]["type"] == "user"
     assert per_connection[1][0]["markets"] == ["m1"]
-    assert per_connection[1][0]["auth"]["apiKey"] == "test-key"
+    assert set(per_connection[1][0]["auth"]) == {"accessToken"}
 
 
 def test_last_handle_close_drops_socket() -> None:
@@ -303,7 +352,7 @@ def test_last_handle_close_drops_socket() -> None:
 
     async def run() -> bool:
         async with ws_server(handler) as url:
-            mgr = ClobUserStreamManager(url=url, resolve_credentials=_resolve)
+            mgr = ClobUserStreamManager(url=url, session=async_test_session())
             try:
                 handle = await mgr.subscribe(markets=["m1"])
                 await asyncio.sleep(0.05)
@@ -318,7 +367,7 @@ def test_last_handle_close_drops_socket() -> None:
 
 def test_subscribe_after_close_raises() -> None:
     async def run() -> None:
-        mgr = ClobUserStreamManager(url="ws://127.0.0.1:1", resolve_credentials=_resolve)
+        mgr = ClobUserStreamManager(url="ws://127.0.0.1:1", session=async_test_session())
         await mgr.close()
         with pytest.raises(RuntimeError, match="closed"):
             await mgr.subscribe(markets=["m1"])
@@ -326,18 +375,19 @@ def test_subscribe_after_close_raises() -> None:
     asyncio.run(run())
 
 
-def test_credential_failure_on_reconnect_reschedules_instead_of_hanging() -> None:
+def test_renewal_failure_on_reconnect_reschedules_instead_of_hanging() -> None:
     connect_count = 0
-    resolve_calls = 0
+    renew_calls = 0
+    session: AsyncAuthSession | None = None
 
-    async def resolve() -> ApiKeyCreds:
-        nonlocal resolve_calls
-        resolve_calls += 1
-        if resolve_calls == 1:
-            return _CREDS
-        if resolve_calls == 2:
-            raise RuntimeError("simulated credential lookup failure")
-        return _CREDS
+    async def renew(current: Any) -> Any:
+        nonlocal renew_calls
+        renew_calls += 1
+        if renew_calls <= 3:
+            raise TransportError("simulated renewal outage")
+        assert session is not None
+        fresh = async_test_session()
+        return await fresh._refresh(fresh.credentials)  # pyright: ignore[reportPrivateUsage]
 
     async def handler(ws: ServerConnection) -> None:
         nonlocal connect_count
@@ -350,18 +400,18 @@ def test_credential_failure_on_reconnect_reschedules_instead_of_hanging() -> Non
             pass
 
     async def run() -> int:
+        nonlocal session
+        # The token expires after the first connection, so every reconnect renews it.
+        session = async_test_session(expires_in=1, renew=renew)
         async with ws_server(handler) as url:
-            mgr = ClobUserStreamManager(url=url, resolve_credentials=resolve)
+            mgr = ClobUserStreamManager(url=url, session=session)
             try:
                 handle = await mgr.subscribe(markets=["m1"])
-                await asyncio.sleep(3.0)
+                await asyncio.sleep(4.0)
                 await handle.close()
             finally:
                 await mgr.close()
-        return resolve_calls
+        return connect_count
 
-    final_calls = asyncio.run(run())
-    assert final_calls >= 3, (
-        "credential resolution should be re-attempted after a transient failure; "
-        f"only got {final_calls} attempts"
-    )
+    assert asyncio.run(run()) >= 2
+    assert renew_calls >= 4, "renewal should be re-attempted after a transient outage"

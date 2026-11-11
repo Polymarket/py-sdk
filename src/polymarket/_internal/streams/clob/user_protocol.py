@@ -1,8 +1,7 @@
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
-from polymarket.models import ApiKeyCreds
 from polymarket.models.clob.user_events import UserEvent
 
 
@@ -34,18 +33,26 @@ def derive_state(subs: Iterable[UserSubscription]) -> UserServerState:
     return UserServerState(include_all_markets=False, markets=tuple(sorted(markets)))
 
 
-def build_initial_frame(state: UserServerState, credentials: ApiKeyCreds) -> dict[str, Any]:
-    frame: dict[str, Any] = {
-        "type": "user",
-        "auth": {
-            "apiKey": credentials.key,
-            "secret": credentials.secret,
-            "passphrase": credentials.passphrase,
-        },
-    }
+def build_initial_frame(state: UserServerState, access_token: str) -> dict[str, Any]:
+    frame: dict[str, Any] = {"type": "user", "auth": {"accessToken": access_token}}
     if not state.include_all_markets:
         frame["markets"] = list(state.markets)
     return frame
+
+
+def build_auth_frame(access_token: str) -> dict[str, Any]:
+    return {"type": "auth", "auth": {"accessToken": access_token}}
+
+
+def parse_auth_acknowledgement(raw: object) -> bool | None:
+    """Return the outcome of an authentication acknowledgement, or ``None`` for other frames."""
+    if not isinstance(raw, dict):
+        return None
+    frame = cast(dict[str, object], raw)
+    success = frame.get("success")
+    if frame.get("type") != "auth" or not isinstance(success, bool):
+        return None
+    return success
 
 
 def _build_subscribe_update(markets: Iterable[str]) -> dict[str, Any]:
