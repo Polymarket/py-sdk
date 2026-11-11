@@ -126,7 +126,7 @@ from polymarket._internal.wallet import (
     signature_type_for,
     wrap_deposit_wallet_signature,
 )
-from polymarket.auth import ApiKey, BearerCredentials, BuilderApiKey
+from polymarket.auth import ApiKey, BearerCredentials, BuilderApiKey, PlatformApiKey
 from polymarket.clients._transport import SyncHeaderResolver, SyncTransport
 from polymarket.environments import PRODUCTION, Environment
 from polymarket.errors import (
@@ -722,6 +722,7 @@ class SecureClient:
         environment: Environment = PRODUCTION,
         credentials: BearerCredentials | ApiKeyCreds | None = None,
         api_key: ApiKey | None = None,
+        platform_api_key: PlatformApiKey | None = None,
         nonce: int = 0,
         on_credentials_changed: CredentialsChanged | None = None,
         logger: logging.Logger | None = None,
@@ -743,6 +744,8 @@ class SecureClient:
                 work raise instead of signing in again.
             api_key: Optional key for gasless wallet and relayed transaction workflows.
                 A builder key also attributes order, cancellation, and account requests.
+            platform_api_key: Optional Platform API Key that attributes sign-in and
+                requests to your application. Keep it on the server.
             nonce: Sign-in nonce. Cannot be combined with ``credentials``.
             on_credentials_changed: Called with the new credentials after each
                 renewal. It can run on a background thread. Exceptions it raises are
@@ -766,6 +769,7 @@ class SecureClient:
             environment=environment,
             credentials=credentials,
             api_key=api_key,
+            platform_api_key=platform_api_key,
             nonce=nonce,
             on_credentials_changed=on_credentials_changed,
             validate_credentials=True,
@@ -782,6 +786,7 @@ class SecureClient:
         environment: Environment = PRODUCTION,
         credentials: BearerCredentials | ApiKeyCreds | None = None,
         api_key: ApiKey | None = None,
+        platform_api_key: PlatformApiKey | None = None,
         nonce: int = 0,
         on_credentials_changed: CredentialsChanged | None = None,
         validate_credentials: bool = True,
@@ -802,7 +807,13 @@ class SecureClient:
             on_credentials_changed, publish=restored, logger=logger
         )
 
-        auth = SyncTransport(base_url=config.predictions_url, logger=logger)
+        auth = SyncTransport(
+            base_url=config.predictions_url,
+            logger=logger,
+            header_resolver=None
+            if platform_api_key is None
+            else _identity_actions.make_platform_header_resolver_sync(platform_api_key),
+        )
         issued: _identity_actions.IssuedTokens | None = None
         bind_wallet = False
         try:
@@ -817,6 +828,7 @@ class SecureClient:
                             wallet=wallet,
                             config=config,
                             api_key=api_key,
+                            platform_api_key=platform_api_key,
                             logger=logger,
                         )
                     )
@@ -835,7 +847,12 @@ class SecureClient:
             else:
                 resolved_wallet = _identity_actions.checksum_wallet(
                     _resolve_requested_wallet_sync(
-                        signer=signer, wallet=wallet, config=config, api_key=api_key, logger=logger
+                        signer=signer,
+                        wallet=wallet,
+                        config=config,
+                        api_key=api_key,
+                        platform_api_key=platform_api_key,
+                        logger=logger,
                     )
                 )
                 # Validate the wallet identity before authentication has side effects.
@@ -879,6 +896,7 @@ class SecureClient:
                 expires_in=None if issued is None else issued.expires_in,
                 on_credentials_changed=notifier,
                 api_key=api_key,
+                platform_api_key=platform_api_key,
                 logger=logger,
                 on_rate_limit_update=on_rate_limit_update,
             )
@@ -919,6 +937,7 @@ class SecureClient:
         expires_in: int | None,
         on_credentials_changed: CredentialsChanged | None,
         api_key: ApiKey | None,
+        platform_api_key: PlatformApiKey | None,
         logger: logging.Logger | None,
         on_rate_limit_update: RateLimitUpdateListener | None,
     ) -> Self:
@@ -934,7 +953,9 @@ class SecureClient:
         predictions = SyncTransport(
             base_url=config.predictions_url,
             logger=logger,
-            header_resolver=_make_predictions_header_resolver_sync(session, api_key),
+            header_resolver=_make_predictions_header_resolver_sync(
+                session, api_key, platform_api_key
+            ),
             on_rate_limit_update=on_rate_limit_update,
             recover_expired_token=session.recover,
         )
@@ -964,6 +985,7 @@ class SecureClient:
             wallet_type=wallet_type,
             signer_type=signer_type,
             api_key=api_key,
+            platform_api_key=platform_api_key,
             rpc=rpc,
             order_metadata=SyncOrderMetadataCache(),
         )
@@ -2041,8 +2063,9 @@ class SecureClient:
         from polymarket.clients.public import PublicClient
 
         environment = self._ctx.environment
+        platform_api_key = self._ctx.platform_api_key
         self._end_session()
-        return PublicClient(environment=environment)
+        return PublicClient(environment=environment, platform_api_key=platform_api_key)
 
     def _end_session(self) -> None:
         ctx = self._ctx
@@ -3559,6 +3582,7 @@ def _resolve_requested_wallet_sync(
     wallet: str | None,
     config: EnvironmentConfig,
     api_key: ApiKey | None,
+    platform_api_key: PlatformApiKey | None,
     logger: logging.Logger | None,
 ) -> str:
     if wallet is not None:
@@ -3569,7 +3593,7 @@ def _resolve_requested_wallet_sync(
     predictions = SyncTransport(
         base_url=config.predictions_url,
         logger=logger,
-        header_resolver=None if api_key is None else _make_api_key_header_resolver_sync(api_key),
+        header_resolver=_make_api_key_header_resolver_sync(api_key, platform_api_key),
     )
     try:
         if fetch_deployed_sync(
@@ -3595,18 +3619,24 @@ def _relayer_transaction_type_for_wallet(
     return None
 
 
-def _make_api_key_header_resolver_sync(api_key: ApiKey) -> SyncHeaderResolver:
+def _make_api_key_header_resolver_sync(
+    api_key: ApiKey | None, platform_api_key: PlatformApiKey | None
+) -> SyncHeaderResolver:
     def resolver(method: str, path: str, body: str | None) -> Mapping[str, str]:
-        return build_api_key_headers(api_key, method=method, path=path, body=body)
+        headers = _identity_actions.build_platform_api_key_headers(platform_api_key, path=path)
+        if api_key is not None:
+            headers.update(build_api_key_headers(api_key, method=method, path=path, body=body))
+        return headers
 
     return resolver
 
 
 def _make_predictions_header_resolver_sync(
-    session: SyncAuthSession, api_key: ApiKey | None
+    session: SyncAuthSession, api_key: ApiKey | None, platform_api_key: PlatformApiKey | None
 ) -> SyncHeaderResolver:
     def resolver(method: str, path: str, body: str | None) -> Mapping[str, str]:
-        headers = _identity_actions.build_bearer_headers(session.ready().access_token)
+        headers = _identity_actions.build_platform_api_key_headers(platform_api_key, path=path)
+        headers.update(_identity_actions.build_bearer_headers(session.ready().access_token))
         if api_key is not None:
             headers.update(build_api_key_headers(api_key, method=method, path=path, body=body))
         return headers
