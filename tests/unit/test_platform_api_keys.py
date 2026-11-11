@@ -4,7 +4,6 @@
 import time
 from typing import Any
 
-import httpx
 import pytest
 import respx
 from _bearer import fake_access_token
@@ -34,60 +33,19 @@ def _session() -> BearerCredentials:
     return BearerCredentials(access_token=token, refresh_token="refresh")
 
 
-def _record(
-    router: respx.MockRouter, method: str, url: str, response: httpx.Response
-) -> list[httpx.Request]:
-    requests: list[httpx.Request] = []
-
-    def respond(request: httpx.Request) -> httpx.Response:
-        requests.append(request)
-        return response
-
-    router.route(method=method, url=url).mock(side_effect=respond)
-    return requests
-
-
-def _issued() -> dict[str, Any]:
-    return {
-        "accessToken": _session().access_token,
-        "refreshToken": "refresh",
-        "tokenType": "Bearer",
-        "expiresIn": 900,
-        "refreshExpiresIn": 604800,
-    }
-
-
-def test_key_attributes_requests_but_never_reaches_session_upkeep_or_heartbeats() -> None:
+def test_order_heartbeats_never_carry_the_key() -> None:
+    # Live tests cover sign-in and account requests; heartbeats are not sent live.
     with respx.mock(assert_all_called=True) as router:
-        status = _record(
-            router,
-            "GET",
-            f"{API}/v1/me/trading-status",
-            httpx.Response(200, json={"closed_only": False}),
-        )
-        refresh = _record(
-            router, "POST", f"{API}/v1/auth/refresh", httpx.Response(200, json=_issued())
-        )
-        heartbeat = _record(
-            router, "POST", f"{CLOB}/v1/heartbeats", httpx.Response(200, json={"heartbeat_id": "h"})
-        )
-        logout = _record(router, "POST", f"{API}/v1/auth/logout", httpx.Response(204))
-
-        client = SecureClient._create(
+        heartbeat = router.post(f"{CLOB}/v1/heartbeats").respond(json={"heartbeat_id": "h"})
+        with SecureClient._create(
             private_key=PRIVATE_KEY,
             credentials=_session(),
             platform_api_key=KEY,
             validate_credentials=False,
-        )
-        client.get_closed_only_mode()
-        client.refresh_credentials()
-        client.send_order_heartbeat()
-        client.end_authentication().close()
+        ) as client:
+            client.send_order_heartbeat()
 
-    assert status[0].headers["X-API-Key"] == KEY.key
-    assert status[0].headers["Authorization"].startswith("Bearer ")
-    for request in (*refresh, *heartbeat, *logout):
-        assert "X-API-Key" not in request.headers
+    assert "X-API-Key" not in heartbeat.calls.last.request.headers
 
 
 def test_rejections_that_echo_the_key_are_redacted() -> None:
