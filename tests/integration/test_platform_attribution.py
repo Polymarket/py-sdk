@@ -1,7 +1,8 @@
 """Application attribution with a Platform API Key against the live service.
 
-Side effects: the session tests open sessions for the Deposit Wallet signer and
-revoke them. The challenge test only requests a sign-in challenge.
+Side effects: the session test opens sessions for the Deposit Wallet signer and
+the browser sign-in test opens one for a freshly generated account; both are
+revoked. The challenge test only requests a sign-in challenge.
 """
 
 import asyncio
@@ -128,18 +129,15 @@ def test_platform_challenge_is_an_ownership_attestation_for_the_signer(
 @pytest.mark.integration
 @pytest.mark.metered
 def test_a_challenge_served_with_the_key_signs_in_a_client_without_it(
-    deposit_wallet_private_key: str,
-    deposit_wallet_address: str,
     platform_api_key: PlatformApiKey,
     integration_environment: Environment,
 ) -> None:
-    signer = identity.signer_from_private_key(deposit_wallet_private_key)
+    # A fresh account keeps this sign-in independent of other sessions for the test wallet.
+    signer = identity.signer_from_private_key(Account.create().key.hex())
     with PublicClient(
         environment=integration_environment, platform_api_key=platform_api_key
     ) as backend:
-        served = backend.create_platform_challenge(
-            signer=signer.address, wallet=deposit_wallet_address
-        )
+        served = backend.create_platform_challenge(signer=signer.address, wallet=signer.address)
 
     # The untrusted client signs the served challenge and signs in without the key.
     config = get_environment_config(integration_environment)
@@ -156,7 +154,7 @@ def test_a_challenge_served_with_the_key_signs_in_a_client_without_it(
             )
         )
         try:
-            assert identity.issued_for(issued, signer=signer.address, wallet=deposit_wallet_address)
+            assert identity.issued_for(issued, signer=signer.address, wallet=signer.address)
             assert parse_access_token_claims(issued.access_token).client_id is not None
         finally:
             identity.revoke_session_sync(untrusted, issued.access_token)
