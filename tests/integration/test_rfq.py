@@ -15,7 +15,7 @@ from polymarket._internal.environment import (
     PRODUCTION_CONFIG,
     with_environment_config,
 )
-from polymarket.errors import ConnectionLostError, TransportError
+from polymarket.errors import ConnectionLostError, RequestRejectedError, TransportError
 from polymarket.rfq import (
     RfqConfirmationRequestEvent,
     RfqErrorCode,
@@ -150,12 +150,11 @@ async def test_rfq_session_quotes_confirms_and_receives_execution_update(
                 assert event.tx_hash == TX_HASH
                 break
 
+    # The quoter authenticates with the session's access token alone.
     auth = _first_frame(received, "auth")
-    assert auth["auth"]["apiKey"]
-    assert (
-        auth["identity"]["maker_address"].lower()
-        == require_env("POLYMARKET_DEPOSIT_WALLET").lower()
-    )
+    assert set(auth) == {"type", "auth"}
+    assert set(auth["auth"]) == {"accessToken"}
+    assert auth["auth"]["accessToken"]
 
     quote = _first_frame(received, "RFQ_QUOTE")
     assert quote["price_e6"] == "450000"
@@ -361,7 +360,7 @@ async def test_rfq_session_declines_confirmation_request(
 
 
 @pytest.mark.integration
-async def test_rfq_session_auth_failure_raises_transport_error(
+async def test_rfq_session_auth_failure_raises_request_rejected(
     require_env: Callable[[str], str],
 ) -> None:
     async def handler(ws: ServerConnection) -> None:
@@ -374,9 +373,11 @@ async def test_rfq_session_auth_failure_raises_transport_error(
                 )
 
     async with _ws_server(handler) as ws_url, _rfq_client(require_env, ws_url) as client:
-        with pytest.raises(TransportError, match="bad credentials"):
+        with pytest.raises(RequestRejectedError) as exc_info:
             async with client.open_rfq_session():
                 pass
+        assert exc_info.value.status == 401
+        assert exc_info.value.code == "auth_invalid"
 
 
 @pytest.mark.integration
@@ -623,10 +624,14 @@ async def test_rfq_session_correlates_unknown_error_code_without_closing(
 
 
 @pytest.mark.integration
-async def test_rfq_session_connection_lost_rejects_pending_and_raises(
+async def test_rfq_session_connection_lost_rejects_pending_and_reconnects(
     require_env: Callable[[str], str],
 ) -> None:
+    connection_count = 0
+
     async def handler(ws: ServerConnection) -> None:
+        nonlocal connection_count
+        connection_count += 1
         async for raw in ws:
             assert isinstance(raw, str)
             frame = json.loads(raw)
@@ -648,8 +653,10 @@ async def test_rfq_session_connection_lost_rejects_pending_and_raises(
         assert exc_info.value.code == 1001
         assert exc_info.value.reason == "going away"
 
-        with pytest.raises(ConnectionLostError):
-            await session.__anext__()
+        # The session reconnects and authenticates again; the pending quote is not replayed.
+        next_event = await asyncio.wait_for(session.__anext__(), timeout=10.0)
+        assert isinstance(next_event, RfqQuoteRequestEvent)
+        assert connection_count == 2
 
 
 @pytest.mark.integration
