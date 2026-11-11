@@ -26,8 +26,8 @@ _CTF_ASSET_ID = str((1 << 40) + 8_501_497)
 
 def _market_routes(*, tick_size: float = 0.01, neg_risk: bool = False) -> dict[str, Any]:
     return {
-        f"/markets-by-token/{_CTF_ASSET_ID}": {"condition_id": _CONDITION_ID},
-        f"/clob-markets/{_CONDITION_ID}": {
+        f"/v1/trading/markets/token/{_CTF_ASSET_ID}": {"condition_id": _CONDITION_ID},
+        f"/v1/trading/markets/{_CONDITION_ID}": {
             "fd": {"r": 0, "e": 0},
             "mts": tick_size,
             "nr": neg_risk,
@@ -53,7 +53,7 @@ def _install_public_clob(client: AsyncSecureClient, handler: httpx.MockTransport
         base_url="https://clob.test",
         client=httpx.AsyncClient(base_url="https://clob.test", transport=handler),
     )
-    client._ctx = dataclasses.replace(client._ctx, clob=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 async def _make_client() -> AsyncSecureClient:

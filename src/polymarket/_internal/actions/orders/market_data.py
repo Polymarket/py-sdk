@@ -51,25 +51,25 @@ class MarketInfo:
 
 async def fetch_tick_size(ctx: AsyncClientContext, *, token_id: str) -> Decimal:
     validated = require_nonempty("token_id", token_id)
-    data = await ctx.clob.get_json("/tick-size", params={"token_id": validated})
+    data = await ctx.predictions.get_json("/v1/pricing/tick-size", params={"token_id": validated})
     return _parse_tick_size(data)
 
 
 def fetch_tick_size_sync(ctx: SyncClientContext, *, token_id: str) -> Decimal:
     validated = require_nonempty("token_id", token_id)
-    data = ctx.clob.get_json("/tick-size", params={"token_id": validated})
+    data = ctx.predictions.get_json("/v1/pricing/tick-size", params={"token_id": validated})
     return _parse_tick_size(data)
 
 
 async def fetch_neg_risk(ctx: AsyncClientContext, *, token_id: str) -> bool:
     validated = require_nonempty("token_id", token_id)
-    data = await ctx.clob.get_json("/neg-risk", params={"token_id": validated})
+    data = await ctx.predictions.get_json("/v1/trading/neg-risk", params={"token_id": validated})
     return _parse_neg_risk(data)
 
 
 def fetch_neg_risk_sync(ctx: SyncClientContext, *, token_id: str) -> bool:
     validated = require_nonempty("token_id", token_id)
-    data = ctx.clob.get_json("/neg-risk", params={"token_id": validated})
+    data = ctx.predictions.get_json("/v1/trading/neg-risk", params={"token_id": validated})
     return _parse_neg_risk(data)
 
 
@@ -77,7 +77,7 @@ async def resolve_condition_by_token(
     ctx: AsyncClientContext, *, token_id: ClobAssetId
 ) -> ConditionId:
     validated = require_nonempty("token_id", token_id)
-    data = await ctx.clob.get_json(f"/markets-by-token/{validated}")
+    data = await ctx.predictions.get_json(f"/v1/trading/markets/token/{validated}")
     return _parse_condition_by_token(data)
 
 
@@ -85,7 +85,7 @@ def resolve_condition_by_token_sync(
     ctx: SyncClientContext, *, token_id: ClobAssetId
 ) -> ConditionId:
     validated = require_nonempty("token_id", token_id)
-    data = ctx.clob.get_json(f"/markets-by-token/{validated}")
+    data = ctx.predictions.get_json(f"/v1/trading/markets/token/{validated}")
     return _parse_condition_by_token(data)
 
 
@@ -97,7 +97,7 @@ async def fetch_platform_fee_info(
         validated = validate_condition_id(validated)
     except ValueError as error:
         raise UserInputError(str(error)) from error
-    data = await ctx.clob.get_json(f"/clob-markets/{validated}")
+    data = await ctx.predictions.get_json(f"/v1/trading/markets/{validated}")
     return _parse_platform_fee_info(data)
 
 
@@ -109,19 +109,19 @@ def fetch_platform_fee_info_sync(
         validated = validate_condition_id(validated)
     except ValueError as error:
         raise UserInputError(str(error)) from error
-    data = ctx.clob.get_json(f"/clob-markets/{validated}")
+    data = ctx.predictions.get_json(f"/v1/trading/markets/{validated}")
     return _parse_platform_fee_info(data)
 
 
 async def fetch_market_info(ctx: AsyncClientContext, *, condition_id: ConditionId) -> MarketInfo:
     validated = _validate_condition_id(condition_id)
-    data = await ctx.clob.get_json(f"/clob-markets/{validated}")
+    data = await ctx.predictions.get_json(f"/v1/trading/markets/{validated}")
     return _parse_market_info(data)
 
 
 def fetch_market_info_sync(ctx: SyncClientContext, *, condition_id: ConditionId) -> MarketInfo:
     validated = _validate_condition_id(condition_id)
-    data = ctx.clob.get_json(f"/clob-markets/{validated}")
+    data = ctx.predictions.get_json(f"/v1/trading/markets/{validated}")
     return _parse_market_info(data)
 
 
@@ -132,7 +132,7 @@ async def fetch_builder_fee_rates(ctx: AsyncClientContext, *, builder_code: str)
             "builder_code must be a real builder; zero (0x000…000) represents no attribution."
         )
     try:
-        data = await ctx.clob.get_json(f"/fees/builder-fees/{validated}")
+        data = await ctx.predictions.get_json(f"/v1/fees/builder/{validated}")
     except RequestRejectedError as error:
         if error.status == 404:
             raise UserInputError(f"Unknown builder code: {validated}") from error
@@ -147,7 +147,7 @@ def fetch_builder_fee_rates_sync(ctx: SyncClientContext, *, builder_code: str) -
             "builder_code must be a real builder; zero (0x000…000) represents no attribution."
         )
     try:
-        data = ctx.clob.get_json(f"/fees/builder-fees/{validated}")
+        data = ctx.predictions.get_json(f"/v1/fees/builder/{validated}")
     except RequestRejectedError as error:
         if error.status == 404:
             raise UserInputError(f"Unknown builder code: {validated}") from error

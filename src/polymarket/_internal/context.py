@@ -22,10 +22,7 @@ from polymarket.types import EvmAddress
 class SyncClientContext:
     environment: Environment
     environment_config: EnvironmentConfig = field(init=False, repr=False)
-    gamma: SyncTransport
-    data: SyncTransport
-    rfq: SyncTransport
-    clob: SyncTransport
+    predictions: SyncTransport
     auth: SyncTransport
     _resolved_environment_config: InitVar[EnvironmentConfig | None] = None
 
@@ -42,9 +39,6 @@ class SyncSecureClientContext(SyncClientContext):
     wallet: EvmAddress
     wallet_type: WalletType
     signer_type: SignerType
-    relayer: SyncTransport
-    combos: SyncTransport
-    builder_gateway: SyncTransport
     api_key: ApiKey | None
     rpc: SyncJsonRpcClient
     order_metadata: SyncOrderMetadataCache
@@ -54,10 +48,7 @@ class SyncSecureClientContext(SyncClientContext):
 class AsyncClientContext:
     environment: Environment
     environment_config: EnvironmentConfig = field(init=False, repr=False)
-    gamma: AsyncTransport
-    data: AsyncTransport
-    rfq: AsyncTransport
-    clob: AsyncTransport
+    predictions: AsyncTransport
     perps: AsyncTransport
     auth: AsyncTransport
     _resolved_environment_config: InitVar[EnvironmentConfig | None] = None
@@ -75,9 +66,6 @@ class AsyncSecureClientContext(AsyncClientContext):
     wallet: EvmAddress
     wallet_type: WalletType
     signer_type: SignerType
-    relayer: AsyncTransport
-    combos: AsyncTransport
-    builder_gateway: AsyncTransport
     api_key: ApiKey | None
     rpc: JsonRpcClient
     order_metadata: AsyncOrderMetadataCache

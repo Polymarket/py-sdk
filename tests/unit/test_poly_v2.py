@@ -58,7 +58,7 @@ def test_gamma_market_exposes_position_id_per_outcome() -> None:
 
 
 def test_clob_read_accepts_asset_id_and_preserves_wire_parameter() -> None:
-    assert build_midpoint_request(asset_id="123") == ("/midpoint", {"token_id": "123"})
+    assert build_midpoint_request(asset_id="123") == ("/v1/pricing/midpoint", {"token_id": "123"})
     try:
         build_midpoint_request(asset_id="123", token_id="456")
     except UserInputError as error:

@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 import httpx
 import pytest
 from _bearer import bearer_credentials_for
+from _stacked import stacked_mock
 
 from polymarket import AsyncSecureClient
 from polymarket._internal.actions.orders.market import adjust_buy_amount_for_fees
@@ -163,11 +164,12 @@ def test_adjust_buy_amount_with_builder_does_not_change_when_max_spend_room_rema
 
 def _mock_transport(captured: list[httpx.Request], routes: dict[str, Any]) -> httpx.MockTransport:
     def handler(request: httpx.Request) -> httpx.Response:
-        captured.append(request)
         path = urlparse(str(request.url)).path
-        for prefix, payload in routes.items():
-            if path == prefix or path.startswith(f"{prefix}/"):
-                return httpx.Response(200, json=payload, request=request)
+        # An exact route wins; otherwise the longest matching prefix serves the request.
+        matches = [prefix for prefix in routes if path == prefix or path.startswith(f"{prefix}/")]
+        if matches:
+            captured.append(request)
+            return httpx.Response(200, json=routes[max(matches, key=len)], request=request)
         return httpx.Response(404, json={"error": "not mocked"}, request=request)
 
     return httpx.MockTransport(handler)
@@ -176,18 +178,23 @@ def _mock_transport(captured: list[httpx.Request], routes: dict[str, Any]) -> ht
 def _install_clob(client: AsyncSecureClient, handler: httpx.MockTransport) -> None:
     transport = AsyncTransport(
         base_url="https://clob.test",
-        client=httpx.AsyncClient(base_url="https://clob.test", transport=handler),
+        client=httpx.AsyncClient(
+            base_url="https://clob.test", transport=stacked_mock(client._ctx.predictions, handler)
+        ),
+        header_resolver=client._ctx.predictions._header_resolver,
     )
-    client._ctx = dataclasses.replace(client._ctx, clob=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 def _install_secure_clob(client: AsyncSecureClient, handler: httpx.MockTransport) -> None:
     transport = AsyncTransport(
         base_url="https://clob.test",
-        client=httpx.AsyncClient(base_url="https://clob.test", transport=handler),
-        header_resolver=client._ctx.secure_clob._header_resolver,
+        client=httpx.AsyncClient(
+            base_url="https://clob.test", transport=stacked_mock(client._ctx.predictions, handler)
+        ),
+        header_resolver=client._ctx.predictions._header_resolver,
     )
-    client._ctx = dataclasses.replace(client._ctx, secure_clob=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 async def _make_client() -> AsyncSecureClient:
@@ -208,8 +215,8 @@ def test_create_limit_order_propagates_builder_code_to_signed_order() -> None:
                 _mock_transport(
                     [],
                     {
-                        "/markets-by-token": {"condition_id": _CONDITION_ID},
-                        "/clob-markets": {
+                        "/v1/trading/markets/token": {"condition_id": _CONDITION_ID},
+                        "/v1/trading/markets": {
                             "fd": {"r": 0, "e": 0},
                             "mts": 0.01,
                             "nr": False,
@@ -223,7 +230,7 @@ def test_create_limit_order_propagates_builder_code_to_signed_order() -> None:
                 _mock_transport(
                     [],
                     {
-                        "/balance-allowance": {
+                        "/v1/me/balance-allowances": {
                             "balance": "100000000000",
                             "allowances": {
                                 "0xE111180000d2663C0091e4f400237545B87B996B": "100000000000",
@@ -256,8 +263,8 @@ def test_create_limit_order_without_builder_code_signs_zero_bytes32() -> None:
                 _mock_transport(
                     [],
                     {
-                        "/markets-by-token": {"condition_id": _CONDITION_ID},
-                        "/clob-markets": {
+                        "/v1/trading/markets/token": {"condition_id": _CONDITION_ID},
+                        "/v1/trading/markets": {
                             "fd": {"r": 0, "e": 0},
                             "mts": 0.01,
                             "nr": False,
@@ -271,7 +278,7 @@ def test_create_limit_order_without_builder_code_signs_zero_bytes32() -> None:
                 _mock_transport(
                     [],
                     {
-                        "/balance-allowance": {
+                        "/v1/me/balance-allowances": {
                             "balance": "100000000000",
                             "allowances": {
                                 "0xE111180000d2663C0091e4f400237545B87B996B": "100000000000",
@@ -325,7 +332,7 @@ def test_get_builder_fee_rates_hits_fees_endpoint_and_parses() -> None:
                 _mock_transport(
                     captured,
                     {
-                        "/fees/builder-fees": {
+                        "/v1/fees/builder": {
                             "builder_maker_fee_rate_bps": 10,
                             "builder_taker_fee_rate_bps": 25,
                         }
@@ -339,9 +346,7 @@ def test_get_builder_fee_rates_hits_fees_endpoint_and_parses() -> None:
     rates = asyncio.run(run())
     assert rates.maker == Decimal("0.001")
     assert rates.taker == Decimal("0.0025")
-    assert any(
-        urlparse(str(r.url)).path == f"/fees/builder-fees/{_VALID_BUILDER}" for r in captured
-    )
+    assert any(urlparse(str(r.url)).path == f"/v1/fees/builder/{_VALID_BUILDER}" for r in captured)
 
 
 def test_get_builder_fee_rates_validates_builder_code_before_request() -> None:
@@ -378,14 +383,14 @@ def test_get_builder_fee_rates_rejects_zero_builder_code_before_request() -> Non
 
 def _market_buy_public_routes() -> dict[str, Any]:
     return {
-        "/markets-by-token": {"condition_id": _CONDITION_ID},
-        "/clob-markets": {
+        "/v1/trading/markets/token": {"condition_id": _CONDITION_ID},
+        "/v1/trading/markets": {
             "fd": {"r": "0", "e": "0"},
             "mts": 0.01,
             "nr": False,
             "t": [{"t": "8501497", "o": "Yes"}],
         },
-        "/book": {
+        "/v1/pricing/book": {
             "asset_id": "8501497",
             "market": "0xMARKET",
             "bids": [],
@@ -396,7 +401,7 @@ def _market_buy_public_routes() -> dict[str, Any]:
             "hash": "0xhash",
             "timestamp": "0",
         },
-        "/fees/builder-fees": {
+        "/v1/fees/builder": {
             "builder_maker_fee_rate_bps": 10,
             "builder_taker_fee_rate_bps": 100,
         },
@@ -405,7 +410,7 @@ def _market_buy_public_routes() -> dict[str, Any]:
 
 def _secure_full_allowance_routes() -> dict[str, Any]:
     return {
-        "/balance-allowance": {
+        "/v1/me/balance-allowances": {
             "balance": "100000000000",
             "allowances": {
                 "0xE111180000d2663C0091e4f400237545B87B996B": "100000000000",
@@ -439,7 +444,7 @@ def test_create_market_buy_with_builder_and_max_spend_fetches_fee_and_signs_buil
     fee_calls = [
         r
         for r in public_captured
-        if urlparse(str(r.url)).path == f"/fees/builder-fees/{_VALID_BUILDER}"
+        if urlparse(str(r.url)).path == f"/v1/fees/builder/{_VALID_BUILDER}"
     ]
     assert len(fee_calls) == 1, "fee endpoint must be hit exactly once"
     assert maker_amount < 50_000_000
@@ -465,10 +470,10 @@ def test_repeated_max_spend_orders_reuse_market_and_builder_fees() -> None:
 
     asyncio.run(run())
     paths = [urlparse(str(request.url)).path for request in public_captured]
-    assert paths.count("/markets-by-token/8501497") == 1
-    assert paths.count(f"/clob-markets/{_CONDITION_ID}") == 1
-    assert paths.count(f"/fees/builder-fees/{_VALID_BUILDER}") == 1
-    assert paths.count("/book") == 2
+    assert paths.count("/v1/trading/markets/token/8501497") == 1
+    assert paths.count(f"/v1/trading/markets/{_CONDITION_ID}") == 1
+    assert paths.count(f"/v1/fees/builder/{_VALID_BUILDER}") == 1
+    assert paths.count("/v1/pricing/book") == 2
 
 
 def test_create_market_buy_with_zero_builder_and_max_spend_skips_fee_fetch() -> None:
@@ -493,7 +498,7 @@ def test_create_market_buy_with_zero_builder_and_max_spend_skips_fee_fetch() -> 
     builder = asyncio.run(run())
     assert builder == BYTES32_ZERO
     fee_calls = [
-        r for r in public_captured if urlparse(str(r.url)).path.startswith("/fees/builder-fees/")
+        r for r in public_captured if urlparse(str(r.url)).path.startswith("/v1/fees/builder/")
     ]
     assert fee_calls == [], "zero builder must not trigger fee endpoint"
 
@@ -519,6 +524,6 @@ def test_create_market_buy_without_max_spend_skips_fee_fetch_even_with_builder()
     builder = asyncio.run(run())
     assert builder == _VALID_BUILDER
     fee_calls = [
-        r for r in public_captured if urlparse(str(r.url)).path.startswith("/fees/builder-fees/")
+        r for r in public_captured if urlparse(str(r.url)).path.startswith("/v1/fees/builder/")
     ]
     assert fee_calls == [], "no max_spend => no fee endpoint call"

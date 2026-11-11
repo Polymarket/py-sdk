@@ -48,7 +48,7 @@ def _install_public_clob(client: AsyncPublicClient, handler: httpx.MockTransport
         base_url="https://clob.test",
         client=httpx.AsyncClient(base_url="https://clob.test", transport=handler),
     )
-    client._ctx = dataclasses.replace(client._ctx, clob=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 def _install_secure_clob(
@@ -62,12 +62,21 @@ def _install_secure_clob(
     client._ctx = dataclasses.replace(client._ctx, secure_clob=transport)
 
 
+def _install_predictions(client: AsyncSecureClient, handler: httpx.MockTransport) -> None:
+    transport = AsyncTransport(
+        base_url="https://api.test",
+        client=httpx.AsyncClient(base_url="https://api.test", transport=handler),
+        header_resolver=client._ctx.predictions._header_resolver,
+    )
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
+
+
 def _install_secure_public_clob(client: AsyncSecureClient, handler: httpx.MockTransport) -> None:
     transport = AsyncTransport(
         base_url="https://clob.test",
         client=httpx.AsyncClient(base_url="https://clob.test", transport=handler),
     )
-    client._ctx = dataclasses.replace(client._ctx, clob=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 async def _make_secure_client() -> AsyncSecureClient:
@@ -162,7 +171,7 @@ def test_async_public_list_current_rewards_routes_to_public_clob() -> None:
             _install_public_clob(
                 client,
                 _routed_handler(
-                    captured, {("GET", "/rewards/markets/current"): _CURRENT_REWARDS_PAGE}
+                    captured, {("GET", "/v1/rewards/markets/current"): _CURRENT_REWARDS_PAGE}
                 ),
             )
             page = await client.list_current_rewards().first_page()
@@ -173,7 +182,7 @@ def test_async_public_list_current_rewards_routes_to_public_clob() -> None:
     items = asyncio.run(run())
     assert len(items) == 1
     assert captured[0].method == "GET"
-    assert urlparse(str(captured[0].url)).path == "/rewards/markets/current"
+    assert urlparse(str(captured[0].url)).path == "/v1/rewards/markets/current"
     assert captured[0].headers.get("POLY_SIGNATURE") is None
 
 
@@ -186,7 +195,7 @@ def test_async_public_list_current_rewards_passes_sponsored_filter() -> None:
             _install_public_clob(
                 client,
                 _routed_handler(
-                    captured, {("GET", "/rewards/markets/current"): _CURRENT_REWARDS_PAGE}
+                    captured, {("GET", "/v1/rewards/markets/current"): _CURRENT_REWARDS_PAGE}
                 ),
             )
             await client.list_current_rewards(sponsored=True).first_page()
@@ -208,7 +217,7 @@ def test_async_public_list_market_rewards_routes_with_condition_id_in_path() -> 
                 client,
                 _routed_handler(
                     captured,
-                    {("GET", f"/rewards/markets/{_CONDITION_ID}"): _MARKET_REWARDS_PAGE},
+                    {("GET", f"/v1/rewards/markets/{_CONDITION_ID}"): _MARKET_REWARDS_PAGE},
                 ),
             )
             page = await client.list_market_rewards(condition_id=_CONDITION_ID).first_page()
@@ -218,7 +227,7 @@ def test_async_public_list_market_rewards_routes_with_condition_id_in_path() -> 
 
     items = asyncio.run(run())
     assert len(items) == 1
-    assert urlparse(str(captured[0].url)).path == f"/rewards/markets/{_CONDITION_ID}"
+    assert urlparse(str(captured[0].url)).path == f"/v1/rewards/markets/{_CONDITION_ID}"
 
 
 def test_async_secure_get_order_scoring_sends_session_headers() -> None:
@@ -227,9 +236,9 @@ def test_async_secure_get_order_scoring_sends_session_headers() -> None:
     async def run() -> bool:
         client = await _make_secure_client()
         try:
-            _install_secure_clob(
+            _install_predictions(
                 client,
-                _routed_handler(captured, {("GET", "/order-scoring"): {"scoring": True}}),
+                _routed_handler(captured, {("GET", "/v1/orders/scoring"): {"scoring": True}}),
             )
             return await client.get_order_scoring(order_id="0xORDER")
         finally:
@@ -237,7 +246,7 @@ def test_async_secure_get_order_scoring_sends_session_headers() -> None:
 
     assert asyncio.run(run()) is True
     request = captured[0]
-    assert urlparse(str(request.url)).path == "/order-scoring"
+    assert urlparse(str(request.url)).path == "/v1/orders/scoring"
     qs = parse_qs(urlparse(str(request.url)).query)
     assert qs.get("order_id") == ["0xORDER"]
     assert request.headers.get("Authorization", "").startswith("Bearer ")
@@ -249,9 +258,11 @@ def test_async_secure_get_orders_scoring_posts_id_array() -> None:
     async def run() -> dict[str, bool]:
         client = await _make_secure_client()
         try:
-            _install_secure_clob(
+            _install_predictions(
                 client,
-                _routed_handler(captured, {("POST", "/orders-scoring"): {"a": True, "b": False}}),
+                _routed_handler(
+                    captured, {("POST", "/v1/orders/scoring"): {"a": True, "b": False}}
+                ),
             )
             return await client.get_orders_scoring(order_ids=["a", "b"])
         finally:
@@ -261,7 +272,7 @@ def test_async_secure_get_orders_scoring_posts_id_array() -> None:
     assert result == {"a": True, "b": False}
     request = captured[0]
     assert request.method == "POST"
-    assert urlparse(str(request.url)).path == "/orders-scoring"
+    assert urlparse(str(request.url)).path == "/v1/orders/scoring"
     assert request.content == b'["a","b"]'
 
 
@@ -271,9 +282,9 @@ def test_async_secure_list_user_earnings_for_day_includes_signature_type() -> No
     async def run() -> tuple[UserEarning, ...]:
         client = await _make_secure_client()
         try:
-            _install_secure_clob(
+            _install_predictions(
                 client,
-                _routed_handler(captured, {("GET", "/rewards/user"): _USER_EARNINGS_PAGE}),
+                _routed_handler(captured, {("GET", "/v1/rewards/user"): _USER_EARNINGS_PAGE}),
             )
             page = await client.list_user_earnings_for_day(date="2026-04-16").first_page()
             return page.items
@@ -304,9 +315,9 @@ def test_async_secure_get_total_earnings_for_user_for_day() -> None:
     async def run() -> tuple[TotalUserEarning, ...]:
         client = await _make_secure_client()
         try:
-            _install_secure_clob(
+            _install_predictions(
                 client,
-                _routed_handler(captured, {("GET", "/rewards/user/total"): response_body}),
+                _routed_handler(captured, {("GET", "/v1/rewards/user/total"): response_body}),
             )
             return await client.get_total_earnings_for_user_for_day(
                 date="2026-04-16", sponsored=True
@@ -332,11 +343,11 @@ def test_async_secure_list_user_earnings_and_markets_config_passes_filters() -> 
     async def run() -> tuple[UserRewardsEarning, ...]:
         client = await _make_secure_client()
         try:
-            _install_secure_clob(
+            _install_predictions(
                 client,
                 _routed_handler(
                     captured,
-                    {("GET", "/rewards/user/markets"): _USER_REWARDS_EARNINGS_PAGE},
+                    {("GET", "/v1/rewards/user/markets"): _USER_REWARDS_EARNINGS_PAGE},
                 ),
             )
             page = await client.list_user_earnings_and_markets_config(
@@ -366,11 +377,11 @@ def test_async_secure_get_reward_percentages() -> None:
     async def run() -> RewardsPercentages:
         client = await _make_secure_client()
         try:
-            _install_secure_clob(
+            _install_predictions(
                 client,
                 _routed_handler(
                     captured,
-                    {("GET", "/rewards/user/percentages"): {"0xCOND1": 0.5}},
+                    {("GET", "/v1/rewards/user/percentages"): {"0xCOND1": 0.5}},
                 ),
             )
             return await client.get_reward_percentages()
@@ -404,7 +415,7 @@ def test_async_secure_list_current_rewards_uses_unsigned_clob_not_secure_clob() 
             _install_secure_public_clob(
                 client,
                 _routed_handler(
-                    captured, {("GET", "/rewards/markets/current"): _CURRENT_REWARDS_PAGE}
+                    captured, {("GET", "/v1/rewards/markets/current"): _CURRENT_REWARDS_PAGE}
                 ),
             )
             page = await client.list_current_rewards().first_page()
@@ -431,7 +442,7 @@ def test_async_secure_list_market_rewards_uses_unsigned_clob_not_secure_clob() -
                 client,
                 _routed_handler(
                     captured,
-                    {("GET", f"/rewards/markets/{_CONDITION_ID}"): _MARKET_REWARDS_PAGE},
+                    {("GET", f"/v1/rewards/markets/{_CONDITION_ID}"): _MARKET_REWARDS_PAGE},
                 ),
             )
             page = await client.list_market_rewards(condition_id=_CONDITION_ID).first_page()
@@ -533,7 +544,7 @@ def test_async_public_current_rebates_uses_unsigned_read() -> None:
     async def run() -> None:
         async with AsyncPublicClient() as client:
             _install_public_clob(
-                client, _routed_handler(captured, {("GET", "/rebates/current"): None})
+                client, _routed_handler(captured, {("GET", "/v1/rebates/current"): None})
             )
             assert (
                 await client.get_current_rebates(date="2024-02-29", maker_address=SIGNER_ADDRESS)

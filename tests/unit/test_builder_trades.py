@@ -163,7 +163,7 @@ class TestBuilderTradeModel:
 class TestBuildListBuilderTradesRequest:
     def test_returns_endpoint_path(self) -> None:
         path, _ = build_list_builder_trades_request(builder_code=_VALID_BUILDER_CODE)
-        assert path == "/builder/trades"
+        assert path == "/v1/builders/trades"
 
     def test_builder_code_lands_in_params(self) -> None:
         _, params = build_list_builder_trades_request(builder_code=_VALID_BUILDER_CODE)
@@ -291,11 +291,8 @@ class TestPublicClientListBuilderTrades:
             )
             client._ctx = type(client._ctx)(
                 environment=client._ctx.environment,
-                gamma=client._ctx.gamma,
-                data=client._ctx.data,
-                rfq=client._ctx.rfq,
                 auth=client._ctx.auth,
-                clob=SyncTransport(
+                predictions=SyncTransport(
                     base_url=PRODUCTION_CONFIG.clob_url,
                     client=httpx.Client(base_url=PRODUCTION_CONFIG.clob_url, transport=handler),
                 ),
@@ -309,7 +306,7 @@ class TestPublicClientListBuilderTrades:
         request = captured[0]
         assert request.method == "GET"
         url = urlparse(str(request.url))
-        assert url.path == "/builder/trades"
+        assert url.path == "/v1/builders/trades"
         qs = parse_qs(url.query)
         assert qs["builder_code"] == [_VALID_BUILDER_CODE]
         assert qs["market"] == ["0xmarket"]
@@ -342,11 +339,8 @@ class TestAsyncPublicClientListBuilderTrades:
             async with AsyncPublicClient() as client:
                 client._ctx = type(client._ctx)(
                     environment=client._ctx.environment,
-                    gamma=client._ctx.gamma,
-                    data=client._ctx.data,
-                    rfq=client._ctx.rfq,
                     auth=client._ctx.auth,
-                    clob=AsyncTransport(
+                    predictions=AsyncTransport(
                         base_url=PRODUCTION_CONFIG.clob_url,
                         client=httpx.AsyncClient(
                             base_url=PRODUCTION_CONFIG.clob_url,
@@ -388,7 +382,7 @@ class TestSecureClientListBuilderTrades:
         ) as client:
             client._ctx = dataclasses.replace(
                 client._ctx,
-                clob=SyncTransport(
+                predictions=SyncTransport(
                     base_url=PRODUCTION_CONFIG.clob_url,
                     client=httpx.Client(base_url=PRODUCTION_CONFIG.clob_url, transport=handler),
                 ),
@@ -425,7 +419,7 @@ class TestAsyncSecureClientListBuilderTrades:
             try:
                 client._ctx = dataclasses.replace(
                     client._ctx,
-                    clob=AsyncTransport(
+                    predictions=AsyncTransport(
                         base_url=PRODUCTION_CONFIG.clob_url,
                         client=httpx.AsyncClient(
                             base_url=PRODUCTION_CONFIG.clob_url,

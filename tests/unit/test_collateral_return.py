@@ -42,8 +42,8 @@ _ROUTER_DATA = "0x" + "1234" * 8
 _CONDITION_ID = "0x03" + "cd" * 30
 _EVENT_ID = "0x" + "ee" * 32
 _OTHER_WALLET = "0x1111111111111111111111111111111111111111"
-_SUBMIT_PATH = "/v1/collateral-return/submit"
-_NONCE_PATH = "/v1/account/transactions/params"
+_SUBMIT_PATH = "/v1/wallets/collateral-return/submit"
+_NONCE_PATH = "/v1/wallets/execute-params"
 
 _SUBMIT_OK = {
     "state": "STATE_NEW",

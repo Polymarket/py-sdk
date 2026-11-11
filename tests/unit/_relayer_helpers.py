@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 import httpx
 from _bearer import bearer_credentials_for
+from _stacked import stacked_mock
 from eth_utils.crypto import keccak
 
 from polymarket import AsyncSecureClient, BuilderApiKey, SecureClient
@@ -305,24 +306,13 @@ def install_relayer_routes(
     captured: list[httpx.Request],
     routes: dict[str, Any],
 ) -> None:
-    if "/relay-payload" not in routes and "/v1/account/transactions/params" in routes:
-        legacy = cast(dict[str, Any], routes["/v1/account/transactions/params"])
-        raw_nonce = legacy.get("nonce")
-        nonce: str = raw_nonce if isinstance(raw_nonce, str) else "0"
-        routes = {
-            **routes,
-            "/relay-payload": {
-                "address": RELAY_PAYLOAD_DEFAULT_ADDRESS,
-                "nonce": nonce,
-            },
-        }
-
     def handler(request: httpx.Request) -> httpx.Response:
-        captured.append(request)
         path = urlparse(str(request.url)).path
-        for prefix, payload in routes.items():
-            if path == prefix or path.startswith(f"{prefix}/"):
-                return httpx.Response(200, json=payload, request=request)
+        # An exact route wins; otherwise the longest matching prefix serves the request.
+        matches = [prefix for prefix in routes if path == prefix or path.startswith(f"{prefix}/")]
+        if matches:
+            captured.append(request)
+            return httpx.Response(200, json=routes[max(matches, key=len)], request=request)
         return httpx.Response(404, json={"error": "not mocked"}, request=request)
 
     install_relayer_handler(client, handler)
@@ -335,11 +325,12 @@ def install_relayer_handler(
     transport = AsyncTransport(
         base_url="https://relayer.test",
         client=httpx.AsyncClient(
-            base_url="https://relayer.test", transport=httpx.MockTransport(handler)
+            base_url="https://relayer.test",
+            transport=stacked_mock(client._ctx.predictions, handler),
         ),
-        header_resolver=client._ctx.relayer._header_resolver,
+        header_resolver=client._ctx.predictions._header_resolver,
     )
-    client._ctx = dataclasses.replace(client._ctx, relayer=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 def install_combos_routes(
@@ -348,14 +339,28 @@ def install_combos_routes(
     routes: dict[str, Any],
 ) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        captured.append(request)
         path = urlparse(str(request.url)).path
-        for prefix, payload in routes.items():
-            if path == prefix or path.startswith(f"{prefix}/"):
-                return httpx.Response(200, json=payload, request=request)
+        # An exact route wins; otherwise the longest matching prefix serves the request.
+        matches = [prefix for prefix in routes if path == prefix or path.startswith(f"{prefix}/")]
+        if matches:
+            captured.append(request)
+            return httpx.Response(200, json=routes[max(matches, key=len)], request=request)
         return httpx.Response(404, json={"error": "not mocked"}, request=request)
 
     install_combos_handler(client, handler)
+
+
+def _collateral_return_only(
+    handler: Callable[[httpx.Request], httpx.Response],
+) -> Callable[[httpx.Request], httpx.Response]:
+    # Collateral-return mocks answer only their own operations; other wallet
+    # requests fall through to the wallet mock installed alongside them.
+    def serve(request: httpx.Request) -> httpx.Response:
+        if not urlparse(str(request.url)).path.startswith("/v1/wallets/collateral-return/"):
+            return httpx.Response(404, request=request)
+        return handler(request)
+
+    return serve
 
 
 def install_combos_handler(
@@ -365,11 +370,12 @@ def install_combos_handler(
     transport = AsyncTransport(
         base_url="https://collateral-return.test",
         client=httpx.AsyncClient(
-            base_url="https://collateral-return.test", transport=httpx.MockTransport(handler)
+            base_url="https://collateral-return.test",
+            transport=stacked_mock(client._ctx.predictions, _collateral_return_only(handler)),
         ),
-        header_resolver=client._ctx.combos._header_resolver,
+        header_resolver=client._ctx.predictions._header_resolver,
     )
-    client._ctx = dataclasses.replace(client._ctx, combos=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 def install_rpc_handler(
@@ -473,11 +479,12 @@ def install_sync_relayer_handler(
     transport = SyncTransport(
         base_url="https://relayer.test",
         client=httpx.Client(
-            base_url="https://relayer.test", transport=httpx.MockTransport(handler)
+            base_url="https://relayer.test",
+            transport=stacked_mock(client._ctx.predictions, handler),
         ),
-        header_resolver=client._ctx.relayer._header_resolver,
+        header_resolver=client._ctx.predictions._header_resolver,
     )
-    client._ctx = dataclasses.replace(client._ctx, relayer=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 def install_sync_combos_handler(
@@ -489,11 +496,12 @@ def install_sync_combos_handler(
     transport = SyncTransport(
         base_url="https://collateral-return.test",
         client=httpx.Client(
-            base_url="https://collateral-return.test", transport=httpx.MockTransport(handler)
+            base_url="https://collateral-return.test",
+            transport=stacked_mock(client._ctx.predictions, _collateral_return_only(handler)),
         ),
-        header_resolver=client._ctx.combos._header_resolver,
+        header_resolver=client._ctx.predictions._header_resolver,
     )
-    client._ctx = dataclasses.replace(client._ctx, combos=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 def install_sync_rpc_handler(

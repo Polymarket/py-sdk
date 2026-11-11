@@ -75,8 +75,7 @@ def list_combo_markets_spec(
     _add_optional_comma_seq(params, "exclude", exclude)
 
     return KeysetPaginatedSpec(
-        service="rfq",
-        path="/v1/rfq/combo-markets",
+        path="/v1/combos/markets",
         parse_page=_make_keyset_parser("markets", ComboMarket.parse_response),
         base_params=params or None,
         cursor_param="cursor",

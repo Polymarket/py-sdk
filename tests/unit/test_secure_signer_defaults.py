@@ -21,9 +21,9 @@ def _capturing_handler(captured: list[httpx.Request], payload: Any) -> httpx.Moc
     def handler(request: httpx.Request) -> httpx.Response:
         captured.append(request)
         payload_value: dict[str, Any]
-        if request.url.path == "/v2/value":
+        if request.url.path == "/v1/portfolio/value":
             payload_value = {"data": {"proxy_wallet": request.url.params["user"], "value": 0}}
-        elif request.url.path == "/v2/user-stats":
+        elif request.url.path == "/v1/portfolio/stats":
             payload_value = {"data": None}
         else:
             payload_value = {"data": [], "pagination": {"has_more": False, "next_cursor": None}}
@@ -37,7 +37,7 @@ def _install_sync_data(client: SecureClient, handler: httpx.MockTransport) -> No
         base_url="https://example.test",
         client=httpx.Client(base_url="https://example.test", transport=handler),
     )
-    client._ctx = dataclasses.replace(client._ctx, data=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 def _install_async_data(client: AsyncSecureClient, handler: httpx.MockTransport) -> None:
@@ -45,7 +45,7 @@ def _install_async_data(client: AsyncSecureClient, handler: httpx.MockTransport)
         base_url="https://example.test",
         client=httpx.AsyncClient(base_url="https://example.test", transport=handler),
     )
-    client._ctx = dataclasses.replace(client._ctx, data=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 def _qs_user(request: httpx.Request) -> str:

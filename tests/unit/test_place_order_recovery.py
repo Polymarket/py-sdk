@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 import httpx
 import pytest
 from _bearer import bearer_credentials_for
+from _stacked import stacked_mock
 
 from polymarket import AsyncSecureClient
 from polymarket._internal.actions.orders.place import (
@@ -52,27 +53,35 @@ async def _make_deposit_client() -> AsyncSecureClient:
 def _install_secure_clob(client: AsyncSecureClient, handler: httpx.MockTransport) -> None:
     transport = AsyncTransport(
         base_url="https://clob.test",
-        client=httpx.AsyncClient(base_url="https://clob.test", transport=handler),
-        header_resolver=client._ctx.secure_clob._header_resolver,
+        client=httpx.AsyncClient(
+            base_url="https://clob.test", transport=stacked_mock(client._ctx.predictions, handler)
+        ),
+        header_resolver=client._ctx.predictions._header_resolver,
     )
-    client._ctx = dataclasses.replace(client._ctx, secure_clob=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 def _install_clob(client: AsyncSecureClient, handler: httpx.MockTransport) -> None:
     transport = AsyncTransport(
         base_url="https://clob.test",
-        client=httpx.AsyncClient(base_url="https://clob.test", transport=handler),
+        client=httpx.AsyncClient(
+            base_url="https://clob.test", transport=stacked_mock(client._ctx.predictions, handler)
+        ),
+        header_resolver=client._ctx.predictions._header_resolver,
     )
-    client._ctx = dataclasses.replace(client._ctx, clob=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 def _install_relayer(client: AsyncSecureClient, handler: httpx.MockTransport) -> None:
     transport = AsyncTransport(
         base_url="https://relayer.test",
-        client=httpx.AsyncClient(base_url="https://relayer.test", transport=handler),
-        header_resolver=client._ctx.relayer._header_resolver,
+        client=httpx.AsyncClient(
+            base_url="https://relayer.test",
+            transport=stacked_mock(client._ctx.predictions, handler),
+        ),
+        header_resolver=client._ctx.predictions._header_resolver,
     )
-    client._ctx = dataclasses.replace(client._ctx, relayer=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 def _accepted_order_payload() -> dict[str, Any]:
@@ -89,15 +98,15 @@ def _accepted_order_payload() -> dict[str, Any]:
 
 
 _LIMIT_PUBLIC_ROUTES: dict[str, Any] = {
-    f"/markets-by-token/{_ASSET_ID}": {"condition_id": _CONDITION_ID},
-    f"/clob-markets/{_CONDITION_ID}": {
+    f"/v1/trading/markets/token/{_ASSET_ID}": {"condition_id": _CONDITION_ID},
+    f"/v1/trading/markets/{_CONDITION_ID}": {
         "fd": {"r": 0, "e": 0},
         "mts": 0.01,
         "nr": False,
         "t": [{"t": _ASSET_ID, "o": "Yes"}],
     },
-    f"/markets-by-token/{_V2_ASSET_ID}": {"condition_id": _V2_CONDITION_ID},
-    f"/clob-markets/{_V2_CONDITION_ID}": {
+    f"/v1/trading/markets/token/{_V2_ASSET_ID}": {"condition_id": _V2_CONDITION_ID},
+    f"/v1/trading/markets/{_V2_CONDITION_ID}": {
         "fd": {"r": 0, "e": 0},
         "mts": 0.01,
         "nr": False,
@@ -108,7 +117,6 @@ _LIMIT_PUBLIC_ROUTES: dict[str, Any] = {
 
 def _public_handler(captured: list[httpx.Request]) -> httpx.MockTransport:
     def handler(request: httpx.Request) -> httpx.Response:
-        captured.append(request)
         path = urlparse(str(request.url)).path
         if path in _LIMIT_PUBLIC_ROUTES:
             return httpx.Response(200, json=_LIMIT_PUBLIC_ROUTES[path], request=request)
@@ -131,6 +139,12 @@ def test_is_balance_or_allowance_rejection_rejects_other_400() -> None:
     assert is_balance_or_allowance_rejection(err) is False
 
 
+def _order_paths(captured: list[httpx.Request]) -> list[str]:
+    """Paths of account and order requests, without the market data that resolves the order."""
+    paths = [urlparse(str(r.url)).path for r in captured]
+    return [path for path in paths if not path.startswith(("/v1/trading/", "/v1/pricing/"))]
+
+
 def test_is_balance_or_allowance_rejection_rejects_non_400() -> None:
     err = RequestRejectedError("allowance is not enough", status=500)
     assert is_balance_or_allowance_rejection(err) is False
@@ -147,7 +161,7 @@ def test_place_limit_order_first_post_success_no_recovery_calls() -> None:
     def secure_handler(request: httpx.Request) -> httpx.Response:
         secure_captured.append(request)
         path = urlparse(str(request.url)).path
-        if path == "/order":
+        if path == "/v1/orders":
             return httpx.Response(200, json=_accepted_order_payload(), request=request)
         return httpx.Response(404, json={"error": "not mocked"}, request=request)
 
@@ -161,8 +175,7 @@ def test_place_limit_order_first_post_success_no_recovery_calls() -> None:
             await client.close()
 
     asyncio.run(run())
-    secure_paths = [urlparse(str(r.url)).path for r in secure_captured]
-    assert secure_paths == ["/order"]
+    assert _order_paths(secure_captured) == ["/v1/orders"]
 
 
 def test_place_limit_order_skips_approve_when_allowance_already_sufficient() -> None:
@@ -172,9 +185,9 @@ def test_place_limit_order_skips_approve_when_allowance_already_sufficient() -> 
     def secure_handler(request: httpx.Request) -> httpx.Response:
         secure_captured.append(request)
         path = urlparse(str(request.url)).path
-        if path == "/order":
+        if path == "/v1/orders":
             return httpx.Response(400, json={"error": "allowance is not enough"}, request=request)
-        if path == "/balance-allowance":
+        if path == "/v1/me/balance-allowances":
             return httpx.Response(
                 200,
                 json={"balance": "0", "allowances": {_STANDARD_EXCHANGE: "99999999999"}},
@@ -196,9 +209,9 @@ def test_place_limit_order_skips_approve_when_allowance_already_sufficient() -> 
 
     asyncio.run(run())
     paths = [urlparse(str(r.url)).path for r in secure_captured]
-    assert paths.count("/order") == 1  # no retry
-    assert "/balance-allowance" in paths
-    assert "/balance-allowance/update" not in paths  # no approve, no refresh
+    assert paths.count("/v1/orders") == 1  # no retry
+    assert "/v1/me/balance-allowances" in paths
+    assert "/v1/me/balance-allowances/refresh" not in paths  # no approve, no refresh
 
 
 def test_place_limit_order_does_not_recover_on_non_allowance_400() -> None:
@@ -207,7 +220,7 @@ def test_place_limit_order_does_not_recover_on_non_allowance_400() -> None:
     def secure_handler(request: httpx.Request) -> httpx.Response:
         secure_captured.append(request)
         path = urlparse(str(request.url)).path
-        if path == "/order":
+        if path == "/v1/orders":
             return httpx.Response(400, json={"error": "invalid signature"}, request=request)
         return httpx.Response(404, json={"error": "not mocked"}, request=request)
 
@@ -224,8 +237,7 @@ def test_place_limit_order_does_not_recover_on_non_allowance_400() -> None:
             await client.close()
 
     asyncio.run(run())
-    paths = [urlparse(str(r.url)).path for r in secure_captured]
-    assert paths == ["/order"]
+    assert _order_paths(secure_captured) == ["/v1/orders"]
 
 
 def test_place_limit_order_recovers_buy_with_approve_max_then_retries() -> None:
@@ -237,20 +249,20 @@ def test_place_limit_order_recovers_buy_with_approve_max_then_retries() -> None:
     def secure_handler(request: httpx.Request) -> httpx.Response:
         secure_captured.append(request)
         path = urlparse(str(request.url)).path
-        if path == "/order":
+        if path == "/v1/orders":
             order_post_count["n"] += 1
             if order_post_count["n"] == 1:
                 return httpx.Response(
                     400, json={"error": "allowance is not enough"}, request=request
                 )
             return httpx.Response(200, json=_accepted_order_payload(), request=request)
-        if path == "/balance-allowance":
+        if path == "/v1/me/balance-allowances":
             return httpx.Response(
                 200,
                 json={"balance": "0", "allowances": {_STANDARD_EXCHANGE: "0"}},
                 request=request,
             )
-        if path == "/balance-allowance/update":
+        if path == "/v1/me/balance-allowances/refresh":
             return httpx.Response(
                 200,
                 json={"balance": "100000000", "allowances": {_STANDARD_EXCHANGE: "99999999999"}},
@@ -261,9 +273,9 @@ def test_place_limit_order_recovers_buy_with_approve_max_then_retries() -> None:
     def relayer_handler(request: httpx.Request) -> httpx.Response:
         relayer_captured.append(request)
         path = urlparse(str(request.url)).path
-        if path == "/v1/account/transactions/params":
+        if path == "/v1/wallets/execute-params":
             return httpx.Response(200, json={"address": "0xRELAY", "nonce": "0"}, request=request)
-        if path == "/submit":
+        if path == "/v1/wallets/transactions":
             return httpx.Response(
                 200,
                 json={
@@ -273,7 +285,7 @@ def test_place_limit_order_recovers_buy_with_approve_max_then_retries() -> None:
                 },
                 request=request,
             )
-        if path.startswith("/v1/account/transactions/"):
+        if path.startswith("/v1/wallets/transactions/"):
             return httpx.Response(
                 200,
                 json={
@@ -310,17 +322,19 @@ def test_place_limit_order_recovers_buy_with_approve_max_then_retries() -> None:
     assert response.order_id == "ord-1"
 
     secure_paths = [urlparse(str(r.url)).path for r in secure_captured]
-    assert secure_paths.count("/order") == 2  # exactly one retry
+    assert secure_paths.count("/v1/orders") == 2  # exactly one retry
     # Refresh after approve = two-call (update + balance-allowance), matching TS.
-    assert secure_paths.count("/balance-allowance/update") == 1
+    assert secure_paths.count("/v1/me/balance-allowances/refresh") == 1
     # /balance-allowance called twice: once pre-approve, once post-refresh.
-    assert secure_paths.count("/balance-allowance") == 2
+    assert secure_paths.count("/v1/me/balance-allowances") == 2
 
     relayer_paths = [urlparse(str(r.url)).path for r in relayer_captured]
-    assert "/submit" in relayer_paths  # approve was submitted
+    assert "/v1/wallets/transactions" in relayer_paths  # approve was submitted
 
     # ERC20 approve on collateral_token to standard_exchange
-    approve_submit = next(r for r in relayer_captured if urlparse(str(r.url)).path == "/submit")
+    approve_submit = next(
+        r for r in relayer_captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"
+    )
     import json as _json
 
     body = _json.loads(approve_submit.content.decode("utf-8"))
@@ -362,29 +376,29 @@ def test_place_limit_order_recovers_sell_with_erc1155_approve_for_all_then_retri
     def secure_handler(request: httpx.Request) -> httpx.Response:
         secure_captured.append(request)
         path = urlparse(str(request.url)).path
-        if path == "/order":
+        if path == "/v1/orders":
             order_post_count["n"] += 1
             if order_post_count["n"] == 1:
                 return httpx.Response(
                     400, json={"error": "allowance is not enough"}, request=request
                 )
             return httpx.Response(200, json=_accepted_order_payload(), request=request)
-        if path == "/balance-allowance":
+        if path == "/v1/me/balance-allowances":
             return httpx.Response(
                 200,
                 json={"balance": "0", "allowances": {expected_spender: "0"}},
                 request=request,
             )
-        if path == "/balance-allowance/update":
+        if path == "/v1/me/balance-allowances/refresh":
             return httpx.Response(200, json={}, request=request)
         return httpx.Response(404, json={"error": "not mocked"}, request=request)
 
     def relayer_handler(request: httpx.Request) -> httpx.Response:
         relayer_captured.append(request)
         path = urlparse(str(request.url)).path
-        if path == "/v1/account/transactions/params":
+        if path == "/v1/wallets/execute-params":
             return httpx.Response(200, json={"address": "0xRELAY", "nonce": "0"}, request=request)
-        if path == "/submit":
+        if path == "/v1/wallets/transactions":
             return httpx.Response(
                 200,
                 json={
@@ -394,7 +408,7 @@ def test_place_limit_order_recovers_sell_with_erc1155_approve_for_all_then_retri
                 },
                 request=request,
             )
-        if path.startswith("/v1/account/transactions/"):
+        if path.startswith("/v1/wallets/transactions/"):
             return httpx.Response(
                 200,
                 json={
@@ -431,7 +445,7 @@ def test_place_limit_order_recovers_sell_with_erc1155_approve_for_all_then_retri
     assert response.order_id == "ord-1"
 
     secure_paths = [urlparse(str(r.url)).path for r in secure_captured]
-    assert secure_paths.count("/order") == 2
+    assert secure_paths.count("/v1/orders") == 2
 
     from urllib.parse import parse_qs
 
@@ -440,7 +454,8 @@ def test_place_limit_order_recovers_sell_with_erc1155_approve_for_all_then_retri
     allowance_requests = [
         request
         for request in secure_captured
-        if urlparse(str(request.url)).path in {"/balance-allowance", "/balance-allowance/update"}
+        if urlparse(str(request.url)).path
+        in {"/v1/me/balance-allowances", "/v1/me/balance-allowances/refresh"}
     ]
     assert len(allowance_requests) == 3
     for request in allowance_requests:
@@ -450,7 +465,9 @@ def test_place_limit_order_recovers_sell_with_erc1155_approve_for_all_then_retri
 
     # Approve was sent: setApprovalForAll on the protocol's ERC-1155 contract
     # with its matching exchange as operator.
-    approve_submit = next(r for r in relayer_captured if urlparse(str(r.url)).path == "/submit")
+    approve_submit = next(
+        r for r in relayer_captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"
+    )
     body = _json.loads(approve_submit.content.decode("utf-8"))
     inner = body["depositWalletParams"]["calls"][0]
     set_approval_selector = "0xa22cb465"  # setApprovalForAll(address,bool)
@@ -467,20 +484,20 @@ def test_place_limit_order_retry_failure_surfaces_directly() -> None:
     def secure_handler(request: httpx.Request) -> httpx.Response:
         secure_captured.append(request)
         path = urlparse(str(request.url)).path
-        if path == "/order":
+        if path == "/v1/orders":
             order_post_count["n"] += 1
             if order_post_count["n"] == 1:
                 return httpx.Response(
                     400, json={"error": "allowance is not enough"}, request=request
                 )
             return httpx.Response(400, json={"error": "second-attempt rejection"}, request=request)
-        if path == "/balance-allowance":
+        if path == "/v1/me/balance-allowances":
             return httpx.Response(
                 200,
                 json={"balance": "0", "allowances": {_STANDARD_EXCHANGE: "0"}},
                 request=request,
             )
-        if path == "/balance-allowance/update":
+        if path == "/v1/me/balance-allowances/refresh":
             return httpx.Response(
                 200,
                 json={"balance": "100000000", "allowances": {_STANDARD_EXCHANGE: "99999999999"}},
@@ -490,9 +507,9 @@ def test_place_limit_order_retry_failure_surfaces_directly() -> None:
 
     def relayer_handler(request: httpx.Request) -> httpx.Response:
         path = urlparse(str(request.url)).path
-        if path == "/v1/account/transactions/params":
+        if path == "/v1/wallets/execute-params":
             return httpx.Response(200, json={"address": "0xRELAY", "nonce": "0"}, request=request)
-        if path == "/submit":
+        if path == "/v1/wallets/transactions":
             return httpx.Response(
                 200,
                 json={
@@ -502,7 +519,7 @@ def test_place_limit_order_retry_failure_surfaces_directly() -> None:
                 },
                 request=request,
             )
-        if path.startswith("/v1/account/transactions/"):
+        if path.startswith("/v1/wallets/transactions/"):
             return httpx.Response(
                 200,
                 json={
@@ -538,7 +555,7 @@ def test_place_limit_order_retry_failure_surfaces_directly() -> None:
 
     asyncio.run(run())
     # exactly two /order attempts; no third
-    posts = [r for r in secure_captured if urlparse(str(r.url)).path == "/order"]
+    posts = [r for r in secure_captured if urlparse(str(r.url)).path == "/v1/orders"]
     assert len(posts) == 2
 
 
@@ -547,7 +564,9 @@ def test_post_order_with_allowance_recovery_helper_is_idempotent_on_success() ->
 
     def secure_handler(request: httpx.Request) -> httpx.Response:
         secure_captured.append(request)
-        return httpx.Response(200, json=_accepted_order_payload(), request=request)
+        if urlparse(str(request.url)).path == "/v1/orders":
+            return httpx.Response(200, json=_accepted_order_payload(), request=request)
+        return httpx.Response(404, json={"error": "not mocked"}, request=request)
 
     async def run() -> None:
         client = await _make_deposit_client()
@@ -560,5 +579,4 @@ def test_post_order_with_allowance_recovery_helper_is_idempotent_on_success() ->
             await client.close()
 
     asyncio.run(run())
-    paths = [urlparse(str(r.url)).path for r in secure_captured]
-    assert paths == ["/order"]
+    assert _order_paths(secure_captured) == ["/v1/orders"]

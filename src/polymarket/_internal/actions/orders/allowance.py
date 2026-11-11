@@ -14,7 +14,7 @@ async def fetch_current_allowance(
 ) -> int:
     path, params = _balance_allowance_request_for_draft(ctx.wallet_type, draft=draft)
     balance = _account_actions.parse_balance_allowance(
-        await ctx.secure_clob.get_json(path, params=params)
+        await ctx.predictions.get_json(path, params=params)
     )
     return _allowance_for_spender(balance.allowances, spender)
 
@@ -24,7 +24,7 @@ def fetch_current_allowance_sync(
 ) -> int:
     path, params = _balance_allowance_request_for_draft(ctx.wallet_type, draft=draft)
     balance = _account_actions.parse_balance_allowance(
-        ctx.secure_clob.get_json(path, params=params)
+        ctx.predictions.get_json(path, params=params)
     )
     return _allowance_for_spender(balance.allowances, spender)
 
@@ -36,7 +36,7 @@ async def fetch_current_order_allowance(
         ctx.wallet_type, side=side, asset_id=asset_id
     )
     balance = _account_actions.parse_balance_allowance(
-        await ctx.secure_clob.get_json(path, params=params)
+        await ctx.predictions.get_json(path, params=params)
     )
     return _allowance_for_spender(balance.allowances, spender)
 
@@ -48,7 +48,7 @@ def fetch_current_order_allowance_sync(
         ctx.wallet_type, side=side, asset_id=asset_id
     )
     balance = _account_actions.parse_balance_allowance(
-        ctx.secure_clob.get_json(path, params=params)
+        ctx.predictions.get_json(path, params=params)
     )
     return _allowance_for_spender(balance.allowances, spender)
 

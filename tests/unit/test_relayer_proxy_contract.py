@@ -34,7 +34,7 @@ def _submit_route() -> dict[str, str | None]:
     }
 
 
-def test_proxy_submission_hits_relay_payload_not_legacy_params() -> None:
+def test_proxy_submission_reads_proxy_execute_params() -> None:
     captured: list[httpx.Request] = []
 
     async def run() -> None:
@@ -43,8 +43,8 @@ def test_proxy_submission_hits_relay_payload_not_legacy_params() -> None:
             client,
             captured,
             {
-                "/relay-payload": {"address": RELAYER_ADDRESS, "nonce": "42"},
-                "/submit": _submit_route(),
+                "/v1/wallets/execute-params": {"address": RELAYER_ADDRESS, "nonce": "42"},
+                "/v1/wallets/transactions": _submit_route(),
             },
         )
         try:
@@ -53,12 +53,15 @@ def test_proxy_submission_hits_relay_payload_not_legacy_params() -> None:
             await client.close()
 
     asyncio.run(run())
-    paths = [urlparse(str(r.url)).path for r in captured]
-    assert "/relay-payload" in paths, paths
-    assert "/v1/account/transactions/params" not in paths, paths
+    params = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/execute-params"]
+    assert [r.url.params["type"] for r in params] == ["PROXY"]
+    submit = request_json(
+        next(r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions")
+    )
+    assert submit["nonce"] == "42"
 
 
-def test_proxy_signs_relay_address_returned_from_relay_payload() -> None:
+def test_proxy_signs_relay_address_returned_from_execute_params() -> None:
     captured: list[httpx.Request] = []
 
     async def run() -> None:
@@ -67,8 +70,8 @@ def test_proxy_signs_relay_address_returned_from_relay_payload() -> None:
             client,
             captured,
             {
-                "/relay-payload": {"address": RELAYER_ADDRESS, "nonce": "42"},
-                "/submit": _submit_route(),
+                "/v1/wallets/execute-params": {"address": RELAYER_ADDRESS, "nonce": "42"},
+                "/v1/wallets/transactions": _submit_route(),
             },
         )
         try:
@@ -77,7 +80,7 @@ def test_proxy_signs_relay_address_returned_from_relay_payload() -> None:
             await client.close()
 
     asyncio.run(run())
-    submit = [r for r in captured if urlparse(str(r.url)).path == "/submit"][0]
+    submit = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"][0]
     body = request_json(submit)
     assert body["signatureParams"]["relay"].lower() == RELAYER_ADDRESS.lower()
     assert body["signatureParams"]["relay"] != "0x" + "00" * 20
@@ -104,8 +107,8 @@ def test_proxy_signs_default_gas_limit_when_rpc_estimate_fails() -> None:
             client,
             captured,
             {
-                "/relay-payload": {"address": RELAYER_ADDRESS, "nonce": "0"},
-                "/submit": _submit_route(),
+                "/v1/wallets/execute-params": {"address": RELAYER_ADDRESS, "nonce": "0"},
+                "/v1/wallets/transactions": _submit_route(),
             },
         )
         install_rpc_handler(client, rpc_handler)
@@ -115,7 +118,7 @@ def test_proxy_signs_default_gas_limit_when_rpc_estimate_fails() -> None:
             await client.close()
 
     asyncio.run(run())
-    submit = [r for r in captured if urlparse(str(r.url)).path == "/submit"][0]
+    submit = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"][0]
     body = request_json(submit)
     assert body["signatureParams"]["gasLimit"] == "200000"
 
@@ -158,8 +161,8 @@ def test_proxy_signs_rpc_estimated_gas_limit_when_rpc_configured() -> None:
             client,
             captured,
             {
-                "/relay-payload": {"address": RELAYER_ADDRESS, "nonce": "0"},
-                "/submit": _submit_route(),
+                "/v1/wallets/execute-params": {"address": RELAYER_ADDRESS, "nonce": "0"},
+                "/v1/wallets/transactions": _submit_route(),
             },
         )
         try:
@@ -168,7 +171,7 @@ def test_proxy_signs_rpc_estimated_gas_limit_when_rpc_configured() -> None:
             await client.close()
 
     asyncio.run(run())
-    submit = [r for r in captured if urlparse(str(r.url)).path == "/submit"][0]
+    submit = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"][0]
     body = request_json(submit)
     assert body["signatureParams"]["gasLimit"] == "173245"
     assert any(call["method"] == "eth_estimateGas" for call in rpc_calls)
@@ -183,8 +186,8 @@ def test_proxy_signed_hash_binds_relay_and_gas_limit() -> None:
             client,
             captured,
             {
-                "/relay-payload": {"address": RELAYER_ADDRESS, "nonce": "0"},
-                "/submit": _submit_route(),
+                "/v1/wallets/execute-params": {"address": RELAYER_ADDRESS, "nonce": "0"},
+                "/v1/wallets/transactions": _submit_route(),
             },
         )
         signer_address = client._ctx.signer.address
@@ -193,7 +196,9 @@ def test_proxy_signed_hash_binds_relay_and_gas_limit() -> None:
         finally:
             await client.close()
         return (
-            request_json([r for r in captured if urlparse(str(r.url)).path == "/submit"][0]),
+            request_json(
+                [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"][0]
+            ),
             signer_address,
         )
 

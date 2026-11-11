@@ -35,6 +35,7 @@ from polymarket._internal.actions import rfq as _rfq_actions
 from polymarket._internal.actions import session_keys as _session_key_actions
 from polymarket._internal.actions.gamma import (
     CommentParentEntityType,
+    CommentSort,
     DateFilter,
     Recurrence,
     SearchSort,
@@ -79,10 +80,7 @@ from polymarket._internal.actions.relayer.approvals import (
     build_missing_trading_approval_calls,
     get_trading_approvals_state,
 )
-from polymarket._internal.actions.relayer.auth import (
-    build_builder_key_headers,
-    make_relayer_header_resolver,
-)
+from polymarket._internal.actions.relayer.auth import build_builder_key_headers
 from polymarket._internal.actions.relayer.calls import (
     MAX_UINT256,
     TransactionCall,
@@ -128,13 +126,13 @@ from polymarket._internal.context import AsyncSecureClientContext
 from polymarket._internal.dispatch import (
     async_dispatch,
     async_paginate_keyset,
-    async_paginate_keyset_or_resume_offset,
     async_paginate_offset,
     async_paginate_page_based,
 )
 from polymarket._internal.environment import EnvironmentConfig, get_environment_config
 from polymarket._internal.eoa.broadcast import broadcast_eoa_call
 from polymarket._internal.eoa.rpc import JsonRpcClient
+from polymarket._internal.prediction_signing import build_api_key_headers
 from polymarket._internal.rfq import RfqSessionContext
 from polymarket._internal.streams.handle import AsyncSubscriptionHandle, SubscriptionHandle
 from polymarket._internal.wallet import (
@@ -924,7 +922,11 @@ class AsyncSecureClient:
                 if claims.wallet is None:
                     resolved_wallet = _identity_actions.checksum_wallet(
                         await _resolve_requested_wallet(
-                            signer=signer, wallet=wallet, config=config, logger=logger
+                            signer=signer,
+                            wallet=wallet,
+                            config=config,
+                            api_key=api_key,
+                            logger=logger,
                         )
                     )
                     bind_wallet = True
@@ -942,7 +944,7 @@ class AsyncSecureClient:
             else:
                 resolved_wallet = _identity_actions.checksum_wallet(
                     await _resolve_requested_wallet(
-                        signer=signer, wallet=wallet, config=config, logger=logger
+                        signer=signer, wallet=wallet, config=config, api_key=api_key, logger=logger
                     )
                 )
                 # Validate the wallet identity before authentication has side effects.
@@ -1038,35 +1040,17 @@ class AsyncSecureClient:
             logger=logger,
         )
 
-        gamma = AsyncTransport(base_url=config.gamma_url, logger=logger)
-        data = AsyncTransport(base_url=config.data_url, logger=logger)
-        rfq = AsyncTransport(base_url=config.rfq_url, logger=logger)
-        clob = AsyncTransport(
-            base_url=config.clob_url,
+        predictions = AsyncTransport(
+            base_url=config.predictions_url,
             logger=logger,
+            header_resolver=_make_predictions_header_resolver(session, api_key),
             on_rate_limit_update=on_rate_limit_update,
-        )
-        relayer_resolver = make_relayer_header_resolver(api_key) if api_key is not None else None
-        relayer = AsyncTransport(
-            base_url=config.relayer_url,
-            logger=logger,
-            header_resolver=relayer_resolver,
-        )
-        combos = AsyncTransport(
-            base_url=config.collateral_return_url,
-            logger=logger,
-            header_resolver=relayer_resolver,
-        )
-        builder_gateway = AsyncTransport(
-            base_url=config.builder_gateway_url,
-            logger=logger,
-            header_resolver=_make_builder_gateway_header_resolver(api_key, session),
             recover_expired_token=session.recover,
         )
         secure_clob = AsyncTransport(
             base_url=config.clob_url,
             logger=logger,
-            header_resolver=_make_bearer_header_resolver(session),
+            header_resolver=_make_trading_header_resolver(session, api_key),
             on_rate_limit_update=on_rate_limit_update,
             recover_expired_token=session.recover,
         )
@@ -1076,10 +1060,7 @@ class AsyncSecureClient:
         ctx = AsyncSecureClientContext(
             environment=environment,
             _resolved_environment_config=config,
-            gamma=gamma,
-            data=data,
-            rfq=rfq,
-            clob=clob,
+            predictions=predictions,
             perps=AsyncTransport(base_url=config.perps_url, logger=logger),
             auth=auth,
             signer=signer,
@@ -1088,9 +1069,6 @@ class AsyncSecureClient:
             wallet=branded_wallet,
             wallet_type=wallet_type,
             signer_type=signer_type,
-            relayer=relayer,
-            combos=combos,
-            builder_gateway=builder_gateway,
             api_key=api_key,
             rpc=rpc,
             order_metadata=AsyncOrderMetadataCache(),
@@ -1750,15 +1728,9 @@ class AsyncSecureClient:
             self._perps_manager,
             *tuple(self._perps_sessions),
             _RfqSessionCloser(self._close_rfq_session),
-            ctx.gamma,
-            ctx.data,
-            ctx.rfq,
-            ctx.clob,
+            ctx.predictions,
             ctx.perps,
             ctx.secure_clob,
-            ctx.relayer,
-            ctx.combos,
-            ctx.builder_gateway,
             ctx.rpc,
             ctx.auth,
         )
@@ -2019,7 +1991,7 @@ class AsyncSecureClient:
                 before=before,
                 cursor=cursor,
             )
-            payload = await self._ctx.clob.get_json(path, params=params)
+            payload = await self._ctx.predictions.get_json(path, params=params)
             return _builders_actions.parse_builder_trades_page(payload)
 
         return AsyncPaginator(fetch=fetch)
@@ -2321,9 +2293,7 @@ class AsyncSecureClient:
         parent_entity_id: str,
         parent_entity_type: CommentParentEntityType,
         ascending: bool | None = None,
-        get_positions: bool | None = None,
-        holders_only: bool | None = None,
-        order: str | None = None,
+        order: CommentSort | None = None,
         page_size: int = 20,
     ) -> AsyncPaginator[Comment]:
         """List comments for an event or series.
@@ -2332,49 +2302,23 @@ class AsyncSecureClient:
         With ``order`` (``id`` or ``createdAt``), pages are ascending unless
         ``ascending`` is ``False``.
 
-        Reads without ``holders_only`` or ``get_positions`` and with one of
-        those orders page through the whole thread. Their cursors continue that
-        exact query and are rejected for a different parent, order or
+        Pages follow the whole thread. Cursors continue the exact query they
+        were created for and are rejected for a different parent, order or
         direction.
 
-        Reads with ``holders_only``, ``get_positions`` or another order serve
-        pages up to offset 200. Automatic iteration yields the final accessible
-        full page with ``limit_reached=True`` and stops normally. Its
-        ``has_more`` stays True: completeness is unknown, not proof that more
-        comments exist. Explicitly following its cursor raises
-        ``PaginationLimitError`` before any request is sent. Cursors saved from
-        earlier versions keep working with the same arguments.
-
         ``page_size`` counts top-level comments; replies ride along in the same
-        page. A thread ending exactly on a page boundary may return one final
-        empty page.
+        page.
 
         Returns:
-            An async paginator over matching comments.
+            A paginator over matching comments.
         """
-        spec = _gamma_actions.list_comments_spec(
+        spec = _gamma_actions.list_comments_keyset_spec(
             parent_entity_id=parent_entity_id,
             parent_entity_type=parent_entity_type,
             ascending=ascending,
-            get_positions=get_positions,
-            holders_only=holders_only,
             order=order,
         )
-        if not _gamma_actions.comments_paginate_by_cursor(
-            get_positions=get_positions, holders_only=holders_only, order=order
-        ):
-            return async_paginate_offset(self._ctx, spec, page_size=page_size)
-        return async_paginate_keyset_or_resume_offset(
-            self._ctx,
-            keyset_spec=_gamma_actions.list_comments_keyset_spec(
-                parent_entity_id=parent_entity_id,
-                parent_entity_type=parent_entity_type,
-                ascending=ascending,
-                order=order,
-            ),
-            offset_spec=spec,
-            page_size=page_size,
-        )
+        return async_paginate_keyset(self._ctx, spec, page_size=page_size)
 
     def list_comments_by_user_address(
         self,
@@ -2457,7 +2401,9 @@ class AsyncSecureClient:
     ) -> Decimal:
         """Get the midpoint price for a CLOB asset."""
         path, params = _clob_actions.build_midpoint_request(asset_id=asset_id, token_id=token_id)
-        return _clob_actions.parse_midpoint(await self._ctx.clob.get_json(path, params=params))
+        return _clob_actions.parse_midpoint(
+            await self._ctx.predictions.get_json(path, params=params)
+        )
 
     async def get_midpoints(
         self,
@@ -2467,7 +2413,7 @@ class AsyncSecureClient:
     ) -> dict[ClobAssetId, Decimal]:
         """Get midpoint prices for multiple CLOB assets."""
         path, body = _clob_actions.build_midpoints_request(asset_ids=asset_ids, token_ids=token_ids)
-        return _clob_actions.parse_midpoints(await self._ctx.clob.post_json(path, json=body))
+        return _clob_actions.parse_midpoints(await self._ctx.predictions.post_json(path, json=body))
 
     async def get_price(
         self,
@@ -2480,21 +2426,23 @@ class AsyncSecureClient:
         path, params = _clob_actions.build_price_request(
             asset_id=asset_id, token_id=token_id, side=side
         )
-        return _clob_actions.parse_price(await self._ctx.clob.get_json(path, params=params))
+        return _clob_actions.parse_price(await self._ctx.predictions.get_json(path, params=params))
 
     async def get_prices(
         self, *, requests: Sequence[PriceRequest]
     ) -> dict[ClobAssetId, dict[OrderSide, Decimal]]:
         """Get executable prices for multiple CLOB asset-side requests."""
         path, body = _clob_actions.build_prices_request(requests=requests)
-        return _clob_actions.parse_prices(await self._ctx.clob.post_json(path, json=body))
+        return _clob_actions.parse_prices(await self._ctx.predictions.post_json(path, json=body))
 
     async def get_order_book(
         self, *, asset_id: str | None = None, token_id: str | None = None
     ) -> OrderBook:
         """Get the order book for a CLOB asset."""
         path, params = _clob_actions.build_order_book_request(asset_id=asset_id, token_id=token_id)
-        return _clob_actions.parse_order_book(await self._ctx.clob.get_json(path, params=params))
+        return _clob_actions.parse_order_book(
+            await self._ctx.predictions.get_json(path, params=params)
+        )
 
     async def get_order_books(
         self,
@@ -2506,14 +2454,16 @@ class AsyncSecureClient:
         path, body = _clob_actions.build_order_books_request(
             asset_ids=asset_ids, token_ids=token_ids
         )
-        return _clob_actions.parse_order_books(await self._ctx.clob.post_json(path, json=body))
+        return _clob_actions.parse_order_books(
+            await self._ctx.predictions.post_json(path, json=body)
+        )
 
     async def get_spread(
         self, *, asset_id: str | None = None, token_id: str | None = None
     ) -> Decimal:
         """Get the bid-ask spread for a CLOB asset."""
         path, params = _clob_actions.build_spread_request(asset_id=asset_id, token_id=token_id)
-        return _clob_actions.parse_spread(await self._ctx.clob.get_json(path, params=params))
+        return _clob_actions.parse_spread(await self._ctx.predictions.get_json(path, params=params))
 
     async def get_spreads(
         self,
@@ -2523,7 +2473,7 @@ class AsyncSecureClient:
     ) -> dict[ClobAssetId, Decimal]:
         """Get bid-ask spreads for multiple CLOB assets."""
         path, body = _clob_actions.build_spreads_request(asset_ids=asset_ids, token_ids=token_ids)
-        return _clob_actions.parse_spreads(await self._ctx.clob.post_json(path, json=body))
+        return _clob_actions.parse_spreads(await self._ctx.predictions.post_json(path, json=body))
 
     async def get_last_trade_price(
         self, *, asset_id: str | None = None, token_id: str | None = None
@@ -2536,7 +2486,7 @@ class AsyncSecureClient:
             asset_id=asset_id, token_id=token_id
         )
         return _clob_actions.parse_last_trade_price(
-            await self._ctx.clob.get_json(path, params=params)
+            await self._ctx.predictions.get_json(path, params=params)
         )
 
     async def get_last_trade_prices(
@@ -2554,7 +2504,7 @@ class AsyncSecureClient:
             asset_ids=asset_ids, token_ids=token_ids
         )
         return _clob_actions.parse_last_trade_prices(
-            await self._ctx.clob.post_json(path, json=body)
+            await self._ctx.predictions.post_json(path, json=body)
         )
 
     async def end_authentication(self) -> "AsyncPublicClient":
@@ -2589,7 +2539,7 @@ class AsyncSecureClient:
         """Return whether the authenticated account is in closed-only mode."""
         path, params = _account_actions.build_closed_only_mode_request()
         return _account_actions.parse_closed_only_mode(
-            await self._ctx.secure_clob.get_json(path, params=params)
+            await self._ctx.predictions.get_json(path, params=params)
         )
 
     def list_open_orders(
@@ -2613,7 +2563,7 @@ class AsyncSecureClient:
             path, params = _account_actions.build_list_open_orders_request(
                 asset_id=asset_id, token_id=token_id, id=id, market=market, cursor=cursor
             )
-            payload = await self._ctx.secure_clob.get_json(path, params=params)
+            payload = await self._ctx.predictions.get_json(path, params=params)
             return _account_actions.parse_open_orders_page(payload)
 
         return AsyncPaginator(fetch=fetch)
@@ -2651,7 +2601,7 @@ class AsyncSecureClient:
 
         async def fetch(next_cursor: str | None) -> Page[WalletOpenOrder]:
             path, params = build(cursor=next_cursor)
-            payload = await self._ctx.secure_clob.get_json(path, params=params)
+            payload = await self._ctx.predictions.get_json(path, params=params)
             return _account_actions.parse_wallet_open_orders_page(payload)
 
         return AsyncPaginator(fetch=fetch, initial_cursor=cursor)
@@ -2660,7 +2610,7 @@ class AsyncSecureClient:
         """Get one open order for the authenticated account."""
         path, params = _account_actions.build_get_order_request(order_id=order_id)
         return _account_actions.parse_open_order(
-            await self._ctx.secure_clob.get_json(path, params=params)
+            await self._ctx.predictions.get_json(path, params=params)
         )
 
     def list_account_trades(
@@ -2691,7 +2641,7 @@ class AsyncSecureClient:
                 before=before,
                 cursor=cursor,
             )
-            payload = await self._ctx.secure_clob.get_json(path, params=params)
+            payload = await self._ctx.predictions.get_json(path, params=params)
             return _account_actions.parse_account_trades_page(payload)
 
         return AsyncPaginator(fetch=fetch)
@@ -2702,7 +2652,7 @@ class AsyncSecureClient:
             signature_type=signature_type_for(self._ctx.wallet_type)
         )
         return _account_actions.parse_notifications(
-            await self._ctx.secure_clob.get_json(path, params=params)
+            await self._ctx.predictions.get_json(path, params=params)
         )
 
     async def drop_notifications(self, *, ids: Sequence[int | str]) -> None:
@@ -2710,7 +2660,7 @@ class AsyncSecureClient:
         path, params = _account_actions.build_drop_notifications_request(
             ids=ids, signature_type=signature_type_for(self._ctx.wallet_type)
         )
-        await self._ctx.secure_clob.delete(path, params=params)
+        await self._ctx.predictions.delete(path, params=params)
 
     async def get_balance_allowance(
         self,
@@ -2731,7 +2681,7 @@ class AsyncSecureClient:
             signature_type=signature_type_for(self._ctx.wallet_type),
         )
         return _account_actions.parse_balance_allowance(
-            await self._ctx.secure_clob.get_json(path, params=params)
+            await self._ctx.predictions.get_json(path, params=params)
         )
 
     @overload
@@ -3225,7 +3175,7 @@ class AsyncSecureClient:
         if ctx.wallet_type == "EOA":
             return self
         deployed = await fetch_deployed(
-            ctx.relayer,
+            ctx.predictions,
             address=str(ctx.wallet),
             type=_relayer_transaction_type_for_wallet(ctx.wallet_type),
         )
@@ -3831,7 +3781,7 @@ class AsyncSecureClient:
             signed_order, owner_api_key=_identity_actions.trading_identity(self._ctx.session.claims)
         )
         return _post_actions.parse_order_response(
-            await self._ctx.secure_clob.post_json(path, json=payload)
+            await self._ctx.predictions.post_json(path, json=payload)
         )
 
     async def post_orders(self, signed_orders: Sequence[SignedOrder]) -> tuple[OrderResponse, ...]:
@@ -3841,7 +3791,7 @@ class AsyncSecureClient:
             owner_api_key=_identity_actions.trading_identity(self._ctx.session.claims),
         )
         return _post_actions.parse_order_responses(
-            await self._ctx.secure_clob.post_json(path, json=payload)
+            await self._ctx.predictions.post_json(path, json=payload)
         )
 
     async def wait_for_order_fill_settlement(
@@ -3867,7 +3817,7 @@ class AsyncSecureClient:
             TransactionFailedError: If every fill failed execution.
         """
         return await _settlement_actions.wait_for_order_fill_settlement(
-            self._ctx.secure_clob, order, timeout_s=timeout_s
+            self._ctx.predictions, order, timeout_s=timeout_s
         )
 
     async def cancel_order(self, *, order_id: str) -> CancelOrdersResponse:
@@ -3878,7 +3828,7 @@ class AsyncSecureClient:
         """
         path, body = _cancel_actions.build_cancel_order_request(order_id=order_id)
         return _cancel_actions.parse_cancel_orders_response(
-            await self._ctx.secure_clob.delete_json(path, json=body)
+            await self._ctx.predictions.delete_json(path, json=body)
         )
 
     async def cancel_orders(self, *, order_ids: Sequence[str]) -> CancelOrdersResponse:
@@ -3889,7 +3839,7 @@ class AsyncSecureClient:
         """
         path, body = _cancel_actions.build_cancel_orders_request(order_ids=order_ids)
         return _cancel_actions.parse_cancel_orders_response(
-            await self._ctx.secure_clob.delete_json(path, json=body)
+            await self._ctx.predictions.delete_json(path, json=body)
         )
 
     async def cancel_all(self) -> CancelOrdersResponse:
@@ -3900,7 +3850,7 @@ class AsyncSecureClient:
         """
         path, body = _cancel_actions.build_cancel_all_request()
         return _cancel_actions.parse_cancel_orders_response(
-            await self._ctx.secure_clob.delete_json(path, json=body)
+            await self._ctx.predictions.delete_json(path, json=body)
         )
 
     async def cancel_wallet_orders(self, *, order_ids: Sequence[str]) -> CancelOrdersResponse:
@@ -3918,7 +3868,7 @@ class AsyncSecureClient:
         _cancel_actions.require_deposit_wallet_owner(self._ctx)
         path, body = _cancel_actions.build_cancel_wallet_orders_request(order_ids=order_ids)
         return _cancel_actions.parse_cancel_orders_response(
-            await self._ctx.secure_clob.delete_json(path, json=body)
+            await self._ctx.predictions.delete_json(path, json=body)
         )
 
     async def cancel_all_wallet_orders(self) -> CancelOrdersResponse:
@@ -3935,7 +3885,7 @@ class AsyncSecureClient:
         _cancel_actions.require_deposit_wallet_owner(self._ctx)
         path, body = _cancel_actions.build_cancel_all_wallet_orders_request()
         return _cancel_actions.parse_cancel_orders_response(
-            await self._ctx.secure_clob.delete_json(path, json=body)
+            await self._ctx.predictions.delete_json(path, json=body)
         )
 
     async def cancel_market_orders(
@@ -3952,7 +3902,7 @@ class AsyncSecureClient:
             token_id=token_id,
         )
         return _cancel_actions.parse_cancel_orders_response(
-            await self._ctx.secure_clob.delete_json(path, json=body)
+            await self._ctx.predictions.delete_json(path, json=body)
         )
 
     async def _sign_order(self, draft: OrderDraft, *, post_only: bool) -> SignedOrder:
@@ -4017,7 +3967,7 @@ class AsyncSecureClient:
                 cursor=cursor,
             )
             return _rewards_actions.parse_reward_markets_page(
-                await self._ctx.clob.get_json(path, params=params)
+                await self._ctx.predictions.get_json(path, params=params)
             )
 
         return AsyncPaginator(fetch=fetch)
@@ -4032,7 +3982,7 @@ class AsyncSecureClient:
             date=date, maker_address=maker_address
         )
         return _rewards_actions.parse_current_rebates(
-            await self._ctx.clob.get_json(path, params=params)
+            await self._ctx.predictions.get_json(path, params=params)
         )
 
     async def send_order_heartbeat(self, *, heartbeat_id: str = "") -> OrderHeartbeat:
@@ -4081,7 +4031,7 @@ class AsyncSecureClient:
                 sponsored=sponsored, cursor=cursor
             )
             return _rewards_actions.parse_current_rewards_page(
-                await self._ctx.clob.get_json(path, params=params)
+                await self._ctx.predictions.get_json(path, params=params)
             )
 
         return AsyncPaginator(fetch=fetch)
@@ -4100,7 +4050,7 @@ class AsyncSecureClient:
                 condition_id=CtfConditionId(condition_id), sponsored=sponsored, cursor=cursor
             )
             return _rewards_actions.parse_market_rewards_page(
-                await self._ctx.clob.get_json(path, params=params)
+                await self._ctx.predictions.get_json(path, params=params)
             )
 
         return AsyncPaginator(fetch=fetch)
@@ -4109,14 +4059,14 @@ class AsyncSecureClient:
         """Return whether an order is currently scoring rewards."""
         path, params = _rewards_actions.build_get_order_scoring_request(order_id=order_id)
         return _rewards_actions.parse_order_scoring(
-            await self._ctx.secure_clob.get_json(path, params=params)
+            await self._ctx.predictions.get_json(path, params=params)
         )
 
     async def get_orders_scoring(self, *, order_ids: Sequence[str]) -> dict[str, bool]:
         """Return reward-scoring status for multiple orders."""
         path, body = _rewards_actions.build_get_orders_scoring_request(order_ids=order_ids)
         return _rewards_actions.parse_orders_scoring(
-            await self._ctx.secure_clob.post_json(path, json=body)
+            await self._ctx.predictions.post_json(path, json=body)
         )
 
     def list_user_earnings_for_day(self, *, date: str) -> AsyncPaginator[UserEarning]:
@@ -4133,7 +4083,7 @@ class AsyncSecureClient:
                 cursor=cursor,
             )
             return _rewards_actions.parse_user_earnings_page(
-                await self._ctx.secure_clob.get_json(path, params=params)
+                await self._ctx.predictions.get_json(path, params=params)
             )
 
         return AsyncPaginator(fetch=fetch)
@@ -4151,7 +4101,7 @@ class AsyncSecureClient:
             date=date, signature_type=signature_type_for(self._ctx.wallet_type), sponsored=sponsored
         )
         return _rewards_actions.parse_total_user_earnings(
-            await self._ctx.secure_clob.get_json(path, params=params)
+            await self._ctx.predictions.get_json(path, params=params)
         )
 
     def list_user_earnings_and_markets_config(
@@ -4180,7 +4130,7 @@ class AsyncSecureClient:
                 cursor=cursor,
             )
             return _rewards_actions.parse_user_rewards_earnings_page(
-                await self._ctx.secure_clob.get_json(path, params=params)
+                await self._ctx.predictions.get_json(path, params=params)
             )
 
         return AsyncPaginator(fetch=fetch)
@@ -4191,7 +4141,7 @@ class AsyncSecureClient:
             signature_type=signature_type_for(self._ctx.wallet_type)
         )
         return _rewards_actions.parse_reward_percentages(
-            await self._ctx.secure_clob.get_json(path, params=params)
+            await self._ctx.predictions.get_json(path, params=params)
         )
 
     async def fetch_perps_position_snapshots(
@@ -4439,6 +4389,7 @@ async def _resolve_requested_wallet(
     signer: LocalAccount,
     wallet: str | None,
     config: EnvironmentConfig,
+    api_key: ApiKey | None,
     logger: logging.Logger | None,
 ) -> str:
     if wallet is not None:
@@ -4446,17 +4397,21 @@ async def _resolve_requested_wallet(
     legacy_deposit_wallet = derive_uups_deposit_wallet_address(
         signer.address, config.wallet_derivation
     )
-    relayer = AsyncTransport(base_url=config.relayer_url, logger=logger)
+    predictions = AsyncTransport(
+        base_url=config.predictions_url,
+        logger=logger,
+        header_resolver=None if api_key is None else _make_api_key_header_resolver(api_key),
+    )
     try:
         if await fetch_deployed(
-            relayer,
+            predictions,
             address=legacy_deposit_wallet,
             type=RelayerTransactionType.WALLET,
         ):
             return legacy_deposit_wallet
         return derive_beacon_deposit_wallet_address(signer.address, config.wallet_derivation)
     finally:
-        await relayer.close()
+        await predictions.close()
 
 
 def _relayer_transaction_type_for_wallet(
@@ -4471,21 +4426,31 @@ def _relayer_transaction_type_for_wallet(
     return None
 
 
-def _make_bearer_header_resolver(session: AsyncAuthSession) -> _HeaderResolver:
+def _make_api_key_header_resolver(api_key: ApiKey) -> _HeaderResolver:
     async def resolver(method: str, path: str, body: str | None) -> Mapping[str, str]:
-        return _identity_actions.build_bearer_headers((await session.ready()).access_token)
+        return build_api_key_headers(api_key, method=method, path=path, body=body)
 
     return resolver
 
 
-def _make_builder_gateway_header_resolver(
-    api_key: ApiKey | None, session: AsyncAuthSession
+def _make_predictions_header_resolver(
+    session: AsyncAuthSession, api_key: ApiKey | None
 ) -> _HeaderResolver:
     async def resolver(method: str, path: str, body: str | None) -> Mapping[str, str]:
         headers = _identity_actions.build_bearer_headers((await session.ready()).access_token)
-        # Status reads authenticate with the session only; builder headers are
-        # required on the mutating requests.
-        if method != "GET" and isinstance(api_key, BuilderApiKey):
+        if api_key is not None:
+            headers.update(build_api_key_headers(api_key, method=method, path=path, body=body))
+        return headers
+
+    return resolver
+
+
+def _make_trading_header_resolver(
+    session: AsyncAuthSession, api_key: ApiKey | None
+) -> _HeaderResolver:
+    async def resolver(method: str, path: str, body: str | None) -> Mapping[str, str]:
+        headers = _identity_actions.build_bearer_headers((await session.ready()).access_token)
+        if isinstance(api_key, BuilderApiKey):
             headers.update(
                 build_builder_key_headers(creds=api_key, method=method, path=path, body=body)
             )

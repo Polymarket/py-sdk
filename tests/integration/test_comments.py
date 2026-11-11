@@ -29,3 +29,24 @@ def test_async_get_comment_thread_returns_comments() -> None:
             assert all(isinstance(comment, Comment) for comment in comments)
 
     asyncio.run(run())
+
+
+@pytest.mark.integration
+def test_list_comments_continues_by_cursor_without_overlap(
+    sync_public_client: PublicClient,
+) -> None:
+    events = sync_public_client.list_events(closed=False, page_size=20).first_page().items
+    for event in events:
+        paginator = sync_public_client.list_comments(
+            parent_entity_id=str(event.id), parent_entity_type="Event", page_size=2
+        )
+        first = paginator.first_page()
+        if first.next_cursor is not None:
+            break
+    else:
+        pytest.skip("No open event with more than one page of comments")
+
+    second = paginator.from_cursor(first.next_cursor).first_page()
+
+    assert second.items
+    assert {comment.id for comment in first.items}.isdisjoint(c.id for c in second.items)

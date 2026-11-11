@@ -16,7 +16,6 @@ from polymarket._internal.data_params import (
     to_epoch_seconds,
 )
 from polymarket._internal.request import KeysetPaginatedSpec, RequestSpec
-from polymarket._internal.retry import DATA_READ_RETRY
 from polymarket.errors import UserInputError
 from polymarket.models.data import (
     Activity,
@@ -88,8 +87,7 @@ def list_trades_spec(
     start, end = build_time_window(start=start, end=end, full_history=full_history)
     _check_nonnegative_amount("filter_amount", filter_amount)
     return KeysetPaginatedSpec(
-        service="data",
-        path="/v2/trades",
+        path="/v1/trades",
         base_params=build_data_params(
             {
                 "user": user,
@@ -106,7 +104,6 @@ def list_trades_spec(
         parse_page=lambda payload: parse_data_page(payload, Trade.parse_response_list),
         cursor_param="cursor",
         max_page_size=1000,
-        retry=DATA_READ_RETRY,
     )
 
 
@@ -135,8 +132,7 @@ def list_activity_spec(
         for value in activity_types:
             _check_enum("activity_types", value, ActivityType)
     return KeysetPaginatedSpec(
-        service="data",
-        path="/v2/activity",
+        path="/v1/activity",
         base_params=build_data_params(
             {
                 "user": user,
@@ -153,7 +149,6 @@ def list_activity_spec(
         parse_page=lambda payload: parse_data_page(payload, parse_activities),
         cursor_param="cursor",
         max_page_size=1000,
-        retry=DATA_READ_RETRY,
     )
 
 
@@ -165,13 +160,11 @@ def list_combo_activity_spec(
     _require_user(user)
     condition_id = build_distinct_condition_ids(condition_id, grammar="combo")
     return KeysetPaginatedSpec(
-        service="data",
-        path="/v2/activity/combos",
+        path="/v1/activity/combos",
         base_params=build_data_params({"user": user, "condition_id": condition_id}),
         parse_page=lambda payload: parse_data_page(payload, parse_combo_activities),
         cursor_param="cursor",
         max_page_size=1000,
-        retry=DATA_READ_RETRY,
     )
 
 
@@ -222,8 +215,7 @@ def list_positions_spec(
         elif len(title) > 200:
             raise UserInputError("title must contain at most 200 characters")
     return KeysetPaginatedSpec(
-        service="data",
-        path="/v2/positions",
+        path="/v1/positions",
         base_params=build_data_params(
             {
                 "user": user,
@@ -243,7 +235,6 @@ def list_positions_spec(
         parse_page=lambda payload: parse_data_page(payload, Position.parse_response_list),
         cursor_param="cursor",
         max_page_size=1000,
-        retry=DATA_READ_RETRY,
     )
 
 
@@ -275,8 +266,7 @@ def list_combo_positions_spec(
     if updated_after is not None and updated_before is not None and updated_before < updated_after:
         raise UserInputError("updated_before must be at least updated_after")
     return KeysetPaginatedSpec(
-        service="data",
-        path="/v2/positions/combos",
+        path="/v1/positions/combos",
         base_params=build_data_params(
             {
                 "user": user,
@@ -291,7 +281,6 @@ def list_combo_positions_spec(
         parse_page=lambda payload: parse_data_page(payload, ComboPosition.parse_response_list),
         cursor_param="cursor",
         max_page_size=1000,
-        retry=DATA_READ_RETRY,
     )
 
 
@@ -303,12 +292,10 @@ def build_get_portfolio_value_spec(
     _require_user(user)
     condition_ids = build_distinct_condition_ids(condition_ids, grammar="market")
     return RequestSpec(
-        service="data",
         method="GET",
-        path="/v2/value",
+        path="/v1/portfolio/value",
         params=build_data_params({"user": user, "condition_id": condition_ids}),
         parse=lambda payload: parse_data_envelope(payload, PortfolioValue.parse_response),
-        retry=DATA_READ_RETRY,
     )
 
 
@@ -318,12 +305,10 @@ def build_get_user_stats_spec(
 ) -> RequestSpec[UserStats | None]:
     _require_user(user)
     return RequestSpec(
-        service="data",
         method="GET",
-        path="/v2/user-stats",
+        path="/v1/portfolio/stats",
         params=build_data_params({"user": user}),
         parse=lambda payload: parse_optional_data_envelope(payload, UserStats.parse_response),
-        retry=DATA_READ_RETRY,
     )
 
 
@@ -337,12 +322,10 @@ def build_get_user_pnl_spec(
     _check_enum("fidelity", fidelity, UserPnlFidelity)
     _require_user(user)
     return RequestSpec(
-        service="data",
         method="GET",
-        path="/v2/user-pnl",
+        path="/v1/portfolio/pnl",
         params=build_data_params({"user": user, "interval": interval, "fidelity": fidelity}),
         parse=lambda payload: parse_data_envelope(payload, UserPnlSeries.parse_response),
-        retry=DATA_READ_RETRY,
     )
 
 
@@ -356,12 +339,10 @@ def build_get_user_volume_spec(
     _require_user(user)
     start, end = build_time_window(start=start, end=end, full_history=full_history)
     return RequestSpec(
-        service="data",
         method="GET",
-        path="/v2/user-volume",
+        path="/v1/portfolio/volume",
         params=build_data_params({"user": user, "start": start, "end": end}),
         parse=lambda payload: parse_data_envelope(payload, UserVolume.parse_response),
-        retry=DATA_READ_RETRY,
     )
 
 
@@ -378,15 +359,13 @@ def build_list_market_holders_spec(
     if include_pnl and len(conditions) != 1:
         raise UserInputError("include_pnl requires exactly one condition")
     return KeysetPaginatedSpec(
-        service="data",
-        path="/v2/holders",
+        path="/v1/markets/holders",
         base_params=build_data_params(
             {"condition_id": conditions, "min_balance": min_balance, "include_pnl": include_pnl}
         ),
         parse_page=lambda payload: parse_data_page(payload, MetaHolder.parse_response_list),
         cursor_param="cursor",
         max_page_size=100 if include_pnl else 1000,
-        retry=DATA_READ_RETRY,
     )
 
 
@@ -421,12 +400,10 @@ def build_get_token_references_spec(
             raise UserInputError("condition_ids accepts at most 10 distinct values")
         params = build_data_params({"condition": tuple(conditions)})
     return RequestSpec(
-        service="data",
         method="GET",
-        path="/v2/tokens",
+        path="/v1/tokens",
         params=params,
         parse=lambda payload: parse_data_envelope(payload, TokenReference.parse_response_list),
-        retry=DATA_READ_RETRY,
     )
 
 
@@ -456,12 +433,10 @@ def get_open_interests_spec(
 ) -> RequestSpec[tuple[OpenInterest, ...]]:
     condition_ids = build_distinct_condition_ids(condition_ids, grammar="market")
     return RequestSpec(
-        service="data",
         method="GET",
-        path="/v2/oi",
+        path="/v1/markets/open-interest",
         params=build_data_params({"condition_id": condition_ids}),
         parse=lambda payload: parse_data_envelope(payload, OpenInterest.parse_response_list),
-        retry=DATA_READ_RETRY,
     )
 
 
@@ -473,12 +448,10 @@ def build_get_event_live_volume_spec(
     if not events:
         raise UserInputError("event_ids is required")
     return RequestSpec(
-        service="data",
         method="GET",
-        path="/v2/live-volume",
+        path="/v1/events/live-volume",
         params=build_data_params({"event_id": events}),
         parse=lambda payload: parse_data_envelope(payload, LiveVolume.parse_response),
-        retry=DATA_READ_RETRY,
     )
 
 
@@ -513,8 +486,7 @@ def build_list_price_history_spec(
         if type(bucket_seconds) is not int or not minimum <= bucket_seconds <= 86400:
             raise UserInputError(f"bucket_seconds must be between {minimum} and 86400")
     return KeysetPaginatedSpec(
-        service="data",
-        path="/v2/prices-history",
+        path="/v1/pricing/history/aggregated",
         base_params=build_data_params(
             {
                 "token_id": asset_id,
@@ -528,7 +500,6 @@ def build_list_price_history_spec(
         parse_page=lambda payload: parse_data_page(payload, PriceHistoryPoint.parse_response_list),
         cursor_param="cursor",
         max_page_size=10000,
-        retry=DATA_READ_RETRY,
     )
 
 
@@ -547,14 +518,12 @@ def build_get_resolutions_spec(
     if event_ids is not None and len(event_ids) > 20:
         raise UserInputError("event_ids accepts at most 20 distinct values")
     return RequestSpec(
-        service="data",
         method="GET",
-        path="/v2/resolutions",
+        path="/v1/markets/resolutions",
         params=build_data_params(
             {"question_id": question_id, "condition_id": condition_ids, "event_id": event_ids}
         ),
         parse=lambda payload: parse_data_envelope(payload, Resolution.parse_response_list),
-        retry=DATA_READ_RETRY,
     )
 
 
@@ -568,8 +537,7 @@ def list_trader_leaderboard_spec(
     _check_enum("sort_by", sort_by, get_args(TraderLeaderboardSort))
     _check_category(category)
     return KeysetPaginatedSpec(
-        service="data",
-        path="/v2/leaderboard",
+        path="/v1/leaderboards/traders",
         base_params=build_data_params(
             {"category": category, "time_period": window, "sort_by": sort_by}
         ),
@@ -578,7 +546,6 @@ def list_trader_leaderboard_spec(
         ),
         cursor_param="cursor",
         max_page_size=1000,
-        retry=DATA_READ_RETRY,
     )
 
 
@@ -592,14 +559,12 @@ def build_get_trader_leaderboard_standing_spec(
     _require_user(user)
     _check_category(category)
     return RequestSpec(
-        service="data",
         method="GET",
-        path="/v2/leaderboard",
+        path="/v1/leaderboards/traders",
         params=build_data_params({"user": user, "category": category, "time_period": window}),
         parse=lambda payload: parse_optional_data_envelope(
             payload, TraderLeaderboardStanding.parse_response
         ),
-        retry=DATA_READ_RETRY,
     )
 
 
@@ -611,13 +576,11 @@ def build_list_biggest_winners_spec(
     _check_enum("window", window, get_args(LeaderboardWindow))
     _check_category(category)
     return KeysetPaginatedSpec(
-        service="data",
-        path="/v2/biggest-winners",
+        path="/v1/leaderboards/biggest-winners",
         base_params=build_data_params({"category": category, "time_period": window}),
         parse_page=lambda payload: parse_data_page(payload, parse_biggest_winners),
         cursor_param="cursor",
         max_page_size=1000,
-        retry=DATA_READ_RETRY,
     )
 
 
@@ -627,13 +590,11 @@ def list_builder_leaderboard_spec(
 ) -> KeysetPaginatedSpec[BuilderStanding]:
     _check_enum("window", window, get_args(LeaderboardWindow))
     return KeysetPaginatedSpec(
-        service="data",
-        path="/v2/builders/leaderboard",
+        path="/v1/builders/leaderboard",
         base_params=build_data_params({"time_period": window}),
         parse_page=lambda payload: parse_data_page(payload, BuilderStanding.parse_response_list),
         cursor_param="cursor",
         max_page_size=1000,
-        retry=DATA_READ_RETRY,
     )
 
 
@@ -646,12 +607,10 @@ def get_builder_volumes_spec(
     if bucket_limit is not None and (type(bucket_limit) is not int or not 1 <= bucket_limit <= 90):
         raise UserInputError("bucket_limit must be between 1 and 90")
     return RequestSpec(
-        service="data",
         method="GET",
-        path="/v2/builders/volume",
+        path="/v1/builders/volume",
         params=build_data_params({"interval": interval, "limit": bucket_limit}),
         parse=lambda payload: parse_data_envelope(payload, BuilderVolumePoint.parse_response_list),
-        retry=DATA_READ_RETRY,
     )
 
 

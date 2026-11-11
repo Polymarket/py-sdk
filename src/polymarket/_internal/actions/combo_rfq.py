@@ -58,7 +58,7 @@ _PROTOCOL_VERSION_V3 = "3"
 _MIN_LEGS = 2
 _MAX_LEGS = 50
 
-_REQUESTS_PATH = "/v1/builder/rfq/requests"
+_REQUESTS_PATH = "/v1/combos/builder/requests"
 _ACCEPT_OUTCOME_TIMEOUT_S = 30.0
 _ACCEPT_OUTCOME_POLL_INTERVAL_S = 0.5
 _DEFAULT_FILL_TIMEOUT_S = 30.0
@@ -95,7 +95,7 @@ async def request_combo_quote(
     )
     _require_builder_api_key(ctx)
     try:
-        data = await ctx.builder_gateway.post_json(
+        data = await ctx.predictions.post_json(
             _REQUESTS_PATH, json=body, timeout=_HELD_REQUEST_TIMEOUT
         )
     except RequestRejectedError as error:
@@ -123,9 +123,7 @@ def request_combo_quote_sync(
     )
     _require_builder_api_key(ctx)
     try:
-        data = ctx.builder_gateway.post_json(
-            _REQUESTS_PATH, json=body, timeout=_HELD_REQUEST_TIMEOUT
-        )
+        data = ctx.predictions.post_json(_REQUESTS_PATH, json=body, timeout=_HELD_REQUEST_TIMEOUT)
     except RequestRejectedError as error:
         raise _to_rfq_request_rejected(error) from error
     return _parse_combo_quote_result(data, request=body)
@@ -141,17 +139,13 @@ async def accept_combo_quote(
     path = f"{_REQUESTS_PATH}/{_encode_path_segment(quote.rfq_id)}/accept"
     try:
         try:
-            data = await ctx.builder_gateway.post_json(
-                path, json=body, timeout=_HELD_REQUEST_TIMEOUT
-            )
+            data = await ctx.predictions.post_json(path, json=body, timeout=_HELD_REQUEST_TIMEOUT)
             status = _parse_rfq_status(data, expected_rfq_id=quote.rfq_id)
         except (TransportError, UnexpectedResponseError):
             # Acceptance is idempotent server-side. Retry the same signed order
             # once when the request or response is interrupted during the maker
             # last-look hold.
-            data = await ctx.builder_gateway.post_json(
-                path, json=body, timeout=_HELD_REQUEST_TIMEOUT
-            )
+            data = await ctx.predictions.post_json(path, json=body, timeout=_HELD_REQUEST_TIMEOUT)
             status = _parse_rfq_status(data, expected_rfq_id=quote.rfq_id)
     except RequestRejectedError as error:
         expired = _to_expired_acceptance(quote.rfq_id, error)
@@ -183,13 +177,13 @@ def accept_combo_quote_sync(
     path = f"{_REQUESTS_PATH}/{_encode_path_segment(quote.rfq_id)}/accept"
     try:
         try:
-            data = ctx.builder_gateway.post_json(path, json=body, timeout=_HELD_REQUEST_TIMEOUT)
+            data = ctx.predictions.post_json(path, json=body, timeout=_HELD_REQUEST_TIMEOUT)
             status = _parse_rfq_status(data, expected_rfq_id=quote.rfq_id)
         except (TransportError, UnexpectedResponseError):
             # Acceptance is idempotent server-side. Retry the same signed order
             # once when the request or response is interrupted during the maker
             # last-look hold.
-            data = ctx.builder_gateway.post_json(path, json=body, timeout=_HELD_REQUEST_TIMEOUT)
+            data = ctx.predictions.post_json(path, json=body, timeout=_HELD_REQUEST_TIMEOUT)
             status = _parse_rfq_status(data, expected_rfq_id=quote.rfq_id)
     except RequestRejectedError as error:
         expired = _to_expired_acceptance(quote.rfq_id, error)
@@ -259,9 +253,7 @@ async def fetch_rfq_status(ctx: AsyncSecureClientContext, *, rfq_id: str) -> Rfq
     assert_combos_supported(ctx)
     _require_rfq_id(rfq_id)
     try:
-        data = await ctx.builder_gateway.get_json(
-            f"{_REQUESTS_PATH}/{_encode_path_segment(rfq_id)}"
-        )
+        data = await ctx.predictions.get_json(f"{_REQUESTS_PATH}/{_encode_path_segment(rfq_id)}")
     except RequestRejectedError as error:
         raise _to_rfq_request_rejected(error) from error
     return _parse_rfq_status(data, expected_rfq_id=rfq_id)
@@ -271,7 +263,7 @@ def fetch_rfq_status_sync(ctx: SyncSecureClientContext, *, rfq_id: str) -> RfqSt
     assert_combos_supported(ctx)
     _require_rfq_id(rfq_id)
     try:
-        data = ctx.builder_gateway.get_json(f"{_REQUESTS_PATH}/{_encode_path_segment(rfq_id)}")
+        data = ctx.predictions.get_json(f"{_REQUESTS_PATH}/{_encode_path_segment(rfq_id)}")
     except RequestRejectedError as error:
         raise _to_rfq_request_rejected(error) from error
     return _parse_rfq_status(data, expected_rfq_id=rfq_id)

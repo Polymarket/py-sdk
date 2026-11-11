@@ -36,9 +36,9 @@ def _install_secure_clob(
         client=httpx.AsyncClient(
             base_url="https://clob.test", transport=httpx.MockTransport(handler)
         ),
-        header_resolver=client._ctx.secure_clob._header_resolver,
+        header_resolver=client._ctx.predictions._header_resolver,
     )
-    client._ctx = dataclasses.replace(client._ctx, secure_clob=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 async def _make_client() -> AsyncSecureClient:

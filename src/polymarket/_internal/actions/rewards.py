@@ -65,7 +65,7 @@ def build_list_current_rewards_request(
     validated_cursor = validate_cursor(cursor)
     if validated_cursor is not None:
         params["next_cursor"] = validated_cursor
-    return "/rewards/markets/current", params
+    return "/v1/rewards/markets/current", params
 
 
 def parse_current_rewards_page(data: object) -> Page[CurrentReward]:
@@ -103,7 +103,7 @@ def build_list_market_rewards_request(
     validated_cursor = validate_cursor(cursor)
     if validated_cursor is not None:
         params["next_cursor"] = validated_cursor
-    return f"/rewards/markets/{validated}", params
+    return f"/v1/rewards/markets/{validated}", params
 
 
 def parse_market_rewards_page(data: object) -> Page[MarketReward]:
@@ -124,7 +124,7 @@ def parse_market_rewards_page(data: object) -> Page[MarketReward]:
 
 def build_get_order_scoring_request(*, order_id: str) -> tuple[str, dict[str, str]]:
     validated = require_nonempty("order_id", order_id)
-    return "/order-scoring", {"order_id": validated}
+    return "/v1/orders/scoring", {"order_id": validated}
 
 
 def parse_order_scoring(data: object) -> bool:
@@ -145,7 +145,7 @@ def build_get_orders_scoring_request(*, order_ids: Sequence[str]) -> tuple[str, 
     if not items:
         raise UserInputError("order_ids must be a non-empty sequence.")
     validated = [require_nonempty("order id", item) for item in items]
-    return "/orders-scoring", validated
+    return "/v1/orders/scoring", validated
 
 
 def parse_orders_scoring(data: object) -> dict[str, bool]:
@@ -176,7 +176,7 @@ def build_list_user_earnings_for_day_request(
     validated_cursor = validate_cursor(cursor)
     if validated_cursor is not None:
         params["next_cursor"] = validated_cursor
-    return "/rewards/user", params
+    return "/v1/rewards/user", params
 
 
 def parse_user_earnings_page(data: object) -> Page[UserEarning]:
@@ -207,7 +207,7 @@ def build_total_user_earnings_for_day_request(
         if type(sponsored) is not bool:
             raise UserInputError("sponsored must be a bool.")
         params["sponsored"] = sponsored
-    return "/rewards/user/total", params
+    return "/v1/rewards/user/total", params
 
 
 def parse_total_user_earnings(data: object) -> tuple[TotalUserEarning, ...]:
@@ -253,7 +253,7 @@ def build_list_user_earnings_and_markets_config_request(
     validated_cursor = validate_cursor(cursor)
     if validated_cursor is not None:
         params["next_cursor"] = validated_cursor
-    return "/rewards/user/markets", params
+    return "/v1/rewards/user/markets", params
 
 
 def parse_user_rewards_earnings_page(data: object) -> Page[UserRewardsEarning]:
@@ -276,7 +276,7 @@ def parse_user_rewards_earnings_page(data: object) -> Page[UserRewardsEarning]:
 def build_get_reward_percentages_request(
     *, signature_type: int
 ) -> tuple[str, dict[str, QueryParamValue]]:
-    return "/rewards/user/percentages", {"signature_type": signature_type}
+    return "/v1/rewards/user/percentages", {"signature_type": signature_type}
 
 
 def parse_reward_percentages(data: object) -> RewardsPercentages:
@@ -381,7 +381,7 @@ def build_list_reward_markets_request(
     validated_cursor = validate_cursor(cursor)
     if validated_cursor is not None:
         params["next_cursor"] = validated_cursor
-    return "/rewards/markets/multi", params
+    return "/v1/rewards/markets/multi", params
 
 
 def parse_reward_markets_page(data: object) -> Page[RewardMarket]:
@@ -405,7 +405,7 @@ def build_get_current_rebates_request(
         or int(maker_address[2:], 16) == 0
     ):
         raise UserInputError("maker_address must be a nonzero EVM address.")
-    return "/rebates/current", {"date": date, "maker_address": maker_address}
+    return "/v1/rebates/current", {"date": date, "maker_address": maker_address}
 
 
 def parse_current_rebates(data: object) -> tuple[RebatedFee, ...]:

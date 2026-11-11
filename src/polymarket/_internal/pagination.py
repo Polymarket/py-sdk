@@ -4,10 +4,11 @@ import base64
 import binascii
 import hashlib
 import json
+import re
 from collections.abc import Callable, Mapping
 from typing import TypeVar, cast
 
-from polymarket._internal.request import PageBasedPagePayload, QueryParamValue, Service
+from polymarket._internal.request import PageBasedPagePayload, QueryParamValue
 from polymarket.errors import UserInputError
 from polymarket.pagination import Page
 
@@ -15,6 +16,48 @@ T = TypeVar("T")
 
 _CURSOR_VERSION = 1
 _FINGERPRINT_LEN = 12
+_CURSOR_SERVICE = "predictions"
+
+# Cursors saved before every listing was served from one endpoint resume the
+# same listing. Keys are current listing paths; values are the earlier
+# (service, path) a cursor carries.
+_LEGACY_CURSOR_ENDPOINTS: Mapping[str, tuple[str, str]] = {
+    "/v1/trades": ("data", "/v2/trades"),
+    "/v1/activity": ("data", "/v2/activity"),
+    "/v1/activity/combos": ("data", "/v2/activity/combos"),
+    "/v1/positions": ("data", "/v2/positions"),
+    "/v1/positions/combos": ("data", "/v2/positions/combos"),
+    "/v1/markets/holders": ("data", "/v2/holders"),
+    "/v1/pricing/history/aggregated": ("data", "/v2/prices-history"),
+    "/v1/leaderboards/traders": ("data", "/v2/leaderboard"),
+    "/v1/leaderboards/biggest-winners": ("data", "/v2/biggest-winners"),
+    "/v1/builders/leaderboard": ("data", "/v2/builders/leaderboard"),
+    "/v1/events": ("gamma", "/events/keyset"),
+    "/v1/markets": ("gamma", "/markets/keyset"),
+    "/v1/comments": ("gamma", "/comments/keyset"),
+    "/v1/series": ("gamma", "/series"),
+    "/v1/tags": ("gamma", "/tags"),
+    "/v1/teams": ("gamma", "/teams"),
+    "/v1/public-search": ("gamma", "/public-search"),
+    "/v1/combos/markets": ("rfq", "/v1/rfq/combo-markets"),
+}
+_USER_COMMENTS_PATH = re.compile(r"^/v1/users/([^/]+)/comments$")
+
+
+def _legacy_cursor_endpoint(path: str) -> tuple[str, str] | None:
+    user_comments = _USER_COMMENTS_PATH.match(path)
+    if user_comments is not None:
+        return ("gamma", f"/comments/user_address/{user_comments.group(1)}")
+    return _LEGACY_CURSOR_ENDPOINTS.get(path)
+
+
+def _check_cursor_endpoint(payload: Mapping[str, object], expected_path: str) -> None:
+    endpoint = (payload.get("svc"), payload.get("p"))
+    if endpoint == (_CURSOR_SERVICE, expected_path):
+        return
+    if endpoint == _legacy_cursor_endpoint(expected_path):
+        return
+    raise UserInputError("Pagination cursor does not belong to this endpoint.")
 
 
 def fingerprint_query(base_params: Mapping[str, QueryParamValue] | None) -> str:
@@ -29,7 +72,6 @@ def fingerprint_query(base_params: Mapping[str, QueryParamValue] | None) -> str:
 
 def encode_offset_cursor(
     *,
-    service: Service,
     path: str,
     base_params: Mapping[str, QueryParamValue] | None,
     offset: int,
@@ -44,7 +86,7 @@ def encode_offset_cursor(
     payload = json.dumps(
         {
             "v": _CURSOR_VERSION,
-            "svc": service,
+            "svc": _CURSOR_SERVICE,
             "p": path,
             "f": fingerprint_query(base_params),
             "o": offset,
@@ -59,7 +101,6 @@ def encode_offset_cursor(
 def decode_offset_cursor(
     cursor: str,
     *,
-    expected_service: Service,
     expected_path: str,
     expected_base_params: Mapping[str, QueryParamValue] | None,
 ) -> tuple[int, int]:
@@ -79,13 +120,7 @@ def decode_offset_cursor(
             f"Unsupported pagination cursor version: {version!r}. Expected {_CURSOR_VERSION}."
         )
 
-    raw_service = payload.get("svc")
-    if not isinstance(raw_service, str) or raw_service != expected_service:
-        raise UserInputError("Pagination cursor does not belong to this service.")
-
-    raw_path = payload.get("p")
-    if not isinstance(raw_path, str) or raw_path != expected_path:
-        raise UserInputError("Pagination cursor does not belong to this endpoint.")
+    _check_cursor_endpoint(payload, expected_path)
 
     expected_fingerprint = fingerprint_query(expected_base_params)
     raw_fingerprint = payload.get("f")
@@ -103,7 +138,6 @@ def decode_offset_cursor(
 
 def compute_offset_page(
     *,
-    service: Service,
     path: str,
     base_params: Mapping[str, QueryParamValue] | None,
     offset: int,
@@ -122,7 +156,6 @@ def compute_offset_page(
     has_more = filled >= page_size
     next_cursor = (
         encode_offset_cursor(
-            service=service,
             path=path,
             base_params=base_params,
             offset=offset + page_size,
@@ -141,7 +174,6 @@ def compute_offset_page(
 
 def encode_keyset_cursor(
     *,
-    service: Service,
     path: str,
     base_params: Mapping[str, QueryParamValue] | None,
     server_cursor: str,
@@ -153,7 +185,7 @@ def encode_keyset_cursor(
     payload = json.dumps(
         {
             "v": _CURSOR_VERSION,
-            "svc": service,
+            "svc": _CURSOR_SERVICE,
             "p": path,
             "f": fingerprint_query(base_params),
             "k": server_cursor,
@@ -167,7 +199,6 @@ def encode_keyset_cursor(
 def decode_keyset_cursor(
     cursor: str,
     *,
-    expected_service: Service,
     expected_path: str,
     expected_base_params: Mapping[str, QueryParamValue] | None,
 ) -> str:
@@ -187,13 +218,7 @@ def decode_keyset_cursor(
             f"Unsupported pagination cursor version: {version!r}. Expected {_CURSOR_VERSION}."
         )
 
-    raw_service = payload.get("svc")
-    if not isinstance(raw_service, str) or raw_service != expected_service:
-        raise UserInputError("Pagination cursor does not belong to this service.")
-
-    raw_path = payload.get("p")
-    if not isinstance(raw_path, str) or raw_path != expected_path:
-        raise UserInputError("Pagination cursor does not belong to this endpoint.")
+    _check_cursor_endpoint(payload, expected_path)
 
     expected_fingerprint = fingerprint_query(expected_base_params)
     raw_fingerprint = payload.get("f")
@@ -206,27 +231,8 @@ def decode_keyset_cursor(
     return raw_server
 
 
-def cursor_path(cursor: str) -> str:
-    # Reads only the endpoint path a cursor was minted for, so a listing served
-    # from two paginated routes can pick the decoder. Nothing else is trusted
-    # here; the chosen decoder validates the whole envelope.
-    try:
-        decoded = base64.b64decode(cursor, validate=True).decode("utf-8")
-        parsed = json.loads(decoded)
-    except (binascii.Error, ValueError, UnicodeDecodeError) as error:
-        raise UserInputError("Invalid pagination cursor.") from error
-
-    if not isinstance(parsed, dict):
-        raise UserInputError("Invalid pagination cursor.")
-    raw_path = cast(dict[str, object], parsed).get("p")
-    if not isinstance(raw_path, str) or not raw_path:
-        raise UserInputError("Invalid pagination cursor.")
-    return raw_path
-
-
 def compute_keyset_page(
     *,
-    service: Service,
     path: str,
     base_params: Mapping[str, QueryParamValue] | None,
     items: tuple[T, ...],
@@ -234,7 +240,6 @@ def compute_keyset_page(
 ) -> Page[T]:
     next_cursor = (
         encode_keyset_cursor(
-            service=service,
             path=path,
             base_params=base_params,
             server_cursor=server_next_cursor,
@@ -247,7 +252,6 @@ def compute_keyset_page(
 
 def encode_page_cursor(
     *,
-    service: Service,
     path: str,
     base_params: Mapping[str, QueryParamValue] | None,
     page: int,
@@ -262,7 +266,7 @@ def encode_page_cursor(
     payload = json.dumps(
         {
             "v": _CURSOR_VERSION,
-            "svc": service,
+            "svc": _CURSOR_SERVICE,
             "p": path,
             "f": fingerprint_query(base_params),
             "pg": page,
@@ -277,7 +281,6 @@ def encode_page_cursor(
 def decode_page_cursor(
     cursor: str,
     *,
-    expected_service: Service,
     expected_path: str,
     expected_base_params: Mapping[str, QueryParamValue] | None,
 ) -> tuple[int, int]:
@@ -297,13 +300,7 @@ def decode_page_cursor(
             f"Unsupported pagination cursor version: {version!r}. Expected {_CURSOR_VERSION}."
         )
 
-    raw_service = payload.get("svc")
-    if not isinstance(raw_service, str) or raw_service != expected_service:
-        raise UserInputError("Pagination cursor does not belong to this service.")
-
-    raw_path = payload.get("p")
-    if not isinstance(raw_path, str) or raw_path != expected_path:
-        raise UserInputError("Pagination cursor does not belong to this endpoint.")
+    _check_cursor_endpoint(payload, expected_path)
 
     expected_fingerprint = fingerprint_query(expected_base_params)
     raw_fingerprint = payload.get("f")
@@ -321,7 +318,6 @@ def decode_page_cursor(
 
 def compute_page_based_page(
     *,
-    service: Service,
     path: str,
     base_params: Mapping[str, QueryParamValue] | None,
     page: int,
@@ -330,7 +326,6 @@ def compute_page_based_page(
 ) -> Page[T]:
     next_cursor = (
         encode_page_cursor(
-            service=service,
             path=path,
             base_params=base_params,
             page=page + 1,
@@ -351,7 +346,6 @@ __all__ = [
     "compute_keyset_page",
     "compute_offset_page",
     "compute_page_based_page",
-    "cursor_path",
     "decode_keyset_cursor",
     "decode_offset_cursor",
     "decode_page_cursor",

@@ -19,7 +19,7 @@ _RawOrderResponsesAdapter = TypeAdapter(tuple[RawOrderResponse, ...])
 def build_post_order_request(
     signed_order: SignedOrder, *, owner_api_key: str
 ) -> tuple[str, dict[str, Any]]:
-    return "/order", _build_send_order_payload(signed_order, owner_api_key=owner_api_key)
+    return "/v1/orders", _build_send_order_payload(signed_order, owner_api_key=owner_api_key)
 
 
 def build_post_orders_request(
@@ -33,7 +33,7 @@ def build_post_orders_request(
     if len(items) > _MAX_BATCH:
         raise UserInputError(f"signed_orders cannot exceed {_MAX_BATCH} entries.")
     payload = [_build_send_order_payload(order, owner_api_key=owner_api_key) for order in items]
-    return "/orders", payload
+    return "/v1/orders/batch", payload
 
 
 def parse_order_response(data: object) -> OrderResponse:

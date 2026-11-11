@@ -17,6 +17,7 @@ from polymarket._internal.actions import rewards as _rewards_actions
 from polymarket._internal.actions import rfq as _rfq_actions
 from polymarket._internal.actions.gamma import (
     CommentParentEntityType,
+    CommentSort,
     DateFilter,
     Recurrence,
     SearchSort,
@@ -35,7 +36,6 @@ from polymarket._internal.context import AsyncClientContext
 from polymarket._internal.dispatch import (
     async_dispatch,
     async_paginate_keyset,
-    async_paginate_keyset_or_resume_offset,
     async_paginate_offset,
     async_paginate_page_based,
 )
@@ -578,10 +578,7 @@ class AsyncPublicClient:
         self._ctx = AsyncClientContext(
             environment=environment,
             _resolved_environment_config=config,
-            gamma=AsyncTransport(base_url=config.gamma_url, logger=logger),
-            data=AsyncTransport(base_url=config.data_url, logger=logger),
-            rfq=AsyncTransport(base_url=config.rfq_url, logger=logger),
-            clob=AsyncTransport(base_url=config.clob_url, logger=logger),
+            predictions=AsyncTransport(base_url=config.predictions_url, logger=logger),
             perps=AsyncTransport(base_url=config.perps_url, logger=logger),
             auth=AsyncTransport(base_url=config.predictions_url, logger=logger),
         )
@@ -849,21 +846,12 @@ class AsyncPublicClient:
                             await self._perps_manager.close()
                     finally:
                         try:
-                            await self._ctx.gamma.close()
+                            await self._ctx.predictions.close()
                         finally:
                             try:
-                                await self._ctx.data.close()
+                                await self._ctx.perps.close()
                             finally:
-                                try:
-                                    await self._ctx.rfq.close()
-                                finally:
-                                    try:
-                                        await self._ctx.clob.close()
-                                    finally:
-                                        try:
-                                            await self._ctx.perps.close()
-                                        finally:
-                                            await self._ctx.auth.close()
+                                await self._ctx.auth.close()
 
     @overload
     async def get_market(
@@ -1098,7 +1086,7 @@ class AsyncPublicClient:
                 before=before,
                 cursor=cursor,
             )
-            payload = await self._ctx.clob.get_json(path, params=params)
+            payload = await self._ctx.predictions.get_json(path, params=params)
             return _builders_actions.parse_builder_trades_page(payload)
 
         return AsyncPaginator(fetch=fetch)
@@ -1420,9 +1408,7 @@ class AsyncPublicClient:
         parent_entity_id: str,
         parent_entity_type: CommentParentEntityType,
         ascending: bool | None = None,
-        get_positions: bool | None = None,
-        holders_only: bool | None = None,
-        order: str | None = None,
+        order: CommentSort | None = None,
         page_size: int = 20,
     ) -> AsyncPaginator[Comment]:
         """List comments for an event or series.
@@ -1431,49 +1417,23 @@ class AsyncPublicClient:
         With ``order`` (``id`` or ``createdAt``), pages are ascending unless
         ``ascending`` is ``False``.
 
-        Reads without ``holders_only`` or ``get_positions`` and with one of
-        those orders page through the whole thread. Their cursors continue that
-        exact query and are rejected for a different parent, order or
+        Pages follow the whole thread. Cursors continue the exact query they
+        were created for and are rejected for a different parent, order or
         direction.
 
-        Reads with ``holders_only``, ``get_positions`` or another order serve
-        pages up to offset 200. Automatic iteration yields the final accessible
-        full page with ``limit_reached=True`` and stops normally. Its
-        ``has_more`` stays True: completeness is unknown, not proof that more
-        comments exist. Explicitly following its cursor raises
-        ``PaginationLimitError`` before any request is sent. Cursors saved from
-        earlier versions keep working with the same arguments.
-
         ``page_size`` counts top-level comments; replies ride along in the same
-        page. A thread ending exactly on a page boundary may return one final
-        empty page.
+        page.
 
         Returns:
-            An async paginator over matching comments.
+            A paginator over matching comments.
         """
-        spec = _gamma_actions.list_comments_spec(
+        spec = _gamma_actions.list_comments_keyset_spec(
             parent_entity_id=parent_entity_id,
             parent_entity_type=parent_entity_type,
             ascending=ascending,
-            get_positions=get_positions,
-            holders_only=holders_only,
             order=order,
         )
-        if not _gamma_actions.comments_paginate_by_cursor(
-            get_positions=get_positions, holders_only=holders_only, order=order
-        ):
-            return async_paginate_offset(self._ctx, spec, page_size=page_size)
-        return async_paginate_keyset_or_resume_offset(
-            self._ctx,
-            keyset_spec=_gamma_actions.list_comments_keyset_spec(
-                parent_entity_id=parent_entity_id,
-                parent_entity_type=parent_entity_type,
-                ascending=ascending,
-                order=order,
-            ),
-            offset_spec=spec,
-            page_size=page_size,
-        )
+        return async_paginate_keyset(self._ctx, spec, page_size=page_size)
 
     def list_comments_by_user_address(
         self,
@@ -1556,7 +1516,9 @@ class AsyncPublicClient:
     ) -> Decimal:
         """Get the midpoint price for a CLOB asset."""
         path, params = _clob_actions.build_midpoint_request(asset_id=asset_id, token_id=token_id)
-        return _clob_actions.parse_midpoint(await self._ctx.clob.get_json(path, params=params))
+        return _clob_actions.parse_midpoint(
+            await self._ctx.predictions.get_json(path, params=params)
+        )
 
     async def get_midpoints(
         self,
@@ -1566,7 +1528,7 @@ class AsyncPublicClient:
     ) -> dict[ClobAssetId, Decimal]:
         """Get midpoint prices for multiple CLOB assets."""
         path, body = _clob_actions.build_midpoints_request(asset_ids=asset_ids, token_ids=token_ids)
-        return _clob_actions.parse_midpoints(await self._ctx.clob.post_json(path, json=body))
+        return _clob_actions.parse_midpoints(await self._ctx.predictions.post_json(path, json=body))
 
     async def get_price(
         self,
@@ -1579,21 +1541,23 @@ class AsyncPublicClient:
         path, params = _clob_actions.build_price_request(
             asset_id=asset_id, token_id=token_id, side=side
         )
-        return _clob_actions.parse_price(await self._ctx.clob.get_json(path, params=params))
+        return _clob_actions.parse_price(await self._ctx.predictions.get_json(path, params=params))
 
     async def get_prices(
         self, *, requests: Sequence[PriceRequest]
     ) -> dict[ClobAssetId, dict[OrderSide, Decimal]]:
         """Get executable prices for multiple CLOB asset-side requests."""
         path, body = _clob_actions.build_prices_request(requests=requests)
-        return _clob_actions.parse_prices(await self._ctx.clob.post_json(path, json=body))
+        return _clob_actions.parse_prices(await self._ctx.predictions.post_json(path, json=body))
 
     async def get_order_book(
         self, *, asset_id: str | None = None, token_id: str | None = None
     ) -> OrderBook:
         """Get the order book for a CLOB asset."""
         path, params = _clob_actions.build_order_book_request(asset_id=asset_id, token_id=token_id)
-        return _clob_actions.parse_order_book(await self._ctx.clob.get_json(path, params=params))
+        return _clob_actions.parse_order_book(
+            await self._ctx.predictions.get_json(path, params=params)
+        )
 
     async def get_order_books(
         self,
@@ -1605,14 +1569,16 @@ class AsyncPublicClient:
         path, body = _clob_actions.build_order_books_request(
             asset_ids=asset_ids, token_ids=token_ids
         )
-        return _clob_actions.parse_order_books(await self._ctx.clob.post_json(path, json=body))
+        return _clob_actions.parse_order_books(
+            await self._ctx.predictions.post_json(path, json=body)
+        )
 
     async def get_spread(
         self, *, asset_id: str | None = None, token_id: str | None = None
     ) -> Decimal:
         """Get the bid-ask spread for a CLOB asset."""
         path, params = _clob_actions.build_spread_request(asset_id=asset_id, token_id=token_id)
-        return _clob_actions.parse_spread(await self._ctx.clob.get_json(path, params=params))
+        return _clob_actions.parse_spread(await self._ctx.predictions.get_json(path, params=params))
 
     async def get_spreads(
         self,
@@ -1622,7 +1588,7 @@ class AsyncPublicClient:
     ) -> dict[ClobAssetId, Decimal]:
         """Get bid-ask spreads for multiple CLOB assets."""
         path, body = _clob_actions.build_spreads_request(asset_ids=asset_ids, token_ids=token_ids)
-        return _clob_actions.parse_spreads(await self._ctx.clob.post_json(path, json=body))
+        return _clob_actions.parse_spreads(await self._ctx.predictions.post_json(path, json=body))
 
     async def get_last_trade_price(
         self, *, asset_id: str | None = None, token_id: str | None = None
@@ -1635,7 +1601,7 @@ class AsyncPublicClient:
             asset_id=asset_id, token_id=token_id
         )
         return _clob_actions.parse_last_trade_price(
-            await self._ctx.clob.get_json(path, params=params)
+            await self._ctx.predictions.get_json(path, params=params)
         )
 
     async def get_last_trade_prices(
@@ -1653,7 +1619,7 @@ class AsyncPublicClient:
             asset_ids=asset_ids, token_ids=token_ids
         )
         return _clob_actions.parse_last_trade_prices(
-            await self._ctx.clob.post_json(path, json=body)
+            await self._ctx.predictions.post_json(path, json=body)
         )
 
     @overload
@@ -1745,7 +1711,7 @@ class AsyncPublicClient:
                 cursor=cursor,
             )
             return _rewards_actions.parse_reward_markets_page(
-                await self._ctx.clob.get_json(path, params=params)
+                await self._ctx.predictions.get_json(path, params=params)
             )
 
         return AsyncPaginator(fetch=fetch)
@@ -1760,7 +1726,7 @@ class AsyncPublicClient:
             date=date, maker_address=maker_address
         )
         return _rewards_actions.parse_current_rebates(
-            await self._ctx.clob.get_json(path, params=params)
+            await self._ctx.predictions.get_json(path, params=params)
         )
 
     def list_current_rewards(
@@ -1777,7 +1743,7 @@ class AsyncPublicClient:
                 sponsored=sponsored, cursor=cursor
             )
             return _rewards_actions.parse_current_rewards_page(
-                await self._ctx.clob.get_json(path, params=params)
+                await self._ctx.predictions.get_json(path, params=params)
             )
 
         return AsyncPaginator(fetch=fetch)
@@ -1796,7 +1762,7 @@ class AsyncPublicClient:
                 condition_id=CtfConditionId(condition_id), sponsored=sponsored, cursor=cursor
             )
             return _rewards_actions.parse_market_rewards_page(
-                await self._ctx.clob.get_json(path, params=params)
+                await self._ctx.predictions.get_json(path, params=params)
             )
 
         return AsyncPaginator(fetch=fetch)
