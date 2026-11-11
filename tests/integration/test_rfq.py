@@ -660,6 +660,33 @@ async def test_rfq_session_connection_lost_rejects_pending_and_reconnects(
 
 
 @pytest.mark.integration
+async def test_rfq_session_policy_close_ends_the_session(
+    require_env: Callable[[str], str],
+) -> None:
+    connection_count = 0
+
+    async def handler(ws: ServerConnection) -> None:
+        nonlocal connection_count
+        connection_count += 1
+        async for raw in ws:
+            assert isinstance(raw, str)
+            if json.loads(raw)["type"] == "auth":
+                await ws.send(json.dumps({"type": "auth", "success": True}))
+                await ws.close(code=1008, reason="policy violation")
+
+    async with (
+        _ws_server(handler) as ws_url,
+        _rfq_client(require_env, ws_url) as client,
+        client.open_rfq_session() as session,
+    ):
+        with pytest.raises(ConnectionLostError):
+            await asyncio.wait_for(session.__anext__(), timeout=10.0)
+        # A policy close is final: no reconnect follows.
+        await asyncio.sleep(1.0)
+        assert connection_count == 1
+
+
+@pytest.mark.integration
 async def test_rfq_session_reuses_existing_open_session(
     require_env: Callable[[str], str],
 ) -> None:

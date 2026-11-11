@@ -10,6 +10,7 @@ import time
 
 import httpx
 import pytest
+from eth_account import Account
 from eth_account.signers.local import LocalAccount
 
 from polymarket import (
@@ -17,6 +18,7 @@ from polymarket import (
     AsyncSecureClient,
     BearerCredentials,
     Environment,
+    PublicClient,
     RequestRejectedError,
 )
 from polymarket._internal.actions import identity
@@ -101,6 +103,40 @@ def test_saved_api_credentials_migrate_without_a_wallet_signature(
             environment=integration_environment,
         )
         try:
+            await client.list_open_orders().first_page()
+        finally:
+            await client.end_authentication()
+
+    asyncio.run(run())
+
+
+@pytest.mark.integration
+@pytest.mark.metered
+def test_session_without_a_wallet_is_bound_without_a_signature(
+    integration_environment: Environment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A fresh account keeps this sign-in independent of the test wallet's sessions.
+    account = Account.create()
+    with PublicClient(environment=integration_environment) as public:
+        saved = public.login(private_key=account.key.hex())
+    assert identity.parse_access_token_claims(saved.access_token).wallet is None
+
+    def refuse_to_sign(*_: object, **__: object) -> str:
+        raise AssertionError("binding a wallet must not ask the wallet to sign")
+
+    monkeypatch.setattr(identity, "sign_ownership_challenge", refuse_to_sign)
+
+    async def run() -> None:
+        client = await AsyncSecureClient.create(
+            private_key=account.key.hex(),
+            wallet=account.address,
+            credentials=saved,
+            environment=integration_environment,
+        )
+        try:
+            claims = identity.parse_access_token_claims(client.credentials.access_token)
+            assert claims.wallet == account.address
             await client.list_open_orders().first_page()
         finally:
             await client.end_authentication()
