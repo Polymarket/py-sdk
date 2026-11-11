@@ -1,12 +1,16 @@
 """Session lifecycle against the live authentication service.
 
 Side effects: each test opens its own sessions and revokes them when it ends.
-Saved API credentials are exchanged but never revoked.
+The migration test creates or derives the signer's API credentials at a
+dedicated nonce and exchanges them; they are never revoked.
 """
 
 import asyncio
+import time
 
+import httpx
 import pytest
+from eth_account.signers.local import LocalAccount
 
 from polymarket import (
     ApiKeyCreds,
@@ -16,6 +20,10 @@ from polymarket import (
     RequestRejectedError,
 )
 from polymarket._internal.actions import identity
+from polymarket._internal.environment import get_environment_config
+
+# API credentials the migration test sets up for itself, apart from other keys of the signer.
+_MIGRATION_NONCE = 3
 
 
 @pytest.mark.integration
@@ -73,10 +81,13 @@ def test_restored_session_reports_renewals_and_shares_explicit_ones(
 def test_saved_api_credentials_migrate_without_a_wallet_signature(
     deposit_wallet_private_key: str,
     deposit_wallet_address: str,
-    saved_api_credentials: ApiKeyCreds,
     integration_environment: Environment,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    saved = _obtain_api_credentials(
+        integration_environment, identity.signer_from_private_key(deposit_wallet_private_key)
+    )
+
     def refuse_to_sign(*_: object, **__: object) -> str:
         raise AssertionError("migration must not ask the wallet to sign")
 
@@ -86,7 +97,7 @@ def test_saved_api_credentials_migrate_without_a_wallet_signature(
         client = await AsyncSecureClient.create(
             private_key=deposit_wallet_private_key,
             wallet=deposit_wallet_address,
-            credentials=saved_api_credentials,
+            credentials=saved,
             environment=integration_environment,
         )
         try:
@@ -128,3 +139,50 @@ def test_ended_session_no_longer_restores_a_client(
         assert error.__cause__ is None
 
     asyncio.run(run())
+
+
+def _obtain_api_credentials(environment: Environment, signer: LocalAccount) -> ApiKeyCreds:
+    """Obtain API credentials for ``signer`` directly from the trading service.
+
+    The SDK no longer manages these credentials, so the migration test sets them up itself.
+    """
+    config = get_environment_config(environment)
+    timestamp = str(int(time.time()))
+    signature = signer.sign_typed_data(
+        full_message={
+            "domain": {"name": "ClobAuthDomain", "version": "1", "chainId": config.chain_id},
+            "primaryType": "ClobAuth",
+            "types": {
+                "EIP712Domain": [
+                    {"name": "name", "type": "string"},
+                    {"name": "version", "type": "string"},
+                    {"name": "chainId", "type": "uint256"},
+                ],
+                "ClobAuth": [
+                    {"name": "address", "type": "address"},
+                    {"name": "timestamp", "type": "string"},
+                    {"name": "nonce", "type": "uint256"},
+                    {"name": "message", "type": "string"},
+                ],
+            },
+            "message": {
+                "address": signer.address,
+                "timestamp": timestamp,
+                "nonce": _MIGRATION_NONCE,
+                "message": "This message attests that I control the given wallet",
+            },
+        }
+    ).signature
+    headers = {
+        "POLY_ADDRESS": signer.address,
+        "POLY_SIGNATURE": "0x" + signature.hex(),
+        "POLY_TIMESTAMP": timestamp,
+        "POLY_NONCE": str(_MIGRATION_NONCE),
+    }
+    with httpx.Client(base_url=config.clob_url, timeout=30) as http:
+        response = http.post("/auth/api-key", headers=headers)
+        if not response.is_success:
+            response = http.get("/auth/derive-api-key", headers=headers)
+    assert response.is_success
+    body = response.json()
+    return ApiKeyCreds(key=body["apiKey"], secret=body["secret"], passphrase=body["passphrase"])
