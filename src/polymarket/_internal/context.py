@@ -8,13 +8,13 @@ from polymarket._internal.actions.orders.cache import (
     AsyncOrderMetadataCache,
     SyncOrderMetadataCache,
 )
+from polymarket._internal.auth_session import AsyncAuthSession, SyncAuthSession
 from polymarket._internal.environment import EnvironmentConfig, get_environment_config
 from polymarket._internal.eoa.rpc import JsonRpcClient, SyncJsonRpcClient
 from polymarket._internal.wallet import SignerType, WalletType
 from polymarket.auth import ApiKey
 from polymarket.clients._transport import AsyncTransport, SyncTransport
 from polymarket.environments import Environment
-from polymarket.models.clob import ApiKeyCreds
 from polymarket.types import EvmAddress
 
 
@@ -26,6 +26,7 @@ class SyncClientContext:
     data: SyncTransport
     rfq: SyncTransport
     clob: SyncTransport
+    auth: SyncTransport
     _resolved_environment_config: InitVar[EnvironmentConfig | None] = None
 
     def __post_init__(self, _resolved_environment_config: EnvironmentConfig | None) -> None:
@@ -36,7 +37,7 @@ class SyncClientContext:
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SyncSecureClientContext(SyncClientContext):
     signer: LocalAccount
-    credentials: ApiKeyCreds
+    session: SyncAuthSession
     secure_clob: SyncTransport
     wallet: EvmAddress
     wallet_type: WalletType
@@ -58,6 +59,7 @@ class AsyncClientContext:
     rfq: AsyncTransport
     clob: AsyncTransport
     perps: AsyncTransport
+    auth: AsyncTransport
     _resolved_environment_config: InitVar[EnvironmentConfig | None] = None
 
     def __post_init__(self, _resolved_environment_config: EnvironmentConfig | None) -> None:
@@ -68,7 +70,7 @@ class AsyncClientContext:
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AsyncSecureClientContext(AsyncClientContext):
     signer: LocalAccount
-    credentials: ApiKeyCreds
+    session: AsyncAuthSession
     secure_clob: AsyncTransport
     wallet: EvmAddress
     wallet_type: WalletType

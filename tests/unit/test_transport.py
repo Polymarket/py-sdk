@@ -1,5 +1,7 @@
 import asyncio
+import http.server
 import logging
+import threading
 
 import httpx
 import pytest
@@ -62,6 +64,72 @@ def test_sync_transport_maps_rejected_json_error_response() -> None:
     assert exc_info.value.status == 400
     assert exc_info.value.retry_after is None
     assert exc_info.value.restriction is None
+
+
+@pytest.mark.parametrize(
+    ("path", "body", "rejection"),
+    [
+        (
+            "/v1/orders",
+            {"order": {"signature": "0xsignature", "tokenId": "123"}},
+            {"error": "invalid signature 0xsignature for token 123", "code": "0xsignature"},
+        ),
+        (
+            "/v1/auth/refresh",
+            {"refresh_token": "refresh_secret"},
+            {"error": "unknown refresh_secret", "code": "refresh_secret"},
+        ),
+    ],
+)
+def test_sync_transport_rejections_do_not_echo_body_credentials(
+    path: str, body: dict[str, object], rejection: dict[str, object]
+) -> None:
+    transport = SyncTransport(
+        base_url="https://example.test",
+        client=httpx.Client(
+            base_url="https://example.test",
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(401, json=rejection, request=request)
+            ),
+        ),
+    )
+
+    with pytest.raises(RequestRejectedError) as exc_info:
+        transport.post_json(path, json=body)
+
+    assert exc_info.value.code is None
+    assert "0xsignature" not in str(exc_info.value)
+    assert "refresh_secret" not in str(exc_info.value)
+    if path == "/v1/orders":
+        assert "token 123" in str(exc_info.value)
+
+
+def test_transport_failures_do_not_echo_escaped_header_secrets(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # A header value with a newline is quoted in its escaped form by the HTTP stack.
+    server = http.server.HTTPServer(("127.0.0.1", 0), http.server.BaseHTTPRequestHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    logger = logging.getLogger("polymarket.test.redaction")
+    try:
+        transport = SyncTransport(
+            base_url=f"http://127.0.0.1:{server.server_port}",
+            logger=logger,
+            header_resolver=lambda method, path, body: {"Authorization": "Bearer SECRET-ACCESS\n"},
+        )
+        with (
+            caplog.at_level(logging.WARNING, logger=logger.name),
+            pytest.raises(TransportError) as exc_info,
+        ):
+            transport.get_json("/v1/markets")
+        transport.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert "SECRET-ACCESS" not in str(exc_info.value)
+    assert caplog.records
+    assert "SECRET-ACCESS" not in caplog.text
 
 
 def test_sync_transport_exposes_retry_after_header_on_rejection() -> None:

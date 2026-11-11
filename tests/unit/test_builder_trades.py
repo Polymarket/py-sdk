@@ -9,8 +9,9 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
+from _bearer import bearer_credentials_for
 
-from polymarket import ApiKeyCreds, AsyncPublicClient, AsyncSecureClient, PublicClient, SecureClient
+from polymarket import AsyncPublicClient, AsyncSecureClient, PublicClient, SecureClient
 from polymarket._internal.actions._cursor import END_CURSOR
 from polymarket._internal.actions.builders import (
     build_list_builder_trades_request,
@@ -23,7 +24,6 @@ from polymarket.models.clob.builder import BuilderTrade
 
 _PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 _SIGNER = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-_FAKE_CREDS = ApiKeyCreds(key="k", passphrase="p", secret="dGVzdA==")
 _VALID_BUILDER_CODE = "0x" + "ab" * 32
 
 _WIRE_TRADE: dict[str, Any] = {
@@ -294,6 +294,7 @@ class TestPublicClientListBuilderTrades:
                 gamma=client._ctx.gamma,
                 data=client._ctx.data,
                 rfq=client._ctx.rfq,
+                auth=client._ctx.auth,
                 clob=SyncTransport(
                     base_url=PRODUCTION_CONFIG.clob_url,
                     client=httpx.Client(base_url=PRODUCTION_CONFIG.clob_url, transport=handler),
@@ -344,6 +345,7 @@ class TestAsyncPublicClientListBuilderTrades:
                     gamma=client._ctx.gamma,
                     data=client._ctx.data,
                     rfq=client._ctx.rfq,
+                    auth=client._ctx.auth,
                     clob=AsyncTransport(
                         base_url=PRODUCTION_CONFIG.clob_url,
                         client=httpx.AsyncClient(
@@ -381,7 +383,7 @@ class TestSecureClientListBuilderTrades:
         with SecureClient._create(
             private_key=_PRIVATE_KEY,
             wallet=_SIGNER,
-            credentials=_FAKE_CREDS,
+            credentials=bearer_credentials_for(_PRIVATE_KEY),
             validate_credentials=False,
         ) as client:
             client._ctx = dataclasses.replace(
@@ -417,7 +419,7 @@ class TestAsyncSecureClientListBuilderTrades:
             client = await AsyncSecureClient._create(
                 private_key=_PRIVATE_KEY,
                 wallet=_SIGNER,
-                credentials=_FAKE_CREDS,
+                credentials=bearer_credentials_for(_PRIVATE_KEY),
                 validate_credentials=False,
             )
             try:

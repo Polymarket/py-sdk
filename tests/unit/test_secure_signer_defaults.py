@@ -6,15 +6,15 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
+from _bearer import bearer_credentials_for
 
-from polymarket import ApiKeyCreds, AsyncSecureClient, SecureClient
+from polymarket import AsyncSecureClient, SecureClient
 from polymarket._internal.environment import PRODUCTION_CONFIG
 from polymarket.clients._transport import AsyncTransport, SyncTransport
 
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 SIGNER_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 OTHER_WALLET = "0x000000000000000000000000000000000000dEaD"
-FAKE_CREDS = ApiKeyCreds(key="test-key", passphrase="test-passphrase", secret="dGVzdA==")
 
 
 def _capturing_handler(captured: list[httpx.Request], payload: Any) -> httpx.MockTransport:
@@ -64,7 +64,7 @@ def test_secure_get_portfolio_value_defaults_to_signer(captured: list[httpx.Requ
     with SecureClient._create(
         private_key=PRIVATE_KEY,
         wallet=SIGNER_ADDRESS,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PRIVATE_KEY),
         validate_credentials=False,
     ) as client:
         _install_sync_data(client, _capturing_handler(captured, []))
@@ -79,7 +79,7 @@ def test_secure_get_portfolio_value_respects_explicit_user(
     with SecureClient._create(
         private_key=PRIVATE_KEY,
         wallet=SIGNER_ADDRESS,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PRIVATE_KEY),
         validate_credentials=False,
     ) as client:
         _install_sync_data(client, _capturing_handler(captured, []))
@@ -97,7 +97,7 @@ def test_secure_get_user_stats_defaults_to_signer(
     with SecureClient._create(
         private_key=PRIVATE_KEY,
         wallet=SIGNER_ADDRESS,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PRIVATE_KEY),
         validate_credentials=False,
     ) as client:
         _install_sync_data(
@@ -114,7 +114,7 @@ def test_secure_get_user_stats_respects_explicit_user(
     with SecureClient._create(
         private_key=PRIVATE_KEY,
         wallet=SIGNER_ADDRESS,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PRIVATE_KEY),
         validate_credentials=False,
     ) as client:
         _install_sync_data(
@@ -132,7 +132,7 @@ def test_secure_list_positions_defaults_to_signer(captured: list[httpx.Request])
     with SecureClient._create(
         private_key=PRIVATE_KEY,
         wallet=SIGNER_ADDRESS,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PRIVATE_KEY),
         validate_credentials=False,
     ) as client:
         _install_sync_data(client, _capturing_handler(captured, []))
@@ -145,7 +145,7 @@ def test_secure_list_positions_respects_explicit_user(captured: list[httpx.Reque
     with SecureClient._create(
         private_key=PRIVATE_KEY,
         wallet=SIGNER_ADDRESS,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PRIVATE_KEY),
         validate_credentials=False,
     ) as client:
         _install_sync_data(client, _capturing_handler(captured, []))
@@ -161,7 +161,7 @@ def test_secure_list_closed_positions_defaults_to_signer(captured: list[httpx.Re
     with SecureClient._create(
         private_key=PRIVATE_KEY,
         wallet=SIGNER_ADDRESS,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PRIVATE_KEY),
         validate_credentials=False,
     ) as client:
         _install_sync_data(client, _capturing_handler(captured, []))
@@ -177,7 +177,7 @@ def test_secure_list_trades_defaults_to_signer(captured: list[httpx.Request]) ->
     with SecureClient._create(
         private_key=PRIVATE_KEY,
         wallet=SIGNER_ADDRESS,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PRIVATE_KEY),
         validate_credentials=False,
     ) as client:
         _install_sync_data(client, _capturing_handler(captured, []))
@@ -193,7 +193,7 @@ def test_secure_list_activity_defaults_to_signer(captured: list[httpx.Request]) 
     with SecureClient._create(
         private_key=PRIVATE_KEY,
         wallet=SIGNER_ADDRESS,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PRIVATE_KEY),
         validate_credentials=False,
     ) as client:
         _install_sync_data(client, _capturing_handler(captured, []))
@@ -212,7 +212,7 @@ def test_async_secure_list_positions_defaults_to_signer() -> None:
         client = await AsyncSecureClient._create(
             private_key=PRIVATE_KEY,
             wallet=SIGNER_ADDRESS,
-            credentials=FAKE_CREDS,
+            credentials=bearer_credentials_for(PRIVATE_KEY),
             validate_credentials=False,
         )
         try:
@@ -232,7 +232,7 @@ def test_async_secure_list_positions_respects_explicit_user() -> None:
         client = await AsyncSecureClient._create(
             private_key=PRIVATE_KEY,
             wallet=SIGNER_ADDRESS,
-            credentials=FAKE_CREDS,
+            credentials=bearer_credentials_for(PRIVATE_KEY),
             validate_credentials=False,
         )
         try:
@@ -255,7 +255,7 @@ def test_async_secure_list_positions_defaults_to_wallet_when_proxy() -> None:
         client = await AsyncSecureClient._create(
             private_key=PRIVATE_KEY,
             wallet=proxy_wallet,
-            credentials=FAKE_CREDS,
+            credentials=bearer_credentials_for(PRIVATE_KEY),
             validate_credentials=False,
         )
         try:
@@ -280,7 +280,7 @@ def test_secure_list_positions_rejects_explicit_empty_user(
     with SecureClient._create(
         private_key=PRIVATE_KEY,
         wallet=SIGNER_ADDRESS,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PRIVATE_KEY),
         validate_credentials=False,
     ) as client:
         _install_sync_data(client, _capturing_handler(captured, []))
@@ -296,7 +296,7 @@ def test_secure_get_portfolio_value_rejects_explicit_empty_user(
     with SecureClient._create(
         private_key=PRIVATE_KEY,
         wallet=SIGNER_ADDRESS,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PRIVATE_KEY),
         validate_credentials=False,
     ) as client:
         _install_sync_data(client, _capturing_handler(captured, []))

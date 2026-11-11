@@ -7,8 +7,9 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
+from _bearer import bearer_credentials_for
 
-from polymarket import ApiKeyCreds, AsyncPublicClient, AsyncSecureClient
+from polymarket import AsyncPublicClient, AsyncSecureClient
 from polymarket.clients._transport import AsyncTransport
 from polymarket.errors import UserInputError
 from polymarket.models.clob.rewards import (
@@ -22,7 +23,6 @@ from polymarket.models.clob.rewards import (
 
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 SIGNER_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-FAKE_CREDS = ApiKeyCreds(key="test-key", passphrase="test-passphrase", secret="dGVzdA==")
 _CONDITION_ID = "0x5c19f205507ce03ff5f3be08a8090a5969ea6870cc07b902a4ca2e61dfe48fdd"
 
 
@@ -74,7 +74,7 @@ async def _make_secure_client() -> AsyncSecureClient:
     return await AsyncSecureClient._create(
         private_key=PRIVATE_KEY,
         wallet=SIGNER_ADDRESS,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PRIVATE_KEY),
         validate_credentials=False,
     )
 
@@ -221,7 +221,7 @@ def test_async_public_list_market_rewards_routes_with_condition_id_in_path() -> 
     assert urlparse(str(captured[0].url)).path == f"/rewards/markets/{_CONDITION_ID}"
 
 
-def test_async_secure_get_order_scoring_sends_hmac_headers() -> None:
+def test_async_secure_get_order_scoring_sends_session_headers() -> None:
     captured: list[httpx.Request] = []
 
     async def run() -> bool:
@@ -240,7 +240,7 @@ def test_async_secure_get_order_scoring_sends_hmac_headers() -> None:
     assert urlparse(str(request.url)).path == "/order-scoring"
     qs = parse_qs(urlparse(str(request.url)).query)
     assert qs.get("order_id") == ["0xORDER"]
-    assert request.headers.get("POLY_SIGNATURE")
+    assert request.headers.get("Authorization", "").startswith("Bearer ")
 
 
 def test_async_secure_get_orders_scoring_posts_id_array() -> None:
@@ -587,4 +587,6 @@ def test_async_order_heartbeat_rotation_and_explicit_mismatch_recovery(
         b'{"heartbeat_id":"stale-id"}',
         f'{{"heartbeat_id":"{heartbeat_id}"}}'.encode(),
     ]
-    assert all(request.headers.get("POLY_SIGNATURE") for request in captured)
+    assert all(
+        request.headers.get("Authorization", "").startswith("Bearer ") for request in captured
+    )

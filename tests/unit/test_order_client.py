@@ -7,8 +7,9 @@ from urllib.parse import urlparse
 
 import httpx
 import pytest
+from _bearer import bearer_credentials_for
 
-from polymarket import ApiKeyCreds, AsyncSecureClient
+from polymarket import AsyncSecureClient
 from polymarket._internal.actions.orders.cache import AsyncOrderMetadataCache
 from polymarket.clients._transport import AsyncTransport
 from polymarket.errors import RequestRejectedError, UnexpectedResponseError, UserInputError
@@ -16,7 +17,6 @@ from polymarket.models.clob.order_response import AcceptedOrder
 
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 SIGNER_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-FAKE_CREDS = ApiKeyCreds(key="test-key", passphrase="test-passphrase", secret="dGVzdA==")
 _CONDITION_ID = "0x5c19f205507ce03ff5f3be08a8090a5969ea6870cc07b902a4ca2e61dfe48fdd"
 
 
@@ -114,7 +114,7 @@ async def _make_client() -> AsyncSecureClient:
     return await AsyncSecureClient._create(
         private_key=PRIVATE_KEY,
         wallet=SIGNER_ADDRESS,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PRIVATE_KEY),
         validate_credentials=False,
     )
 
@@ -575,7 +575,7 @@ def test_place_limit_order_posts_after_signing() -> None:
     post_request = next(
         r for r in secure_captured if r.method == "POST" and urlparse(str(r.url)).path == "/order"
     )
-    assert post_request.headers.get("POLY_SIGNATURE")
+    assert post_request.headers.get("Authorization", "").startswith("Bearer ")
 
 
 def test_place_market_order_buy_signs_and_posts() -> None:

@@ -12,6 +12,7 @@ from polymarket._internal.actions import builders as _builders_actions
 from polymarket._internal.actions import clob as _clob_actions
 from polymarket._internal.actions import data as _data_actions
 from polymarket._internal.actions import gamma as _gamma_actions
+from polymarket._internal.actions import identity as _identity_actions
 from polymarket._internal.actions import rewards as _rewards_actions
 from polymarket._internal.actions import rfq as _rfq_actions
 from polymarket._internal.actions.gamma import (
@@ -40,9 +41,10 @@ from polymarket._internal.dispatch import (
 )
 from polymarket._internal.environment import get_environment_config
 from polymarket._internal.streams.handle import AsyncSubscriptionHandle, SubscriptionHandle
+from polymarket.auth import BearerCredentials
 from polymarket.clients._transport import AsyncTransport
 from polymarket.environments import PRODUCTION, Environment
-from polymarket.errors import RequestRejectedError, UserInputError
+from polymarket.errors import RequestRejectedError, UnexpectedResponseError, UserInputError
 from polymarket.models import (
     ComboMarket,
     Comment,
@@ -66,6 +68,7 @@ from polymarket.models import (
     Team,
     TradingApprovalsState,
 )
+from polymarket.models.clob.api_key import ApiKeyCreds
 from polymarket.models.clob.builder import BuilderTrade
 from polymarket.models.clob.market_events import MarketEvent
 from polymarket.models.clob.rewards import (
@@ -580,6 +583,7 @@ class AsyncPublicClient:
             rfq=AsyncTransport(base_url=config.rfq_url, logger=logger),
             clob=AsyncTransport(base_url=config.clob_url, logger=logger),
             perps=AsyncTransport(base_url=config.perps_url, logger=logger),
+            auth=AsyncTransport(base_url=config.predictions_url, logger=logger),
         )
         self._market_manager: ClobMarketStreamManager | None = None
         self._sports_manager: SportsStreamManager | None = None
@@ -591,6 +595,65 @@ class AsyncPublicClient:
     def environment(self) -> Environment:
         """Environment this client sends requests to."""
         return self._ctx.environment
+
+    async def login(
+        self, *, private_key: str, wallet: str | None = None, nonce: int = 0
+    ) -> BearerCredentials:
+        """Sign in and return session credentials without creating a secure client.
+
+        Omit ``wallet`` to open a session without a wallet. Passing the returned
+        credentials and a wallet to :meth:`AsyncSecureClient.create` binds the
+        wallet without a new signature.
+
+        Raises:
+            UserInputError: If the key material, wallet, or nonce is invalid.
+            SigningError: If the ownership signature cannot be produced.
+            RequestRejectedError: If sign-in is rejected.
+            RateLimitError: If sign-in is rate-limited.
+            TransportError: If a network request fails.
+            UnexpectedResponseError: If the ownership challenge or the session is invalid.
+        """
+        signer = _identity_actions.signer_from_private_key(private_key)
+        requested_wallet = None if wallet is None else _identity_actions.checksum_wallet(wallet)
+        tokens = await _identity_actions.issue_login_session(
+            self._ctx.auth,
+            signer=signer,
+            chain_id=self._ctx.environment_config.chain_id,
+            wallet=requested_wallet,
+            nonce=nonce,
+        )
+        if not _identity_actions.issued_for(tokens, signer=signer.address, wallet=requested_wallet):
+            raise UnexpectedResponseError(
+                "The issued session does not match the requested signer and wallet."
+            )
+        return tokens.credentials
+
+    async def migrate_credentials(
+        self, *, credentials: ApiKeyCreds, signer_address: str, wallet: str | None = None
+    ) -> BearerCredentials:
+        """Exchange saved API credentials for session credentials.
+
+        No wallet signature is needed, and the API secret is never sent. The
+        saved API credentials stay valid after the exchange.
+
+        Raises:
+            UserInputError: If the signer address or wallet is invalid.
+            SigningError: If ownership of the saved credentials cannot be proven.
+            RequestRejectedError: If the exchange is rejected.
+            RateLimitError: If the exchange is rate-limited.
+            TransportError: If a network request fails.
+            UnexpectedResponseError: If the session response is invalid.
+        """
+        signer = _identity_actions.checksum_wallet(signer_address)
+        requested_wallet = None if wallet is None else _identity_actions.checksum_wallet(wallet)
+        tokens = await _identity_actions.issue_migrated_session(
+            self._ctx.auth, credentials=credentials, signer=signer, wallet=requested_wallet
+        )
+        if not _identity_actions.issued_for(tokens, signer=signer, wallet=requested_wallet):
+            raise UnexpectedResponseError(
+                "The issued session does not match the requested signer and wallet."
+            )
+        return tokens.credentials
 
     @overload
     async def subscribe(self, specs: MarketSpec, /) -> SubscriptionHandle[MarketEvent]: ...
@@ -797,7 +860,10 @@ class AsyncPublicClient:
                                     try:
                                         await self._ctx.clob.close()
                                     finally:
-                                        await self._ctx.perps.close()
+                                        try:
+                                            await self._ctx.perps.close()
+                                        finally:
+                                            await self._ctx.auth.close()
 
     @overload
     async def get_market(

@@ -48,6 +48,7 @@ class _EnvironmentConfig:
     rfq_quoter_ws_headers: dict[str, str] | None = None
     builder_gateway_url: str = "https://combos-rfq-gateway-builder.polymarket.com"
     collateral_return_url: str = "https://combos-rfq-collateral-return.polymarket.com"
+    predictions_url: str = "https://api.defi.polymarket.com"
     perps_url: str = "https://api.perpetuals.polymarket.com"
     perps_ws_url: str = "wss://ws.perpetuals.polymarket.com/v1/ws"
     realtime_ws_url: str = "wss://ws-live-v2.polymarket.com/ws"

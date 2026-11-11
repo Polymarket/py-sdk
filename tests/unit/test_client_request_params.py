@@ -6,10 +6,10 @@ from typing import Any, Literal, cast
 
 import httpx
 import pytest
+from _bearer import bearer_credentials_for
 from data_v2_samples import position_payload, sample
 
 from polymarket import (
-    ApiKeyCreds,
     AsyncPublicClient,
     AsyncSecureClient,
     ProtocolVersion,
@@ -23,7 +23,6 @@ from polymarket.pagination import AsyncPaginator
 
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 WALLET = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-CREDS = ApiKeyCreds(key="test", passphrase="test", secret="dGVzdA==")
 CONDITION = "0x" + "ab" * 32
 COMBO = "0x03" + "ab" * 30
 
@@ -69,7 +68,7 @@ def test_event_protocol_filter_and_cursor_binding(
             client = SecureClient._create(
                 private_key=PRIVATE_KEY,
                 wallet=WALLET,
-                credentials=CREDS,
+                credentials=bearer_credentials_for(PRIVATE_KEY),
                 validate_credentials=False,
             )
         elif mode == "async_public":
@@ -78,7 +77,7 @@ def test_event_protocol_filter_and_cursor_binding(
             client = await AsyncSecureClient._create(
                 private_key=PRIVATE_KEY,
                 wallet=WALLET,
-                credentials=CREDS,
+                credentials=bearer_credentials_for(PRIVATE_KEY),
                 validate_credentials=False,
             )
         asynchronous = isinstance(client, AsyncPublicClient | AsyncSecureClient)
@@ -269,7 +268,7 @@ def test_feed_queries_cursor_replay_and_wallet_binding(
             client = SecureClient._create(
                 private_key=PRIVATE_KEY,
                 wallet=WALLET,
-                credentials=CREDS,
+                credentials=bearer_credentials_for(PRIVATE_KEY),
                 validate_credentials=False,
             )
         elif mode == "async_public":
@@ -278,7 +277,7 @@ def test_feed_queries_cursor_replay_and_wallet_binding(
             client = await AsyncSecureClient._create(
                 private_key=PRIVATE_KEY,
                 wallet=WALLET,
-                credentials=CREDS,
+                credentials=bearer_credentials_for(PRIVATE_KEY),
                 validate_credentials=False,
             )
         asynchronous = mode.startswith("async")
@@ -359,7 +358,7 @@ def test_secure_metrics_bind_wallet(mode: str, method: str, fixture: str) -> Non
                 SecureClient._create(
                     private_key=PRIVATE_KEY,
                     wallet=WALLET,
-                    credentials=CREDS,
+                    credentials=bearer_credentials_for(PRIVATE_KEY),
                     validate_credentials=False,
                 ) as client,
                 httpx.Client(
@@ -375,7 +374,7 @@ def test_secure_metrics_bind_wallet(mode: str, method: str, fixture: str) -> Non
             async_client = await AsyncSecureClient._create(
                 private_key=PRIVATE_KEY,
                 wallet=WALLET,
-                credentials=CREDS,
+                credentials=bearer_credentials_for(PRIVATE_KEY),
                 validate_credentials=False,
             )
             async with (

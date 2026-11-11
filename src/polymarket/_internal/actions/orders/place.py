@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from polymarket._internal.actions import account as _account_actions
+from polymarket._internal.actions.identity import trading_identity
 from polymarket._internal.actions.orders import post as _post_actions
 from polymarket._internal.actions.orders.allowance import (
     fetch_current_order_allowance,
@@ -63,7 +64,7 @@ def post_order_with_allowance_recovery_sync(
 async def _post_order(client: AsyncSecureClient, signed_order: SignedOrder) -> OrderResponse:
     ctx = client._ctx  # pyright: ignore[reportPrivateUsage]
     path, payload = _post_actions.build_post_order_request(
-        signed_order, owner_api_key=ctx.credentials.key
+        signed_order, owner_api_key=trading_identity(ctx.session.claims)
     )
     return _post_actions.parse_order_response(await ctx.secure_clob.post_json(path, json=payload))
 
@@ -71,7 +72,7 @@ async def _post_order(client: AsyncSecureClient, signed_order: SignedOrder) -> O
 def _post_order_sync(client: SecureClient, signed_order: SignedOrder) -> OrderResponse:
     ctx = client._ctx  # pyright: ignore[reportPrivateUsage]
     path, payload = _post_actions.build_post_order_request(
-        signed_order, owner_api_key=ctx.credentials.key
+        signed_order, owner_api_key=trading_identity(ctx.session.claims)
     )
     return _post_actions.parse_order_response(ctx.secure_clob.post_json(path, json=payload))
 

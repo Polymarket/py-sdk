@@ -6,8 +6,8 @@ from urllib.parse import urlparse
 
 import httpx
 import pytest
+from _bearer import bearer_credentials_for
 from _relayer_helpers import (
-    FAKE_CREDS,
     PK_DEPLOY_WALLET,
     RELAY_PAYLOAD_DEFAULT_ADDRESS,
     SPENDER,
@@ -43,7 +43,7 @@ def test_approve_erc20_rejects_when_no_api_key() -> None:
         client = await AsyncSecureClient._create(
             private_key=PK_DEPLOY_WALLET,
             wallet=wallet,
-            credentials=FAKE_CREDS,
+            credentials=bearer_credentials_for(PK_DEPLOY_WALLET),
             validate_credentials=False,
         )
         try:
@@ -497,7 +497,7 @@ def test_approve_erc20_works_with_relayer_api_key() -> None:
         client = await AsyncSecureClient._create(
             private_key=PK_DEPLOY_WALLET,
             wallet=wallet,
-            credentials=FAKE_CREDS,
+            credentials=bearer_credentials_for(PK_DEPLOY_WALLET),
             api_key=RelayerApiKey(key="rk", address=signer.address),
             validate_credentials=False,
         )

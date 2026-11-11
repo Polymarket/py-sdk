@@ -18,6 +18,7 @@ _ROOT_KEYS = {
     "rpc",
     "walletDerivation",
     "contracts",
+    "predictions",
     "clob",
     "bridge",
     "relayer",
@@ -149,6 +150,7 @@ def load_integration_environment(raw_config: str | None) -> Environment:
 
     for json_name, python_name in (
         ("relayer", "relayer_url"),
+        ("predictions", "predictions_url"),
         ("gamma", "gamma_url"),
         ("data", "data_url"),
     ):

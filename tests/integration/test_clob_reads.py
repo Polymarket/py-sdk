@@ -1,13 +1,16 @@
 # pyright: reportPrivateUsage=false
 import asyncio
+import base64
+import json
+import time
 from decimal import Decimal
 
 import pytest
 
 from polymarket import (
-    ApiKeyCreds,
     AsyncPublicClient,
     AsyncSecureClient,
+    BearerCredentials,
     LastTradePrice,
     LastTradePriceForToken,
     OrderBook,
@@ -18,7 +21,20 @@ from polymarket.models.types import ClobAssetId, TokenId
 
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 SIGNER_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-FAKE_CREDS = ApiKeyCreds(key="test-key", passphrase="test-passphrase", secret="dGVzdA==")
+
+
+def _offline_credentials() -> BearerCredentials:
+    """Unsigned session credentials; these tests only read public market data."""
+
+    def segment(value: object) -> str:
+        raw = json.dumps(value, separators=(",", ":")).encode()
+        return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+    claims = {"sub": SIGNER_ADDRESS, "exp": int(time.time()) + 3600}
+    return BearerCredentials(
+        access_token=f"{segment({'alg': 'none'})}.{segment(claims)}.signature",
+        refresh_token="offline",
+    )
 
 
 @pytest.mark.integration
@@ -43,7 +59,7 @@ def test_async_secure_get_midpoint_returns_decimal_in_unit_range(
         client = await AsyncSecureClient._create(
             private_key=PRIVATE_KEY,
             wallet=SIGNER_ADDRESS,
-            credentials=FAKE_CREDS,
+            credentials=_offline_credentials(),
             validate_credentials=False,
         )
         try:

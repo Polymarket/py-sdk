@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any, cast
 
+from _bearer import async_test_session
 from eth_account import Account
 from eth_account.signers.local import LocalAccount
 from websockets.asyncio.server import ServerConnection, serve
@@ -22,7 +23,6 @@ from polymarket._internal.streams.perps.market import PerpsMarketStreamManager
 from polymarket._internal.streams.rtds.manager import RtdsStreamManager
 from polymarket._internal.streams.sports.manager import SportsStreamManager
 from polymarket.errors import TransportError
-from polymarket.models import ApiKeyCreds
 from polymarket.models.perps.credentials import PerpsCredentials
 from polymarket.rfq import RfqExecutionStatus, RfqExecutionUpdateEvent
 from polymarket.streams import PerpsBookSpec
@@ -80,11 +80,6 @@ def test_clob_market_drops_invalid_frame_and_keeps_socket_open() -> None:
 
 
 def test_clob_user_drops_invalid_frame_and_keeps_socket_open() -> None:
-    creds = ApiKeyCreds(key="k", secret="s", passphrase="p")
-
-    async def resolve() -> ApiKeyCreds:
-        return creds
-
     async def handler(ws: ServerConnection) -> None:
         await ws.recv()
         await ws.send(json.dumps(_INVALID_FRAME))
@@ -110,7 +105,7 @@ def test_clob_user_drops_invalid_frame_and_keeps_socket_open() -> None:
 
     async def run() -> Any:
         async with ws_server(handler) as url:
-            mgr = ClobUserStreamManager(url=url, resolve_credentials=resolve)
+            mgr = ClobUserStreamManager(url=url, session=async_test_session())
             try:
                 handle = await mgr.subscribe(markets=["m1"])
                 event = await _next_event(handle)
@@ -285,7 +280,7 @@ def _quoter_session() -> RfqQuoterSession:
     signer = cast(LocalAccount, Account.create())
     return RfqQuoterSession(
         chain_id=137,
-        credentials=ApiKeyCreds(key="k", secret="s", passphrase="p"),
+        session=async_test_session(),
         exchange=EvmAddress("0x0000000000000000000000000000000000000001"),
         headers=None,
         logger=None,
