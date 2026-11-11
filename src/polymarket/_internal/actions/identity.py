@@ -114,8 +114,15 @@ def signer_from_private_key(private_key: str) -> LocalAccount:
 def checksum_wallet(wallet: str) -> EvmAddress:
     try:
         return EvmAddress(to_checksum_address(wallet))
-    except ValueError as error:
+    except (ValueError, TypeError) as error:
         raise UserInputError(f"Invalid wallet address: {error}") from error
+
+
+def checksum_signer(signer: str) -> EvmAddress:
+    try:
+        return EvmAddress(to_checksum_address(signer))
+    except (ValueError, TypeError) as error:
+        raise UserInputError(f"Invalid signer address: {error}") from error
 
 
 def build_challenge_request(
@@ -129,7 +136,10 @@ def build_challenge_request(
     if nonce != 0:
         body["nonce"] = nonce
     if verification_token is not None:
-        if not 0 < len(verification_token) <= _MAX_VERIFICATION_TOKEN_LENGTH:
+        if (
+            not isinstance(verification_token, str)  # pyright: ignore[reportUnnecessaryIsInstance]
+            or not 0 < len(verification_token) <= _MAX_VERIFICATION_TOKEN_LENGTH
+        ):
             raise UserInputError(
                 f"verification_token must be 1 to {_MAX_VERIFICATION_TOKEN_LENGTH} characters"
             )

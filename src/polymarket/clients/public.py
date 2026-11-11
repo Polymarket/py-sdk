@@ -573,7 +573,7 @@ class PublicClient:
             )
         return _identity_actions.request_platform_challenge_sync(
             self._ctx.auth,
-            signer=_identity_actions.checksum_wallet(signer),
+            signer=_identity_actions.checksum_signer(signer),
             wallet=None if wallet is None else _identity_actions.checksum_wallet(wallet),
             nonce=nonce,
             verification_token=verification_token,

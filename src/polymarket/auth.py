@@ -60,9 +60,9 @@ ApiKey: TypeAlias = BuilderApiKey | RelayerApiKey
 class PlatformApiKey:
     """An application's Platform API Key.
 
-    It identifies the application on sign-in and on every request the client
-    sends, and is bound to the sessions it opens. Keep it on the server: never
-    ship it to browsers or other untrusted clients.
+    It identifies the application on sign-in and on account and market
+    requests, and is bound to the sessions it opens. Keep it on the server:
+    never ship it to browsers or other untrusted clients.
     """
 
     key: str = field(repr=False)

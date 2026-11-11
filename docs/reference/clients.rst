@@ -72,9 +72,10 @@ Platform API Keys
 -----------------
 
 A Platform API Key identifies your application. Pass it as ``platform_api_key``
-on a server: sign-in, credential exchanges, and every request the client sends
+on a server: sign-in, credential exchanges, and account and market requests
 carry it, and the sessions it opens stay bound to your application. Session
-renewal and ``end_authentication()`` use the session credentials only.
+renewal, ``end_authentication()``, order heartbeats, Perps, and realtime
+connections use their own authentication only.
 
 .. code-block:: python
 
