@@ -33,12 +33,17 @@ def test_restored_session_reports_renewals_and_shares_explicit_ones(
         )
         saved = initial.credentials
         changes: list[BearerCredentials] = []
+
+        # The async client also accepts a coroutine listener.
+        async def store(credentials: BearerCredentials) -> None:
+            changes.append(credentials)
+
         restored = await AsyncSecureClient.create(
             private_key=deposit_wallet_private_key,
             wallet=deposit_wallet_address,
             credentials=saved,
             environment=integration_environment,
-            on_credentials_changed=changes.append,
+            on_credentials_changed=store,
         )
         try:
             first, second = await asyncio.gather(
@@ -108,12 +113,18 @@ def test_ended_session_no_longer_restores_a_client(
         saved = client.credentials
         await client.end_authentication()
 
-        with pytest.raises(RequestRejectedError):
+        with pytest.raises(RequestRejectedError) as rejection:
             await AsyncSecureClient.create(
                 private_key=deposit_wallet_private_key,
                 wallet=deposit_wallet_address,
                 credentials=saved,
                 environment=integration_environment,
             )
+
+        # The rejection keeps no credentials in its message or chained cause.
+        error = rejection.value
+        assert saved.access_token not in str(error)
+        assert saved.refresh_token not in str(error)
+        assert error.__cause__ is None
 
     asyncio.run(run())
