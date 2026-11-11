@@ -55,7 +55,7 @@ NULLABLE_FIELDS = [
 
 def test_canonical_requests_preserve_order_and_condition_width() -> None:
     spec = build_get_token_references_spec(asset_ids=[" 002 ", "", "1", "02", "000"])
-    assert (spec.service, spec.method, spec.path) == ("data", "GET", "/v2/tokens")
+    assert (spec.method, spec.path) == ("GET", "/v1/tokens")
     assert spec.params == {"token_id": "2,1,0"}
     assert build_get_token_references_spec(
         condition_ids=[f" {STRUCTURAL.upper().replace('0X', '0x')} ", CONDITION, STRUCTURAL]

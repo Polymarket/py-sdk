@@ -66,7 +66,7 @@ async def _post_order(client: AsyncSecureClient, signed_order: SignedOrder) -> O
     path, payload = _post_actions.build_post_order_request(
         signed_order, owner_api_key=trading_identity(ctx.session.claims)
     )
-    return _post_actions.parse_order_response(await ctx.secure_clob.post_json(path, json=payload))
+    return _post_actions.parse_order_response(await ctx.predictions.post_json(path, json=payload))
 
 
 def _post_order_sync(client: SecureClient, signed_order: SignedOrder) -> OrderResponse:
@@ -74,7 +74,7 @@ def _post_order_sync(client: SecureClient, signed_order: SignedOrder) -> OrderRe
     path, payload = _post_actions.build_post_order_request(
         signed_order, owner_api_key=trading_identity(ctx.session.claims)
     )
-    return _post_actions.parse_order_response(ctx.secure_clob.post_json(path, json=payload))
+    return _post_actions.parse_order_response(ctx.predictions.post_json(path, json=payload))
 
 
 async def _approve_order_if_under_allowance(
@@ -154,15 +154,15 @@ async def _refresh_balance_allowance(client: AsyncSecureClient, signed_order: Si
         asset_id=asset_id,
         signature_type=signature_type,
     )
-    # /balance-allowance/update is a side-effect endpoint; body is not consumed.
-    await ctx.secure_clob.get_bytes(update_path, params=update_params)
+    # The refresh is a side effect; its response body is not consumed.
+    await ctx.predictions.post(update_path, params=update_params)
     fetch_path, fetch_params = _account_actions.build_balance_allowance_request(
         asset_type=asset_type,
         asset_id=asset_id,
         signature_type=signature_type,
     )
     _account_actions.parse_balance_allowance(
-        await ctx.secure_clob.get_json(fetch_path, params=fetch_params)
+        await ctx.predictions.get_json(fetch_path, params=fetch_params)
     )
 
 
@@ -175,14 +175,14 @@ def _refresh_balance_allowance_sync(client: SecureClient, signed_order: SignedOr
         asset_id=asset_id,
         signature_type=signature_type,
     )
-    ctx.secure_clob.get_bytes(update_path, params=update_params)
+    ctx.predictions.post(update_path, params=update_params)
     fetch_path, fetch_params = _account_actions.build_balance_allowance_request(
         asset_type=asset_type,
         asset_id=asset_id,
         signature_type=signature_type,
     )
     _account_actions.parse_balance_allowance(
-        ctx.secure_clob.get_json(fetch_path, params=fetch_params)
+        ctx.predictions.get_json(fetch_path, params=fetch_params)
     )
 
 

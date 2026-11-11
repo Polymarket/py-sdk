@@ -82,9 +82,9 @@ def install_builder_gateway_handler(
         client=httpx.AsyncClient(
             base_url="https://builder-gateway.test", transport=httpx.MockTransport(handler)
         ),
-        header_resolver=client._ctx.builder_gateway._header_resolver,
+        header_resolver=client._ctx.predictions._header_resolver,
     )
-    client._ctx = dataclasses.replace(client._ctx, builder_gateway=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 def make_sync_eoa_client() -> SecureClient:
@@ -109,9 +109,9 @@ def install_sync_builder_gateway_handler(
         client=httpx.Client(
             base_url="https://builder-gateway.test", transport=httpx.MockTransport(handler)
         ),
-        header_resolver=client._ctx.builder_gateway._header_resolver,
+        header_resolver=client._ctx.predictions._header_resolver,
     )
-    client._ctx = dataclasses.replace(client._ctx, builder_gateway=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 def json_handler(*responses: httpx.Response) -> Callable[[httpx.Request], httpx.Response]:

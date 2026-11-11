@@ -152,7 +152,7 @@ async def test_create_limit_order_reuses_live_market_metadata(
     async def capture(request: httpx.Request) -> None:
         paths.append(request.url.path)
 
-    deposit_wallet_client._ctx.clob._client.event_hooks["request"].append(capture)
+    deposit_wallet_client._ctx.predictions._client.event_hooks["request"].append(capture)
     for _ in range(2):
         signed = await deposit_wallet_client.create_limit_order(
             token_id=token_id,
@@ -162,8 +162,8 @@ async def test_create_limit_order_reuses_live_market_metadata(
         )
         assert signed.signature.startswith("0x")
 
-    assert paths.count(f"/markets-by-token/{token_id}") == 1
-    assert paths.count(f"/clob-markets/{_market_condition_id(tradable_market)}") == 1
+    assert paths.count(f"/v1/trading/markets/token/{token_id}") == 1
+    assert paths.count(f"/v1/trading/markets/{_market_condition_id(tradable_market)}") == 1
 
 
 # Metered tests below place/cancel live orders or execute FAK market orders.

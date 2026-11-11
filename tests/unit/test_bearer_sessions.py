@@ -22,7 +22,6 @@ PRIVATE_KEY = "0x" + "44" * 32
 SIGNER = Account.from_key(PRIVATE_KEY).address
 OTHER_WALLET = "0x00000000000000000000000000000000000000aa"
 AUTH = PRODUCTION_CONFIG.predictions_url
-CLOB = PRODUCTION_CONFIG.clob_url
 
 
 def _token(*, wallet: str | None = SIGNER, lifetime: int = 900) -> str:
@@ -135,7 +134,7 @@ def test_expired_access_token_is_renewed_and_the_request_replayed_once() -> None
         status = _route(
             router,
             "GET",
-            f"{CLOB}/auth/ban-status/closed-only",
+            f"{AUTH}/v1/me/trading-status",
             expired,
             _ok({"closed_only": False}),
         )
@@ -154,7 +153,7 @@ def test_a_second_expired_token_rejection_is_not_replayed() -> None:
     expired = httpx.Response(401, json={"error": "expired", "code": "expired_access_token"})
     with respx.mock(assert_all_called=True) as router:
         _route(router, "POST", f"{AUTH}/v1/auth/refresh", _ok(_issued(_token())))
-        status = _route(router, "GET", f"{CLOB}/auth/ban-status/closed-only", expired)
+        status = _route(router, "GET", f"{AUTH}/v1/me/trading-status", expired)
 
         with (
             SecureClient._create(

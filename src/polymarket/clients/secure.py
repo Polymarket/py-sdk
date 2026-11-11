@@ -26,6 +26,7 @@ from polymarket._internal.actions import rfq as _rfq_actions
 from polymarket._internal.actions import session_keys as _session_key_actions
 from polymarket._internal.actions.gamma import (
     CommentParentEntityType,
+    CommentSort,
     DateFilter,
     Recurrence,
     SearchSort,
@@ -65,10 +66,7 @@ from polymarket._internal.actions.relayer.approvals import (
     build_missing_trading_approval_calls,
     get_trading_approvals_state_sync,
 )
-from polymarket._internal.actions.relayer.auth import (
-    build_builder_key_headers,
-    make_relayer_header_resolver_sync,
-)
+from polymarket._internal.actions.relayer.auth import build_builder_key_headers
 from polymarket._internal.actions.relayer.calls import (
     MAX_UINT256,
     TransactionCall,
@@ -112,13 +110,13 @@ from polymarket._internal.context import SyncSecureClientContext
 from polymarket._internal.dispatch import (
     sync_dispatch,
     sync_paginate_keyset,
-    sync_paginate_keyset_or_resume_offset,
     sync_paginate_offset,
     sync_paginate_page_based,
 )
 from polymarket._internal.environment import EnvironmentConfig, get_environment_config
 from polymarket._internal.eoa.broadcast import broadcast_eoa_call_sync
 from polymarket._internal.eoa.rpc import SyncJsonRpcClient
+from polymarket._internal.prediction_signing import build_api_key_headers
 from polymarket._internal.wallet import (
     SignerType,
     WalletType,
@@ -599,7 +597,7 @@ class SecureClient:
         Unknown selectors contribute no rows. Asset lookups retain request order;
         condition groups retain server order and can repeat assets when selectors
         overlap. Nullable metadata is explicit. Outcome labels and settlement
-        metadata may lag by up to a minute. Transient rate limits are retried.
+        metadata may lag by up to a minute.
         """
         spec = _data_actions.build_get_token_references_spec(
             asset_ids=asset_ids, condition_ids=condition_ids
@@ -744,6 +742,7 @@ class SecureClient:
             credentials: Saved session or API credentials. Credentials that no longer
                 work raise instead of signing in again.
             api_key: Optional key for gasless wallet and relayed transaction workflows.
+                A builder key also attributes order, cancellation, and account requests.
             nonce: Sign-in nonce. Cannot be combined with ``credentials``.
             on_credentials_changed: Called with the new credentials after each
                 renewal. It can run on a background thread. Exceptions it raises are
@@ -814,7 +813,11 @@ class SecureClient:
                 if claims.wallet is None:
                     resolved_wallet = _identity_actions.checksum_wallet(
                         _resolve_requested_wallet_sync(
-                            signer=signer, wallet=wallet, config=config, logger=logger
+                            signer=signer,
+                            wallet=wallet,
+                            config=config,
+                            api_key=api_key,
+                            logger=logger,
                         )
                     )
                     bind_wallet = True
@@ -832,7 +835,7 @@ class SecureClient:
             else:
                 resolved_wallet = _identity_actions.checksum_wallet(
                     _resolve_requested_wallet_sync(
-                        signer=signer, wallet=wallet, config=config, logger=logger
+                        signer=signer, wallet=wallet, config=config, api_key=api_key, logger=logger
                     )
                 )
                 # Validate the wallet identity before authentication has side effects.
@@ -928,60 +931,31 @@ class SecureClient:
             logger=logger,
         )
 
-        gamma = SyncTransport(base_url=config.gamma_url, logger=logger)
-        data = SyncTransport(base_url=config.data_url, logger=logger)
-        rfq = SyncTransport(base_url=config.rfq_url, logger=logger)
-        clob = SyncTransport(
-            base_url=config.clob_url,
+        predictions = SyncTransport(
+            base_url=config.predictions_url,
             logger=logger,
+            header_resolver=_make_predictions_header_resolver_sync(session, api_key),
             on_rate_limit_update=on_rate_limit_update,
-        )
-        relayer_resolver = (
-            make_relayer_header_resolver_sync(api_key) if api_key is not None else None
-        )
-        relayer = SyncTransport(
-            base_url=config.relayer_url,
-            logger=logger,
-            header_resolver=relayer_resolver,
-        )
-        combos = SyncTransport(
-            base_url=config.collateral_return_url,
-            logger=logger,
-            header_resolver=relayer_resolver,
-        )
-        builder_gateway = SyncTransport(
-            base_url=config.builder_gateway_url,
-            logger=logger,
-            header_resolver=_make_builder_gateway_header_resolver_sync(api_key, session),
             recover_expired_token=session.recover,
         )
         try:
             secure_clob = SyncTransport(
                 base_url=config.clob_url,
                 logger=logger,
-                header_resolver=_make_bearer_header_resolver_sync(session),
+                header_resolver=_make_trading_header_resolver_sync(session, api_key),
                 on_rate_limit_update=on_rate_limit_update,
                 recover_expired_token=session.recover,
             )
             rpc_transport = SyncTransport(base_url=config.rpc_url, logger=logger)
             rpc = SyncJsonRpcClient(rpc_transport)
         except BaseException:
-            gamma.close()
-            data.close()
-            rfq.close()
-            clob.close()
-            relayer.close()
-            combos.close()
-            builder_gateway.close()
+            predictions.close()
             raise
 
         ctx = SyncSecureClientContext(
             environment=environment,
             _resolved_environment_config=config,
-            gamma=gamma,
-            data=data,
-            rfq=rfq,
-            clob=clob,
+            predictions=predictions,
             auth=auth,
             signer=signer,
             session=session,
@@ -989,9 +963,6 @@ class SecureClient:
             wallet=branded_wallet,
             wallet_type=wallet_type,
             signer_type=signer_type,
-            relayer=relayer,
-            combos=combos,
-            builder_gateway=builder_gateway,
             api_key=api_key,
             rpc=rpc,
             order_metadata=SyncOrderMetadataCache(),
@@ -1139,31 +1110,15 @@ class SecureClient:
         ctx = self._ctx_inner
         ctx.session.close()
         try:
-            ctx.auth.close()
-            ctx.gamma.close()
+            ctx.predictions.close()
         finally:
             try:
-                ctx.data.close()
+                ctx.auth.close()
             finally:
                 try:
-                    ctx.clob.close()
+                    ctx.secure_clob.close()
                 finally:
-                    try:
-                        ctx.rfq.close()
-                    finally:
-                        try:
-                            ctx.secure_clob.close()
-                        finally:
-                            try:
-                                ctx.relayer.close()
-                            finally:
-                                try:
-                                    ctx.combos.close()
-                                finally:
-                                    try:
-                                        ctx.builder_gateway.close()
-                                    finally:
-                                        ctx.rpc.close()
+                    ctx.rpc.close()
 
     def _user_or_wallet(self, user: str | None) -> str:
         return self._ctx.wallet if user is None else user
@@ -1388,7 +1343,7 @@ class SecureClient:
                 before=before,
                 cursor=cursor,
             )
-            payload = self._ctx.clob.get_json(path, params=params)
+            payload = self._ctx.predictions.get_json(path, params=params)
             return _builders_actions.parse_builder_trades_page(payload)
 
         return Paginator(fetch=fetch)
@@ -1690,9 +1645,7 @@ class SecureClient:
         parent_entity_id: str,
         parent_entity_type: CommentParentEntityType,
         ascending: bool | None = None,
-        get_positions: bool | None = None,
-        holders_only: bool | None = None,
-        order: str | None = None,
+        order: CommentSort | None = None,
         page_size: int = 20,
     ) -> Paginator[Comment]:
         """List comments for an event or series.
@@ -1701,49 +1654,24 @@ class SecureClient:
         With ``order`` (``id`` or ``createdAt``), pages are ascending unless
         ``ascending`` is ``False``.
 
-        Reads without ``holders_only`` or ``get_positions`` and with one of
-        those orders page through the whole thread. Their cursors continue that
-        exact query and are rejected for a different parent, order or
+        Pages follow the whole thread. Cursors continue the exact query they
+        were created for and are rejected for a different parent, order or
         direction.
 
-        Reads with ``holders_only``, ``get_positions`` or another order serve
-        pages up to offset 200. Automatic iteration yields the final accessible
-        full page with ``limit_reached=True`` and stops normally. Its
-        ``has_more`` stays True: completeness is unknown, not proof that more
-        comments exist. Explicitly following its cursor raises
-        ``PaginationLimitError`` before any request is sent. Cursors saved from
-        earlier versions keep working with the same arguments.
-
         ``page_size`` counts top-level comments; replies ride along in the same
-        page. A thread ending exactly on a page boundary may return one final
+        page. A thread that ends exactly on a page boundary may return one final
         empty page.
 
         Returns:
             A paginator over matching comments.
         """
-        spec = _gamma_actions.list_comments_spec(
+        spec = _gamma_actions.list_comments_keyset_spec(
             parent_entity_id=parent_entity_id,
             parent_entity_type=parent_entity_type,
             ascending=ascending,
-            get_positions=get_positions,
-            holders_only=holders_only,
             order=order,
         )
-        if not _gamma_actions.comments_paginate_by_cursor(
-            get_positions=get_positions, holders_only=holders_only, order=order
-        ):
-            return sync_paginate_offset(self._ctx, spec, page_size=page_size)
-        return sync_paginate_keyset_or_resume_offset(
-            self._ctx,
-            keyset_spec=_gamma_actions.list_comments_keyset_spec(
-                parent_entity_id=parent_entity_id,
-                parent_entity_type=parent_entity_type,
-                ascending=ascending,
-                order=order,
-            ),
-            offset_spec=spec,
-            page_size=page_size,
-        )
+        return sync_paginate_keyset(self._ctx, spec, page_size=page_size)
 
     def list_comments_by_user_address(
         self,
@@ -1824,7 +1752,7 @@ class SecureClient:
     def get_midpoint(self, *, asset_id: str | None = None, token_id: str | None = None) -> Decimal:
         """Get the midpoint price for a CLOB asset."""
         path, params = _clob_actions.build_midpoint_request(asset_id=asset_id, token_id=token_id)
-        return _clob_actions.parse_midpoint(self._ctx.clob.get_json(path, params=params))
+        return _clob_actions.parse_midpoint(self._ctx.predictions.get_json(path, params=params))
 
     def get_midpoints(
         self,
@@ -1834,7 +1762,7 @@ class SecureClient:
     ) -> dict[ClobAssetId, Decimal]:
         """Get midpoint prices for multiple CLOB assets."""
         path, body = _clob_actions.build_midpoints_request(asset_ids=asset_ids, token_ids=token_ids)
-        return _clob_actions.parse_midpoints(self._ctx.clob.post_json(path, json=body))
+        return _clob_actions.parse_midpoints(self._ctx.predictions.post_json(path, json=body))
 
     def get_price(
         self,
@@ -1847,21 +1775,21 @@ class SecureClient:
         path, params = _clob_actions.build_price_request(
             asset_id=asset_id, token_id=token_id, side=side
         )
-        return _clob_actions.parse_price(self._ctx.clob.get_json(path, params=params))
+        return _clob_actions.parse_price(self._ctx.predictions.get_json(path, params=params))
 
     def get_prices(
         self, *, requests: Sequence[PriceRequest]
     ) -> dict[ClobAssetId, dict[OrderSide, Decimal]]:
         """Get executable prices for multiple CLOB asset-side requests."""
         path, body = _clob_actions.build_prices_request(requests=requests)
-        return _clob_actions.parse_prices(self._ctx.clob.post_json(path, json=body))
+        return _clob_actions.parse_prices(self._ctx.predictions.post_json(path, json=body))
 
     def get_order_book(
         self, *, asset_id: str | None = None, token_id: str | None = None
     ) -> OrderBook:
         """Get the order book for a CLOB asset."""
         path, params = _clob_actions.build_order_book_request(asset_id=asset_id, token_id=token_id)
-        return _clob_actions.parse_order_book(self._ctx.clob.get_json(path, params=params))
+        return _clob_actions.parse_order_book(self._ctx.predictions.get_json(path, params=params))
 
     def get_order_books(
         self,
@@ -1873,12 +1801,12 @@ class SecureClient:
         path, body = _clob_actions.build_order_books_request(
             asset_ids=asset_ids, token_ids=token_ids
         )
-        return _clob_actions.parse_order_books(self._ctx.clob.post_json(path, json=body))
+        return _clob_actions.parse_order_books(self._ctx.predictions.post_json(path, json=body))
 
     def get_spread(self, *, asset_id: str | None = None, token_id: str | None = None) -> Decimal:
         """Get the bid-ask spread for a CLOB asset."""
         path, params = _clob_actions.build_spread_request(asset_id=asset_id, token_id=token_id)
-        return _clob_actions.parse_spread(self._ctx.clob.get_json(path, params=params))
+        return _clob_actions.parse_spread(self._ctx.predictions.get_json(path, params=params))
 
     def get_spreads(
         self,
@@ -1888,7 +1816,7 @@ class SecureClient:
     ) -> dict[ClobAssetId, Decimal]:
         """Get bid-ask spreads for multiple CLOB assets."""
         path, body = _clob_actions.build_spreads_request(asset_ids=asset_ids, token_ids=token_ids)
-        return _clob_actions.parse_spreads(self._ctx.clob.post_json(path, json=body))
+        return _clob_actions.parse_spreads(self._ctx.predictions.post_json(path, json=body))
 
     def get_last_trade_price(
         self, *, asset_id: str | None = None, token_id: str | None = None
@@ -1900,7 +1828,9 @@ class SecureClient:
         path, params = _clob_actions.build_last_trade_price_request(
             asset_id=asset_id, token_id=token_id
         )
-        return _clob_actions.parse_last_trade_price(self._ctx.clob.get_json(path, params=params))
+        return _clob_actions.parse_last_trade_price(
+            self._ctx.predictions.get_json(path, params=params)
+        )
 
     def get_last_trade_prices(
         self,
@@ -1916,7 +1846,9 @@ class SecureClient:
         path, body = _clob_actions.build_last_trade_prices_request(
             asset_ids=asset_ids, token_ids=token_ids
         )
-        return _clob_actions.parse_last_trade_prices(self._ctx.clob.post_json(path, json=body))
+        return _clob_actions.parse_last_trade_prices(
+            self._ctx.predictions.post_json(path, json=body)
+        )
 
     @overload
     def estimate_market_price(
@@ -2007,7 +1939,7 @@ class SecureClient:
                 cursor=cursor,
             )
             return _rewards_actions.parse_reward_markets_page(
-                self._ctx.clob.get_json(path, params=params)
+                self._ctx.predictions.get_json(path, params=params)
             )
 
         return Paginator(fetch=fetch)
@@ -2021,7 +1953,9 @@ class SecureClient:
         path, params = _rewards_actions.build_get_current_rebates_request(
             date=date, maker_address=maker_address
         )
-        return _rewards_actions.parse_current_rebates(self._ctx.clob.get_json(path, params=params))
+        return _rewards_actions.parse_current_rebates(
+            self._ctx.predictions.get_json(path, params=params)
+        )
 
     def send_order_heartbeat(self, *, heartbeat_id: str = "") -> OrderHeartbeat:
         """Send one authenticated order heartbeat and retain the returned ID.
@@ -2067,7 +2001,7 @@ class SecureClient:
                 sponsored=sponsored, cursor=cursor
             )
             return _rewards_actions.parse_current_rewards_page(
-                self._ctx.clob.get_json(path, params=params)
+                self._ctx.predictions.get_json(path, params=params)
             )
 
         return Paginator(fetch=fetch)
@@ -2086,7 +2020,7 @@ class SecureClient:
                 condition_id=CtfConditionId(condition_id), sponsored=sponsored, cursor=cursor
             )
             return _rewards_actions.parse_market_rewards_page(
-                self._ctx.clob.get_json(path, params=params)
+                self._ctx.predictions.get_json(path, params=params)
             )
 
         return Paginator(fetch=fetch)
@@ -2122,7 +2056,7 @@ class SecureClient:
         """Return whether the authenticated account is in closed-only mode."""
         path, params = _account_actions.build_closed_only_mode_request()
         return _account_actions.parse_closed_only_mode(
-            self._ctx.secure_clob.get_json(path, params=params)
+            self._ctx.predictions.get_json(path, params=params)
         )
 
     def list_open_orders(
@@ -2146,7 +2080,7 @@ class SecureClient:
             path, params = _account_actions.build_list_open_orders_request(
                 asset_id=asset_id, token_id=token_id, id=id, market=market, cursor=cursor
             )
-            payload = self._ctx.secure_clob.get_json(path, params=params)
+            payload = self._ctx.predictions.get_json(path, params=params)
             return _account_actions.parse_open_orders_page(payload)
 
         return Paginator(fetch=fetch)
@@ -2184,7 +2118,7 @@ class SecureClient:
 
         def fetch(next_cursor: str | None) -> Page[WalletOpenOrder]:
             path, params = build(cursor=next_cursor)
-            payload = self._ctx.secure_clob.get_json(path, params=params)
+            payload = self._ctx.predictions.get_json(path, params=params)
             return _account_actions.parse_wallet_open_orders_page(payload)
 
         return Paginator(fetch=fetch, initial_cursor=cursor)
@@ -2193,7 +2127,7 @@ class SecureClient:
         """Get one open order for the authenticated account."""
         path, params = _account_actions.build_get_order_request(order_id=order_id)
         return _account_actions.parse_open_order(
-            self._ctx.secure_clob.get_json(path, params=params)
+            self._ctx.predictions.get_json(path, params=params)
         )
 
     def list_account_trades(
@@ -2224,7 +2158,7 @@ class SecureClient:
                 before=before,
                 cursor=cursor,
             )
-            payload = self._ctx.secure_clob.get_json(path, params=params)
+            payload = self._ctx.predictions.get_json(path, params=params)
             return _account_actions.parse_account_trades_page(payload)
 
         return Paginator(fetch=fetch)
@@ -2235,7 +2169,7 @@ class SecureClient:
             signature_type=signature_type_for(self._ctx.wallet_type)
         )
         return _account_actions.parse_notifications(
-            self._ctx.secure_clob.get_json(path, params=params)
+            self._ctx.predictions.get_json(path, params=params)
         )
 
     def drop_notifications(self, *, ids: Sequence[int | str]) -> None:
@@ -2243,7 +2177,7 @@ class SecureClient:
         path, params = _account_actions.build_drop_notifications_request(
             ids=ids, signature_type=signature_type_for(self._ctx.wallet_type)
         )
-        self._ctx.secure_clob.delete(path, params=params)
+        self._ctx.predictions.delete(path, params=params)
 
     def get_balance_allowance(
         self,
@@ -2264,7 +2198,7 @@ class SecureClient:
             signature_type=signature_type_for(self._ctx.wallet_type),
         )
         return _account_actions.parse_balance_allowance(
-            self._ctx.secure_clob.get_json(path, params=params)
+            self._ctx.predictions.get_json(path, params=params)
         )
 
     def create_limit_order(
@@ -2510,7 +2444,7 @@ class SecureClient:
             signed_order, owner_api_key=_identity_actions.trading_identity(self._ctx.session.claims)
         )
         return _post_actions.parse_order_response(
-            self._ctx.secure_clob.post_json(path, json=payload)
+            self._ctx.predictions.post_json(path, json=payload)
         )
 
     def post_orders(self, signed_orders: Sequence[SignedOrder]) -> tuple[OrderResponse, ...]:
@@ -2520,7 +2454,7 @@ class SecureClient:
             owner_api_key=_identity_actions.trading_identity(self._ctx.session.claims),
         )
         return _post_actions.parse_order_responses(
-            self._ctx.secure_clob.post_json(path, json=payload)
+            self._ctx.predictions.post_json(path, json=payload)
         )
 
     def wait_for_order_fill_settlement(
@@ -2546,7 +2480,7 @@ class SecureClient:
             TransactionFailedError: If every fill failed execution.
         """
         return _settlement_actions.wait_for_order_fill_settlement_sync(
-            self._ctx.secure_clob, order, timeout_s=timeout_s
+            self._ctx.predictions, order, timeout_s=timeout_s
         )
 
     def cancel_order(self, *, order_id: str) -> CancelOrdersResponse:
@@ -2557,7 +2491,7 @@ class SecureClient:
         """
         path, body = _cancel_actions.build_cancel_order_request(order_id=order_id)
         return _cancel_actions.parse_cancel_orders_response(
-            self._ctx.secure_clob.delete_json(path, json=body)
+            self._ctx.predictions.delete_json(path, json=body)
         )
 
     def cancel_orders(self, *, order_ids: Sequence[str]) -> CancelOrdersResponse:
@@ -2568,7 +2502,7 @@ class SecureClient:
         """
         path, body = _cancel_actions.build_cancel_orders_request(order_ids=order_ids)
         return _cancel_actions.parse_cancel_orders_response(
-            self._ctx.secure_clob.delete_json(path, json=body)
+            self._ctx.predictions.delete_json(path, json=body)
         )
 
     def cancel_all(self) -> CancelOrdersResponse:
@@ -2579,7 +2513,7 @@ class SecureClient:
         """
         path, body = _cancel_actions.build_cancel_all_request()
         return _cancel_actions.parse_cancel_orders_response(
-            self._ctx.secure_clob.delete_json(path, json=body)
+            self._ctx.predictions.delete_json(path, json=body)
         )
 
     def cancel_wallet_orders(self, *, order_ids: Sequence[str]) -> CancelOrdersResponse:
@@ -2597,7 +2531,7 @@ class SecureClient:
         _cancel_actions.require_deposit_wallet_owner(self._ctx)
         path, body = _cancel_actions.build_cancel_wallet_orders_request(order_ids=order_ids)
         return _cancel_actions.parse_cancel_orders_response(
-            self._ctx.secure_clob.delete_json(path, json=body)
+            self._ctx.predictions.delete_json(path, json=body)
         )
 
     def cancel_all_wallet_orders(self) -> CancelOrdersResponse:
@@ -2614,7 +2548,7 @@ class SecureClient:
         _cancel_actions.require_deposit_wallet_owner(self._ctx)
         path, body = _cancel_actions.build_cancel_all_wallet_orders_request()
         return _cancel_actions.parse_cancel_orders_response(
-            self._ctx.secure_clob.delete_json(path, json=body)
+            self._ctx.predictions.delete_json(path, json=body)
         )
 
     def cancel_market_orders(
@@ -2631,7 +2565,7 @@ class SecureClient:
             token_id=token_id,
         )
         return _cancel_actions.parse_cancel_orders_response(
-            self._ctx.secure_clob.delete_json(path, json=body)
+            self._ctx.predictions.delete_json(path, json=body)
         )
 
     def _prepare_and_sign_limit_order(
@@ -2710,14 +2644,14 @@ class SecureClient:
         """Return whether an order is currently scoring rewards."""
         path, params = _rewards_actions.build_get_order_scoring_request(order_id=order_id)
         return _rewards_actions.parse_order_scoring(
-            self._ctx.secure_clob.get_json(path, params=params)
+            self._ctx.predictions.get_json(path, params=params)
         )
 
     def get_orders_scoring(self, *, order_ids: Sequence[str]) -> dict[str, bool]:
         """Return reward-scoring status for multiple orders."""
         path, body = _rewards_actions.build_get_orders_scoring_request(order_ids=order_ids)
         return _rewards_actions.parse_orders_scoring(
-            self._ctx.secure_clob.post_json(path, json=body)
+            self._ctx.predictions.post_json(path, json=body)
         )
 
     def list_user_earnings_for_day(self, *, date: str) -> Paginator[UserEarning]:
@@ -2734,7 +2668,7 @@ class SecureClient:
                 cursor=cursor,
             )
             return _rewards_actions.parse_user_earnings_page(
-                self._ctx.secure_clob.get_json(path, params=params)
+                self._ctx.predictions.get_json(path, params=params)
             )
 
         return Paginator(fetch=fetch)
@@ -2752,7 +2686,7 @@ class SecureClient:
             date=date, signature_type=signature_type_for(self._ctx.wallet_type), sponsored=sponsored
         )
         return _rewards_actions.parse_total_user_earnings(
-            self._ctx.secure_clob.get_json(path, params=params)
+            self._ctx.predictions.get_json(path, params=params)
         )
 
     def list_user_earnings_and_markets_config(
@@ -2781,7 +2715,7 @@ class SecureClient:
                 cursor=cursor,
             )
             return _rewards_actions.parse_user_rewards_earnings_page(
-                self._ctx.secure_clob.get_json(path, params=params)
+                self._ctx.predictions.get_json(path, params=params)
             )
 
         return Paginator(fetch=fetch)
@@ -2792,7 +2726,7 @@ class SecureClient:
             signature_type=signature_type_for(self._ctx.wallet_type)
         )
         return _rewards_actions.parse_reward_percentages(
-            self._ctx.secure_clob.get_json(path, params=params)
+            self._ctx.predictions.get_json(path, params=params)
         )
 
     def approve_erc20(
@@ -3516,7 +3450,7 @@ class SecureClient:
         if ctx.wallet_type == "EOA":
             return self
         deployed = fetch_deployed_sync(
-            ctx.relayer,
+            ctx.predictions,
             address=str(ctx.wallet),
             type=_relayer_transaction_type_for_wallet(ctx.wallet_type),
         )
@@ -3624,6 +3558,7 @@ def _resolve_requested_wallet_sync(
     signer: LocalAccount,
     wallet: str | None,
     config: EnvironmentConfig,
+    api_key: ApiKey | None,
     logger: logging.Logger | None,
 ) -> str:
     if wallet is not None:
@@ -3631,17 +3566,21 @@ def _resolve_requested_wallet_sync(
     legacy_deposit_wallet = derive_uups_deposit_wallet_address(
         signer.address, config.wallet_derivation
     )
-    relayer = SyncTransport(base_url=config.relayer_url, logger=logger)
+    predictions = SyncTransport(
+        base_url=config.predictions_url,
+        logger=logger,
+        header_resolver=None if api_key is None else _make_api_key_header_resolver_sync(api_key),
+    )
     try:
         if fetch_deployed_sync(
-            relayer,
+            predictions,
             address=legacy_deposit_wallet,
             type=RelayerTransactionType.WALLET,
         ):
             return legacy_deposit_wallet
         return derive_beacon_deposit_wallet_address(signer.address, config.wallet_derivation)
     finally:
-        relayer.close()
+        predictions.close()
 
 
 def _relayer_transaction_type_for_wallet(
@@ -3656,21 +3595,31 @@ def _relayer_transaction_type_for_wallet(
     return None
 
 
-def _make_bearer_header_resolver_sync(session: SyncAuthSession) -> SyncHeaderResolver:
+def _make_api_key_header_resolver_sync(api_key: ApiKey) -> SyncHeaderResolver:
     def resolver(method: str, path: str, body: str | None) -> Mapping[str, str]:
-        return _identity_actions.build_bearer_headers(session.ready().access_token)
+        return build_api_key_headers(api_key, method=method, path=path, body=body)
 
     return resolver
 
 
-def _make_builder_gateway_header_resolver_sync(
-    api_key: ApiKey | None, session: SyncAuthSession
+def _make_predictions_header_resolver_sync(
+    session: SyncAuthSession, api_key: ApiKey | None
 ) -> SyncHeaderResolver:
     def resolver(method: str, path: str, body: str | None) -> Mapping[str, str]:
         headers = _identity_actions.build_bearer_headers(session.ready().access_token)
-        # Status reads authenticate with the session only; builder headers are
-        # required on the mutating requests.
-        if method != "GET" and isinstance(api_key, BuilderApiKey):
+        if api_key is not None:
+            headers.update(build_api_key_headers(api_key, method=method, path=path, body=body))
+        return headers
+
+    return resolver
+
+
+def _make_trading_header_resolver_sync(
+    session: SyncAuthSession, api_key: ApiKey | None
+) -> SyncHeaderResolver:
+    def resolver(method: str, path: str, body: str | None) -> Mapping[str, str]:
+        headers = _identity_actions.build_bearer_headers(session.ready().access_token)
+        if isinstance(api_key, BuilderApiKey):
             headers.update(
                 build_builder_key_headers(creds=api_key, method=method, path=path, body=body)
             )

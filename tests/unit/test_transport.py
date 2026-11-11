@@ -27,7 +27,7 @@ def test_sync_transport_returns_json_payload() -> None:
         ),
     )
 
-    assert transport.get_json("/markets/1") == {"ok": True}
+    assert transport.get_json("/v1/markets/1") == {"ok": True}
 
 
 def test_sync_transport_maps_rate_limit_response() -> None:
@@ -40,7 +40,7 @@ def test_sync_transport_maps_rate_limit_response() -> None:
     )
 
     with pytest.raises(RateLimitError, match="was rate limited"):
-        transport.get_json("/markets/1")
+        transport.get_json("/v1/markets/1")
 
 
 def test_sync_transport_maps_rejected_json_error_response() -> None:
@@ -59,7 +59,7 @@ def test_sync_transport_maps_rejected_json_error_response() -> None:
     )
 
     with pytest.raises(RequestRejectedError, match="bad market") as exc_info:
-        transport.get_json("/markets/1")
+        transport.get_json("/v1/markets/1")
 
     assert exc_info.value.status == 400
     assert exc_info.value.retry_after is None
@@ -149,7 +149,7 @@ def test_sync_transport_exposes_retry_after_header_on_rejection() -> None:
     )
 
     with pytest.raises(RequestRejectedError, match="matching engine restarting") as exc_info:
-        transport.post_json("/order", json={})
+        transport.post_json("/v1/orders", json={})
 
     assert exc_info.value.status == 503
     assert exc_info.value.retry_after == 30.0
@@ -171,7 +171,7 @@ def test_sync_transport_exposes_retry_after_seconds_from_body() -> None:
     )
 
     with pytest.raises(RequestRejectedError) as exc_info:
-        transport.get_json("/markets/1")
+        transport.get_json("/v1/markets/1")
 
     assert exc_info.value.retry_after == 2.5
     assert exc_info.value.restriction is None
@@ -187,7 +187,7 @@ def test_sync_transport_flags_restarting_restriction_on_425() -> None:
     )
 
     with pytest.raises(RequestRejectedError) as exc_info:
-        transport.post_json("/order", json={})
+        transport.post_json("/v1/orders", json={})
 
     assert exc_info.value.status == 425
     assert exc_info.value.restriction == "restarting"
@@ -213,7 +213,7 @@ def test_sync_transport_flags_post_only_restriction_with_body_delay() -> None:
     )
 
     with pytest.raises(RequestRejectedError, match="post-only mode") as exc_info:
-        transport.post_json("/order", json={})
+        transport.post_json("/v1/orders", json={})
 
     assert exc_info.value.status == 503
     assert exc_info.value.restriction == "post_only"
@@ -241,7 +241,7 @@ def test_sync_transport_prefers_retry_after_header_over_body_delay() -> None:
     )
 
     with pytest.raises(RequestRejectedError) as exc_info:
-        transport.post_json("/order", json={})
+        transport.post_json("/v1/orders", json={})
 
     assert exc_info.value.restriction == "post_only"
     assert exc_info.value.retry_after == 80.0
@@ -268,7 +268,7 @@ def test_sync_transport_flags_cancel_only_restriction() -> None:
     )
 
     with pytest.raises(RequestRejectedError, match="cancel-only") as exc_info:
-        transport.post_json("/order", json={})
+        transport.post_json("/v1/orders", json={})
 
     assert exc_info.value.status == 503
     assert exc_info.value.restriction == "cancel_only"
@@ -298,7 +298,7 @@ def _rejected_with_retry_after(
         ),
     )
     with pytest.raises((RequestRejectedError, RateLimitError)) as exc_info:
-        transport.get_json("/markets/1")
+        transport.get_json("/v1/markets/1")
     return exc_info.value
 
 
@@ -402,7 +402,7 @@ def test_sync_transport_ignores_non_finite_retry_after_header(header_value: str)
     )
 
     with pytest.raises(RequestRejectedError) as exc_info:
-        transport.get_json("/markets/1")
+        transport.get_json("/v1/markets/1")
 
     assert exc_info.value.retry_after is None
 
@@ -432,7 +432,7 @@ def test_sync_transport_ignores_out_of_range_retry_after_seconds_in_body(body: b
     )
 
     with pytest.raises(RequestRejectedError) as exc_info:
-        transport.get_json("/markets/1")
+        transport.get_json("/v1/markets/1")
 
     assert exc_info.value.retry_after is None
 
@@ -460,7 +460,7 @@ def test_sync_transport_exposes_rate_limit_state_on_rate_limit_response() -> Non
     )
 
     with pytest.raises(RateLimitError) as exc_info:
-        transport.post_json("/order", json={})
+        transport.post_json("/v1/orders", json={})
 
     expected = RateLimitUpdate(
         remaining=-2.0,
@@ -496,7 +496,7 @@ def test_sync_transport_notifies_rate_limit_listener() -> None:
         on_rate_limit_update=updates.append,
     )
 
-    assert transport.post_json("/order", json={}) == {"ok": True}
+    assert transport.post_json("/v1/orders", json={}) == {"ok": True}
     assert updates == [
         RateLimitUpdate(
             remaining=59.0,
@@ -520,7 +520,7 @@ def test_sync_transport_skips_rate_limit_listener_without_headers() -> None:
         on_rate_limit_update=updates.append,
     )
 
-    assert transport.get_json("/markets/1") == {"ok": True}
+    assert transport.get_json("/v1/markets/1") == {"ok": True}
     assert updates == []
 
 
@@ -544,7 +544,7 @@ def test_sync_transport_ignores_rate_limit_listener_errors() -> None:
         on_rate_limit_update=explode,
     )
 
-    assert transport.post_json("/order", json={}) == {"ok": True}
+    assert transport.post_json("/v1/orders", json={}) == {"ok": True}
 
 
 def test_sync_transport_maps_non_json_success_response() -> None:
@@ -564,7 +564,7 @@ def test_sync_transport_maps_non_json_success_response() -> None:
     )
 
     with pytest.raises(UnexpectedResponseError, match="Received non-JSON response"):
-        transport.get_json("/markets/1")
+        transport.get_json("/v1/markets/1")
 
 
 def test_sync_transport_maps_transport_failure() -> None:
@@ -580,7 +580,7 @@ def test_sync_transport_maps_transport_failure() -> None:
     )
 
     with pytest.raises(TransportError, match="connection failed") as exc_info:
-        transport.get_json("/markets/1")
+        transport.get_json("/v1/markets/1")
 
     assert isinstance(exc_info.value.__cause__, httpx.ConnectError)
 
@@ -597,7 +597,7 @@ def test_async_transport_returns_json_payload() -> None:
             ),
         )
 
-        assert await transport.get_json("/markets/1") == {"ok": True}
+        assert await transport.get_json("/v1/markets/1") == {"ok": True}
 
     asyncio.run(run())
 
@@ -625,7 +625,7 @@ def test_async_transport_notifies_rate_limit_listener() -> None:
             on_rate_limit_update=updates.append,
         )
 
-        assert await transport.post_json("/order", json={}) == {"ok": True}
+        assert await transport.post_json("/v1/orders", json={}) == {"ok": True}
 
     asyncio.run(run())
     assert updates == [RateLimitUpdate(remaining=59.0, tier="standard")]
@@ -647,9 +647,9 @@ def test_client_accepts_logger_and_logs_at_debug(
     )
 
     with caplog.at_level(logging.DEBUG, logger="polymarket-test"):
-        transport.get_json("/markets/1")
+        transport.get_json("/v1/markets/1")
 
-    assert any("GET /markets/1 -> 200" in record.message for record in caplog.records)
+    assert any("GET /v1/markets/1 -> 200" in record.message for record in caplog.records)
 
 
 def test_client_logger_emits_warning_on_transport_failure(
@@ -673,7 +673,7 @@ def test_client_logger_emits_warning_on_transport_failure(
         caplog.at_level(logging.WARNING, logger="polymarket-test-fail"),
         pytest.raises(TransportError),
     ):
-        transport.get_json("/markets/1")
+        transport.get_json("/v1/markets/1")
 
     assert any("failed" in record.message for record in caplog.records)
 
@@ -694,7 +694,7 @@ def test_close_does_not_close_injected_client() -> None:
 
     transport.close()
 
-    assert transport.get_json("/markets/1") == {"ok": True}
+    assert transport.get_json("/v1/markets/1") == {"ok": True}
     injected.close()
 
 
@@ -704,53 +704,7 @@ def test_close_closes_owned_client() -> None:
     transport.close()
 
     with pytest.raises(RuntimeError):
-        transport.get_json("/markets/1")
-
-
-def test_get_bytes_returns_response_content() -> None:
-    payload = b"\x50\x4b\x03\x04PAYLOAD"
-    transport = SyncTransport(
-        base_url="https://example.test",
-        client=httpx.Client(
-            base_url="https://example.test",
-            transport=httpx.MockTransport(
-                lambda request: httpx.Response(200, content=payload, request=request)
-            ),
-        ),
-    )
-
-    assert transport.get_bytes("/snapshot") == payload
-
-
-def test_get_bytes_maps_error_response() -> None:
-    transport = SyncTransport(
-        base_url="https://example.test",
-        client=httpx.Client(
-            base_url="https://example.test",
-            transport=httpx.MockTransport(lambda request: httpx.Response(429, request=request)),
-        ),
-    )
-
-    with pytest.raises(RateLimitError):
-        transport.get_bytes("/snapshot")
-
-
-def test_async_get_bytes_returns_response_content() -> None:
-    payload = b"\x50\x4b\x03\x04PAYLOAD"
-
-    async def run() -> bytes:
-        transport = AsyncTransport(
-            base_url="https://example.test",
-            client=httpx.AsyncClient(
-                base_url="https://example.test",
-                transport=httpx.MockTransport(
-                    lambda request: httpx.Response(200, content=payload, request=request)
-                ),
-            ),
-        )
-        return await transport.get_bytes("/snapshot")
-
-    assert asyncio.run(run()) == payload
+        transport.get_json("/v1/markets/1")
 
 
 def test_async_close_does_not_close_injected_client() -> None:
@@ -765,7 +719,7 @@ def test_async_close_does_not_close_injected_client() -> None:
 
         await transport.close()
 
-        assert await transport.get_json("/markets/1") == {"ok": True}
+        assert await transport.get_json("/v1/markets/1") == {"ok": True}
         await injected.aclose()
 
     asyncio.run(run())

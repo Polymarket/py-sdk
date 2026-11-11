@@ -33,15 +33,8 @@ def test_load_integration_environment_accepts_typescript_fork_shape() -> None:
                     "market": {"ws": "wss://market.stage.example", "headers": {}},
                     "user": {"ws": "wss://user.stage.example", "headers": {}},
                 },
-                "relayer": {"rest": "https://relayer.stage.example", "headers": {}},
-                "gamma": {"rest": "https://gamma.stage.example"},
-                "data": {"rest": "https://data.stage.example"},
-                "combos": {
-                    "rest": "https://combos.stage.example",
-                    "ws": "wss://combos.stage.example",
-                    "builderGateway": {"rest": "https://builder.stage.example"},
-                    "collateralReturn": {"rest": "https://return.stage.example"},
-                },
+                "predictions": {"rest": "https://api.stage.example", "headers": {}},
+                "combos": {"ws": "wss://combos.stage.example"},
                 "perps": {
                     "rest": "https://perps.stage.example",
                     "ws": "wss://perps.stage.example",
@@ -69,13 +62,8 @@ def test_load_integration_environment_accepts_typescript_fork_shape() -> None:
     assert config.clob_url == "https://clob.stage.example"
     assert config.clob_market_ws_url == "wss://market.stage.example"
     assert config.clob_user_ws_url == "wss://user.stage.example"
-    assert config.relayer_url == "https://relayer.stage.example"
-    assert config.gamma_url == "https://gamma.stage.example"
-    assert config.data_url == "https://data.stage.example"
-    assert config.rfq_url == "https://combos.stage.example"
+    assert config.predictions_url == "https://api.stage.example"
     assert config.rfq_quoter_ws_url == "wss://combos.stage.example"
-    assert config.builder_gateway_url == "https://builder.stage.example"
-    assert config.collateral_return_url == "https://return.stage.example"
     assert config.perps_url == "https://perps.stage.example"
     assert config.perps_ws_url == "wss://perps.stage.example"
     assert config.rtds_ws_url == "wss://rtds.stage.example"

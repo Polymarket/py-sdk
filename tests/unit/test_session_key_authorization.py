@@ -42,10 +42,10 @@ from polymarket import (
 )
 from polymarket.clients._transport import AsyncTransport, SyncTransport
 
-_AUTHORIZATIONS_PATH = "/v1/session-signers/authorizations"
-_EXECUTE_PARAMS_PATH = "/v1/account/transactions/params"
-_REVOCATIONS_PATH = "/v1/session-signers/revocations"
-_SESSION_KEYS_PATH = "/v1/user/session-signers"
+_AUTHORIZATIONS_PATH = "/v1/wallets/session-signers/authorizations"
+_EXECUTE_PARAMS_PATH = "/v1/wallets/execute-params"
+_REVOCATIONS_PATH = "/v1/wallets/session-signers/revocations"
+_SESSION_KEYS_PATH = "/v1/me/session-signers"
 _SESSION_ACCOUNT = Account.from_key(PK_PROXY_WALLET)
 _SESSION_ADDRESS = _SESSION_ACCOUNT.address
 _TRANSACTION_HASH = "0x" + "ab" * 32
@@ -83,7 +83,7 @@ def _authorization_handler(
                 },
                 request=request,
             )
-        if path == f"/v1/account/transactions/{_TRANSACTION_ID}":
+        if path == f"/v1/wallets/transactions/{_TRANSACTION_ID}":
             return httpx.Response(
                 200,
                 json={
@@ -136,9 +136,9 @@ def _install_secure_clob_handler(
             base_url="https://clob.test",
             transport=httpx.MockTransport(handler),
         ),
-        header_resolver=client._ctx.secure_clob._header_resolver,
+        header_resolver=client._ctx.predictions._header_resolver,
     )
-    client._ctx = dataclasses.replace(client._ctx, secure_clob=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 def _install_sync_secure_clob_handler(
@@ -151,9 +151,9 @@ def _install_sync_secure_clob_handler(
             base_url="https://clob.test",
             transport=httpx.MockTransport(handler),
         ),
-        header_resolver=client._ctx.secure_clob._header_resolver,
+        header_resolver=client._ctx.predictions._header_resolver,
     )
-    client._ctx = dataclasses.replace(client._ctx, secure_clob=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 def _management_handler(
@@ -204,7 +204,7 @@ def _management_handler(
                 },
                 request=request,
             )
-        if path == f"/v1/account/transactions/{_REVOCATION_TRANSACTION_ID}":
+        if path == f"/v1/wallets/transactions/{_REVOCATION_TRANSACTION_ID}":
             return httpx.Response(
                 200,
                 json={
@@ -425,7 +425,7 @@ def _assert_fetch_and_revocation(
 
     paths = [urlparse(str(request.url)).path for request in captured]
     assert _SESSION_KEYS_PATH in paths
-    assert f"/v1/account/transactions/{_REVOCATION_TRANSACTION_ID}" not in paths
+    assert f"/v1/wallets/transactions/{_REVOCATION_TRANSACTION_ID}" not in paths
 
 
 def test_fetch_and_revoke_session_key_async() -> None:
@@ -542,7 +542,7 @@ def test_revoke_session_key_returns_after_registry_removal() -> None:
     assert (
         sum(
             urlparse(str(request.url)).path
-            == f"/v1/account/transactions/{_REVOCATION_TRANSACTION_ID}"
+            == f"/v1/wallets/transactions/{_REVOCATION_TRANSACTION_ID}"
             for request in captured
         )
         == 0
@@ -746,7 +746,7 @@ def test_authorize_session_key_rejects_terminal_status_before_polling(status: st
             )
 
     paths = [urlparse(str(request.url)).path for request in captured]
-    assert f"/v1/account/transactions/{_TRANSACTION_ID}" not in paths
+    assert f"/v1/wallets/transactions/{_TRANSACTION_ID}" not in paths
 
 
 def test_revoke_session_key_rejects_terminal_status_before_polling() -> None:
@@ -766,7 +766,7 @@ def test_revoke_session_key_rejects_terminal_status_before_polling() -> None:
             client.revoke_session_key(address=_SESSION_ADDRESS)
 
     paths = [urlparse(str(request.url)).path for request in captured]
-    assert f"/v1/account/transactions/{_REVOCATION_TRANSACTION_ID}" not in paths
+    assert f"/v1/wallets/transactions/{_REVOCATION_TRANSACTION_ID}" not in paths
 
 
 def test_authorize_session_key_rejects_unknown_response_status() -> None:
@@ -806,7 +806,7 @@ def test_session_signer_wraps_gasless_wallet_action_signature() -> None:
             captured,
             {
                 _EXECUTE_PARAMS_PATH: {"address": _SESSION_ADDRESS, "nonce": "11"},
-                "/submit": {
+                "/v1/wallets/transactions": {
                     "state": "STATE_NEW",
                     "transactionHash": None,
                     "transactionID": "tx-gasless",
@@ -823,7 +823,11 @@ def test_session_signer_wraps_gasless_wallet_action_signature() -> None:
             await client.close()
 
     asyncio.run(run())
-    submit = next(request for request in captured if urlparse(str(request.url)).path == "/submit")
+    submit = next(
+        request
+        for request in captured
+        if urlparse(str(request.url)).path == "/v1/wallets/transactions"
+    )
     body = cast(dict[str, object], request_json(submit))
     signature = body["signature"]
     assert isinstance(signature, str)
@@ -843,7 +847,7 @@ def test_session_signer_wraps_gasless_wallet_action_signature_sync() -> None:
                 json={"address": _SESSION_ADDRESS, "nonce": "11"},
                 request=request,
             )
-        if path == "/submit":
+        if path == "/v1/wallets/transactions":
             return httpx.Response(
                 200,
                 json={
@@ -864,7 +868,11 @@ def test_session_signer_wraps_gasless_wallet_action_signature_sync() -> None:
             amount=1,
         )
 
-    submit = next(request for request in captured if urlparse(str(request.url)).path == "/submit")
+    submit = next(
+        request
+        for request in captured
+        if urlparse(str(request.url)).path == "/v1/wallets/transactions"
+    )
     body = cast(dict[str, object], request_json(submit))
     signature = body["signature"]
     assert isinstance(signature, str)

@@ -116,13 +116,13 @@ _USER_REWARDS_EARNING_PAYLOAD: dict[str, Any] = {
 
 def test_build_list_current_rewards_request_with_no_filters() -> None:
     path, params = build_list_current_rewards_request()
-    assert path == "/rewards/markets/current"
+    assert path == "/v1/rewards/markets/current"
     assert params == {}
 
 
 def test_build_list_current_rewards_request_with_sponsored_and_cursor() -> None:
     path, params = build_list_current_rewards_request(sponsored=True, cursor="abc")
-    assert path == "/rewards/markets/current"
+    assert path == "/v1/rewards/markets/current"
     assert params == {"sponsored": True, "next_cursor": "abc"}
 
 
@@ -165,7 +165,7 @@ def test_build_list_market_rewards_request_includes_path_and_query() -> None:
     path, params = build_list_market_rewards_request(
         condition_id=CtfConditionId(_CONDITION_ID), sponsored=False, cursor="next"
     )
-    assert path == f"/rewards/markets/{_CONDITION_ID}"
+    assert path == f"/v1/rewards/markets/{_CONDITION_ID}"
     assert params == {"sponsored": False, "next_cursor": "next"}
 
 
@@ -192,7 +192,7 @@ def test_parse_market_rewards_page_parses_tokens_and_config() -> None:
 
 def test_build_get_order_scoring_request_targets_correct_path() -> None:
     path, params = build_get_order_scoring_request(order_id="0xORDER")
-    assert path == "/order-scoring"
+    assert path == "/v1/orders/scoring"
     assert params == {"order_id": "0xORDER"}
 
 
@@ -213,7 +213,7 @@ def test_parse_order_scoring_rejects_non_bool() -> None:
 
 def test_build_get_orders_scoring_request_posts_id_list() -> None:
     path, body = build_get_orders_scoring_request(order_ids=["a", "b", "c"])
-    assert path == "/orders-scoring"
+    assert path == "/v1/orders/scoring"
     assert body == ["a", "b", "c"]
 
 
@@ -239,7 +239,7 @@ def test_parse_orders_scoring_rejects_non_bool_value() -> None:
 
 def test_build_list_user_earnings_for_day_request_validates_date() -> None:
     path, params = build_list_user_earnings_for_day_request(date="2026-04-16", signature_type=1)
-    assert path == "/rewards/user"
+    assert path == "/v1/rewards/user"
     assert params == {"date": "2026-04-16", "signature_type": 1}
 
 
@@ -270,7 +270,7 @@ def test_parse_user_earnings_page_extracts_models() -> None:
 
 def test_build_total_user_earnings_for_day_request_path_and_params() -> None:
     path, params = build_total_user_earnings_for_day_request(date="2026-04-16", signature_type=3)
-    assert path == "/rewards/user/total"
+    assert path == "/v1/rewards/user/total"
     assert params == {"date": "2026-04-16", "signature_type": 3}
 
 
@@ -295,7 +295,7 @@ def test_build_list_user_earnings_and_markets_config_request_with_all_filters() 
         page_size=50,
         cursor="next",
     )
-    assert path == "/rewards/user/markets"
+    assert path == "/v1/rewards/user/markets"
     assert params == {
         "date": "2026-04-16",
         "signature_type": 1,
@@ -353,7 +353,7 @@ def test_parse_user_rewards_earnings_page_decodes_full_payload() -> None:
 
 def test_build_get_reward_percentages_request_includes_signature_type() -> None:
     path, params = build_get_reward_percentages_request(signature_type=2)
-    assert path == "/rewards/user/percentages"
+    assert path == "/v1/rewards/user/percentages"
     assert params == {"signature_type": 2}
 
 
@@ -398,7 +398,7 @@ def test_reward_market_filters_survive_cursor_and_empty_rewards(end_date: str | 
         cursor="MjU=",
         page_size=25,
     )
-    assert path == "/rewards/markets/multi"
+    assert path == "/v1/rewards/markets/multi"
     assert params == {
         "q": "sports",
         "tag_slug": ("sports", "politics"),
@@ -452,7 +452,7 @@ def test_current_rebates_request_and_exact_response() -> None:
 
     maker = "0x" + "ab" * 20
     assert build_get_current_rebates_request(date="2024-02-29", maker_address=maker) == (
-        "/rebates/current",
+        "/v1/rebates/current",
         {"date": "2024-02-29", "maker_address": maker},
     )
     amount = "9007199254740993.000000000000000001"

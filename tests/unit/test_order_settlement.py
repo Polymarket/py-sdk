@@ -67,7 +67,7 @@ def _install_trades_handler(
     def handler(request: httpx.Request) -> httpx.Response:
         captured.append(request)
         parsed = urlparse(str(request.url))
-        if parsed.path != "/data/trades":
+        if parsed.path != "/v1/me/trades":
             return httpx.Response(404, json={"error": "not mocked"}, request=request)
         trade_id = parse_qs(parsed.query)["id"][0]
         queued = pages_by_trade_id[trade_id]
@@ -77,9 +77,9 @@ def _install_trades_handler(
     transport = SyncTransport(
         base_url="https://clob.test",
         client=httpx.Client(base_url="https://clob.test", transport=httpx.MockTransport(handler)),
-        header_resolver=client._ctx.secure_clob._header_resolver,
+        header_resolver=client._ctx.predictions._header_resolver,
     )
-    client._ctx = dataclasses.replace(client._ctx, secure_clob=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
     return captured
 
 

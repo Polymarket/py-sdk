@@ -45,6 +45,7 @@ from polymarket.models.gamma.common import parse_string_sequence
 CommentParentEntityType = Literal["Event", "Series"]
 TagMatch = Literal["any", "all"]
 Recurrence = Literal["daily", "weekly", "monthly"]
+CommentSort = Literal["id", "createdAt"]
 SearchSort = Literal[
     "volume",
     "volume_24hr",
@@ -231,12 +232,8 @@ def _check_parent_entity_type(value: CommentParentEntityType) -> None:
         raise UserInputError("parent_entity_type must be one of: Event, Series")
 
 
-# The orders the cursor-paginated comments listing accepts.
-_CURSOR_COMMENT_ORDERS: frozenset[str] = frozenset({"id", "createdAt"})
-
-
-def _check_comment_order(value: str | None) -> None:
-    if value is not None and value not in _CURSOR_COMMENT_ORDERS:
+def _check_comment_order(value: CommentSort | None) -> None:
+    if value is not None and value not in ("id", "createdAt"):
         raise UserInputError("order must be one of: id, createdAt")
 
 
@@ -249,7 +246,6 @@ def get_market_spec(
     locale: str | None,
 ) -> RequestSpec[Market]:
     return RequestSpec(
-        service="gamma",
         method="GET",
         path=build_market_path(id=id, slug=slug, url=url),
         params={"include_tag": include_tag, "locale": locale},
@@ -259,7 +255,6 @@ def get_market_spec(
 
 def get_market_tags_spec(id: str) -> RequestSpec[tuple[TagReference, ...]]:
     return RequestSpec(
-        service="gamma",
         method="GET",
         path=build_market_tags_path(id),
         parse=TagReference.parse_response_list,
@@ -277,7 +272,6 @@ def get_event_spec(
     locale: str | None,
 ) -> RequestSpec[Event]:
     return RequestSpec(
-        service="gamma",
         method="GET",
         path=build_event_path(id=id, slug=slug, url=url),
         params={
@@ -292,7 +286,6 @@ def get_event_spec(
 
 def get_event_tags_spec(id: str) -> RequestSpec[tuple[TagReference, ...]]:
     return RequestSpec(
-        service="gamma",
         method="GET",
         path=build_event_tags_path(id),
         parse=TagReference.parse_response_list,
@@ -305,7 +298,6 @@ def get_series_spec(
     locale: str | None,
 ) -> RequestSpec[Series]:
     return RequestSpec(
-        service="gamma",
         method="GET",
         path=build_series_path(id),
         params={"locale": locale},
@@ -323,7 +315,6 @@ def get_tag_spec(
     if slug is not None and include_template is not None:
         raise UserInputError("include_template is only supported for tag id lookup.")
     return RequestSpec(
-        service="gamma",
         method="GET",
         path=build_tag_path(id=id, slug=slug),
         params={
@@ -344,7 +335,6 @@ def get_related_tags_spec(
     if slug is not None and (omit_empty is not None or status is not None):
         raise UserInputError("omit_empty and status are only supported for related tag id lookup.")
     return RequestSpec(
-        service="gamma",
         method="GET",
         path=build_related_tags_path(id=id, slug=slug),
         params={"omit_empty": omit_empty, "status": status},
@@ -361,7 +351,6 @@ def get_related_tag_resources_spec(
     status: str | None,
 ) -> RequestSpec[tuple[Tag, ...]]:
     return RequestSpec(
-        service="gamma",
         method="GET",
         path=build_related_tag_resources_path(id=id, slug=slug),
         params={"locale": locale, "omit_empty": omit_empty, "status": status},
@@ -371,27 +360,24 @@ def get_related_tag_resources_spec(
 
 def get_sports_spec() -> RequestSpec[tuple[SportsMetadata, ...]]:
     return RequestSpec(
-        service="gamma",
         method="GET",
-        path="/sports",
+        path="/v1/sports",
         parse=SportsMetadata.parse_response_list,
     )
 
 
 def get_sports_market_types_spec() -> RequestSpec[SportsMarketTypes]:
     return RequestSpec(
-        service="gamma",
         method="GET",
-        path="/sports/market-types",
+        path="/v1/sports/market-types",
         parse=SportsMarketTypes.parse_response,
     )
 
 
 def get_public_profile_spec(address: str) -> RequestSpec[PublicProfile]:
     return RequestSpec(
-        service="gamma",
         method="GET",
-        path="/public-profile",
+        path="/v1/public-profile",
         params={"address": require_nonempty("address", address)},
         parse=PublicProfile.parse_response,
     )
@@ -401,7 +387,6 @@ def get_comment_thread_spec(
     id: str, *, get_positions: bool | None
 ) -> RequestSpec[tuple[Comment, ...]]:
     return RequestSpec(
-        service="gamma",
         method="GET",
         path=build_comment_thread_path(id),
         params={"get_positions": get_positions},
@@ -411,11 +396,11 @@ def get_comment_thread_spec(
 
 __all__ = [
     "CommentParentEntityType",
+    "CommentSort",
     "DateFilter",
     "Recurrence",
     "TagMatch",
     "TimestampFilter",
-    "comments_paginate_by_cursor",
     "get_comment_thread_spec",
     "get_event_spec",
     "get_event_tags_spec",
@@ -430,7 +415,6 @@ __all__ = [
     "get_tag_spec",
     "list_comments_by_user_address_spec",
     "list_comments_keyset_spec",
-    "list_comments_spec",
     "list_events_spec",
     "list_markets_spec",
     "list_series_spec",
@@ -543,8 +527,7 @@ def list_events_spec(
     _add_optional(params, "volume_min", volume_min)
 
     return KeysetPaginatedSpec(
-        service="gamma",
-        path="/events/keyset",
+        path="/v1/events",
         parse_page=_make_keyset_parser("events", Event.parse_response),
         base_params=params or None,
     )
@@ -659,8 +642,7 @@ def list_markets_spec(
     _add_optional(params, "volume_num_min", volume_num_min)
 
     return KeysetPaginatedSpec(
-        service="gamma",
-        path="/markets/keyset",
+        path="/v1/markets",
         parse_page=_make_keyset_parser("markets", _parse_list_market),
         base_params=params or None,
     )
@@ -688,8 +670,7 @@ def list_series_spec(
     _add_optional_seq(params, "slug", slug)
 
     return OffsetPaginatedSpec(
-        service="gamma",
-        path="/series",
+        path="/v1/series",
         # Matches the upstream per-request limit cap.
         max_page_size=50,
         parse_items=Series.parse_response_list,
@@ -713,8 +694,7 @@ def list_tags_spec(
     _add_optional(params, "order", order)
 
     return OffsetPaginatedSpec(
-        service="gamma",
-        path="/tags",
+        path="/v1/tags",
         # Matches the upstream per-request limit cap.
         max_page_size=100,
         parse_items=Tag.parse_response_list,
@@ -740,8 +720,7 @@ def list_teams_spec(
     _add_optional_seq(params, "provider_id", provider_ids)
 
     return OffsetPaginatedSpec(
-        service="gamma",
-        path="/teams",
+        path="/v1/teams",
         # Matches the upstream per-request limit cap.
         max_page_size=100,
         parse_items=Team.parse_response_list,
@@ -749,62 +728,8 @@ def list_teams_spec(
     )
 
 
-# The upstream offset cap for the comments listings; deeper pages are rejected.
+# The upstream offset cap for comments listed by address; deeper pages are rejected.
 _MAX_COMMENTS_OFFSET = 200
-
-
-def _count_root_comments(items: tuple[Comment, ...]) -> int:
-    # A comments page holds `limit` top-level comments plus their replies, so
-    # the limit was applied to the roots, not to every row.
-    return sum(1 for comment in items if comment.parent_comment_id is None)
-
-
-def list_comments_spec(
-    *,
-    parent_entity_id: str,
-    parent_entity_type: CommentParentEntityType,
-    ascending: bool | None = None,
-    get_positions: bool | None = None,
-    holders_only: bool | None = None,
-    order: str | None = None,
-) -> OffsetPaginatedSpec[Comment]:
-    require_nonempty("parent_entity_id", parent_entity_id)
-    _check_parent_entity_type(parent_entity_type)
-
-    params: dict[str, QueryParamValue] = {
-        "parent_entity_id": parent_entity_id,
-        "parent_entity_type": parent_entity_type,
-    }
-    _add_optional(params, "ascending", ascending)
-    _add_optional(params, "get_positions", get_positions)
-    _add_optional(params, "holders_only", holders_only)
-    _add_optional(params, "order", order)
-
-    return OffsetPaginatedSpec(
-        service="gamma",
-        path="/comments",
-        # Matches the upstream per-request limit cap.
-        max_page_size=100,
-        max_offset=_MAX_COMMENTS_OFFSET,
-        page_fill=_count_root_comments,
-        parse_items=Comment.parse_response_list,
-        base_params=params,
-    )
-
-
-def comments_paginate_by_cursor(
-    *,
-    get_positions: bool | None,
-    holders_only: bool | None,
-    order: str | None,
-) -> bool:
-    # Holder filtering, positions and orders other than `id`/`createdAt` are
-    # served on offset pages only; every other read pages by server cursor.
-    return (
-        not get_positions
-        and not holders_only
-        and (order is None or order in _CURSOR_COMMENT_ORDERS)
-    )
 
 
 def list_comments_keyset_spec(
@@ -812,20 +737,18 @@ def list_comments_keyset_spec(
     parent_entity_id: str,
     parent_entity_type: CommentParentEntityType,
     ascending: bool | None = None,
-    order: str | None = None,
+    order: CommentSort | None = None,
 ) -> KeysetPaginatedSpec[Comment]:
     require_nonempty("parent_entity_id", parent_entity_id)
     _check_parent_entity_type(parent_entity_type)
     _check_comment_order(order)
 
     if order is None:
-        # Without `order` the offset listing serves newest first and ignores
-        # `ascending`, while the cursor listing defaults to oldest first. Both
-        # are pinned so the first page stays identical and the cursor binds
-        # the direction it was minted for.
+        # Without `order`, pages are newest first and `ascending` is ignored.
+        # The order and direction are pinned so a cursor binds the direction
+        # it was minted for.
         order, ascending = "createdAt", False
     elif ascending is None:
-        # With `order` both listings default to ascending.
         ascending = True
 
     params: dict[str, QueryParamValue] = {
@@ -836,8 +759,7 @@ def list_comments_keyset_spec(
     }
 
     return KeysetPaginatedSpec(
-        service="gamma",
-        path="/comments/keyset",
+        path="/v1/comments",
         parse_page=_make_keyset_parser("comments", Comment.parse_response),
         base_params=params,
         # Matches the upstream per-request limit cap.
@@ -858,7 +780,6 @@ def list_comments_by_user_address_spec(
     _add_optional(params, "order", order)
 
     return OffsetPaginatedSpec(
-        service="gamma",
         path=path,
         # Matches the upstream per-request limit cap.
         max_page_size=100,
@@ -903,8 +824,7 @@ def search_spec(
     _add_optional(params, "sort", sort)
 
     return PageBasedSpec(
-        service="gamma",
-        path="/public-search",
+        path="/v1/public-search",
         parse_page=SearchResults.parse_page_response,
         base_params=params,
     )

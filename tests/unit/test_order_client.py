@@ -8,9 +8,11 @@ from urllib.parse import urlparse
 import httpx
 import pytest
 from _bearer import bearer_credentials_for
+from _stacked import stacked_mock
 
-from polymarket import AsyncSecureClient
+from polymarket import AsyncSecureClient, BuilderApiKey
 from polymarket._internal.actions.orders.cache import AsyncOrderMetadataCache
+from polymarket._internal.hmac import build_hmac_signature
 from polymarket.clients._transport import AsyncTransport
 from polymarket.errors import RequestRejectedError, UnexpectedResponseError, UserInputError
 from polymarket.models.clob.order_response import AcceptedOrder
@@ -22,8 +24,8 @@ _CONDITION_ID = "0x5c19f205507ce03ff5f3be08a8090a5969ea6870cc07b902a4ca2e61dfe48
 
 def _public_routes() -> dict[str, Any]:
     return {
-        "/markets-by-token/8501497": {"condition_id": _CONDITION_ID},
-        f"/clob-markets/{_CONDITION_ID}": {
+        "/v1/trading/markets/token/8501497": {"condition_id": _CONDITION_ID},
+        f"/v1/trading/markets/{_CONDITION_ID}": {
             "fd": {"r": 0, "e": 0},
             "mts": 0.01,
             "nr": False,
@@ -35,14 +37,14 @@ def _public_routes() -> dict[str, Any]:
 def _secure_routes(*, has_allowance: bool = True) -> dict[str, Any]:
     allowance = "100000000000" if has_allowance else "0"
     return {
-        "/balance-allowance": {
+        "/v1/me/balance-allowances": {
             "balance": allowance,
             "allowances": {
                 "0xE111180000d2663C0091e4f400237545B87B996B": allowance,
                 "0xe2222d279d744050d28e00520010520000310F59": allowance,
             },
         },
-        "/order": {
+        "/v1/orders": {
             "errorMsg": "",
             "makingAmount": "5",
             "orderID": "ord-1",
@@ -52,7 +54,7 @@ def _secure_routes(*, has_allowance: bool = True) -> dict[str, Any]:
             "tradeIDs": [],
             "transactionsHashes": [],
         },
-        "/orders": [
+        "/v1/orders/batch": [
             {
                 "errorMsg": "",
                 "makingAmount": "5",
@@ -64,29 +66,31 @@ def _secure_routes(*, has_allowance: bool = True) -> dict[str, Any]:
                 "transactionsHashes": [],
             }
         ],
-        "/cancel-all": {"canceled": ["ord-1", "ord-2"], "not_canceled": {}},
-        "/cancel-market-orders": {"canceled": ["ord-3"], "not_canceled": {}},
+        "/v1/orders/all": {"canceled": ["ord-1", "ord-2"], "not_canceled": {}},
+        "/v1/orders/by-market": {"canceled": ["ord-3"], "not_canceled": {}},
     }
 
 
 def _routed_handler(captured: list[httpx.Request], routes: dict[str, Any]) -> httpx.MockTransport:
     def handler(request: httpx.Request) -> httpx.Response:
-        captured.append(request)
         path = urlparse(str(request.url)).path
         # Handle path-with-id for /order/{id}
         if path.startswith("/order/") and request.method == "DELETE":
             return httpx.Response(
                 200, json={"canceled": ["ord-1"], "not_canceled": {}}, request=request
             )
-        if path == "/order" and request.method == "DELETE":
+        if path == "/v1/orders" and request.method == "DELETE":
+            captured.append(request)
             return httpx.Response(
                 200, json={"canceled": ["ord-1"], "not_canceled": {}}, request=request
             )
-        if path == "/orders" and request.method == "DELETE":
+        if path == "/v1/orders/batch" and request.method == "DELETE":
+            captured.append(request)
             return httpx.Response(
                 200, json={"canceled": ["a", "b"], "not_canceled": {}}, request=request
             )
         if path in routes:
+            captured.append(request)
             return httpx.Response(200, json=routes[path], request=request)
         return httpx.Response(404, json={"error": "not mocked"}, request=request)
 
@@ -96,18 +100,23 @@ def _routed_handler(captured: list[httpx.Request], routes: dict[str, Any]) -> ht
 def _install_clob(client: AsyncSecureClient, handler: httpx.MockTransport) -> None:
     transport = AsyncTransport(
         base_url="https://clob.test",
-        client=httpx.AsyncClient(base_url="https://clob.test", transport=handler),
+        client=httpx.AsyncClient(
+            base_url="https://clob.test", transport=stacked_mock(client._ctx.predictions, handler)
+        ),
+        header_resolver=client._ctx.predictions._header_resolver,
     )
-    client._ctx = dataclasses.replace(client._ctx, clob=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 def _install_secure_clob(client: AsyncSecureClient, handler: httpx.MockTransport) -> None:
     transport = AsyncTransport(
         base_url="https://clob.test",
-        client=httpx.AsyncClient(base_url="https://clob.test", transport=handler),
-        header_resolver=client._ctx.secure_clob._header_resolver,
+        client=httpx.AsyncClient(
+            base_url="https://clob.test", transport=stacked_mock(client._ctx.predictions, handler)
+        ),
+        header_resolver=client._ctx.predictions._header_resolver,
     )
-    client._ctx = dataclasses.replace(client._ctx, secure_clob=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 async def _make_client() -> AsyncSecureClient:
@@ -159,9 +168,9 @@ def test_limit_and_protected_market_orders_reuse_cached_metadata() -> None:
 
     asyncio.run(run())
     paths = [urlparse(str(request.url)).path for request in public_captured]
-    assert paths.count("/markets-by-token/8501497") == 1
-    assert paths.count(f"/clob-markets/{_CONDITION_ID}") == 1
-    assert "/book" not in paths
+    assert paths.count("/v1/trading/markets/token/8501497") == 1
+    assert paths.count(f"/v1/trading/markets/{_CONDITION_ID}") == 1
+    assert "/v1/pricing/book" not in paths
 
 
 @pytest.mark.parametrize("order_type", ["FAK", "FOK"])
@@ -171,7 +180,7 @@ def test_protected_buy_refreshes_unsafe_cached_tick(
 ) -> None:
     captured: list[httpx.Request] = []
     routes = _public_routes()
-    market_path = f"/clob-markets/{_CONDITION_ID}"
+    market_path = f"/v1/trading/markets/{_CONDITION_ID}"
     routes[market_path]["mts"] = 0.1
 
     async def run() -> None:
@@ -198,9 +207,9 @@ def test_protected_buy_refreshes_unsafe_cached_tick(
 
     asyncio.run(run())
     paths = [request.url.path for request in captured]
-    assert paths.count("/markets-by-token/8501497") == 1
+    assert paths.count("/v1/trading/markets/token/8501497") == 1
     assert paths.count(market_path) == 2
-    assert "/book" not in paths
+    assert "/v1/pricing/book" not in paths
 
 
 @pytest.mark.parametrize("order_type", ["FAK", "FOK"])
@@ -210,7 +219,7 @@ def test_protected_buy_rejects_unsafe_tick_without_posting(
 ) -> None:
     captured: list[httpx.Request] = []
     routes = _public_routes()
-    market_path = f"/clob-markets/{_CONDITION_ID}"
+    market_path = f"/v1/trading/markets/{_CONDITION_ID}"
     routes[market_path]["mts"] = 0.1
 
     async def run() -> None:
@@ -233,16 +242,16 @@ def test_protected_buy_rejects_unsafe_tick_without_posting(
 
     asyncio.run(run())
     paths = [request.url.path for request in captured]
-    assert paths.count("/markets-by-token/8501497") == 1
+    assert paths.count("/v1/trading/markets/token/8501497") == 1
     assert paths.count(market_path) == 2
-    assert "/book" not in paths
+    assert "/v1/pricing/book" not in paths
     assert all(request.method == "GET" for request in captured)
 
 
 def test_protected_buy_refresh_recalculates_max_spend_with_current_fees() -> None:
     captured: list[httpx.Request] = []
     routes = _public_routes()
-    market_path = f"/clob-markets/{_CONDITION_ID}"
+    market_path = f"/v1/trading/markets/{_CONDITION_ID}"
     routes[market_path]["mts"] = 0.1
 
     async def run() -> None:
@@ -286,8 +295,8 @@ def test_concurrent_limit_orders_coalesce_metadata_requests() -> None:
 
     asyncio.run(run())
     paths = [urlparse(str(request.url)).path for request in public_captured]
-    assert paths.count("/markets-by-token/8501497") == 1
-    assert paths.count(f"/clob-markets/{_CONDITION_ID}") == 1
+    assert paths.count("/v1/trading/markets/token/8501497") == 1
+    assert paths.count(f"/v1/trading/markets/{_CONDITION_ID}") == 1
 
 
 def test_client_close_cancels_unobserved_metadata_load() -> None:
@@ -333,7 +342,7 @@ def test_sibling_token_reuses_warmed_condition_and_market() -> None:
 
     asyncio.run(run())
     paths = [urlparse(str(request.url)).path for request in public_captured]
-    assert paths == ["/markets-by-token/8501497", f"/clob-markets/{_CONDITION_ID}"]
+    assert paths == ["/v1/trading/markets/token/8501497", f"/v1/trading/markets/{_CONDITION_ID}"]
 
 
 def test_market_metadata_expires_without_expiring_token_condition() -> None:
@@ -358,8 +367,8 @@ def test_market_metadata_expires_without_expiring_token_condition() -> None:
 
     asyncio.run(run())
     paths = [urlparse(str(request.url)).path for request in public_captured]
-    assert paths.count("/markets-by-token/8501497") == 1
-    assert paths.count(f"/clob-markets/{_CONDITION_ID}") == 2
+    assert paths.count("/v1/trading/markets/token/8501497") == 1
+    assert paths.count(f"/v1/trading/markets/{_CONDITION_ID}") == 2
 
 
 def test_failed_market_metadata_request_is_retried() -> None:
@@ -370,9 +379,9 @@ def test_failed_market_metadata_request_is_retried() -> None:
         nonlocal market_requests
         public_captured.append(request)
         path = urlparse(str(request.url)).path
-        if path == "/markets-by-token/8501497":
+        if path == "/v1/trading/markets/token/8501497":
             return httpx.Response(200, json={"condition_id": _CONDITION_ID}, request=request)
-        if path == f"/clob-markets/{_CONDITION_ID}":
+        if path == f"/v1/trading/markets/{_CONDITION_ID}":
             market_requests += 1
             if market_requests == 1:
                 return httpx.Response(500, json={"error": "try again"}, request=request)
@@ -393,8 +402,8 @@ def test_failed_market_metadata_request_is_retried() -> None:
 
     asyncio.run(run())
     paths = [urlparse(str(request.url)).path for request in public_captured]
-    assert paths.count("/markets-by-token/8501497") == 1
-    assert paths.count(f"/clob-markets/{_CONDITION_ID}") == 2
+    assert paths.count("/v1/trading/markets/token/8501497") == 1
+    assert paths.count(f"/v1/trading/markets/{_CONDITION_ID}") == 2
 
 
 def test_cached_tick_rejection_refreshes_market_once() -> None:
@@ -405,9 +414,9 @@ def test_cached_tick_rejection_refreshes_market_once() -> None:
         nonlocal market_requests
         public_captured.append(request)
         path = urlparse(str(request.url)).path
-        if path == "/markets-by-token/8501497":
+        if path == "/v1/trading/markets/token/8501497":
             return httpx.Response(200, json={"condition_id": _CONDITION_ID}, request=request)
-        if path == f"/clob-markets/{_CONDITION_ID}":
+        if path == f"/v1/trading/markets/{_CONDITION_ID}":
             market_requests += 1
             return httpx.Response(
                 200,
@@ -435,8 +444,8 @@ def test_cached_tick_rejection_refreshes_market_once() -> None:
 
     asyncio.run(run())
     paths = [urlparse(str(request.url)).path for request in public_captured]
-    assert paths.count("/markets-by-token/8501497") == 1
-    assert paths.count(f"/clob-markets/{_CONDITION_ID}") == 2
+    assert paths.count("/v1/trading/markets/token/8501497") == 1
+    assert paths.count(f"/v1/trading/markets/{_CONDITION_ID}") == 2
 
 
 def test_protected_max_spend_refreshes_tick_and_fee_metadata_together() -> None:
@@ -447,9 +456,9 @@ def test_protected_max_spend_refreshes_tick_and_fee_metadata_together() -> None:
         nonlocal market_requests
         public_captured.append(request)
         path = urlparse(str(request.url)).path
-        if path == "/markets-by-token/8501497":
+        if path == "/v1/trading/markets/token/8501497":
             return httpx.Response(200, json={"condition_id": _CONDITION_ID}, request=request)
-        if path == f"/clob-markets/{_CONDITION_ID}":
+        if path == f"/v1/trading/markets/{_CONDITION_ID}":
             market_requests += 1
             return httpx.Response(
                 200,
@@ -488,8 +497,8 @@ def test_protected_max_spend_refreshes_tick_and_fee_metadata_together() -> None:
 
     asyncio.run(run())
     paths = [urlparse(str(request.url)).path for request in public_captured]
-    assert paths.count("/markets-by-token/8501497") == 1
-    assert paths.count(f"/clob-markets/{_CONDITION_ID}") == 2
+    assert paths.count("/v1/trading/markets/token/8501497") == 1
+    assert paths.count(f"/v1/trading/markets/{_CONDITION_ID}") == 2
 
 
 def test_market_without_requested_token_evicts_mapping_and_market() -> None:
@@ -500,9 +509,9 @@ def test_market_without_requested_token_evicts_mapping_and_market() -> None:
         nonlocal market_requests
         public_captured.append(request)
         path = urlparse(str(request.url)).path
-        if path == "/markets-by-token/8501497":
+        if path == "/v1/trading/markets/token/8501497":
             return httpx.Response(200, json={"condition_id": _CONDITION_ID}, request=request)
-        if path == f"/clob-markets/{_CONDITION_ID}":
+        if path == f"/v1/trading/markets/{_CONDITION_ID}":
             market_requests += 1
             token_id = "8501498" if market_requests == 1 else "8501497"
             return httpx.Response(
@@ -531,8 +540,8 @@ def test_market_without_requested_token_evicts_mapping_and_market() -> None:
 
     asyncio.run(run())
     paths = [urlparse(str(request.url)).path for request in public_captured]
-    assert paths.count("/markets-by-token/8501497") == 2
-    assert paths.count(f"/clob-markets/{_CONDITION_ID}") == 2
+    assert paths.count("/v1/trading/markets/token/8501497") == 2
+    assert paths.count(f"/v1/trading/markets/{_CONDITION_ID}") == 2
 
 
 def test_create_limit_order_does_not_preflight_allowance() -> None:
@@ -551,8 +560,8 @@ def test_create_limit_order_does_not_preflight_allowance() -> None:
 
     asyncio.run(run())
     paths = [urlparse(str(r.url)).path for r in secure_captured]
-    assert "/balance-allowance" not in paths
-    assert "/balance-allowance/update" not in paths
+    assert "/v1/me/balance-allowances" not in paths
+    assert "/v1/me/balance-allowances/refresh" not in paths
 
 
 def test_place_limit_order_posts_after_signing() -> None:
@@ -573,16 +582,50 @@ def test_place_limit_order_posts_after_signing() -> None:
 
     asyncio.run(run())
     post_request = next(
-        r for r in secure_captured if r.method == "POST" and urlparse(str(r.url)).path == "/order"
+        r
+        for r in secure_captured
+        if r.method == "POST" and urlparse(str(r.url)).path == "/v1/orders"
     )
     assert post_request.headers.get("Authorization", "").startswith("Bearer ")
+
+
+def test_builder_key_signs_the_order_submission_over_its_trading_route() -> None:
+    builder = BuilderApiKey(key="builder-key", secret="c2VjcmV0", passphrase="builder-pass")
+    secure_captured: list[httpx.Request] = []
+
+    async def run() -> None:
+        client = await AsyncSecureClient._create(
+            private_key=PRIVATE_KEY,
+            wallet=SIGNER_ADDRESS,
+            credentials=bearer_credentials_for(PRIVATE_KEY),
+            api_key=builder,
+            validate_credentials=False,
+        )
+        try:
+            _install_clob(client, _routed_handler([], _public_routes()))
+            _install_secure_clob(client, _routed_handler(secure_captured, _secure_routes()))
+            await client.place_limit_order(token_id="8501497", price="0.5", size="10", side="BUY")
+        finally:
+            await client.close()
+
+    asyncio.run(run())
+    post = next(r for r in secure_captured if r.method == "POST" and r.url.path == "/v1/orders")
+    assert post.headers["Authorization"].startswith("Bearer ")
+    assert post.headers["POLY_BUILDER_API_KEY"] == "builder-key"
+    assert post.headers["POLY_BUILDER_SIGNATURE"] == build_hmac_signature(
+        secret=builder.secret,
+        timestamp=int(post.headers["POLY_BUILDER_TIMESTAMP"]),
+        method="POST",
+        path="/order",
+        body=post.content.decode(),
+    )
 
 
 def test_place_market_order_buy_signs_and_posts() -> None:
     secure_captured: list[httpx.Request] = []
     public_routes = {
         **_public_routes(),
-        "/book": {
+        "/v1/pricing/book": {
             "asset_id": "8501497",
             "market": "0xMARKET",
             "bids": [],
@@ -643,7 +686,7 @@ def test_cancel_order_targets_order_path_with_capital_order_id_key() -> None:
     asyncio.run(run())
     delete = captured[0]
     assert delete.method == "DELETE"
-    assert urlparse(str(delete.url)).path == "/order"
+    assert urlparse(str(delete.url)).path == "/v1/orders"
     body = delete.content.decode()
     assert "orderID" in body
 
@@ -661,7 +704,7 @@ def test_cancel_all_targets_cancel_all_path() -> None:
             await client.close()
 
     asyncio.run(run())
-    assert urlparse(str(captured[0].url)).path == "/cancel-all"
+    assert urlparse(str(captured[0].url)).path == "/v1/orders/all"
 
 
 def test_cancel_market_orders_sends_filters_in_body() -> None:
@@ -677,7 +720,7 @@ def test_cancel_market_orders_sends_filters_in_body() -> None:
 
     asyncio.run(run())
     request = captured[0]
-    assert urlparse(str(request.url)).path == "/cancel-market-orders"
+    assert urlparse(str(request.url)).path == "/v1/orders/by-market"
     body = request.content.decode()
     assert "0xMARKET" in body
     assert "asset_id" in body

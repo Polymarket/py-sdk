@@ -195,7 +195,9 @@ def test_market_position_workflows_reject_missing_version_before_submission(oper
             await client.close()
 
     asyncio.run(run())
-    assert not any(urlparse(str(request.url)).path == "/submit" for request in captured)
+    assert not any(
+        urlparse(str(request.url)).path == "/v1/wallets/transactions" for request in captured
+    )
 
 
 @pytest.mark.parametrize("balances", ([12], [12, 34, 56]))
@@ -430,11 +432,11 @@ def _setup_relayer(client: AsyncSecureClient, captured: list[httpx.Request], tx_
         client,
         captured,
         {
-            "/v1/account/transactions/params": {
+            "/v1/wallets/execute-params": {
                 "address": client._ctx.signer.address,
                 "nonce": "0",
             },
-            "/submit": {
+            "/v1/wallets/transactions": {
                 "state": "STATE_NEW",
                 "transactionHash": None,
                 "transactionID": tx_id,
@@ -470,7 +472,11 @@ def _decode_merge_positions_amount(data: str) -> int:
 
 
 def _submit_body(captured: list[httpx.Request]) -> dict[str, object]:
-    submit = [request for request in captured if urlparse(str(request.url)).path == "/submit"][0]
+    submit = [
+        request
+        for request in captured
+        if urlparse(str(request.url)).path == "/v1/wallets/transactions"
+    ][0]
     body = request_json(submit)
     assert isinstance(body, dict)
     return cast(dict[str, object], body)

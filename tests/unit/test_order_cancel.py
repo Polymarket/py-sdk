@@ -12,7 +12,7 @@ from polymarket.errors import UnexpectedResponseError, UserInputError
 
 def test_build_cancel_order_request_uses_capital_order_id_key() -> None:
     path, body = build_cancel_order_request(order_id="ord-1")
-    assert path == "/order"
+    assert path == "/v1/orders"
     assert body == {"orderID": "ord-1"}
 
 
@@ -23,7 +23,7 @@ def test_build_cancel_order_request_rejects_empty_id() -> None:
 
 def test_build_cancel_orders_request_returns_list_payload() -> None:
     path, body = build_cancel_orders_request(order_ids=["a", "b", "c"])
-    assert path == "/orders"
+    assert path == "/v1/orders/batch"
     assert body == ["a", "b", "c"]
 
 
@@ -44,7 +44,7 @@ def test_build_cancel_orders_request_rejects_over_three_thousand() -> None:
 
 def test_build_cancel_all_request_has_no_body() -> None:
     path, body = build_cancel_all_request()
-    assert path == "/cancel-all"
+    assert path == "/v1/orders/all"
     assert body is None
 
 
@@ -55,7 +55,7 @@ def test_build_cancel_market_orders_request_requires_market_or_asset() -> None:
 
 def test_build_cancel_market_orders_request_includes_provided_filters() -> None:
     path, body = build_cancel_market_orders_request(market="0xMARKET", token_id="8501497")
-    assert path == "/cancel-market-orders"
+    assert path == "/v1/orders/by-market"
     assert body == {"asset_id": "8501497", "market": "0xMARKET"}
 
 

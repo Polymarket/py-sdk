@@ -79,9 +79,9 @@ def _install_secure_clob(client: SecureClient, handler: httpx.MockTransport) -> 
     transport = SyncTransport(
         base_url="https://clob.test",
         client=httpx.Client(base_url="https://clob.test", transport=handler),
-        header_resolver=client._ctx.secure_clob._header_resolver,
+        header_resolver=client._ctx.predictions._header_resolver,
     )
-    client._ctx = dataclasses.replace(client._ctx, secure_clob=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 def _assert_session_headers(request: httpx.Request) -> None:
@@ -110,7 +110,7 @@ def test_get_closed_only_mode_returns_bool_and_uses_l2_headers() -> None:
     assert result is True
     request = captured[0]
     assert request.method == "GET"
-    assert urlparse(str(request.url)).path == "/auth/ban-status/closed-only"
+    assert urlparse(str(request.url)).path == "/v1/me/trading-status"
     _assert_session_headers(request)
 
 
@@ -137,7 +137,7 @@ def test_list_open_orders_paginates_until_end_cursor() -> None:
 
     assert ids == ["order-1", "order-2"]
     assert len(captured) == 2
-    assert urlparse(str(captured[0].url)).path == "/data/orders"
+    assert urlparse(str(captured[0].url)).path == "/v1/me/orders"
     first_qs = parse_qs(urlparse(str(captured[0].url)).query)
     assert first_qs.get("market") == ["0xMARKET"]
     assert "next_cursor" not in first_qs
@@ -154,7 +154,7 @@ def test_get_order_targets_data_order_path() -> None:
 
     assert order.id == "order-1"
     request = captured[0]
-    assert urlparse(str(request.url)).path == "/data/order/order-1"
+    assert urlparse(str(request.url)).path == "/v1/me/orders/order-1"
     _assert_session_headers(request)
 
 
@@ -181,7 +181,7 @@ def test_list_account_trades_paginates_and_passes_filters() -> None:
 
     assert trades == ["trade-1"]
     request = captured[0]
-    assert urlparse(str(request.url)).path == "/data/trades"
+    assert urlparse(str(request.url)).path == "/v1/me/trades"
     qs = parse_qs(urlparse(str(request.url)).query)
     assert qs.get("market") == ["0xMARKET"]
     assert qs.get("maker_address") == ["0xMAKER"]
@@ -195,7 +195,7 @@ def test_get_notifications_includes_signature_type_for_eoa_wallet() -> None:
         client.get_notifications()
 
     request = captured[0]
-    assert urlparse(str(request.url)).path == "/notifications"
+    assert urlparse(str(request.url)).path == "/v1/me/notifications"
     qs = parse_qs(urlparse(str(request.url)).query)
     assert qs.get("signature_type") == ["0"]
     _assert_session_headers(request)
@@ -210,7 +210,7 @@ def test_drop_notifications_uses_delete_with_comma_separated_ids() -> None:
 
     request = captured[0]
     assert request.method == "DELETE"
-    assert urlparse(str(request.url)).path == "/notifications"
+    assert urlparse(str(request.url)).path == "/v1/me/notifications"
     qs = parse_qs(urlparse(str(request.url)).query)
     assert qs.get("ids") == ["a,b"]
     assert qs.get("signature_type") == ["0"]
@@ -233,7 +233,7 @@ def test_get_balance_allowance_for_collateral_omits_token_id() -> None:
 
     assert result.balance == 1000
     request = captured[0]
-    assert urlparse(str(request.url)).path == "/balance-allowance"
+    assert urlparse(str(request.url)).path == "/v1/me/balance-allowances"
     qs = parse_qs(urlparse(str(request.url)).query)
     assert qs.get("asset_type") == ["COLLATERAL"]
     assert qs.get("signature_type") == ["0"]

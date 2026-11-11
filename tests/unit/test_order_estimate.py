@@ -45,7 +45,7 @@ def _install_public_clob(
             base_url="https://clob.test", transport=httpx.MockTransport(handler)
         ),
     )
-    client._ctx = dataclasses.replace(client._ctx, clob=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 async def _make_client() -> AsyncSecureClient:
@@ -84,7 +84,7 @@ def test_resolve_market_price_buy_walks_asks_in_reverse() -> None:
 
     price = asyncio.run(run())
     assert price == Decimal("0.50")
-    assert urlparse(str(captured[0].url)).path == "/book"
+    assert urlparse(str(captured[0].url)).path == "/v1/pricing/book"
 
 
 def test_resolve_market_price_sell_walks_bids_in_reverse() -> None:
@@ -210,7 +210,7 @@ def test_public_client_exposes_estimate_market_price() -> None:
         ],
     )
 
-    routes = {"/book": payload}
+    routes = {"/v1/pricing/book": payload}
 
     def handler(request: httpx.Request) -> httpx.Response:
         from urllib.parse import urlparse
@@ -224,7 +224,7 @@ def test_public_client_exposes_estimate_market_price() -> None:
         client = AsyncPublicClient()
         client._ctx = dataclasses.replace(
             client._ctx,
-            clob=AsyncTransport(
+            predictions=AsyncTransport(
                 base_url="https://clob.test",
                 client=httpx.AsyncClient(
                     base_url="https://clob.test", transport=httpx.MockTransport(handler)

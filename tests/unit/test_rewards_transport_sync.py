@@ -44,7 +44,9 @@ def _install_sync_clob(client: PublicClient | SecureClient, handler: httpx.MockT
         base_url="https://clob.test",
         client=httpx.Client(base_url="https://clob.test", transport=handler),
     )
-    client._ctx = cast(SyncSecureClientContext, dataclasses.replace(client._ctx, clob=transport))
+    client._ctx = cast(
+        SyncSecureClientContext, dataclasses.replace(client._ctx, predictions=transport)
+    )
 
 
 _CURRENT_REWARDS_PAGE: dict[str, Any] = {
@@ -81,7 +83,7 @@ class TestListCurrentRewards:
             _install_sync_clob(
                 client,
                 _routed_handler(
-                    captured, {("GET", "/rewards/markets/current"): _CURRENT_REWARDS_PAGE}
+                    captured, {("GET", "/v1/rewards/markets/current"): _CURRENT_REWARDS_PAGE}
                 ),
             )
             page = client.list_current_rewards().first_page()
@@ -89,7 +91,7 @@ class TestListCurrentRewards:
         assert len(page.items) == 1
         assert isinstance(page.items[0], CurrentReward)
         assert captured[0].method == "GET"
-        assert urlparse(str(captured[0].url)).path == "/rewards/markets/current"
+        assert urlparse(str(captured[0].url)).path == "/v1/rewards/markets/current"
         assert captured[0].headers.get("POLY_SIGNATURE") is None
 
     def test_public_passes_sponsored_filter(self) -> None:
@@ -98,7 +100,7 @@ class TestListCurrentRewards:
             _install_sync_clob(
                 client,
                 _routed_handler(
-                    captured, {("GET", "/rewards/markets/current"): _CURRENT_REWARDS_PAGE}
+                    captured, {("GET", "/v1/rewards/markets/current"): _CURRENT_REWARDS_PAGE}
                 ),
             )
             client.list_current_rewards(sponsored=True).first_page()
@@ -117,7 +119,7 @@ class TestListCurrentRewards:
             _install_sync_clob(
                 client,
                 _routed_handler(
-                    captured, {("GET", "/rewards/markets/current"): _CURRENT_REWARDS_PAGE}
+                    captured, {("GET", "/v1/rewards/markets/current"): _CURRENT_REWARDS_PAGE}
                 ),
             )
             page = client.list_current_rewards().first_page()
@@ -134,14 +136,14 @@ class TestListMarketRewards:
                 client,
                 _routed_handler(
                     captured,
-                    {("GET", f"/rewards/markets/{_CONDITION_ID}"): _MARKET_REWARDS_PAGE},
+                    {("GET", f"/v1/rewards/markets/{_CONDITION_ID}"): _MARKET_REWARDS_PAGE},
                 ),
             )
             page = client.list_market_rewards(condition_id=_CONDITION_ID).first_page()
 
         assert len(page.items) == 1
         assert isinstance(page.items[0], MarketReward)
-        assert urlparse(str(captured[0].url)).path == f"/rewards/markets/{_CONDITION_ID}"
+        assert urlparse(str(captured[0].url)).path == f"/v1/rewards/markets/{_CONDITION_ID}"
 
     def test_secure_uses_unsigned_clob_not_secure_clob(self) -> None:
         captured: list[httpx.Request] = []
@@ -155,7 +157,7 @@ class TestListMarketRewards:
                 client,
                 _routed_handler(
                     captured,
-                    {("GET", f"/rewards/markets/{_CONDITION_ID}"): _MARKET_REWARDS_PAGE},
+                    {("GET", f"/v1/rewards/markets/{_CONDITION_ID}"): _MARKET_REWARDS_PAGE},
                 ),
             )
             page = client.list_market_rewards(condition_id=_CONDITION_ID).first_page()
@@ -232,7 +234,9 @@ def test_sync_reward_market_pagination_retains_filters() -> None:
 def test_sync_public_current_rebates_uses_unsigned_read() -> None:
     captured: list[httpx.Request] = []
     with PublicClient() as client:
-        _install_sync_clob(client, _routed_handler(captured, {("GET", "/rebates/current"): None}))
+        _install_sync_clob(
+            client, _routed_handler(captured, {("GET", "/v1/rebates/current"): None})
+        )
         assert client.get_current_rebates(date="2024-02-29", maker_address=SIGNER_ADDRESS) == ()
     assert parse_qs(urlparse(str(captured[0].url)).query) == {
         "date": ["2024-02-29"],

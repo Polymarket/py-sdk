@@ -21,9 +21,6 @@ _ROOT_KEYS = {
     "predictions",
     "clob",
     "bridge",
-    "relayer",
-    "gamma",
-    "data",
     "combos",
     "perps",
     "rtds",
@@ -148,40 +145,19 @@ def load_integration_environment(raw_config: str | None) -> Environment:
                 path="clob.user.ws",
             )
 
-    for json_name, python_name in (
-        ("relayer", "relayer_url"),
-        ("predictions", "predictions_url"),
-        ("gamma", "gamma_url"),
-        ("data", "data_url"),
-    ):
-        endpoint = _optional_object(fork, json_name)
-        if endpoint is None:
-            continue
-        _reject_unknown_keys(endpoint, allowed={"rest", "headers"}, path=json_name)
-        _require_empty_headers(endpoint, path=json_name)
-        _copy_string(endpoint, "rest", config_updates, python_name, path=f"{json_name}.rest")
+    predictions = _optional_object(fork, "predictions")
+    if predictions is not None:
+        _reject_unknown_keys(predictions, allowed={"rest", "headers"}, path="predictions")
+        _require_empty_headers(predictions, path="predictions")
+        _copy_string(
+            predictions, "rest", config_updates, "predictions_url", path="predictions.rest"
+        )
 
     combos = _optional_object(fork, "combos")
     if combos is not None:
-        _reject_unknown_keys(
-            combos,
-            allowed={"rest", "ws", "headers", "builderGateway", "collateralReturn"},
-            path="combos",
-        )
+        _reject_unknown_keys(combos, allowed={"ws", "headers"}, path="combos")
         _require_empty_headers(combos, path="combos")
-        _copy_string(combos, "rest", config_updates, "rfq_url", path="combos.rest")
         _copy_string(combos, "ws", config_updates, "rfq_quoter_ws_url", path="combos.ws")
-        for nested_name, python_name in (
-            ("builderGateway", "builder_gateway_url"),
-            ("collateralReturn", "collateral_return_url"),
-        ):
-            endpoint = _optional_object(combos, nested_name, parent_path="combos")
-            if endpoint is None:
-                continue
-            path = f"combos.{nested_name}"
-            _reject_unknown_keys(endpoint, allowed={"rest", "headers"}, path=path)
-            _require_empty_headers(endpoint, path=path)
-            _copy_string(endpoint, "rest", config_updates, python_name, path=f"{path}.rest")
 
     perps = _optional_object(fork, "perps")
     if perps is not None:

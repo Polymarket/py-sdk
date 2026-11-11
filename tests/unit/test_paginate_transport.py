@@ -1,6 +1,8 @@
 # pyright: reportPrivateUsage=false
 import asyncio
+import base64
 import dataclasses
+import json
 import typing
 from collections.abc import Mapping
 from urllib.parse import parse_qs, urlparse
@@ -20,6 +22,7 @@ from polymarket._internal.pagination import (
     decode_page_cursor,
     encode_keyset_cursor,
     encode_offset_cursor,
+    fingerprint_query,
 )
 from polymarket._internal.request import (
     OffsetPaginatedSpec,
@@ -31,8 +34,6 @@ from polymarket.clients._transport import AsyncTransport, SyncTransport
 from polymarket.clients.async_public import AsyncPublicClient
 from polymarket.clients.public import PublicClient
 from polymarket.errors import PaginationLimitError, UserInputError
-from polymarket.models import Comment
-from polymarket.pagination import Page
 
 
 def _items_handler(captured: list[httpx.Request], rows: list[list[int]]) -> httpx.MockTransport:
@@ -53,7 +54,6 @@ def _spec(
     max_offset: int | None = None,
 ):
     return OffsetPaginatedSpec[int](
-        service="data",
         path=path,
         parse_items=lambda payload: tuple(payload),  # type: ignore[arg-type]
         base_params=base_params,
@@ -82,7 +82,7 @@ def _install_sync_data_transport(client: PublicClient, handler: httpx.MockTransp
         base_url="https://example.test",
         client=httpx.Client(base_url="https://example.test", transport=handler),
     )
-    client._ctx = dataclasses.replace(client._ctx, data=new_transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=new_transport)
 
 
 def _install_async_data_transport(client: AsyncPublicClient, handler: httpx.MockTransport) -> None:
@@ -90,7 +90,7 @@ def _install_async_data_transport(client: AsyncPublicClient, handler: httpx.Mock
         base_url="https://example.test",
         client=httpx.AsyncClient(base_url="https://example.test", transport=handler),
     )
-    client._ctx = dataclasses.replace(client._ctx, data=new_transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=new_transport)
 
 
 def _install_sync_gamma_transport(client: PublicClient, handler: httpx.MockTransport) -> None:
@@ -98,7 +98,7 @@ def _install_sync_gamma_transport(client: PublicClient, handler: httpx.MockTrans
         base_url="https://example.test",
         client=httpx.Client(base_url="https://example.test", transport=handler),
     )
-    client._ctx = dataclasses.replace(client._ctx, gamma=new_transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=new_transport)
 
 
 def _install_async_gamma_transport(client: AsyncPublicClient, handler: httpx.MockTransport) -> None:
@@ -106,7 +106,7 @@ def _install_async_gamma_transport(client: AsyncPublicClient, handler: httpx.Moc
         base_url="https://example.test",
         client=httpx.AsyncClient(base_url="https://example.test", transport=handler),
     )
-    client._ctx = dataclasses.replace(client._ctx, gamma=new_transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=new_transport)
 
 
 def _page_handler(
@@ -127,7 +127,7 @@ def _page_handler(
 
 
 def _page_spec(
-    path: str = "/public-search",
+    path: str = "/v1/public-search",
     base_params: dict[str, str] | None = None,
 ) -> PageBasedSpec[tuple[int, ...]]:
     def parse_page(data: object) -> PageBasedPagePayload[tuple[int, ...]]:
@@ -141,7 +141,6 @@ def _page_spec(
         )
 
     return PageBasedSpec[tuple[int, ...]](
-        service="gamma",
         path=path,
         parse_page=parse_page,
         base_params=base_params,
@@ -274,7 +273,6 @@ def test_sync_paginate_offset_next_cursor_decodes_to_expected_offset() -> None:
     assert page.next_cursor is not None
     assert decode_offset_cursor(
         page.next_cursor,
-        expected_service="data",
         expected_path="/positions",
         expected_base_params={"user": "0xA"},
     ) == (10, 10)
@@ -423,8 +421,7 @@ def test_sync_paginate_page_based_next_cursor_decodes_to_next_page() -> None:
     assert page.next_cursor is not None
     assert decode_page_cursor(
         page.next_cursor,
-        expected_service="gamma",
-        expected_path="/public-search",
+        expected_path="/v1/public-search",
         expected_base_params={"q": "x"},
     ) == (2, 10)
 
@@ -434,7 +431,9 @@ def test_sync_paginate_page_based_cursor_rejects_different_endpoint() -> None:
     handler = _page_handler(captured, {1: ([1], True)})
     with PublicClient() as client:
         _install_sync_gamma_transport(client, handler)
-        a = sync_paginate_page_based(client._ctx, _page_spec(path="/public-search"), page_size=10)
+        a = sync_paginate_page_based(
+            client._ctx, _page_spec(path="/v1/public-search"), page_size=10
+        )
         first = a.first_page()
         assert first.next_cursor is not None
         b = sync_paginate_page_based(client._ctx, _page_spec(path="/other"), page_size=10)
@@ -518,7 +517,7 @@ def test_sync_paginate_offset_short_page_at_the_cap_finishes_normally(count: int
     with PublicClient() as client:
         _install_sync_data_transport(client, handler)
         cursor = encode_offset_cursor(
-            service="data", path="/positions", base_params=None, offset=200, page_size=100
+            path="/positions", base_params=None, offset=200, page_size=100
         )
         page = (
             sync_paginate_offset(client._ctx, _spec(max_offset=200), page_size=100)
@@ -538,9 +537,7 @@ def test_sync_paginate_offset_rejects_a_saved_cursor_past_the_cap_before_any_req
     handler = _full_pages_handler(captured, 20)
     with PublicClient() as client:
         _install_sync_data_transport(client, handler)
-        cursor = encode_offset_cursor(
-            service="data", path="/positions", base_params=None, offset=201, page_size=20
-        )
+        cursor = encode_offset_cursor(path="/positions", base_params=None, offset=201, page_size=20)
         paginator = sync_paginate_offset(client._ctx, _spec(max_offset=200), page_size=20)
         with pytest.raises(PaginationLimitError):
             paginator.from_cursor(cursor).first_page()
@@ -553,9 +550,7 @@ def test_sync_paginate_offset_rejects_a_saved_cursor_with_an_oversized_page_size
     handler = _full_pages_handler(captured, 20)
     with PublicClient() as client:
         _install_sync_data_transport(client, handler)
-        cursor = encode_offset_cursor(
-            service="data", path="/positions", base_params=None, offset=0, page_size=101
-        )
+        cursor = encode_offset_cursor(path="/positions", base_params=None, offset=0, page_size=101)
         paginator = sync_paginate_offset(client._ctx, _spec(max_page_size=100), page_size=20)
         with pytest.raises(UserInputError, match="page_size must be at most 100"):
             paginator.from_cursor(cursor).first_page()
@@ -607,7 +602,7 @@ def test_async_paginate_offset_rejects_a_saved_cursor_past_the_cap_before_any_re
         async with AsyncPublicClient() as client:
             _install_async_data_transport(client, handler)
             cursor = encode_offset_cursor(
-                service="data", path="/positions", base_params=None, offset=220, page_size=20
+                path="/positions", base_params=None, offset=220, page_size=20
             )
             paginator = async_paginate_offset(client._ctx, _spec(max_offset=200), page_size=20)
             with pytest.raises(PaginationLimitError):
@@ -638,51 +633,6 @@ def _comments_handler(
     return httpx.MockTransport(handler)
 
 
-def test_list_comments_walks_to_the_cap_and_stops_normally_on_offset_pages() -> None:
-    # Holder filtering is served on offset pages only, so this read cannot
-    # switch to server cursors and the offset cap still applies.
-    captured: list[httpx.Request] = []
-    with PublicClient() as client:
-        _install_sync_gamma_transport(client, _comments_handler(captured, 20, 2))
-        paginator = client.list_comments(
-            parent_entity_id="1", parent_entity_type="Event", holders_only=True
-        )
-        pages = list(paginator)
-
-    assert _offsets(captured) == list(range(0, 201, 20))
-    assert len(pages) == 11
-    assert all(len(page.items) == 60 for page in pages)
-    assert pages[-1].has_more is True
-    assert pages[-1].limit_reached is True
-    assert all(not page.limit_reached for page in pages[:-1])
-
-
-def test_list_comments_short_root_page_with_many_replies_finishes() -> None:
-    # 8 roots with 4 replies each is 40 rows for a page size of 20, but only 8
-    # roots were served, so the listing is exhausted and no cap error fires.
-    captured: list[httpx.Request] = []
-    with PublicClient() as client:
-        _install_sync_gamma_transport(client, _comments_handler(captured, 8, 4))
-        cursor = encode_offset_cursor(
-            service="gamma",
-            path="/comments",
-            base_params={"parent_entity_id": "1", "parent_entity_type": "Event"},
-            offset=200,
-            page_size=20,
-        )
-        page = (
-            client.list_comments(parent_entity_id="1", parent_entity_type="Event")
-            .from_cursor(cursor)
-            .first_page()
-        )
-
-    assert _offsets(captured) == [200]
-    assert len(page.items) == 40
-    assert page.has_more is False
-    assert page.limit_reached is False
-    assert page.next_cursor is None
-
-
 def test_list_comments_by_user_address_counts_every_row_and_stops_at_the_cap() -> None:
     captured: list[httpx.Request] = []
     with PublicClient() as client:
@@ -693,24 +643,6 @@ def test_list_comments_by_user_address_counts_every_row_and_stops_at_the_cap() -
     assert _offsets(captured) == list(range(0, 201, 20))
     assert sum(len(page.items) for page in pages) == 220
     assert pages[-1].limit_reached is True
-
-
-def test_list_comments_to_pandas_without_a_limit_marks_the_cap() -> None:
-    captured: list[httpx.Request] = []
-    with PublicClient() as client:
-        _install_sync_gamma_transport(client, _comments_handler(captured, 100, 2))
-        paginator = client.list_comments(
-            parent_entity_id="1",
-            parent_entity_type="Event",
-            holders_only=True,
-            page_size=100,
-        )
-        df = paginator.to_pandas(limit=None)
-
-    assert _offsets(captured) == [0, 100, 200]
-    assert len(df) == 900
-    assert df.attrs["polymarket_truncated"] is True
-    assert df.attrs["polymarket_limit_reached"] is True
 
 
 _COMMENTS_KEYSET_DEFAULTS: dict[str, QueryParamValue] = {
@@ -729,7 +661,7 @@ def _keyset_comments_handler(
     # omits `next_cursor`, as the service does.
     def handler(request: httpx.Request) -> httpx.Response:
         captured.append(request)
-        assert urlparse(str(request.url)).path == "/comments/keyset"
+        assert urlparse(str(request.url)).path == "/v1/comments"
         qs = parse_qs(urlparse(str(request.url)).query)
         after = qs.get("after_cursor", [None])[0]
         rows, next_cursor = pages[after]
@@ -755,8 +687,7 @@ def _server_cursor(cursor: str | None, base_params: Mapping[str, QueryParamValue
     assert cursor is not None
     return decode_keyset_cursor(
         cursor,
-        expected_service="gamma",
-        expected_path="/comments/keyset",
+        expected_path="/v1/comments",
         expected_base_params=base_params,
     )
 
@@ -876,99 +807,28 @@ def test_list_comments_cursor_refuses_a_different_query_before_any_request(
     assert captured == []
 
 
-def test_list_comments_cursor_refuses_a_read_served_on_offset_pages() -> None:
+def test_list_comments_rejects_a_saved_offset_cursor_before_any_request() -> None:
+    # Offset cursors issued by earlier releases cannot continue a cursor walk.
     captured: list[httpx.Request] = []
     with PublicClient() as client:
         _install_sync_gamma_transport(client, _keyset_comments_handler(captured, _TWO_KEYSET_PAGES))
-        first = client.list_comments(parent_entity_id="1", parent_entity_type="Event").first_page()
-        del captured[:]
-
-        paginator = client.list_comments(
-            parent_entity_id="1", parent_entity_type="Event", holders_only=True
-        )
+        saved = base64.b64encode(
+            json.dumps(
+                {
+                    "v": 1,
+                    "svc": "gamma",
+                    "p": "/comments",
+                    "f": fingerprint_query(
+                        {"parent_entity_id": "1", "parent_entity_type": "Event"}
+                    ),
+                    "o": 20,
+                    "s": 20,
+                }
+            ).encode()
+        ).decode()
+        paginator = client.list_comments(parent_entity_id="1", parent_entity_type="Event")
         with pytest.raises(UserInputError, match="does not belong to this endpoint"):
-            paginator.from_cursor(first.next_cursor).first_page()
-
-    assert captured == []
-
-
-def test_list_comments_resumes_a_saved_offset_cursor_on_offset_pages() -> None:
-    # A cursor minted before cursor pagination existed finishes its walk on
-    # offset pages, where the offset cap still applies.
-    captured: list[httpx.Request] = []
-    with PublicClient() as client:
-        _install_sync_gamma_transport(client, _comments_handler(captured, 20, 2))
-        legacy = encode_offset_cursor(
-            service="gamma",
-            path="/comments",
-            base_params={"parent_entity_id": "1", "parent_entity_type": "Event"},
-            offset=180,
-            page_size=20,
-        )
-        paginator = client.list_comments(parent_entity_id="1", parent_entity_type="Event")
-        pages: list[Page[Comment]] = []
-        for page in paginator.from_cursor(legacy):
-            pages.append(page)
-        # The boundary page is the last one served; following it is refused
-        # before any request.
-        with pytest.raises(PaginationLimitError):
-            paginator.from_cursor(pages[-1].next_cursor).first_page()
-
-    assert _offsets(captured) == [180, 200]
-    assert all("after_cursor" not in _query(r) for r in captured)
-    assert len(pages) == 2
-    assert pages[-1].has_more is True
-    assert pages[-1].limit_reached is True
-    assert pages[0].next_cursor is not None
-    assert decode_offset_cursor(
-        pages[0].next_cursor,
-        expected_service="gamma",
-        expected_path="/comments",
-        expected_base_params={"parent_entity_id": "1", "parent_entity_type": "Event"},
-    ) == (200, 20)
-
-
-@pytest.mark.parametrize(
-    ("offset", "page_size", "error", "match"),
-    [
-        (220, 20, PaginationLimitError, "deepest page served"),
-        (0, 101, UserInputError, "at most 100"),
-    ],
-)
-def test_list_comments_refuses_a_saved_offset_cursor_outside_the_window(
-    offset: int, page_size: int, error: type[Exception], match: str
-) -> None:
-    captured: list[httpx.Request] = []
-    with PublicClient() as client:
-        _install_sync_gamma_transport(client, _comments_handler(captured, 20, 2))
-        legacy = encode_offset_cursor(
-            service="gamma",
-            path="/comments",
-            base_params={"parent_entity_id": "1", "parent_entity_type": "Event"},
-            offset=offset,
-            page_size=page_size,
-        )
-        paginator = client.list_comments(parent_entity_id="1", parent_entity_type="Event")
-        with pytest.raises(error, match=match):
-            paginator.from_cursor(legacy).first_page()
-
-    assert captured == []
-
-
-def test_list_comments_refuses_a_saved_offset_cursor_for_another_parent() -> None:
-    captured: list[httpx.Request] = []
-    with PublicClient() as client:
-        _install_sync_gamma_transport(client, _comments_handler(captured, 20, 2))
-        legacy = encode_offset_cursor(
-            service="gamma",
-            path="/comments",
-            base_params={"parent_entity_id": "9", "parent_entity_type": "Event"},
-            offset=20,
-            page_size=20,
-        )
-        paginator = client.list_comments(parent_entity_id="1", parent_entity_type="Event")
-        with pytest.raises(UserInputError, match="different query parameters"):
-            paginator.from_cursor(legacy).first_page()
+            paginator.from_cursor(saved).first_page()
 
     assert captured == []
 
@@ -979,9 +839,7 @@ def test_list_comments_refuses_a_saved_offset_cursor_for_another_parent() -> Non
         ("not-a-cursor", "Invalid pagination cursor"),
         ("", "Invalid pagination cursor"),
         (
-            encode_keyset_cursor(
-                service="gamma", path="/events/keyset", base_params=None, server_cursor="x"
-            ),
+            encode_keyset_cursor(path="/v1/events", base_params=None, server_cursor="x"),
             "does not belong to this endpoint",
         ),
     ],
@@ -995,35 +853,6 @@ def test_list_comments_rejects_foreign_cursors_before_any_request(cursor: str, m
             paginator.from_cursor(cursor).first_page()
 
     assert captured == []
-
-
-@pytest.mark.parametrize(
-    ("kwargs", "flag", "value"),
-    [
-        ({"get_positions": True}, "get_positions", "true"),
-        ({"holders_only": True}, "holders_only", "true"),
-        ({"order": "reactionCount"}, "order", "reactionCount"),
-        ({"order": ""}, "order", ""),
-    ],
-)
-def test_list_comments_keeps_unsupported_reads_on_offset_pages(
-    kwargs: dict[str, object], flag: str, value: str
-) -> None:
-    captured: list[httpx.Request] = []
-    with PublicClient() as client:
-        _install_sync_gamma_transport(client, _comments_handler(captured, 20, 2))
-        paginator = client.list_comments(
-            parent_entity_id="1",
-            parent_entity_type="Event",
-            **kwargs,  # type: ignore[arg-type]
-        )
-        pages = list(paginator)
-
-    assert _offsets(captured) == list(range(0, 201, 20))
-    assert _query(captured[0])[flag] == [value]
-    assert all("after_cursor" not in _query(r) for r in captured)
-    assert pages[-1].has_more is True
-    assert pages[-1].limit_reached is True
 
 
 @pytest.mark.parametrize(("page_size", "match"), [(101, "at most 100"), (0, "positive integer")])
@@ -1067,26 +896,18 @@ def test_async_list_comments_walks_by_server_cursor() -> None:
     asyncio.run(run())
 
 
-def test_async_list_comments_resumes_and_refuses_saved_offset_cursors() -> None:
+def test_async_list_comments_rejects_saved_offset_cursors_before_any_request() -> None:
     async def run() -> None:
         captured: list[httpx.Request] = []
         base_params = {"parent_entity_id": "1", "parent_entity_type": "Event"}
         async with AsyncPublicClient() as client:
             _install_async_gamma_transport(client, _comments_handler(captured, 20, 2))
             paginator = client.list_comments(parent_entity_id="1", parent_entity_type="Event")
-
-            within = encode_offset_cursor(
-                service="gamma", path="/comments", base_params=base_params, offset=180, page_size=20
+            saved = encode_offset_cursor(
+                path="/comments", base_params=base_params, offset=20, page_size=20
             )
-            page = await paginator.from_cursor(within).first_page()
-            assert _offsets(captured) == [180]
-            assert page.has_more is True
-
-            beyond = encode_offset_cursor(
-                service="gamma", path="/comments", base_params=base_params, offset=220, page_size=20
-            )
-            with pytest.raises(PaginationLimitError):
-                await paginator.from_cursor(beyond).first_page()
-            assert _offsets(captured) == [180]
+            with pytest.raises(UserInputError, match="does not belong to this endpoint"):
+                await paginator.from_cursor(saved).first_page()
+            assert captured == []
 
     asyncio.run(run())

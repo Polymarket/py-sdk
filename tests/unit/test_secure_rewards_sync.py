@@ -33,6 +33,15 @@ def _install_secure_clob(client: SecureClient, handler: httpx.MockTransport) -> 
     client._ctx = dataclasses.replace(client._ctx, secure_clob=transport)
 
 
+def _install_predictions(client: SecureClient, handler: httpx.MockTransport) -> None:
+    transport = SyncTransport(
+        base_url="https://api.test",
+        client=httpx.Client(base_url="https://api.test", transport=handler),
+        header_resolver=client._ctx.predictions._header_resolver,
+    )
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
+
+
 def _make_client() -> SecureClient:
     return SecureClient._create(
         private_key=PRIVATE_KEY,
@@ -46,12 +55,12 @@ def test_get_order_scoring_routes_to_order_scoring_endpoint() -> None:
     captured: list[httpx.Request] = []
 
     with _make_client() as client:
-        _install_secure_clob(client, _capture(captured, 200, {"scoring": True}))
+        _install_predictions(client, _capture(captured, 200, {"scoring": True}))
         result = client.get_order_scoring(order_id="ord-1")
 
     assert result is True
     request = captured[0]
-    assert urlparse(str(request.url)).path == "/order-scoring"
+    assert urlparse(str(request.url)).path == "/v1/orders/scoring"
     qs = parse_qs(urlparse(str(request.url)).query)
     assert qs.get("order_id") == ["ord-1"]
     assert request.headers.get("Authorization", "").startswith("Bearer ")
@@ -61,13 +70,13 @@ def test_get_orders_scoring_posts_order_ids_and_parses_map() -> None:
     captured: list[httpx.Request] = []
 
     with _make_client() as client:
-        _install_secure_clob(client, _capture(captured, 200, {"ord-1": True, "ord-2": False}))
+        _install_predictions(client, _capture(captured, 200, {"ord-1": True, "ord-2": False}))
         result = client.get_orders_scoring(order_ids=["ord-1", "ord-2"])
 
     assert result == {"ord-1": True, "ord-2": False}
     request = captured[0]
     assert request.method == "POST"
-    assert urlparse(str(request.url)).path == "/orders-scoring"
+    assert urlparse(str(request.url)).path == "/v1/orders/scoring"
     assert b"ord-1" in request.content
     assert b"ord-2" in request.content
 
@@ -91,12 +100,12 @@ def test_list_user_earnings_for_day_passes_signature_type_and_date() -> None:
     }
 
     with _make_client() as client:
-        _install_secure_clob(client, _capture(captured, 200, page_payload))
+        _install_predictions(client, _capture(captured, 200, page_payload))
         earnings = list(client.list_user_earnings_for_day(date="2026-01-01").iter_items())
 
     assert len(earnings) == 1
     request = captured[0]
-    assert urlparse(str(request.url)).path == "/rewards/user"
+    assert urlparse(str(request.url)).path == "/v1/rewards/user"
     qs = parse_qs(urlparse(str(request.url)).query)
     assert qs.get("date") == ["2026-01-01"]
     assert qs.get("signature_type") == ["0"]
@@ -106,7 +115,7 @@ def test_get_total_earnings_for_user_for_day_routes_to_total_endpoint() -> None:
     captured: list[httpx.Request] = []
 
     with _make_client() as client:
-        _install_secure_clob(
+        _install_predictions(
             client,
             _capture(
                 captured,
@@ -128,7 +137,7 @@ def test_get_total_earnings_for_user_for_day_routes_to_total_endpoint() -> None:
 
     assert len(totals) == 1
     request = captured[0]
-    assert urlparse(str(request.url)).path == "/rewards/user/total"
+    assert urlparse(str(request.url)).path == "/v1/rewards/user/total"
 
     qs = parse_qs(urlparse(str(captured[0].url)).query)
     assert qs.get("sponsored") == ["true"]
@@ -140,12 +149,12 @@ def test_get_reward_percentages_routes_to_percentages_endpoint() -> None:
     captured: list[httpx.Request] = []
 
     with _make_client() as client:
-        _install_secure_clob(client, _capture(captured, 200, {_CONDITION_ID: 0.5}))
+        _install_predictions(client, _capture(captured, 200, {_CONDITION_ID: 0.5}))
         result = client.get_reward_percentages()
 
     assert _CONDITION_ID in result
     request = captured[0]
-    assert urlparse(str(request.url)).path == "/rewards/user/percentages"
+    assert urlparse(str(request.url)).path == "/v1/rewards/user/percentages"
     qs = parse_qs(urlparse(str(request.url)).query)
     assert qs.get("signature_type") == ["0"]
 

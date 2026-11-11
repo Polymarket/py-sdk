@@ -48,7 +48,7 @@ def _add_optional(params: dict[str, QueryParamValue], key: str, value: object) -
 
 
 def build_closed_only_mode_request() -> tuple[str, dict[str, str]]:
-    return "/auth/ban-status/closed-only", {}
+    return "/v1/me/trading-status", {}
 
 
 def parse_closed_only_mode(data: object) -> bool:
@@ -81,7 +81,7 @@ def build_list_open_orders_request(
     validated_cursor = validate_cursor(cursor)
     if validated_cursor is not None:
         _add_optional(params, "next_cursor", validated_cursor)
-    return "/data/orders", params
+    return "/v1/me/orders", params
 
 
 def parse_open_orders_page(data: object) -> Page[OpenOrder]:
@@ -125,7 +125,7 @@ def build_list_wallet_open_orders_request(
     validated_cursor = validate_cursor(cursor)
     if validated_cursor is not None:
         params["cursor"] = validated_cursor
-    return "/data/wallet-open-orders", params
+    return "/v1/me/wallet-orders", params
 
 
 def parse_wallet_open_orders_page(data: object) -> Page[WalletOpenOrder]:
@@ -144,7 +144,7 @@ def parse_wallet_open_orders_page(data: object) -> Page[WalletOpenOrder]:
 
 def build_get_order_request(*, order_id: str) -> tuple[str, dict[str, str]]:
     validated = require_nonempty("order_id", order_id)
-    return f"/data/order/{validated}", {}
+    return f"/v1/me/orders/{validated}", {}
 
 
 def parse_open_order(data: object) -> OpenOrder:
@@ -179,7 +179,7 @@ def build_list_account_trades_request(
     validated_cursor = validate_cursor(cursor)
     if validated_cursor is not None:
         _add_optional(params, "next_cursor", validated_cursor)
-    return "/data/trades", params
+    return "/v1/me/trades", params
 
 
 def parse_account_trades_page(data: object) -> Page[ClobTrade]:
@@ -199,7 +199,7 @@ def parse_account_trades_page(data: object) -> Page[ClobTrade]:
 
 
 def build_notifications_request(*, signature_type: int) -> tuple[str, dict[str, QueryParamValue]]:
-    return "/notifications", {"signature_type": signature_type}
+    return "/v1/me/notifications", {"signature_type": signature_type}
 
 
 def parse_notifications(data: object) -> tuple[Notification, ...]:
@@ -226,7 +226,7 @@ def build_drop_notifications_request(
             validated.append(require_nonempty("notification id", entry))
         else:
             validated.append(str(entry))
-    return "/notifications", {
+    return "/v1/me/notifications", {
         "ids": ",".join(validated),
         "signature_type": signature_type,
     }
@@ -247,7 +247,7 @@ def build_balance_allowance_request(
     resolved_asset = resolve_optional_asset_id(asset_id=asset_id, token_id=token_id)
     if resolved_asset is not None:
         params["token_id"] = resolved_asset
-    return "/balance-allowance", params
+    return "/v1/me/balance-allowances", params
 
 
 def parse_balance_allowance(data: object) -> BalanceAllowance:
@@ -269,7 +269,7 @@ def build_update_balance_allowance_request(
     resolved_asset = resolve_optional_asset_id(asset_id=asset_id, token_id=token_id)
     if resolved_asset is not None:
         params["token_id"] = resolved_asset
-    return "/balance-allowance/update", params
+    return "/v1/me/balance-allowances/refresh", params
 
 
 __all__ = [

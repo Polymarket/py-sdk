@@ -23,11 +23,11 @@ def test_approve_erc1155_for_all_default_approved_true() -> None:
             client,
             captured,
             {
-                "/v1/account/transactions/params": {
+                "/v1/wallets/execute-params": {
                     "address": client._ctx.signer.address,
                     "nonce": "0",
                 },
-                "/submit": {
+                "/v1/wallets/transactions": {
                     "state": "STATE_NEW",
                     "transactionHash": None,
                     "transactionID": "tx-1155",
@@ -40,7 +40,7 @@ def test_approve_erc1155_for_all_default_approved_true() -> None:
             await client.close()
 
     asyncio.run(run())
-    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
+    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"]
     body = request_json(submit_calls[0])
     inner = body["depositWalletParams"]["calls"][0]
     selector = "0x" + keccak(b"setApprovalForAll(address,bool)")[:4].hex()
@@ -57,11 +57,11 @@ def test_approve_erc1155_for_all_revoke() -> None:
             client,
             captured,
             {
-                "/v1/account/transactions/params": {
+                "/v1/wallets/execute-params": {
                     "address": client._ctx.signer.address,
                     "nonce": "0",
                 },
-                "/submit": {
+                "/v1/wallets/transactions": {
                     "state": "STATE_NEW",
                     "transactionHash": None,
                     "transactionID": "tx-1155-rev",
@@ -76,7 +76,7 @@ def test_approve_erc1155_for_all_revoke() -> None:
             await client.close()
 
     asyncio.run(run())
-    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
+    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"]
     body = request_json(submit_calls[0])
     assert body["metadata"].startswith("Revoke ")
     inner = body["depositWalletParams"]["calls"][0]

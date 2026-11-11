@@ -34,7 +34,7 @@ from polymarket.models import ClobAssetId, LastTradePrice, OrderSide, PriceReque
 def test_build_midpoint_request_targets_midpoint_path_with_token_id() -> None:
     path, params = build_midpoint_request(token_id="123")
 
-    assert path == "/midpoint"
+    assert path == "/v1/pricing/midpoint"
     assert params == {"token_id": "123"}
 
 
@@ -75,7 +75,7 @@ def test_parse_midpoint_rejects_non_decimal_mid_value() -> None:
 def test_build_midpoints_request_emits_post_body_with_each_token_id() -> None:
     path, body = build_midpoints_request(token_ids=["1", "2"])
 
-    assert path == "/midpoints"
+    assert path == "/v1/pricing/midpoints"
     assert body == [{"token_id": "1"}, {"token_id": "2"}]
 
 
@@ -183,7 +183,7 @@ def test_parse_spread_rejects_numeric_value() -> None:
 def test_build_price_request_includes_token_id_and_side() -> None:
     path, params = build_price_request(token_id="123", side="BUY")
 
-    assert path == "/price"
+    assert path == "/v1/pricing/price"
     assert params == {"token_id": "123", "side": "BUY"}
 
 
@@ -211,7 +211,7 @@ def test_build_prices_request_emits_post_body_with_token_id_and_side() -> None:
         requests=[PriceRequest("1", "BUY"), PriceRequest("2", "SELL")]
     )
 
-    assert path == "/prices"
+    assert path == "/v1/pricing/prices"
     assert body == [
         {"token_id": "1", "side": "BUY"},
         {"token_id": "2", "side": "SELL"},
@@ -323,7 +323,7 @@ _ORDER_BOOK_PAYLOAD = {
 def test_build_order_book_request_targets_book_path() -> None:
     path, params = build_order_book_request(token_id="123")
 
-    assert path == "/book"
+    assert path == "/v1/pricing/book"
     assert params == {"token_id": "123"}
 
 
@@ -443,7 +443,7 @@ def test_parse_order_book_rejects_numeric_tick_size() -> None:
 def test_build_order_books_request_emits_post_body() -> None:
     path, body = build_order_books_request(token_ids=["1", "2"])
 
-    assert path == "/books"
+    assert path == "/v1/pricing/books"
     assert body == [{"token_id": "1"}, {"token_id": "2"}]
 
 
@@ -467,7 +467,7 @@ def test_parse_order_books_rejects_non_list() -> None:
 def test_build_spread_request_targets_spread_path() -> None:
     path, params = build_spread_request(token_id="123")
 
-    assert path == "/spread"
+    assert path == "/v1/pricing/spread"
     assert params == {"token_id": "123"}
 
 
@@ -483,7 +483,7 @@ def test_parse_spread_rejects_missing_field() -> None:
 def test_build_spreads_request_emits_post_body() -> None:
     path, body = build_spreads_request(token_ids=["1"])
 
-    assert path == "/spreads"
+    assert path == "/v1/pricing/spreads"
     assert body == [{"token_id": "1"}]
 
 
@@ -506,7 +506,7 @@ def test_parse_spreads_accepts_existing_decimal_value() -> None:
 def test_build_last_trade_price_request_targets_last_trade_price_path() -> None:
     path, params = build_last_trade_price_request(token_id="123")
 
-    assert path == "/last-trade-price"
+    assert path == "/v1/pricing/last-trade-price"
     assert params == {"token_id": "123"}
 
 
@@ -538,7 +538,7 @@ def test_parse_last_trade_price_rejects_invalid_side() -> None:
 def test_build_last_trade_prices_request_emits_post_body_at_correct_path() -> None:
     path, body = build_last_trade_prices_request(token_ids=["1", "2"])
 
-    assert path == "/last-trades-prices"
+    assert path == "/v1/pricing/last-trades-prices"
     assert body == [{"token_id": "1"}, {"token_id": "2"}]
 
 

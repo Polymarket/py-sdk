@@ -130,7 +130,7 @@ async def resolve_market_price_context(
     order_type: MarketOrderType,
 ) -> ResolvedMarketPrice:
     path, params = _clob_actions.build_order_book_request(token_id=token_id)
-    book = _clob_actions.parse_order_book(await ctx.clob.get_json(path, params=params))
+    book = _clob_actions.parse_order_book(await ctx.predictions.get_json(path, params=params))
     return _resolve_market_price_context(
         book, token_id=token_id, side=side, notional=notional, order_type=order_type
     )
@@ -162,7 +162,7 @@ def resolve_market_price_context_sync(
     order_type: MarketOrderType,
 ) -> ResolvedMarketPrice:
     path, params = _clob_actions.build_order_book_request(token_id=token_id)
-    book = _clob_actions.parse_order_book(ctx.clob.get_json(path, params=params))
+    book = _clob_actions.parse_order_book(ctx.predictions.get_json(path, params=params))
     return _resolve_market_price_context(
         book, token_id=token_id, side=side, notional=notional, order_type=order_type
     )

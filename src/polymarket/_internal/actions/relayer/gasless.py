@@ -14,8 +14,6 @@ from polymarket._internal.actions.relayer.calls import (
 from polymarket._internal.actions.relayer.nonce import (
     fetch_execute_params,
     fetch_execute_params_sync,
-    fetch_relay_payload,
-    fetch_relay_payload_sync,
 )
 from polymarket._internal.actions.relayer.signing.deposit_wallet import (
     sign_deposit_wallet_batch,
@@ -105,7 +103,7 @@ async def submit_gasless_with_retry(
             return GaslessTransactionHandle(
                 transaction_id=response.transaction_id,
                 transaction_hash=response.transaction_hash,
-                _relayer=ctx.relayer,
+                _relayer=ctx.predictions,
                 _max_polls=ctx.environment_config.relayer_max_polls,
                 _poll_delay_s=poll_delay_s,
             )
@@ -120,7 +118,7 @@ async def _submit_for_wallet_type(
 ) -> RelayerExecuteResponse:
     payload = await build_signed_payload_for_wallet_type(ctx, calls=calls, metadata=metadata)
     try:
-        return await submit_gasless(ctx.relayer, payload=payload)
+        return await submit_gasless(ctx.predictions, payload=payload)
     except RequestRejectedError as error:
         nonce = onchain_nonce_from_submit_error(error)
         if nonce is None or ctx.wallet_type != "DEPOSIT_WALLET":
@@ -128,7 +126,7 @@ async def _submit_for_wallet_type(
         payload = await build_signed_deposit_wallet_payload(
             ctx, calls=calls, metadata=metadata, nonce=nonce
         )
-        return await submit_gasless(ctx.relayer, payload=payload)
+        return await submit_gasless(ctx.predictions, payload=payload)
 
 
 async def build_signed_payload_for_wallet_type(
@@ -178,7 +176,7 @@ async def build_signed_deposit_wallet_batch(
 ) -> SignedDepositWalletBatch:
     if nonce is None:
         params = await fetch_execute_params(
-            ctx.relayer, address=ctx.signer.address, type=RelayerTransactionType.WALLET
+            ctx.predictions, address=ctx.signer.address, type=RelayerTransactionType.WALLET
         )
         nonce = params.nonce
     deadline = await _deposit_wallet_deadline(ctx)
@@ -245,8 +243,8 @@ async def build_signed_proxy_payload(
     calls: list[TransactionCall],
     metadata: str,
 ) -> RelayerEnvelope:
-    params = await fetch_relay_payload(
-        ctx.relayer, address=ctx.signer.address, type=RelayerTransactionType.PROXY
+    params = await fetch_execute_params(
+        ctx.predictions, address=ctx.signer.address, type=RelayerTransactionType.PROXY
     )
     to = ctx.environment_config.wallet_derivation.proxy_factory
     data = encode_proxy_call(calls)
@@ -335,7 +333,7 @@ async def build_signed_safe_payload(
     metadata: str,
 ) -> RelayerEnvelope:
     params = await fetch_execute_params(
-        ctx.relayer, address=ctx.signer.address, type=RelayerTransactionType.SAFE
+        ctx.predictions, address=ctx.signer.address, type=RelayerTransactionType.SAFE
     )
     target, data, value, operation = _resolve_safe_call(
         ctx.environment_config.safe_multisend, calls
@@ -431,11 +429,11 @@ async def submit_deposit_wallet_create(
             "metadata": metadata,
         }
     )
-    response = await submit_gasless(ctx.relayer, payload=payload)
+    response = await submit_gasless(ctx.predictions, payload=payload)
     return GaslessTransactionHandle(
         transaction_id=response.transaction_id,
         transaction_hash=response.transaction_hash,
-        _relayer=ctx.relayer,
+        _relayer=ctx.predictions,
         _max_polls=ctx.environment_config.relayer_max_polls,
         _poll_delay_s=ctx.environment_config.relayer_poll_frequency_ms / 1000,
     )
@@ -485,7 +483,7 @@ def submit_gasless_with_retry_sync(
             return SyncGaslessTransactionHandle(
                 transaction_id=response.transaction_id,
                 transaction_hash=response.transaction_hash,
-                _relayer=ctx.relayer,
+                _relayer=ctx.predictions,
                 _max_polls=ctx.environment_config.relayer_max_polls,
                 _poll_delay_s=poll_delay_s,
             )
@@ -500,7 +498,7 @@ def _submit_for_wallet_type_sync(
 ) -> RelayerExecuteResponse:
     payload = build_signed_payload_for_wallet_type_sync(ctx, calls=calls, metadata=metadata)
     try:
-        return submit_gasless_sync(ctx.relayer, payload=payload)
+        return submit_gasless_sync(ctx.predictions, payload=payload)
     except RequestRejectedError as error:
         nonce = onchain_nonce_from_submit_error(error)
         if nonce is None or ctx.wallet_type != "DEPOSIT_WALLET":
@@ -508,7 +506,7 @@ def _submit_for_wallet_type_sync(
         payload = build_signed_deposit_wallet_payload_sync(
             ctx, calls=calls, metadata=metadata, nonce=nonce
         )
-        return submit_gasless_sync(ctx.relayer, payload=payload)
+        return submit_gasless_sync(ctx.predictions, payload=payload)
 
 
 def build_signed_payload_for_wallet_type_sync(
@@ -558,7 +556,7 @@ def build_signed_deposit_wallet_batch_sync(
 ) -> SignedDepositWalletBatch:
     if nonce is None:
         params = fetch_execute_params_sync(
-            ctx.relayer, address=ctx.signer.address, type=RelayerTransactionType.WALLET
+            ctx.predictions, address=ctx.signer.address, type=RelayerTransactionType.WALLET
         )
         nonce = params.nonce
     deadline = _deposit_wallet_deadline_sync(ctx)
@@ -595,8 +593,8 @@ def build_signed_proxy_payload_sync(
     calls: list[TransactionCall],
     metadata: str,
 ) -> RelayerEnvelope:
-    params = fetch_relay_payload_sync(
-        ctx.relayer, address=ctx.signer.address, type=RelayerTransactionType.PROXY
+    params = fetch_execute_params_sync(
+        ctx.predictions, address=ctx.signer.address, type=RelayerTransactionType.PROXY
     )
     to = ctx.environment_config.wallet_derivation.proxy_factory
     data = encode_proxy_call(calls)
@@ -651,7 +649,7 @@ def build_signed_safe_payload_sync(
     metadata: str,
 ) -> RelayerEnvelope:
     params = fetch_execute_params_sync(
-        ctx.relayer, address=ctx.signer.address, type=RelayerTransactionType.SAFE
+        ctx.predictions, address=ctx.signer.address, type=RelayerTransactionType.SAFE
     )
     target, data, value, operation = _resolve_safe_call(
         ctx.environment_config.safe_multisend, calls
@@ -699,11 +697,11 @@ def submit_deposit_wallet_create_sync(
             "metadata": metadata,
         }
     )
-    response = submit_gasless_sync(ctx.relayer, payload=payload)
+    response = submit_gasless_sync(ctx.predictions, payload=payload)
     return SyncGaslessTransactionHandle(
         transaction_id=response.transaction_id,
         transaction_hash=response.transaction_hash,
-        _relayer=ctx.relayer,
+        _relayer=ctx.predictions,
         _max_polls=ctx.environment_config.relayer_max_polls,
         _poll_delay_s=ctx.environment_config.relayer_poll_frequency_ms / 1000,
     )

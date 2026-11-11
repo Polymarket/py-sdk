@@ -15,23 +15,23 @@ def build_event_path(*, id: str | None, slug: str | None, url: str | None) -> st
 
 
 def build_market_tags_path(id: str) -> str:
-    return f"/markets/{quote(require_nonempty('id', id), safe='')}/tags"
+    return f"/v1/markets/{quote(require_nonempty('id', id), safe='')}/tags"
 
 
 def build_event_tags_path(id: str) -> str:
-    return f"/events/{quote(require_nonempty('id', id), safe='')}/tags"
+    return f"/v1/events/{quote(require_nonempty('id', id), safe='')}/tags"
 
 
 def build_series_path(id: str) -> str:
-    return f"/series/{quote(require_nonempty('id', id), safe='')}"
+    return f"/v1/series/{quote(require_nonempty('id', id), safe='')}"
 
 
 def build_comment_thread_path(id: str) -> str:
-    return f"/comments/{quote(require_nonempty('id', id), safe='')}"
+    return f"/v1/comments/{quote(require_nonempty('id', id), safe='')}"
 
 
 def build_comments_by_user_address_path(address: str) -> str:
-    return f"/comments/user_address/{quote(require_nonempty('address', address), safe='')}"
+    return f"/v1/users/{quote(require_nonempty('address', address), safe='')}/comments"
 
 
 def build_tag_path(*, id: str | None, slug: str | None) -> str:
@@ -41,11 +41,11 @@ def build_tag_path(*, id: str | None, slug: str | None) -> str:
     if id is not None:
         if id == "":
             raise UserInputError("Tag id cannot be empty.")
-        return f"/tags/{quote(id, safe='')}"
+        return f"/v1/tags/{quote(id, safe='')}"
 
     if slug == "":
         raise UserInputError("Tag slug cannot be empty.")
-    return f"/tags/slug/{quote(slug or '', safe='')}"
+    return f"/v1/tags/slug/{quote(slug or '', safe='')}"
 
 
 def build_related_tags_path(*, id: str | None, slug: str | None) -> str:
@@ -60,12 +60,12 @@ def _build_entity_path(kind: str, *, id: str | None, slug: str | None, url: str 
     lookup_type, value = _resolve_lookup(kind, id=id, slug=slug, url=url)
 
     if lookup_type == "id":
-        return f"/{kind}s/{quote(value, safe='')}"
+        return f"/v1/{kind}s/{quote(value, safe='')}"
 
     if lookup_type == "url":
         value = _parse_polymarket_url(value, kind)
 
-    return f"/{kind}s/slug/{quote(value, safe='')}"
+    return f"/v1/{kind}s/slug/{quote(value, safe='')}"
 
 
 def _resolve_lookup(

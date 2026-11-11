@@ -31,10 +31,6 @@ class _EnvironmentConfig:
     clob_url: str
     clob_market_ws_url: str
     clob_user_ws_url: str
-    relayer_url: str
-    gamma_url: str
-    data_url: str
-    rfq_url: str
     rtds_ws_url: str
     sports_ws_url: str
     rpc_url: str
@@ -46,8 +42,6 @@ class _EnvironmentConfig:
     position_manager: str = "0x006F54F7f9A22e0000CC2AB60031000000ae9fEF"
     rfq_quoter_ws_url: str = "wss://combos-rfq-gateway-quoter.polymarket.com/ws/rfq"
     rfq_quoter_ws_headers: dict[str, str] | None = None
-    builder_gateway_url: str = "https://combos-rfq-gateway-builder.polymarket.com"
-    collateral_return_url: str = "https://combos-rfq-collateral-return.polymarket.com"
     predictions_url: str = "https://api.defi.polymarket.com"
     perps_url: str = "https://api.perpetuals.polymarket.com"
     perps_ws_url: str = "wss://ws.perpetuals.polymarket.com/v1/ws"
@@ -102,10 +96,6 @@ PRODUCTION = _create_environment(
         clob_url="https://clob.polymarket.com",
         clob_market_ws_url="wss://ws-subscriptions-clob.polymarket.com/ws/market",
         clob_user_ws_url="wss://ws-subscriptions-clob.polymarket.com/ws/user",
-        relayer_url="https://relayer-v2.polymarket.com",
-        gamma_url="https://gamma-api.polymarket.com",
-        data_url="https://data-api.polymarket.com",
-        rfq_url="https://combos-rfq-api.polymarket.com",
         rtds_ws_url="wss://ws-live-data.polymarket.com",
         sports_ws_url="wss://sports-api.polymarket.com/ws",
         rpc_url="https://polygon.drpc.org",

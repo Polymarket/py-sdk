@@ -39,7 +39,7 @@ def _install_public_clob(client: AsyncSecureClient, handler: httpx.MockTransport
         base_url="https://clob.test",
         client=httpx.AsyncClient(base_url="https://clob.test", transport=handler),
     )
-    client._ctx = dataclasses.replace(client._ctx, clob=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 async def _make_client() -> AsyncSecureClient:
@@ -64,7 +64,7 @@ def test_fetch_tick_size_returns_decimal_for_valid_response() -> None:
 
     tick = asyncio.run(run())
     assert tick == Decimal("0.01")
-    assert urlparse(str(captured[0].url)).path == "/tick-size"
+    assert urlparse(str(captured[0].url)).path == "/v1/pricing/tick-size"
 
 
 def test_fetch_tick_size_accepts_new_supported_value() -> None:
@@ -129,7 +129,7 @@ def test_resolve_condition_by_token_returns_condition_id() -> None:
             await client.close()
 
     assert asyncio.run(run()) == _CONDITION_ID
-    assert urlparse(str(captured[0].url)).path == "/markets-by-token/8501497"
+    assert urlparse(str(captured[0].url)).path == "/v1/trading/markets/token/8501497"
 
 
 def test_resolve_condition_by_token_rejects_malformed_condition_id() -> None:

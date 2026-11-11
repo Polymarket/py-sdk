@@ -2,9 +2,6 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Generic, Literal, TypeVar
 
-from polymarket._internal.retry import RateLimitRetry
-
-Service = Literal["gamma", "data", "rfq"]
 Method = Literal["GET"]
 
 QueryParamScalar = str | int | float | bool
@@ -15,12 +12,10 @@ T = TypeVar("T")
 
 @dataclass(frozen=True, slots=True)
 class RequestSpec(Generic[T]):
-    service: Service
     method: Method
     path: str
     parse: Callable[[object], T]
     params: Mapping[str, QueryParamValue | None] | None = None
-    retry: RateLimitRetry | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,21 +30,13 @@ class OffsetPaginatedSpec(Generic[T]):
     server rejects requests past it. Following a cursor beyond the cap raises
     `PaginationLimitError` before the request instead of surfacing the
     rejection after a wasted round trip.
-
-    `page_fill` reports how many rows the request's `limit` was applied to on
-    a page. It defaults to the item count, which is right when the response is
-    one row per item. An endpoint that expands each counted row (a comment
-    with its replies) returns the count of rows the limit bounded, so a page
-    padded with expansions is not mistaken for a full one.
     """
 
-    service: Service
     path: str
     parse_items: Callable[[object], tuple[T, ...]]
     base_params: Mapping[str, QueryParamValue] | None = None
     max_page_size: int | None = None
     max_offset: int | None = None
-    page_fill: Callable[[tuple[T, ...]], int] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,13 +48,11 @@ class KeysetPaginatedSpec(Generic[T]):
     in our own envelope (path + query fingerprint) for replay protection.
     """
 
-    service: Service
     path: str
     parse_page: Callable[[object], "KeysetPagePayload[T]"]
     base_params: Mapping[str, QueryParamValue] | None = None
     cursor_param: str = "after_cursor"
     max_page_size: int | None = None
-    retry: RateLimitRetry | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,7 +70,6 @@ class PageBasedSpec(Generic[T]):
     `Paginator` shape used by every other paginated endpoint.
     """
 
-    service: Service
     path: str
     parse_page: Callable[[object], "PageBasedPagePayload[T]"]
     base_params: Mapping[str, QueryParamValue] | None = None
@@ -108,5 +92,4 @@ __all__ = [
     "QueryParamScalar",
     "QueryParamValue",
     "RequestSpec",
-    "Service",
 ]

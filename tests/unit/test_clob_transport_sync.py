@@ -52,7 +52,9 @@ def _install_sync_clob(client: PublicClient | SecureClient, handler: httpx.MockT
         base_url="https://clob.test",
         client=httpx.Client(base_url="https://clob.test", transport=handler),
     )
-    client._ctx = cast(SyncSecureClientContext, dataclasses.replace(client._ctx, clob=transport))
+    client._ctx = cast(
+        SyncSecureClientContext, dataclasses.replace(client._ctx, predictions=transport)
+    )
 
 
 def _body(request: httpx.Request) -> object:
@@ -79,7 +81,7 @@ class TestGetMidpoint:
         assert len(captured) == 1
         parsed = urlparse(str(captured[0].url))
         assert captured[0].method == "GET"
-        assert parsed.path == "/midpoint"
+        assert parsed.path == "/v1/pricing/midpoint"
         assert parse_qs(parsed.query) == {"token_id": ["8501497"]}
 
     def test_secure_uses_same_clob_endpoint(self) -> None:
@@ -89,7 +91,7 @@ class TestGetMidpoint:
             result = client.get_midpoint(token_id="99")
 
         assert result == Decimal("0.42")
-        assert urlparse(str(captured[0].url)).path == "/midpoint"
+        assert urlparse(str(captured[0].url)).path == "/v1/pricing/midpoint"
 
     def test_propagates_malformed_response_error(self) -> None:
         with PublicClient() as client:
@@ -107,7 +109,7 @@ class TestGetMidpoints:
 
         assert result == {"1": Decimal("0.5"), "2": Decimal("0.4")}
         assert captured[0].method == "POST"
-        assert urlparse(str(captured[0].url)).path == "/midpoints"
+        assert urlparse(str(captured[0].url)).path == "/v1/pricing/midpoints"
         assert _body(captured[0]) == [{"token_id": "1"}, {"token_id": "2"}]
 
 
@@ -120,7 +122,7 @@ class TestGetPrice:
 
         assert result == Decimal("0.52")
         parsed = urlparse(str(captured[0].url))
-        assert parsed.path == "/price"
+        assert parsed.path == "/v1/pricing/price"
         assert parse_qs(parsed.query) == {"token_id": ["123"], "side": ["BUY"]}
 
 
@@ -142,7 +144,7 @@ class TestGetPrices:
             )
 
         assert result[TokenId("tok-1")]["BUY"] == Decimal("0.50")
-        assert urlparse(str(captured[0].url)).path == "/prices"
+        assert urlparse(str(captured[0].url)).path == "/v1/pricing/prices"
         assert captured[0].method == "POST"
 
 
@@ -170,7 +172,7 @@ class TestGetOrderBook:
             book = client.get_order_book(token_id="1")
 
         assert isinstance(book, OrderBook)
-        assert urlparse(str(captured[0].url)).path == "/book"
+        assert urlparse(str(captured[0].url)).path == "/v1/pricing/book"
 
 
 class TestGetOrderBooks:
@@ -195,7 +197,7 @@ class TestGetOrderBooks:
 
         assert len(books) == 1
         assert captured[0].method == "POST"
-        assert urlparse(str(captured[0].url)).path == "/books"
+        assert urlparse(str(captured[0].url)).path == "/v1/pricing/books"
         assert _body(captured[0]) == [{"token_id": "1"}]
 
 
@@ -207,7 +209,7 @@ class TestGetSpread:
             spread = client.get_spread(token_id="1")
 
         assert spread == Decimal("0.02")
-        assert urlparse(str(captured[0].url)).path == "/spread"
+        assert urlparse(str(captured[0].url)).path == "/v1/pricing/spread"
 
 
 class TestGetSpreads:
@@ -218,7 +220,7 @@ class TestGetSpreads:
             spreads = client.get_spreads(token_ids=["1", "2"])
 
         assert spreads == {"1": Decimal("0.02"), "2": Decimal("0.03")}
-        assert urlparse(str(captured[0].url)).path == "/spreads"
+        assert urlparse(str(captured[0].url)).path == "/v1/pricing/spreads"
 
 
 class TestGetLastTradePrice:
@@ -232,7 +234,7 @@ class TestGetLastTradePrice:
             ltp = client.get_last_trade_price(token_id="1")
 
         assert isinstance(ltp, LastTradePrice)
-        assert urlparse(str(captured[0].url)).path == "/last-trade-price"
+        assert urlparse(str(captured[0].url)).path == "/v1/pricing/last-trade-price"
 
 
 class TestGetLastTradePrices:
@@ -247,7 +249,7 @@ class TestGetLastTradePrices:
 
         assert len(result) == 1
         assert isinstance(result[0], LastTradePriceForToken)
-        assert urlparse(str(captured[0].url)).path == "/last-trades-prices"
+        assert urlparse(str(captured[0].url)).path == "/v1/pricing/last-trades-prices"
         assert _body(captured[0]) == [{"token_id": "1"}]
 
 
@@ -255,7 +257,7 @@ class TestEstimateMarketPrice:
     def test_buy_uses_book_metadata(self) -> None:
         captured: list[httpx.Request] = []
         routes: dict[str, object] = {
-            "/book": {
+            "/v1/pricing/book": {
                 "asset_id": "1",
                 "market": "0xM",
                 "bids": [{"price": "0.49", "size": "100"}],
@@ -273,12 +275,12 @@ class TestEstimateMarketPrice:
 
         assert price == Decimal("0.50")
         paths = [urlparse(str(r.url)).path for r in captured]
-        assert paths == ["/book"]
+        assert paths == ["/v1/pricing/book"]
 
     def test_sell_uses_bids(self) -> None:
         captured: list[httpx.Request] = []
         routes: dict[str, object] = {
-            "/book": {
+            "/v1/pricing/book": {
                 "asset_id": "1",
                 "market": "0xM",
                 "bids": [{"price": "0.49", "size": "100"}],
@@ -298,7 +300,7 @@ class TestEstimateMarketPrice:
 
     def test_fok_raises_on_insufficient_liquidity(self) -> None:
         routes: dict[str, object] = {
-            "/book": {
+            "/v1/pricing/book": {
                 "asset_id": "1",
                 "market": "0xM",
                 "bids": [],
@@ -319,7 +321,7 @@ class TestEstimateMarketPrice:
 
     def test_available_on_secure_client(self) -> None:
         routes: dict[str, object] = {
-            "/book": {
+            "/v1/pricing/book": {
                 "asset_id": "1",
                 "market": "0xM",
                 "bids": [],

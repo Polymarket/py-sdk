@@ -31,10 +31,10 @@ def event_request_urls(sync_public_client: PublicClient) -> Iterator[list[httpx.
     urls: list[httpx.URL] = []
 
     def capture(request: httpx.Request) -> None:
-        if request.url.path == "/events/keyset":
+        if request.url.path == "/v1/events":
             urls.append(request.url)
 
-    hooks = sync_public_client._ctx.gamma._client.event_hooks["request"]
+    hooks = sync_public_client._ctx.predictions._client.event_hooks["request"]
     hooks.append(capture)
     try:
         yield urls

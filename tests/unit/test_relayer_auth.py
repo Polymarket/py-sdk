@@ -1,72 +1,7 @@
-import asyncio
-from collections.abc import Mapping
-
 import pytest
 
-from polymarket._internal.actions.relayer.auth import (
-    RelayerHeaderResolver,
-    make_relayer_header_resolver,
-)
 from polymarket.auth import BuilderApiKey, RelayerApiKey
 from polymarket.errors import UserInputError
-
-
-async def _call(
-    resolve: RelayerHeaderResolver, method: str, path: str, body: str | None
-) -> Mapping[str, str]:
-    return await resolve(method, path, body)
-
-
-def test_builder_api_key_resolver_emits_hmac_headers() -> None:
-    auth = BuilderApiKey(key="my-key", secret="dGVzdA==", passphrase="my-pass")
-    resolve = make_relayer_header_resolver(auth)
-    headers = asyncio.run(_call(resolve, "POST", "/submit", '{"x":1}'))
-    assert set(headers) == {
-        "POLY_BUILDER_API_KEY",
-        "POLY_BUILDER_PASSPHRASE",
-        "POLY_BUILDER_SIGNATURE",
-        "POLY_BUILDER_TIMESTAMP",
-    }
-    assert headers["POLY_BUILDER_API_KEY"] == "my-key"
-    assert headers["POLY_BUILDER_PASSPHRASE"] == "my-pass"
-    assert int(headers["POLY_BUILDER_TIMESTAMP"]) > 0
-    assert len(headers["POLY_BUILDER_SIGNATURE"]) > 20
-
-
-def test_builder_signature_differs_per_body() -> None:
-    auth = BuilderApiKey(key="k", secret="dGVzdA==", passphrase="p")
-    resolve = make_relayer_header_resolver(auth)
-    a = asyncio.run(_call(resolve, "POST", "/submit", '{"a":1}'))
-    b = asyncio.run(_call(resolve, "POST", "/submit", '{"a":2}'))
-    assert a["POLY_BUILDER_SIGNATURE"] != b["POLY_BUILDER_SIGNATURE"]
-
-
-def test_builder_resolver_handles_none_body() -> None:
-    auth = BuilderApiKey(key="k", secret="dGVzdA==", passphrase="p")
-    resolve = make_relayer_header_resolver(auth)
-    headers = asyncio.run(_call(resolve, "GET", "/v1/account/transactions/params", None))
-    assert "POLY_BUILDER_SIGNATURE" in headers
-
-
-def test_relayer_api_key_resolver_emits_plaintext_headers() -> None:
-    auth = RelayerApiKey(
-        key="r-key",
-        address="0x0000000000000000000000000000000000000001",
-    )
-    resolve = make_relayer_header_resolver(auth)
-    headers = asyncio.run(_call(resolve, "POST", "/submit", "{}"))
-    assert headers == {
-        "RELAYER_API_KEY": "r-key",
-        "RELAYER_API_KEY_ADDRESS": "0x0000000000000000000000000000000000000001",
-    }
-
-
-def test_relayer_api_key_resolver_ignores_method_path_body() -> None:
-    auth = RelayerApiKey(key="k", address="0x0000000000000000000000000000000000000001")
-    resolve = make_relayer_header_resolver(auth)
-    a = asyncio.run(_call(resolve, "GET", "/x", None))
-    b = asyncio.run(_call(resolve, "POST", "/y", "body"))
-    assert a == b
 
 
 def test_relayer_api_key_normalizes_address() -> None:

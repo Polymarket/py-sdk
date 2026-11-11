@@ -29,16 +29,16 @@ def test_setup_trading_approvals_bundles_required_calls_for_deposit_wallet() -> 
             client,
             captured,
             {
-                "/v1/account/transactions/params": {
+                "/v1/wallets/execute-params": {
                     "address": client._ctx.signer.address,
                     "nonce": "0",
                 },
-                "/submit": {
+                "/v1/wallets/transactions": {
                     "state": "STATE_NEW",
                     "transactionHash": None,
                     "transactionID": "tx-setup",
                 },
-                "/v1/account/transactions/tx-setup": {
+                "/v1/wallets/transactions/tx-setup": {
                     "state": "STATE_CONFIRMED",
                     "transaction_hash": "0x" + "ab" * 32,
                     "transaction_id": "tx-setup",
@@ -52,7 +52,7 @@ def test_setup_trading_approvals_bundles_required_calls_for_deposit_wallet() -> 
             await client.close()
 
     asyncio.run(run())
-    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
+    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"]
     assert len(submit_calls) == 1
     body = request_json(submit_calls[0])
     assert body["type"] == "WALLET"
@@ -128,7 +128,7 @@ def test_setup_trading_approvals_skips_submit_when_already_approved() -> None:
             await client.close()
 
     asyncio.run(run())
-    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
+    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"]
     assert submit_calls == []
 
 
@@ -141,16 +141,16 @@ def test_setup_trading_approvals_uses_safe_multisend_for_safe() -> None:
             client,
             captured,
             {
-                "/v1/account/transactions/params": {
+                "/v1/wallets/execute-params": {
                     "address": client._ctx.signer.address,
                     "nonce": "0",
                 },
-                "/submit": {
+                "/v1/wallets/transactions": {
                     "state": "STATE_NEW",
                     "transactionHash": None,
                     "transactionID": "tx-setup-safe",
                 },
-                "/v1/account/transactions/tx-setup-safe": {
+                "/v1/wallets/transactions/tx-setup-safe": {
                     "state": "STATE_CONFIRMED",
                     "transaction_hash": "0x" + "cd" * 32,
                     "transaction_id": "tx-setup-safe",
@@ -164,7 +164,7 @@ def test_setup_trading_approvals_uses_safe_multisend_for_safe() -> None:
             await client.close()
 
     asyncio.run(run())
-    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
+    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"]
     body = request_json(submit_calls[0])
     assert body["type"] == "SAFE"
     assert body["to"].lower() == PRODUCTION_CONFIG.safe_multisend.lower()
