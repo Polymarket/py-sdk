@@ -8,7 +8,7 @@ import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, TypeAlias
+from typing import Any, TypeAlias, cast
 
 import httpx
 from httpx import USE_CLIENT_DEFAULT
@@ -34,6 +34,12 @@ ExpiredTokenRecovery: TypeAlias = Callable[[str], Awaitable[None]]
 _AUTH_PATH_PREFIX = "/v1/auth/"
 _EXPIRED_ACCESS_TOKEN = "expired_access_token"
 _SECRET_HEADER = re.compile(r"authorization|api.?key|passphrase|signature|secret", re.IGNORECASE)
+# Body fields that carry credentials. Identifiers such as ``token_id`` stay readable.
+_CREDENTIAL_BODY_FIELD = re.compile(
+    r"^(?:access|refresh|verification)_?token$|secret|passphrase|signature|api.?key|^key$",
+    re.IGNORECASE,
+)
+_ERROR_CODE = re.compile(r"[a-z][a-z0-9_]*")
 _REDACTED = "[REDACTED]"
 _AUTH_REJECTED_MESSAGE = "Authentication request rejected."
 _AUTH_TRANSPORT_MESSAGE = "Authentication transport failed."
@@ -175,7 +181,7 @@ class SyncTransport:
             attempt_headers = dict(merged_headers)
             if self._header_resolver is not None:
                 attempt_headers.update(self._header_resolver(method, path, body_str))
-            secrets = _request_secrets(attempt_headers)
+            secrets = _request_secrets(attempt_headers, json)
 
             started = time.perf_counter()
             outcome: httpx.Response | httpx.HTTPError
@@ -189,12 +195,13 @@ class SyncTransport:
                     timeout=timeout if timeout is not None else USE_CLIENT_DEFAULT,
                 )
             except httpx.HTTPError as error:
-                _log_failure(self._logger, method, path, error, started)
                 outcome = error
             if isinstance(outcome, httpx.HTTPError):
                 # Raised outside the handler so a credentialed request keeps no reference
-                # to the failed request and its headers.
-                raise _transport_error(outcome, path=path, secrets=secrets)
+                # to the failed request and its headers. Only the redacted error is logged.
+                failure = _transport_error(outcome, path=path, secrets=secrets)
+                _log_failure(self._logger, method, path, failure, started)
+                raise failure
             response = outcome
 
             _log_response(self._logger, method, path, response, started)
@@ -341,7 +348,7 @@ class AsyncTransport:
             attempt_headers = dict(merged_headers)
             if self._header_resolver is not None:
                 attempt_headers.update(await self._header_resolver(method, path, body_str))
-            secrets = _request_secrets(attempt_headers)
+            secrets = _request_secrets(attempt_headers, json)
 
             started = time.perf_counter()
             outcome: httpx.Response | httpx.HTTPError
@@ -355,12 +362,13 @@ class AsyncTransport:
                     timeout=timeout if timeout is not None else USE_CLIENT_DEFAULT,
                 )
             except httpx.HTTPError as error:
-                _log_failure(self._logger, method, path, error, started)
                 outcome = error
             if isinstance(outcome, httpx.HTTPError):
                 # Raised outside the handler so a credentialed request keeps no reference
-                # to the failed request and its headers.
-                raise _transport_error(outcome, path=path, secrets=secrets)
+                # to the failed request and its headers. Only the redacted error is logged.
+                failure = _transport_error(outcome, path=path, secrets=secrets)
+                _log_failure(self._logger, method, path, failure, started)
+                raise failure
             response = outcome
 
             _log_response(self._logger, method, path, response, started)
@@ -464,7 +472,7 @@ def _notify_rate_limit_update(
             logger.warning("polymarket rate-limit update listener failed", exc_info=True)
 
 
-def _request_secrets(headers: Mapping[str, str]) -> tuple[str, ...]:
+def _request_secrets(headers: Mapping[str, str], body: object) -> tuple[str, ...]:
     secrets: list[str] = []
     for name, value in headers.items():
         if not value or not _SECRET_HEADER.search(name):
@@ -473,13 +481,50 @@ def _request_secrets(headers: Mapping[str, str]) -> tuple[str, ...]:
         scheme, _, token = value.partition(" ")
         if scheme.lower() == "bearer" and token:
             secrets.append(token)
-    return tuple(secrets)
+    _collect_body_secrets(body, secrets)
+    return tuple(secret for secret in secrets if secret)
+
+
+def _collect_body_secrets(value: object, secrets: list[str]) -> None:
+    if isinstance(value, Mapping):
+        for key, field in cast(Mapping[object, object], value).items():
+            if (
+                isinstance(field, str)
+                and isinstance(key, str)
+                and _CREDENTIAL_BODY_FIELD.search(key)
+            ):
+                secrets.append(field)
+            else:
+                _collect_body_secrets(field, secrets)
+    elif isinstance(value, list | tuple):
+        for item in cast(list[object] | tuple[object, ...], value):
+            _collect_body_secrets(item, secrets)
+
+
+def _safe_error_code(code: str | None, secrets: tuple[str, ...]) -> str | None:
+    if code is None or _redact(code, secrets) != code:
+        return None
+    return code
 
 
 def _redact(text: str, secrets: tuple[str, ...]) -> str:
-    for secret in sorted(secrets, key=len, reverse=True):
-        text = text.replace(secret, _REDACTED)
+    # HTTP errors can quote a header value in its escaped str or bytes form.
+    forms = {
+        form
+        for secret in secrets
+        for form in (secret, repr(secret)[1:-1], repr(secret.encode())[2:-1])
+        if form
+    }
+    for form in sorted(forms, key=len, reverse=True):
+        text = text.replace(form, _REDACTED)
     return text
+
+
+def _auth_error_code(response: httpx.Response, secrets: tuple[str, ...]) -> str | None:
+    code = _safe_error_code(_extract_response_error_code(response), secrets)
+    if code is None or _ERROR_CODE.fullmatch(code) is None:
+        return None
+    return code
 
 
 def _is_auth_path(path: str) -> bool:
@@ -527,7 +572,7 @@ def _raise_for_response_status(
         raise RequestRejectedError(
             _AUTH_REJECTED_MESSAGE,
             status=response.status_code,
-            code=_extract_response_error_code(response),
+            code=_auth_error_code(response, secrets),
             retry_after=_extract_retry_after(response),
         )
 
@@ -550,8 +595,7 @@ def _raise_for_response_status(
     code = _extract_response_error_code(response)
     if secrets:
         message = _redact(message, secrets)
-        if code is not None and _redact(code, secrets) != code:
-            code = None
+        code = _safe_error_code(code, secrets)
     raise RequestRejectedError(
         message,
         status=response.status_code,

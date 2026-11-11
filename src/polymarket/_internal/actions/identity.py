@@ -315,15 +315,15 @@ def trading_identity(claims: AccessTokenClaims) -> str:
     return claims.clob_api_key
 
 
-def issued_for(tokens: IssuedTokens, *, signer: str, wallet: str) -> bool:
-    """Whether a login or migration issued a session for the requested signer and wallet."""
+def issued_for(tokens: IssuedTokens, *, signer: str, wallet: str | None) -> bool:
+    """Whether a login or migration issued a session for the requested signer and wallet.
+
+    Without a requested wallet, only the signer is checked.
+    """
     claims = _decode_claims(tokens.access_token)
-    return (
-        claims is not None
-        and claims.sub.lower() == signer.lower()
-        and claims.wallet is not None
-        and claims.wallet.lower() == wallet.lower()
-    )
+    if claims is None or claims.sub.lower() != signer.lower():
+        return False
+    return wallet is None or (claims.wallet is not None and claims.wallet.lower() == wallet.lower())
 
 
 def issue_login_session_sync(

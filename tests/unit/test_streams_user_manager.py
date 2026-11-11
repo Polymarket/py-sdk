@@ -415,3 +415,37 @@ def test_renewal_failure_on_reconnect_reschedules_instead_of_hanging() -> None:
 
     assert asyncio.run(run()) >= 2
     assert renew_calls >= 4, "renewal should be re-attempted after a transient outage"
+
+
+def test_session_that_ends_while_disconnected_ends_subscriptions() -> None:
+    connect_count = 0
+    renew_calls = 0
+
+    async def renew(current: Any) -> Any:
+        nonlocal renew_calls
+        renew_calls += 1
+        if renew_calls <= 3:
+            # Transient: the still-valid token is used for the first connection.
+            raise TransportError("simulated renewal outage")
+        raise RequestRejectedError("Session renewal rejected.", status=401, code="invalid_token")
+
+    async def handler(ws: ServerConnection) -> None:
+        nonlocal connect_count
+        connect_count += 1
+        await ws.recv()
+        await ws.close()
+
+    async def run() -> None:
+        session = async_test_session(expires_in=1, renew=renew)
+        async with ws_server(handler) as url:
+            mgr = ClobUserStreamManager(url=url, session=session)
+            try:
+                handle = await mgr.subscribe(markets=["m1"])
+                with pytest.raises(RequestRejectedError):
+                    await asyncio.wait_for(handle.__aiter__().__anext__(), timeout=5.0)
+            finally:
+                await mgr.close()
+
+    asyncio.run(run())
+    # Reconnects back off and stop once the session has ended instead of looping.
+    assert connect_count < 10

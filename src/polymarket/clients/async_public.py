@@ -44,7 +44,7 @@ from polymarket._internal.streams.handle import AsyncSubscriptionHandle, Subscri
 from polymarket.auth import BearerCredentials
 from polymarket.clients._transport import AsyncTransport
 from polymarket.environments import PRODUCTION, Environment
-from polymarket.errors import RequestRejectedError, UserInputError
+from polymarket.errors import RequestRejectedError, UnexpectedResponseError, UserInputError
 from polymarket.models import (
     ComboMarket,
     Comment,
@@ -622,6 +622,10 @@ class AsyncPublicClient:
             wallet=requested_wallet,
             nonce=nonce,
         )
+        if not _identity_actions.issued_for(tokens, signer=signer.address, wallet=requested_wallet):
+            raise UnexpectedResponseError(
+                "The issued session does not match the requested signer and wallet."
+            )
         return tokens.credentials
 
     async def migrate_credentials(
@@ -645,6 +649,10 @@ class AsyncPublicClient:
         tokens = await _identity_actions.issue_migrated_session(
             self._ctx.auth, credentials=credentials, signer=signer, wallet=requested_wallet
         )
+        if not _identity_actions.issued_for(tokens, signer=signer, wallet=requested_wallet):
+            raise UnexpectedResponseError(
+                "The issued session does not match the requested signer and wallet."
+            )
         return tokens.credentials
 
     @overload

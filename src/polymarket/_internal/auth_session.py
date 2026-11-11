@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import logging
 import threading
 import time
+import weakref
 from collections.abc import Awaitable, Callable
 from concurrent.futures import Future
 from typing import Protocol
@@ -35,7 +37,10 @@ from polymarket.errors import (
 )
 from polymarket.types import EvmAddress
 
+_LOGGER = logging.getLogger("polymarket.session")
+
 CredentialsChanged = Callable[[BearerCredentials], None]
+AsyncCredentialsChanged = Callable[[BearerCredentials], Awaitable[None] | None]
 Clock = Callable[[], float]
 
 # Renewal starts this long before the access token expires.
@@ -115,7 +120,8 @@ class _SessionState:
         if self.closed:
             raise TransportError(_CLOSED_MESSAGE)
         if self.failure is not None:
-            raise self.failure
+            # Re-raising the stored error would keep every caller's frames on it.
+            raise self.failure.with_traceback(None)
 
     def adopt_renewal(self, tokens: IssuedTokens) -> None:
         claims = parse_issued_claims(tokens.access_token)
@@ -192,6 +198,22 @@ class _TimerHandle:
 TimerFactory = Callable[[float, Callable[[], None]], TimerHandle]
 
 
+def _while_alive(method: Callable[[], None]) -> Callable[[], None]:
+    """Call ``method`` only while its session exists.
+
+    A pending timer must not keep a session that its client dropped renewing
+    and reporting credentials for the rest of the process.
+    """
+    reference = weakref.WeakMethod(method)
+
+    def call() -> None:
+        bound = reference()
+        if bound is not None:
+            bound()
+
+    return call
+
+
 class SyncAuthSession:
     """Bearer session for the synchronous client.
 
@@ -214,7 +236,7 @@ class SyncAuthSession:
         self._state = _SessionState(credentials=credentials, expires_in=expires_in, clock=clock)
         self._refresh = refresh
         self._on_credentials_changed = on_credentials_changed
-        self._logger = logger
+        self._logger = logger or _LOGGER
         self._timer_factory = timer_factory
         self._lock = threading.Lock()
         self._stopped = threading.Event()
@@ -378,8 +400,7 @@ class SyncAuthSession:
         try:
             self._on_credentials_changed(credentials)
         except Exception:
-            if self._logger is not None:
-                self._logger.warning("polymarket credentials listener failed", exc_info=True)
+            self._logger.warning("polymarket credentials listener failed", exc_info=True)
 
     def _on_timer(self) -> None:
         # Failures are recorded on the session and surface on the next request.
@@ -390,12 +411,14 @@ class SyncAuthSession:
         self._cancel_timer_locked()
         if self._state.closed or self._state.failure is not None:
             return
-        self._timer = self._timer_factory(self._state.renewal_delay(), self._on_timer)
+        self._timer = self._timer_factory(self._state.renewal_delay(), _while_alive(self._on_timer))
 
     def _retry_later_locked(self, error: BaseException) -> None:
         self._state.retries += 1
         self._cancel_timer_locked()
-        self._timer = self._timer_factory(_retry_delay(self._state.retries, error), self._on_timer)
+        self._timer = self._timer_factory(
+            _retry_delay(self._state.retries, error), _while_alive(self._on_timer)
+        )
 
     def _cancel_timer_locked(self) -> None:
         if self._timer is not None:
@@ -423,7 +446,7 @@ class AsyncAuthSession:
         self._state = _SessionState(credentials=credentials, expires_in=expires_in, clock=clock)
         self._refresh = refresh
         self._on_credentials_changed = on_credentials_changed
-        self._logger = logger
+        self._logger = logger or _LOGGER
         self._stopped = asyncio.Event()
         self._refreshing: asyncio.Task[BearerCredentials] | None = None
         self._timer: asyncio.TimerHandle | None = None
@@ -598,8 +621,7 @@ class AsyncAuthSession:
         try:
             self._on_credentials_changed(credentials)
         except Exception:
-            if self._logger is not None:
-                self._logger.warning("polymarket credentials listener failed", exc_info=True)
+            self._logger.warning("polymarket credentials listener failed", exc_info=True)
 
     def _end(self, error: BaseException) -> None:
         self._state.failure = error
@@ -620,7 +642,7 @@ class AsyncAuthSession:
 
     def _arm(self, delay: float) -> None:
         loop = asyncio.get_running_loop()
-        self._timer = loop.call_later(delay, self._on_timer)
+        self._timer = loop.call_later(delay, _while_alive(self._on_timer))
 
     def _on_timer(self) -> None:
         self._timer = None
@@ -654,7 +676,7 @@ class DeferredCredentialsListener:
     ) -> None:
         self._listener = listener
         self._publish = publish
-        self._logger = logger
+        self._logger = logger or _LOGGER
         self._pending: BearerCredentials | None = None
         self._lock = threading.Lock()
 
@@ -675,7 +697,40 @@ class DeferredCredentialsListener:
         try:
             self._listener(pending)
         except Exception:
-            if self._logger is not None:
+            self._logger.warning("polymarket credentials listener failed", exc_info=True)
+
+
+class BackgroundCredentialsListener:
+    """Run a coroutine ``on_credentials_changed`` listener as a task.
+
+    Sessions notify listeners synchronously, so an awaitable result runs in the
+    background, in the order the credentials were adopted. Its failures are
+    logged and ignored like those of a plain listener.
+    """
+
+    def __init__(
+        self, listener: AsyncCredentialsChanged, *, logger: logging.Logger | None = None
+    ) -> None:
+        self._listener = listener
+        self._logger = logger or _LOGGER
+        self._order: asyncio.Lock | None = None
+        self._tasks: set[asyncio.Task[None]] = set()
+
+    def __call__(self, credentials: BearerCredentials) -> None:
+        result = self._listener(credentials)
+        if not inspect.isawaitable(result):
+            return
+        if self._order is None:
+            self._order = asyncio.Lock()
+        task = asyncio.ensure_future(self._run(self._order, result))
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    async def _run(self, order: asyncio.Lock, result: Awaitable[None]) -> None:
+        async with order:
+            try:
+                await result
+            except Exception:
                 self._logger.warning("polymarket credentials listener failed", exc_info=True)
 
 
@@ -688,6 +743,8 @@ __all__ = [
     "MAX_RETRY_DELAY_SECONDS",
     "RENEWAL_LEAD_SECONDS",
     "AsyncAuthSession",
+    "AsyncCredentialsChanged",
+    "BackgroundCredentialsListener",
     "CredentialsChanged",
     "DeferredCredentialsListener",
     "SyncAuthSession",

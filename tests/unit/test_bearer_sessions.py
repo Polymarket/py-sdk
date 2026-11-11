@@ -118,6 +118,15 @@ def test_sign_in_signs_the_ownership_challenge() -> None:
     assert recovered == SIGNER
 
 
+def test_login_rejects_a_session_issued_for_another_wallet() -> None:
+    with respx.mock(assert_all_called=True) as router:
+        _route(router, "POST", f"{AUTH}/v1/auth/challenge", _ok(_challenge()))
+        _route(router, "POST", f"{AUTH}/v1/auth/login", _ok(_issued(_token(wallet=OTHER_WALLET))))
+
+        with PublicClient() as client, pytest.raises(UnexpectedResponseError):
+            client.login(private_key=PRIVATE_KEY, wallet=SIGNER)
+
+
 def test_saved_api_credentials_are_exchanged_without_a_wallet_signature() -> None:
     saved = ApiKeyCreds(key="api-key", passphrase="passphrase", secret="c2VjcmV0LXZhbHVl")
     changes: list[BearerCredentials] = []
@@ -236,6 +245,33 @@ def test_expired_access_token_is_renewed_and_the_request_replayed_once() -> None
     assert headers == [f"Bearer {saved.access_token}", f"Bearer {renewed}"]
 
 
+def test_async_expired_access_token_is_renewed_and_the_request_replayed_once() -> None:
+    saved = BearerCredentials(access_token=_token(), refresh_token="refresh")
+    renewed = _token()
+    expired = httpx.Response(401, json={"error": "expired", "code": "expired_access_token"})
+
+    async def run() -> list[httpx.Request]:
+        with respx.mock(assert_all_called=True) as router:
+            _route(router, "POST", f"{AUTH}/v1/auth/refresh", _ok(_issued(renewed)))
+            status = _route(
+                router,
+                "GET",
+                f"{CLOB}/auth/ban-status/closed-only",
+                expired,
+                _ok({"closed_only": False}),
+            )
+            async with await AsyncSecureClient._create(
+                private_key=PRIVATE_KEY, credentials=saved, validate_credentials=False
+            ) as client:
+                assert await client.get_closed_only_mode() is False
+        return status
+
+    status = asyncio.run(run())
+
+    headers = [request.headers["Authorization"] for request in status]
+    assert headers == [f"Bearer {saved.access_token}", f"Bearer {renewed}"]
+
+
 def test_a_second_expired_token_rejection_is_not_replayed() -> None:
     saved = BearerCredentials(access_token=_token(), refresh_token="refresh")
     expired = httpx.Response(401, json={"error": "expired", "code": "expired_access_token"})
@@ -321,3 +357,25 @@ def test_async_restored_session_is_renewed_and_explicit_renewals_are_shared() ->
     # One renewal when restoring and one shared by both explicit calls.
     assert calls == 2
     assert changes[-1] == first
+
+
+def test_async_client_runs_coroutine_credentials_listeners() -> None:
+    saved = BearerCredentials(access_token=_token(), refresh_token="saved-refresh")
+    stored: list[BearerCredentials] = []
+
+    async def store(credentials: BearerCredentials) -> None:
+        await asyncio.sleep(0)
+        stored.append(credentials)
+
+    async def run() -> BearerCredentials:
+        with respx.mock(assert_all_called=True) as router:
+            _route(router, "POST", f"{AUTH}/v1/auth/refresh", _ok(_issued(_token())))
+            async with await AsyncSecureClient.create(
+                private_key=PRIVATE_KEY, credentials=saved, on_credentials_changed=store
+            ) as client:
+                await asyncio.sleep(0.05)
+                return client.credentials
+
+    current = asyncio.run(run())
+
+    assert stored == [current]

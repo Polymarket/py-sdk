@@ -21,6 +21,7 @@ from polymarket._internal.actions.orders.typed_data import (
 from polymarket._internal.actions.orders.types import BYTES32_ZERO, UnsignedOrder
 from polymarket._internal.auth_session import AsyncAuthSession
 from polymarket._internal.streams.authentication import SocketAuthentication
+from polymarket._internal.streams.reconnect import ReconnectScheduler
 from polymarket._internal.wallet import WalletType, signature_type_for
 from polymarket._internal.ws.connection import AsyncWebSocketConnection
 from polymarket.errors import (
@@ -71,6 +72,8 @@ _POLY_1271_SIGNATURE_TYPE = 3
 _ACK_TIMEOUT_S = 30.0
 _QUEUE_SIZE = 1024
 _PROTOCOL_VERSION_V3 = "3"
+_POLICY_VIOLATION = 1008
+_AUTHENTICATION_EXPIRED = "authentication expired"
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,6 +166,7 @@ class RfqQuoterSession:
         on_close: Callable[[], None] | None = None,
     ) -> None:
         self._chain_id = chain_id
+        self._auth_session = session
         self._authentication = SocketAuthentication(
             session=session,
             authenticate=self._renew_authentication,
@@ -178,6 +182,9 @@ class RfqQuoterSession:
         self._wallet = wallet
         self._wallet_type: WalletType = wallet_type
         self._connection = AsyncWebSocketConnection(logger=self._logger)
+        self._reconnect_scheduler = ReconnectScheduler(logger=self._logger)
+        self._tasks: set[asyncio.Task[None]] = set()
+        self._authenticated = False
         self._queue: asyncio.Queue[RfqEvent | _EndSentinel] = asyncio.Queue(maxsize=_QUEUE_SIZE)
         self._pending: dict[str, deque[_PendingAck]] = {}
         self._end_error: BaseException | None = None
@@ -195,7 +202,17 @@ class RfqQuoterSession:
         return current().__await__()
 
     async def open(self) -> Self:
+        try:
+            await self._connect()
+        except BaseException:
+            await self.close()
+            raise
+        return self
+
+    async def _connect(self) -> None:
         credentials = await self._authentication.prepare()
+        if self._closed:
+            raise TransportError("RFQ quoter websocket closed.")
         await self._connection.connect(
             url=self._url,
             headers=self._headers,
@@ -203,18 +220,45 @@ class RfqQuoterSession:
             on_connection_lost=self._on_connection_lost,
             on_error=self._on_error,
         )
-        try:
-            await self._authenticate(credentials.access_token)
-        except BaseException:
-            await self.close()
-            raise
+        await self._authenticate(credentials.access_token)
+        if self._closed:
+            raise TransportError("RFQ quoter websocket closed.")
+        self._authenticated = True
+        self._reconnect_scheduler.reset()
         self._authentication.accepted(credentials.access_token)
-        return self
+
+    async def _reconnect(self) -> None:
+        if self._closed:
+            return
+        try:
+            await self._connect()
+        except RequestRejectedError as error:
+            # A rejected token ends the session; an unavailable authenticator is retried.
+            if error.code != "auth_unavailable":
+                self._fail(error)
+                return
+            self._logger.info("RFQ quoter authentication unavailable; rescheduling")
+        except Exception as error:
+            if self._auth_session.failure is not None:
+                self._fail(self._auth_session.failure)
+                return
+            self._logger.info("RFQ quoter reconnect failed: %r; rescheduling", error)
+        else:
+            return
+        await self._connection.close()
+        self._schedule_reconnect()
+
+    def _schedule_reconnect(self) -> None:
+        self._reconnect_scheduler.schedule(
+            reconnect=self._reconnect,
+            should_reconnect=lambda: not self._closed,
+        )
 
     async def _authenticate(self, access_token: str) -> None:
         auth_future = self._wait_for("auth", "Timed out waiting for RFQ authentication.")
         try:
-            await self._send(_auth_message(access_token))
+            if not await self._connection.send(_auth_message(access_token)):
+                raise TransportError("RFQ quoter websocket is not open.")
             await auth_future
         except BaseException:
             self._remove_pending("auth", auth_future)
@@ -227,11 +271,15 @@ class RfqQuoterSession:
 
     def _on_authentication_expired(self) -> None:
         self._authentication.stop()
-        self._fail(
-            ConnectionLostError(
-                "RFQ quoter connection lost.", code=1008, reason="authentication expired"
-            )
-        )
+        self._authenticated = False
+        task = asyncio.ensure_future(self._expire_connection())
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    async def _expire_connection(self) -> None:
+        # Closing locally does not report a lost connection, so report it here.
+        await self._connection.close()
+        self._on_connection_lost(_POLICY_VIOLATION, _AUTHENTICATION_EXPIRED)
 
     def __aiter__(self) -> Self:
         return self
@@ -259,6 +307,8 @@ class RfqQuoterSession:
         if self._closed:
             return
         self._closed = True
+        self._authenticated = False
+        self._reconnect_scheduler.cancel_pending()
         self._authentication.stop()
         self._reject_all_pending(TransportError("RFQ quoter websocket closed."))
         await self._connection.close()
@@ -518,16 +568,23 @@ class RfqQuoterSession:
 
     def _on_connection_lost(self, code: int, reason: str) -> None:
         self._authentication.stop()
-        if self._on_session_close is not None:
-            self._on_session_close()
-        if not self._closed:
-            self._closed = True
-            self._end(ConnectionLostError("RFQ quoter connection lost.", code=code, reason=reason))
+        self._authenticated = False
+        error = ConnectionLostError("RFQ quoter connection lost.", code=code, reason=reason)
+        # Commands awaiting acknowledgement are never replayed on a new connection.
+        self._reject_all_pending(error)
+        if self._closed:
+            return
+        if code == _POLICY_VIOLATION and reason != _AUTHENTICATION_EXPIRED:
+            self._fail(error)
+            return
+        self._schedule_reconnect()
 
     def _on_error(self, exc: BaseException) -> None:
         self._logger.warning("RFQ quoter websocket error: %r", exc)
 
     async def _send(self, payload: object) -> None:
+        if not self._authenticated:
+            raise TransportError("RFQ quoter is not connected.")
         if not await self._connection.send(payload):
             raise TransportError("RFQ quoter websocket is not open.")
 
@@ -592,6 +649,8 @@ class RfqQuoterSession:
         if self._closed:
             return
         self._closed = True
+        self._authenticated = False
+        self._reconnect_scheduler.cancel_pending()
         self._authentication.stop()
         self._end(error)
         if self._on_session_close is not None:

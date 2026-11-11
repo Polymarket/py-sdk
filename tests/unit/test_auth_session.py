@@ -1,4 +1,5 @@
 import asyncio
+import gc
 import threading
 import time
 from collections.abc import Callable
@@ -307,3 +308,23 @@ def test_async_concurrent_callers_share_one_renewal_and_failures_reach_listeners
 
     assert calls == 2
     assert [type(error) for error in failures] == [RequestRejectedError]
+
+
+def test_a_dropped_session_stops_renewing() -> None:
+    clock = FakeClock()
+    timers = RecordedTimers()
+    renewals: list[BearerCredentials] = []
+    session = SyncAuthSession(
+        credentials=_credentials(clock),
+        expires_in=900,
+        refresh=lambda current: renewals.append(current) or _issued(clock),
+        clock=clock,
+        timer_factory=timers,
+    )
+    session.start()
+
+    del session
+    gc.collect()
+    timers.callbacks[-1]()
+
+    assert renewals == []

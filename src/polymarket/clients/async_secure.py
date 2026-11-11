@@ -119,6 +119,8 @@ from polymarket._internal.actions.relayer.positions import (
 )
 from polymarket._internal.auth_session import (
     AsyncAuthSession,
+    AsyncCredentialsChanged,
+    BackgroundCredentialsListener,
     CredentialsChanged,
     DeferredCredentialsListener,
 )
@@ -828,7 +830,7 @@ class AsyncSecureClient:
         credentials: BearerCredentials | ApiKeyCreds | None = None,
         api_key: ApiKey | None = None,
         nonce: int = 0,
-        on_credentials_changed: CredentialsChanged | None = None,
+        on_credentials_changed: AsyncCredentialsChanged | None = None,
         logger: logging.Logger | None = None,
         on_rate_limit_update: RateLimitUpdateListener | None = None,
     ) -> Self:
@@ -849,8 +851,9 @@ class AsyncSecureClient:
             api_key: Optional key for gasless wallet and relayed transaction workflows.
             nonce: Sign-in nonce. Cannot be combined with ``credentials``.
             on_credentials_changed: Called with the new credentials after each
-                renewal. Exceptions it raises are logged and ignored, so handle
-                storage failures inside it.
+                renewal. It can be a coroutine function, which runs as a task.
+                Exceptions it raises are logged and ignored, so handle storage
+                failures inside it.
             on_rate_limit_update: Listener invoked whenever a response reports
                 per-signer rate-limit state, as order and cancellation responses
                 do. Errors raised by the listener are ignored.
@@ -887,7 +890,7 @@ class AsyncSecureClient:
         credentials: BearerCredentials | ApiKeyCreds | None = None,
         api_key: ApiKey | None = None,
         nonce: int = 0,
-        on_credentials_changed: CredentialsChanged | None = None,
+        on_credentials_changed: AsyncCredentialsChanged | None = None,
         validate_credentials: bool = True,
         logger: logging.Logger | None = None,
         on_rate_limit_update: RateLimitUpdateListener | None = None,
@@ -903,7 +906,11 @@ class AsyncSecureClient:
         config = get_environment_config(environment)
         restored = isinstance(credentials, BearerCredentials)
         notifier = DeferredCredentialsListener(
-            on_credentials_changed, publish=restored, logger=logger
+            None
+            if on_credentials_changed is None
+            else BackgroundCredentialsListener(on_credentials_changed, logger=logger),
+            publish=restored,
+            logger=logger,
         )
 
         auth = AsyncTransport(base_url=config.predictions_url, logger=logger)
@@ -1474,6 +1481,8 @@ class AsyncSecureClient:
         return self._rtds_manager
 
     def _get_user_manager(self) -> "ClobUserStreamManager":
+        # A failed session closes the user stream; report the session's error instead.
+        self._ctx.session.assert_active()
         if self._user_manager is None:
             from polymarket._internal.streams.clob.user import ClobUserStreamManager
 

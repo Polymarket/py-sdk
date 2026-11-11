@@ -51,6 +51,7 @@ class ClobUserStreamManager:
         if queue_size <= 0:
             raise ValueError("queue_size must be positive")
         self._url = url
+        self._session = session
         self._authentication = SocketAuthentication(
             session=session,
             authenticate=self._renew_authentication,
@@ -211,7 +212,8 @@ class ClobUserStreamManager:
 
     async def _authenticate_connection(self, state: UserServerState) -> None:
         credentials = await self._authentication.prepare()
-        await self._connection.send(build_initial_frame(state, credentials.access_token))
+        if not await self._connection.send(build_initial_frame(state, credentials.access_token)):
+            raise TransportError("User connection is not open.")
         self._authentication.accepted(credentials.access_token)
 
     async def _renew_authentication(self, access_token: str) -> None:
@@ -289,13 +291,19 @@ class ClobUserStreamManager:
                 return
             if result.reused:
                 return
-            self._scheduler.reset()
             try:
                 await self._authenticate_connection(self._registry.server_state())
             except Exception:
-                self._logger.exception("user stream authentication failed on reconnect")
                 await self._connection.close()
+                failure = self._session.failure
+                if failure is not None:
+                    # The session ended while disconnected; reconnecting cannot recover it.
+                    self._on_session_failure(failure)
+                    return
+                self._logger.exception("user stream authentication failed on reconnect")
                 self._scheduler.schedule(
                     reconnect=self._reconnect,
                     should_reconnect=self._should_reconnect,
                 )
+                return
+            self._scheduler.reset()
