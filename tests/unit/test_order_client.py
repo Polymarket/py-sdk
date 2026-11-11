@@ -10,8 +10,9 @@ import pytest
 from _bearer import bearer_credentials_for
 from _stacked import stacked_mock
 
-from polymarket import AsyncSecureClient
+from polymarket import AsyncSecureClient, BuilderApiKey
 from polymarket._internal.actions.orders.cache import AsyncOrderMetadataCache
+from polymarket._internal.hmac import build_hmac_signature
 from polymarket.clients._transport import AsyncTransport
 from polymarket.errors import RequestRejectedError, UnexpectedResponseError, UserInputError
 from polymarket.models.clob.order_response import AcceptedOrder
@@ -586,6 +587,38 @@ def test_place_limit_order_posts_after_signing() -> None:
         if r.method == "POST" and urlparse(str(r.url)).path == "/v1/orders"
     )
     assert post_request.headers.get("Authorization", "").startswith("Bearer ")
+
+
+def test_builder_key_signs_the_order_submission_over_its_trading_route() -> None:
+    builder = BuilderApiKey(key="builder-key", secret="c2VjcmV0", passphrase="builder-pass")
+    secure_captured: list[httpx.Request] = []
+
+    async def run() -> None:
+        client = await AsyncSecureClient._create(
+            private_key=PRIVATE_KEY,
+            wallet=SIGNER_ADDRESS,
+            credentials=bearer_credentials_for(PRIVATE_KEY),
+            api_key=builder,
+            validate_credentials=False,
+        )
+        try:
+            _install_clob(client, _routed_handler([], _public_routes()))
+            _install_secure_clob(client, _routed_handler(secure_captured, _secure_routes()))
+            await client.place_limit_order(token_id="8501497", price="0.5", size="10", side="BUY")
+        finally:
+            await client.close()
+
+    asyncio.run(run())
+    post = next(r for r in secure_captured if r.method == "POST" and r.url.path == "/v1/orders")
+    assert post.headers["Authorization"].startswith("Bearer ")
+    assert post.headers["POLY_BUILDER_API_KEY"] == "builder-key"
+    assert post.headers["POLY_BUILDER_SIGNATURE"] == build_hmac_signature(
+        secret=builder.secret,
+        timestamp=int(post.headers["POLY_BUILDER_TIMESTAMP"]),
+        method="POST",
+        path="/order",
+        body=post.content.decode(),
+    )
 
 
 def test_place_market_order_buy_signs_and_posts() -> None:

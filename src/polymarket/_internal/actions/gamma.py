@@ -728,7 +728,7 @@ def list_teams_spec(
     )
 
 
-# The upstream offset cap for the comments listings; deeper pages are rejected.
+# The upstream offset cap for comments listed by address; deeper pages are rejected.
 _MAX_COMMENTS_OFFSET = 200
 
 

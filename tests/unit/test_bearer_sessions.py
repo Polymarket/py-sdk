@@ -22,7 +22,6 @@ PRIVATE_KEY = "0x" + "44" * 32
 SIGNER = Account.from_key(PRIVATE_KEY).address
 OTHER_WALLET = "0x00000000000000000000000000000000000000aa"
 AUTH = PRODUCTION_CONFIG.predictions_url
-CLOB = PRODUCTION_CONFIG.clob_url
 
 
 def _token(*, wallet: str | None = SIGNER, lifetime: int = 900) -> str:

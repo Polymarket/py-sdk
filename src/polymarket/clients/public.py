@@ -425,7 +425,7 @@ class PublicClient:
         Unknown selectors contribute no rows. Asset lookups retain request order;
         condition groups retain server order and can repeat assets when selectors
         overlap. Nullable metadata is explicit. Outcome labels and settlement
-        metadata may lag by up to a minute. Transient rate limits are retried.
+        metadata may lag by up to a minute.
         """
         spec = _data_actions.build_get_token_references_spec(
             asset_ids=asset_ids, condition_ids=condition_ids
@@ -1190,7 +1190,8 @@ class PublicClient:
         direction.
 
         ``page_size`` counts top-level comments; replies ride along in the same
-        page.
+        page. A thread that ends exactly on a page boundary may return one final
+        empty page.
 
         Returns:
             A paginator over matching comments.

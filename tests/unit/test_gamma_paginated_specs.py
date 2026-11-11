@@ -555,12 +555,6 @@ def test_offset_specs_cap_offset_at_server_limit(
     assert spec.max_offset == expected_max_offset
 
 
-def test_list_comments_by_user_address_spec_counts_every_row_as_page_fill() -> None:
-    # The by-address listing is flat: authored replies are rows of their own.
-    spec = gamma_actions.list_comments_by_user_address_spec(address="0x" + "a" * 40)
-    assert spec.page_fill is None
-
-
 _KEYSET_DEFAULTS = {
     "parent_entity_id": "123",
     "parent_entity_type": "Event",

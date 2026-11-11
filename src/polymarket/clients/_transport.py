@@ -97,16 +97,6 @@ class SyncTransport:
         response = self._request("GET", path, params=params, headers=headers)
         return _read_json(response)
 
-    def get_bytes(
-        self,
-        path: str,
-        *,
-        params: Mapping[str, QueryParamValue | None] | None = None,
-        headers: Mapping[str, str] | None = None,
-    ) -> bytes:
-        response = self._request("GET", path, params=params, headers=headers)
-        return response.content
-
     def post_json(
         self,
         path: str,
@@ -252,16 +242,6 @@ class AsyncTransport:
     ) -> Any:
         response = await self._request("GET", path, params=params, headers=headers)
         return _read_json(response)
-
-    async def get_bytes(
-        self,
-        path: str,
-        *,
-        params: Mapping[str, QueryParamValue | None] | None = None,
-        headers: Mapping[str, str] | None = None,
-    ) -> bytes:
-        response = await self._request("GET", path, params=params, headers=headers)
-        return response.content
 
     async def post_json(
         self,

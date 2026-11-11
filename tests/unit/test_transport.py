@@ -707,52 +707,6 @@ def test_close_closes_owned_client() -> None:
         transport.get_json("/v1/markets/1")
 
 
-def test_get_bytes_returns_response_content() -> None:
-    payload = b"\x50\x4b\x03\x04PAYLOAD"
-    transport = SyncTransport(
-        base_url="https://example.test",
-        client=httpx.Client(
-            base_url="https://example.test",
-            transport=httpx.MockTransport(
-                lambda request: httpx.Response(200, content=payload, request=request)
-            ),
-        ),
-    )
-
-    assert transport.get_bytes("/snapshot") == payload
-
-
-def test_get_bytes_maps_error_response() -> None:
-    transport = SyncTransport(
-        base_url="https://example.test",
-        client=httpx.Client(
-            base_url="https://example.test",
-            transport=httpx.MockTransport(lambda request: httpx.Response(429, request=request)),
-        ),
-    )
-
-    with pytest.raises(RateLimitError):
-        transport.get_bytes("/snapshot")
-
-
-def test_async_get_bytes_returns_response_content() -> None:
-    payload = b"\x50\x4b\x03\x04PAYLOAD"
-
-    async def run() -> bytes:
-        transport = AsyncTransport(
-            base_url="https://example.test",
-            client=httpx.AsyncClient(
-                base_url="https://example.test",
-                transport=httpx.MockTransport(
-                    lambda request: httpx.Response(200, content=payload, request=request)
-                ),
-            ),
-        )
-        return await transport.get_bytes("/snapshot")
-
-    assert asyncio.run(run()) == payload
-
-
 def test_async_close_does_not_close_injected_client() -> None:
     async def run() -> None:
         injected = httpx.AsyncClient(

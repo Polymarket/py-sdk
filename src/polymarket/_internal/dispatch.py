@@ -95,7 +95,6 @@ def sync_paginate_offset(
             offset=offset,
             page_size=effective_size,
             items=items,
-            page_fill=spec.page_fill,
             max_offset=spec.max_offset,
         )
 
@@ -139,7 +138,6 @@ def async_paginate_offset(
             offset=offset,
             page_size=effective_size,
             items=items,
-            page_fill=spec.page_fill,
             max_offset=spec.max_offset,
         )
 

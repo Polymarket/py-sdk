@@ -597,7 +597,7 @@ class SecureClient:
         Unknown selectors contribute no rows. Asset lookups retain request order;
         condition groups retain server order and can repeat assets when selectors
         overlap. Nullable metadata is explicit. Outcome labels and settlement
-        metadata may lag by up to a minute. Transient rate limits are retried.
+        metadata may lag by up to a minute.
         """
         spec = _data_actions.build_get_token_references_spec(
             asset_ids=asset_ids, condition_ids=condition_ids
@@ -742,6 +742,7 @@ class SecureClient:
             credentials: Saved session or API credentials. Credentials that no longer
                 work raise instead of signing in again.
             api_key: Optional key for gasless wallet and relayed transaction workflows.
+                A builder key also attributes order, cancellation, and account requests.
             nonce: Sign-in nonce. Cannot be combined with ``credentials``.
             on_credentials_changed: Called with the new credentials after each
                 renewal. It can run on a background thread. Exceptions it raises are
@@ -1658,7 +1659,8 @@ class SecureClient:
         direction.
 
         ``page_size`` counts top-level comments; replies ride along in the same
-        page.
+        page. A thread that ends exactly on a page boundary may return one final
+        empty page.
 
         Returns:
             A paginator over matching comments.
