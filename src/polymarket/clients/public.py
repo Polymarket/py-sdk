@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from decimal import Decimal
 from types import TracebackType
-from typing import Literal, Self, overload
+from typing import Any, Literal, Self, overload
 
 from polymarket._internal.actions import builders as _builders_actions
 from polymarket._internal.actions import clob as _clob_actions
@@ -36,10 +36,10 @@ from polymarket._internal.dispatch import (
     sync_paginate_page_based,
 )
 from polymarket._internal.environment import get_environment_config
-from polymarket.auth import BearerCredentials
+from polymarket.auth import BearerCredentials, PlatformApiKey
 from polymarket.clients._transport import SyncTransport
 from polymarket.environments import PRODUCTION, Environment
-from polymarket.errors import RequestRejectedError, UnexpectedResponseError
+from polymarket.errors import RequestRejectedError, UnexpectedResponseError, UserInputError
 from polymarket.models import (
     ComboMarket,
     Comment,
@@ -518,20 +518,66 @@ class PublicClient:
         self,
         environment: Environment = PRODUCTION,
         *,
+        platform_api_key: PlatformApiKey | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
         config = get_environment_config(environment)
+        platform_resolver = (
+            None
+            if platform_api_key is None
+            else _identity_actions.make_platform_header_resolver_sync(platform_api_key)
+        )
         self._ctx = SyncClientContext(
             environment=environment,
             _resolved_environment_config=config,
-            predictions=SyncTransport(base_url=config.predictions_url, logger=logger),
-            auth=SyncTransport(base_url=config.predictions_url, logger=logger),
+            predictions=SyncTransport(
+                base_url=config.predictions_url, logger=logger, header_resolver=platform_resolver
+            ),
+            auth=SyncTransport(
+                base_url=config.predictions_url, logger=logger, header_resolver=platform_resolver
+            ),
+            platform_api_key=platform_api_key,
         )
 
     @property
     def environment(self) -> Environment:
         """Environment this client sends requests to."""
         return self._ctx.environment
+
+    def create_platform_challenge(
+        self,
+        *,
+        signer: str,
+        wallet: str | None = None,
+        nonce: int = 0,
+        verification_token: str | None = None,
+    ) -> dict[str, Any]:
+        """Request a sign-in challenge on behalf of another client.
+
+        Use it on a server that holds the Platform API Key to serve sign-in
+        challenges to browsers and other untrusted clients, which sign them
+        and complete sign-in themselves. Check that the caller may sign in as
+        ``signer`` before calling it. Return the challenge to the caller
+        unchanged; it carries no credentials.
+
+        Raises:
+            UserInputError: If no Platform API Key is configured or an input is invalid.
+            RequestRejectedError: If the challenge request is rejected.
+            RateLimitError: If the challenge request is rate-limited.
+            TransportError: If a network request fails.
+            UnexpectedResponseError: If the challenge is not a valid sign-in challenge.
+        """
+        if self._ctx.platform_api_key is None:
+            raise UserInputError(
+                "Create platform challenges with a client configured with platform_api_key."
+            )
+        return _identity_actions.request_platform_challenge_sync(
+            self._ctx.auth,
+            signer=_identity_actions.checksum_wallet(signer),
+            wallet=None if wallet is None else _identity_actions.checksum_wallet(wallet),
+            nonce=nonce,
+            verification_token=verification_token,
+        )
 
     def login(
         self, *, private_key: str, wallet: str | None = None, nonce: int = 0

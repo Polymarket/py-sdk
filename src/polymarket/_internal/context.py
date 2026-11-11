@@ -12,7 +12,7 @@ from polymarket._internal.auth_session import AsyncAuthSession, SyncAuthSession
 from polymarket._internal.environment import EnvironmentConfig, get_environment_config
 from polymarket._internal.eoa.rpc import JsonRpcClient, SyncJsonRpcClient
 from polymarket._internal.wallet import SignerType, WalletType
-from polymarket.auth import ApiKey
+from polymarket.auth import ApiKey, PlatformApiKey
 from polymarket.clients._transport import AsyncTransport, SyncTransport
 from polymarket.environments import Environment
 from polymarket.types import EvmAddress
@@ -24,6 +24,7 @@ class SyncClientContext:
     environment_config: EnvironmentConfig = field(init=False, repr=False)
     predictions: SyncTransport
     auth: SyncTransport
+    platform_api_key: PlatformApiKey | None = None
     _resolved_environment_config: InitVar[EnvironmentConfig | None] = None
 
     def __post_init__(self, _resolved_environment_config: EnvironmentConfig | None) -> None:
@@ -51,6 +52,7 @@ class AsyncClientContext:
     predictions: AsyncTransport
     perps: AsyncTransport
     auth: AsyncTransport
+    platform_api_key: PlatformApiKey | None = None
     _resolved_environment_config: InitVar[EnvironmentConfig | None] = None
 
     def __post_init__(self, _resolved_environment_config: EnvironmentConfig | None) -> None:

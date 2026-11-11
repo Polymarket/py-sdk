@@ -1,4 +1,4 @@
-from polymarket.auth import BearerCredentials, BuilderApiKey, RelayerApiKey
+from polymarket.auth import BearerCredentials, BuilderApiKey, PlatformApiKey, RelayerApiKey
 from polymarket.calls import TransactionCall
 from polymarket.clients import AsyncPublicClient, AsyncSecureClient, PublicClient, SecureClient
 from polymarket.environments import PRODUCTION, Environment
@@ -600,6 +600,7 @@ __all__ = [
     "PerpsTpSlTrigger",
     "PerpsTrade",
     "PerpsWithdrawal",
+    "PlatformApiKey",
     "PolymarketError",
     "PositionId",
     "PriceRequest",

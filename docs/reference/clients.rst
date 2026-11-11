@@ -68,6 +68,36 @@ session expires without renewal. Creating a client from them then raises
 
 .. autoclass:: polymarket.BearerCredentials
 
+Platform API Keys
+-----------------
+
+A Platform API Key identifies your application. Pass it as ``platform_api_key``
+on a server: sign-in, credential exchanges, and every request the client sends
+carry it, and the sessions it opens stay bound to your application. Session
+renewal and ``end_authentication()`` use the session credentials only.
+
+.. code-block:: python
+
+   import os
+
+   from polymarket import PlatformApiKey, SecureClient
+
+   client = SecureClient.create(
+       private_key=private_key,
+       platform_api_key=PlatformApiKey(os.environ["POLYMARKET_PLATFORM_API_KEY"]),
+   )
+
+Keep the key on the server. To sign in browsers or other untrusted clients,
+serve them challenges from a server route with
+``PublicClient.create_platform_challenge``: check that the caller may sign in as
+the requested signer, then return the challenge unchanged. The caller signs it
+and completes sign-in itself.
+
+A Platform API Key does not authorize gasless wallet operations. Those still
+need a builder or relayer key passed as ``api_key``.
+
+.. autoclass:: polymarket.PlatformApiKey
+
 PublicClient
 ------------
 

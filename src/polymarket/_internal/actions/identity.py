@@ -17,8 +17,13 @@ from eth_account.signers.local import LocalAccount
 from eth_utils.address import is_hex_address, to_checksum_address
 
 from polymarket._internal.hmac import build_hmac_signature
-from polymarket.auth import BearerCredentials
-from polymarket.clients._transport import AsyncTransport, SyncTransport
+from polymarket.auth import BearerCredentials, PlatformApiKey
+from polymarket.clients._transport import (
+    AsyncTransport,
+    HeaderResolver,
+    SyncHeaderResolver,
+    SyncTransport,
+)
 from polymarket.errors import SigningError, UnexpectedResponseError, UserInputError
 from polymarket.models.clob import ApiKeyCreds
 from polymarket.types import EvmAddress
@@ -49,6 +54,9 @@ _CLOB_AUTH_FIELDS = (
     {"name": "message", "type": "string"},
 )
 _MAX_NONCE = 2**32 - 1
+_MAX_VERIFICATION_TOKEN_LENGTH = 2048
+# Session renewal and logout use session credentials only.
+_SESSION_ONLY_PATHS = frozenset({REFRESH_PATH, LOGOUT_PATH})
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,7 +118,9 @@ def checksum_wallet(wallet: str) -> EvmAddress:
         raise UserInputError(f"Invalid wallet address: {error}") from error
 
 
-def build_challenge_request(*, signer: str, wallet: str | None, nonce: int) -> dict[str, object]:
+def build_challenge_request(
+    *, signer: str, wallet: str | None, nonce: int, verification_token: str | None = None
+) -> dict[str, object]:
     if not _is_int(nonce) or not 0 <= nonce <= _MAX_NONCE:
         raise UserInputError(f"nonce must be an integer between 0 and {_MAX_NONCE}")
     body: dict[str, object] = {"signer": signer}
@@ -118,7 +128,36 @@ def build_challenge_request(*, signer: str, wallet: str | None, nonce: int) -> d
         body["wallet"] = wallet
     if nonce != 0:
         body["nonce"] = nonce
+    if verification_token is not None:
+        if not 0 < len(verification_token) <= _MAX_VERIFICATION_TOKEN_LENGTH:
+            raise UserInputError(
+                f"verification_token must be 1 to {_MAX_VERIFICATION_TOKEN_LENGTH} characters"
+            )
+        body["verification_token"] = verification_token
     return body
+
+
+def build_platform_api_key_headers(
+    platform_api_key: PlatformApiKey | None, *, path: str
+) -> dict[str, str]:
+    """Headers that attribute a request to the application's Platform API Key."""
+    if platform_api_key is None or path in _SESSION_ONLY_PATHS:
+        return {}
+    return {"X-API-Key": platform_api_key.key}
+
+
+def make_platform_header_resolver_sync(platform_api_key: PlatformApiKey) -> SyncHeaderResolver:
+    def resolver(method: str, path: str, body: str | None) -> dict[str, str]:
+        return build_platform_api_key_headers(platform_api_key, path=path)
+
+    return resolver
+
+
+def make_platform_header_resolver(platform_api_key: PlatformApiKey) -> HeaderResolver:
+    async def resolver(method: str, path: str, body: str | None) -> dict[str, str]:
+        return build_platform_api_key_headers(platform_api_key, path=path)
+
+    return resolver
 
 
 def parse_ownership_challenge(data: object) -> OwnershipChallenge:
@@ -446,6 +485,40 @@ async def revoke_session(auth: AsyncTransport, access_token: str) -> None:
     await auth.post(LOGOUT_PATH, headers=build_bearer_headers(access_token))
 
 
+def request_platform_challenge_sync(
+    auth: SyncTransport,
+    *,
+    signer: str,
+    wallet: str | None,
+    nonce: int,
+    verification_token: str | None,
+) -> dict[str, Any]:
+    """Request an ownership challenge and return it exactly as issued."""
+    body = build_challenge_request(
+        signer=signer, wallet=wallet, nonce=nonce, verification_token=verification_token
+    )
+    challenge = auth.post_json(CHALLENGE_PATH, json=body)
+    parse_ownership_challenge(challenge)
+    return cast(dict[str, Any], challenge)
+
+
+async def request_platform_challenge(
+    auth: AsyncTransport,
+    *,
+    signer: str,
+    wallet: str | None,
+    nonce: int,
+    verification_token: str | None,
+) -> dict[str, Any]:
+    """Request an ownership challenge and return it exactly as issued."""
+    body = build_challenge_request(
+        signer=signer, wallet=wallet, nonce=nonce, verification_token=verification_token
+    )
+    challenge = await auth.post_json(CHALLENGE_PATH, json=body)
+    parse_ownership_challenge(challenge)
+    return cast(dict[str, Any], challenge)
+
+
 def _decode_claims(access_token: str) -> AccessTokenClaims | None:
     parts = access_token.split(".")
     if len(parts) < 2:
@@ -557,6 +630,7 @@ __all__ = [
     "build_challenge_request",
     "build_login_request",
     "build_migrate_request",
+    "build_platform_api_key_headers",
     "build_refresh_request",
     "build_upgrade_request",
     "checksum_wallet",
@@ -565,6 +639,8 @@ __all__ = [
     "issue_migrated_session",
     "issue_migrated_session_sync",
     "issued_for",
+    "make_platform_header_resolver",
+    "make_platform_header_resolver_sync",
     "parse_access_token_claims",
     "parse_access_token_grant",
     "parse_issued_claims",
@@ -572,6 +648,8 @@ __all__ = [
     "parse_ownership_challenge",
     "refresh_session",
     "refresh_session_sync",
+    "request_platform_challenge",
+    "request_platform_challenge_sync",
     "revoke_session",
     "revoke_session_sync",
     "same_session_identity",
