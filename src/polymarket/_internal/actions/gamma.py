@@ -566,7 +566,6 @@ def list_markets_spec(
     liquidity_num_max: float | None = None,
     liquidity_num_min: float | None = None,
     locale: str | None = None,
-    market_maker_addresses: str | Sequence[str] | None = None,
     order: str | None = None,
     onchain_event_ids: str | Sequence[str] | None = None,
     position_ids: str | Sequence[str] | None = None,
@@ -627,7 +626,6 @@ def list_markets_spec(
     _add_optional(params, "liquidity_num_max", liquidity_num_max)
     _add_optional(params, "liquidity_num_min", liquidity_num_min)
     _add_optional(params, "locale", locale)
-    _add_optional_seq(params, "market_maker_address", market_maker_addresses)
     _add_optional(params, "order", _normalize_market_order(order))
     for key, value in (("onchain_event_ids", onchain_event_ids), ("request_ids", request_ids)):
         if value is not None and (
