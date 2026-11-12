@@ -22,6 +22,10 @@ from polymarket.models.clob.market_events import (
 )
 from polymarket.models.clob.user_events import (
     KnownUserOrderStatus,
+    UserAutoRedeemEvent,
+    UserAutoRedeemPayload,
+    UserComboAutoRedeemEvent,
+    UserComboAutoRedeemPayload,
     UserEvent,
     UserOrderEvent,
     UserOrderPayload,
@@ -262,6 +266,10 @@ __all__ = [
     "Subscription",
     "SubscriptionHandle",
     "UserEvent",
+    "UserAutoRedeemEvent",
+    "UserAutoRedeemPayload",
+    "UserComboAutoRedeemEvent",
+    "UserComboAutoRedeemPayload",
     "UserOrderEvent",
     "UserOrderPayload",
     "UserOrderStatus",
