@@ -102,9 +102,10 @@ def test_parse_closed_only_mode_rejects_missing_field() -> None:
         parse_closed_only_mode({})
 
 
-def test_build_list_open_orders_request_includes_all_filter_params() -> None:
+@pytest.mark.parametrize("asset_key", ["asset_id", "token_id"])
+def test_build_list_open_orders_request_includes_all_filter_params(asset_key: str) -> None:
     path, params = build_list_open_orders_request(
-        token_id="t1", id="order-1", market="0xMARKET", cursor="abc"
+        **{asset_key: "t1"}, id="order-1", market="0xMARKET", cursor="abc"
     )
     assert path == "/data/orders"
     assert params == {
@@ -113,6 +114,22 @@ def test_build_list_open_orders_request_includes_all_filter_params() -> None:
         "market": "0xMARKET",
         "next_cursor": "abc",
     }
+
+
+@pytest.mark.parametrize("asset_key", ["asset_id", "token_id"])
+@pytest.mark.parametrize("market", [None, "", "   "])
+def test_build_list_open_orders_request_requires_market_for_asset(
+    asset_key: str, market: str | None
+) -> None:
+    with pytest.raises(UserInputError, match="market"):
+        build_list_open_orders_request(**{asset_key: "t1"}, market=market)
+
+
+def test_build_list_open_orders_request_allows_market_without_asset() -> None:
+    assert build_list_open_orders_request(market="0xMARKET") == (
+        "/data/orders",
+        {"market": "0xMARKET"},
+    )
 
 
 def test_build_list_open_orders_request_omits_unset_params() -> None:
