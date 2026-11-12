@@ -256,3 +256,25 @@ def test_malformed_analytics_identity_and_timestamp_raise_sdk_errors() -> None:
         PriceHistoryPoint.parse_response(
             {"timestamp": 10**100, "price": 0.5, "resolution_seconds": 60}
         )
+
+
+def test_combo_empty_leg_condition_and_first_entry_keep_neighbors() -> None:
+    ordinary = sample("positions_combos")[0]
+    empty: dict[str, Any] = {
+        **ordinary,
+        "first_entry_at": "",
+        "legs": [{**ordinary["legs"][0], "leg_condition_id": ""}],
+    }
+    rows = ComboPosition.parse_response_list([ordinary, empty, ordinary])
+    assert len(rows) == 3
+    assert rows[1].first_entry_at is None
+    assert rows[1].legs[0].leg_condition_id is None
+    assert rows[0] == rows[2]
+    assert rows[0].first_entry_at is not None
+    for invalid in ("invalid", "0xz1"):
+        with pytest.raises(UnexpectedResponseError):
+            ComboPosition.parse_response({**empty, "first_entry_at": invalid})
+        with pytest.raises(UnexpectedResponseError):
+            ComboPosition.parse_response(
+                {**empty, "legs": [{**empty["legs"][0], "leg_condition_id": invalid}]}
+            )
