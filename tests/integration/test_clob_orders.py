@@ -39,12 +39,13 @@ async def _wait_for_order_visible(
     client: AsyncSecureClient,
     *,
     token_id: str,
+    condition_id: str,
     order_id: str,
     attempts: int = 16,
     delay_s: float = 0.5,
 ) -> bool:
     for _ in range(attempts):
-        page = await client.list_open_orders(token_id=token_id).first_page()
+        page = await client.list_open_orders(token_id=token_id, market=condition_id).first_page()
         if any(order.id == order_id for order in page.items):
             return True
         await asyncio.sleep(delay_s)
@@ -55,12 +56,13 @@ async def _wait_for_order_not_visible(
     client: AsyncSecureClient,
     *,
     token_id: str,
+    condition_id: str,
     order_id: str,
     attempts: int = 8,
     delay_s: float = 0.25,
 ) -> bool:
     for _ in range(attempts):
-        page = await client.list_open_orders(token_id=token_id).first_page()
+        page = await client.list_open_orders(token_id=token_id, market=condition_id).first_page()
         if all(order.id != order_id for order in page.items):
             return True
         await asyncio.sleep(delay_s)
@@ -188,7 +190,10 @@ async def test_place_limit_order_buy_creates_visible_open_order_and_cancels_clea
         placed_id = placed.order_id
 
         assert await _wait_for_order_visible(
-            deposit_wallet_client, token_id=token_id, order_id=placed_id
+            deposit_wallet_client,
+            token_id=token_id,
+            condition_id=_market_condition_id(tradable_market),
+            order_id=placed_id,
         ), f"order {placed_id} never appeared in list_open_orders"
 
         canceled_id = placed_id
@@ -197,7 +202,10 @@ async def test_place_limit_order_buy_creates_visible_open_order_and_cancels_clea
         placed_id = None
 
         assert await _wait_for_order_not_visible(
-            deposit_wallet_client, token_id=token_id, order_id=canceled_id
+            deposit_wallet_client,
+            token_id=token_id,
+            condition_id=_market_condition_id(tradable_market),
+            order_id=canceled_id,
         ), f"cancel_order did not clear {canceled_id}"
     finally:
         if placed_id is not None:
@@ -227,7 +235,10 @@ async def test_place_limit_order_post_only_lands_on_book(
         placed_id = placed.order_id
 
         assert await _wait_for_order_visible(
-            deposit_wallet_client, token_id=token_id, order_id=placed_id
+            deposit_wallet_client,
+            token_id=token_id,
+            condition_id=_market_condition_id(tradable_market),
+            order_id=placed_id,
         )
     finally:
         if placed_id is not None:
@@ -275,7 +286,10 @@ async def test_create_then_post_split_workflow_matches_place_helper(
         placed_id = response.order_id
 
         assert await _wait_for_order_visible(
-            deposit_wallet_client, token_id=token_id, order_id=placed_id
+            deposit_wallet_client,
+            token_id=token_id,
+            condition_id=_market_condition_id(tradable_market),
+            order_id=placed_id,
         )
     finally:
         if placed_id is not None:
