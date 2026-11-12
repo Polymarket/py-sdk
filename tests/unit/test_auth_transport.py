@@ -133,7 +133,7 @@ def test_async_secure_create_with_credentials_skips_auth_flow() -> None:
             validate_credentials=False,
         )
         try:
-            assert client.credentials is FAKE_CREDS
+            assert client._ctx.credentials is FAKE_CREDS
         finally:
             await client.close()
 

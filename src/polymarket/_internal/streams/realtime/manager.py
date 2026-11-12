@@ -3,10 +3,12 @@ import asyncio
 import logging
 from collections.abc import Callable, Mapping
 
+from polymarket._internal.gateway_session import AsyncGatewaySession
 from polymarket._internal.streams.handle import AsyncSubscriptionHandle
 from polymarket._internal.streams.realtime.protocol import PriceKey, subscriptions_for
 from polymarket._internal.streams.realtime.session import PriceListener, PriceSession
 from polymarket._internal.streams.realtime.socket import PriceConnection
+from polymarket.auth import BearerCredentials
 from polymarket.errors import TransportError
 from polymarket.models.clob.api_key import ApiKeyCreds
 from polymarket.models.price_events import PriceEvent
@@ -20,7 +22,8 @@ class RealtimeStreamManager:
         self,
         *,
         url: str,
-        credentials: ApiKeyCreds,
+        credentials: ApiKeyCreds | BearerCredentials,
+        session: AsyncGatewaySession | None = None,
         headers: Mapping[str, str] | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
@@ -30,6 +33,7 @@ class RealtimeStreamManager:
             headers,
             logger,
         )
+        self._session = session
         self._sessions: list[PriceSession] = []
         self._handles: set[AsyncSubscriptionHandle[PriceEvent]] = set()
         self._closed = False
@@ -47,6 +51,7 @@ class RealtimeStreamManager:
             PriceConnection(
                 url=self._url,
                 credentials=self._credentials,
+                session=self._session,
                 headers=self._headers,
                 logger=self._logger,
             ),

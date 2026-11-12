@@ -116,6 +116,9 @@ class AsyncWebSocketConnection:
                 additional_headers=additional_headers,
                 open_timeout=self._open_timeout_s,
                 close_timeout=self._close_timeout_s,
+                # The websockets wire logger prints complete credential frames at DEBUG.
+                # Keep SDK lifecycle logging, but never enable that raw-frame logger.
+                logger=logging.Logger("polymarket.ws.wire", level=logging.CRITICAL + 1),
             )
         except (OSError, TimeoutError, WebSocketException) as error:
             raise TransportError(str(error) or f"WebSocket connection failed: {url}") from error

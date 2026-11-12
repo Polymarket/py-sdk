@@ -62,6 +62,7 @@ class PriceSession:
         self._idle: asyncio.TimerHandle | None = None
         self._closing: asyncio.Task[None] | None = None
         self._authenticated = False
+        self._auth_unavailable_attempts = 0
         self._lost: ConnectionLostError | None = None
         self._attempt = 0
         self._key_target = 64
@@ -235,7 +236,8 @@ class PriceSession:
                     try:
                         await self._connection.authorize()
                     except RequestRejectedError as error:
-                        if error.code != "auth_unavailable":
+                        self._auth_unavailable_attempts += 1
+                        if error.code != "auth_unavailable" or self._auth_unavailable_attempts >= 3:
                             self._reject(list(self._keys.values()), error, unsubscribe=False)
                             self._start_close()
                             return
@@ -247,6 +249,7 @@ class PriceSession:
                         continue
                     if self._lost is not None:
                         continue
+                    self._auth_unavailable_attempts = 0
                     self._authenticated = True
                     self._enqueue("subscribe", list(self._keys.values()))
                 if not self._ops:
@@ -319,4 +322,4 @@ class PriceSession:
             unsubscribe=False,
         )
         self._ops.clear()
-        await self._connection.close()
+        await self._connection.dispose()

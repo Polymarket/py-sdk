@@ -3,8 +3,10 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Iterable
 from types import TracebackType
-from typing import Self
+from typing import Self, cast
 
+from polymarket._internal.gateway_session import AsyncGatewaySession
+from polymarket._internal.socket_auth import SocketAuthentication
 from polymarket._internal.streams.clob.heartbeat import ClobWebSocketHeartbeat
 from polymarket._internal.streams.clob.user_protocol import (
     UserServerState,
@@ -19,13 +21,14 @@ from polymarket._internal.streams.reconnect import ReconnectScheduler
 from polymarket._internal.streams.registry import SubscriptionRegistry
 from polymarket._internal.ws.connection import AsyncWebSocketConnection, ConnectResult
 from polymarket._internal.ws.heartbeat import Heartbeat
-from polymarket.errors import TransportError, UserInputError
+from polymarket.auth import BearerCredentials
+from polymarket.errors import RequestRejectedError, TransportError, UserInputError
 from polymarket.models import ApiKeyCreds
 from polymarket.models.clob.user_events import UserEvent, parse_user_events
 
 DEFAULT_QUEUE_SIZE = 1024
 
-ApiKeyCredsResolver = Callable[[], Awaitable[ApiKeyCreds]]
+ApiKeyCredsResolver = Callable[[], Awaitable[ApiKeyCreds | BearerCredentials]]
 
 
 class ClobUserStreamManager:
@@ -34,6 +37,7 @@ class ClobUserStreamManager:
         *,
         url: str,
         resolve_credentials: ApiKeyCredsResolver,
+        session: AsyncGatewaySession | None = None,
         logger: logging.Logger | None = None,
         heartbeat: Heartbeat | None = None,
         queue_size: int = DEFAULT_QUEUE_SIZE,
@@ -53,6 +57,14 @@ class ClobUserStreamManager:
         self._send_lock = asyncio.Lock()
         self._closed = False
         self._dropped_events = 0
+        self._auth_failures = 0
+        self._authentication = (
+            SocketAuthentication(
+                session=session, protocol="clob", send=self._connection.send, expire=self._expired
+            )
+            if session is not None
+            else None
+        )
 
     @property
     def is_open(self) -> bool:
@@ -103,7 +115,10 @@ class ClobUserStreamManager:
                 else:
                     self._scheduler.cancel_pending()
                     credentials = await self._resolve_credentials()
-                    await self._connection.send(build_initial_frame(after, credentials))
+                    if self._authentication is not None:
+                        await self._authentication.initial(build_initial_frame(after, credentials))
+                    else:
+                        await self._connection.send(build_initial_frame(after, credentials))
             except BaseException:
                 self._registry.remove_handle(handle)
                 handle._end()
@@ -120,6 +135,8 @@ class ClobUserStreamManager:
         if self._closed:
             return
         self._closed = True
+        if self._authentication is not None:
+            await self._authentication.close()
         await self._scheduler.aclose()
         self._registry.end_all()
         await self._connection.close()
@@ -151,6 +168,8 @@ class ClobUserStreamManager:
                 return
             if self._registry.is_empty:
                 self._scheduler.cancel_pending()
+                if self._authentication is not None:
+                    self._authentication.disconnected()
                 await self._connection.close()
                 return
             after = self._registry.server_state()
@@ -159,20 +178,51 @@ class ClobUserStreamManager:
                     return
 
     def _on_message(self, raw: object) -> None:
+        if self._authentication is not None and self._authentication.message(raw):
+            if isinstance(raw, dict) and cast(dict[str, object], raw).get("success") is True:
+                self._auth_failures = 0
+            return
         events, dropped = parse_user_events(raw)
         if dropped:
             self._dropped_events += dropped
             self._logger.debug("dropped %d malformed user event(s)", dropped)
+        if events:
+            self._auth_failures = 0
         for event in events:
             self._registry.dispatch(event)
 
     def _on_socket_connection_lost(self, code: int, reason: str) -> None:
+        if self._authentication is not None:
+            self._authentication.disconnected()
         if self._closed:
             return
+        if self._authentication is not None:
+            if code == 1008 and reason == "authentication failed":
+                self._scheduler.cancel_pending()
+                self._registry.end_all(
+                    RequestRejectedError(
+                        "Socket authentication rejected", status=401, code="auth_invalid"
+                    )
+                )
+                return
+            if code == 1013:
+                self._auth_failures += 1
+                if self._auth_failures >= 3:
+                    self._scheduler.cancel_pending()
+                    self._registry.end_all(
+                        RequestRejectedError(
+                            "Socket authentication unavailable", status=503, code="auth_unavailable"
+                        )
+                    )
+                    return
         self._scheduler.schedule(
             reconnect=self._reconnect,
             should_reconnect=self._should_reconnect,
         )
+
+    async def _expired(self) -> None:
+        await self._connection.close()
+        self._on_socket_connection_lost(1008, "authentication expired")
 
     def _on_socket_error(self, exc: BaseException) -> None:
         self._logger.warning("user stream reader error: %r", exc)
@@ -210,4 +260,7 @@ class ClobUserStreamManager:
                 )
                 return
             state = self._registry.server_state()
-            await self._connection.send(build_initial_frame(state, credentials))
+            if self._authentication is not None:
+                await self._authentication.initial(build_initial_frame(state, credentials))
+            else:
+                await self._connection.send(build_initial_frame(state, credentials))

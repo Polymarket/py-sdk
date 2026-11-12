@@ -10,6 +10,7 @@ from polymarket._internal.actions.orders.allowance import (
     resolve_order_balance_allowance_target,
 )
 from polymarket._internal.actions.orders.context import resolve_order_exchange_address
+from polymarket._internal.gateway_auth import owner_api_key
 from polymarket._internal.protocol import is_v2_position_id
 from polymarket._internal.wallet import signature_type_for
 from polymarket.errors import RequestRejectedError
@@ -63,7 +64,10 @@ def post_order_with_allowance_recovery_sync(
 async def _post_order(client: AsyncSecureClient, signed_order: SignedOrder) -> OrderResponse:
     ctx = client._ctx  # pyright: ignore[reportPrivateUsage]
     path, payload = _post_actions.build_post_order_request(
-        signed_order, owner_api_key=ctx.credentials.key
+        signed_order,
+        owner_api_key=owner_api_key(
+            ctx.session.credentials if ctx.session is not None else ctx.credentials
+        ),
     )
     return _post_actions.parse_order_response(await ctx.secure_clob.post_json(path, json=payload))
 
@@ -71,7 +75,10 @@ async def _post_order(client: AsyncSecureClient, signed_order: SignedOrder) -> O
 def _post_order_sync(client: SecureClient, signed_order: SignedOrder) -> OrderResponse:
     ctx = client._ctx  # pyright: ignore[reportPrivateUsage]
     path, payload = _post_actions.build_post_order_request(
-        signed_order, owner_api_key=ctx.credentials.key
+        signed_order,
+        owner_api_key=owner_api_key(
+            ctx.session.credentials if ctx.session is not None else ctx.credentials
+        ),
     )
     return _post_actions.parse_order_response(ctx.secure_clob.post_json(path, json=payload))
 

@@ -394,7 +394,14 @@ def test_secure_client_rejects_invalid_wallet_address() -> None:
         asyncio.run(run())
 
 
-def test_secure_client_defaults_wallet_to_current_deposit_wallet() -> None:
+def test_secure_client_defaults_wallet_to_current_deposit_wallet(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr(
+        "polymarket.clients.async_secure.fetch_deployed", AsyncMock(return_value=True)
+    )
     from eth_account import Account
 
     from polymarket._internal.wallet import derive_uups_deposit_wallet_address
