@@ -2432,6 +2432,9 @@ class AsyncSecureClient:
     ) -> AsyncPaginator[OpenOrder]:
         """List open orders for the authenticated account.
 
+        Supply the market condition ID in ``market`` when filtering by
+        ``asset_id`` or its deprecated alias ``token_id``.
+
         Returns:
             An async paginator over matching open orders.
         """

@@ -70,6 +70,8 @@ def build_list_open_orders_request(
     params: dict[str, QueryParamValue] = {}
     resolved_asset = resolve_optional_asset_id(asset_id=asset_id, token_id=token_id)
     if resolved_asset is not None:
+        if market is None or not require_nonempty("market", market).strip():
+            raise UserInputError("market is required when filtering by asset_id or token_id.")
         _add_optional(params, "asset_id", resolved_asset)
     if id is not None:
         _add_optional(params, "id", require_nonempty("id", id))

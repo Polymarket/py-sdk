@@ -81,6 +81,24 @@ remain backward compatible except for APIs marked experimental, which may
 change in any release. All Perps APIs are currently experimental, including
 client methods, sessions, stream subscriptions, and models.
 
+## Open order filters and fill tracking
+
+When filtering open orders by asset, include the market condition ID:
+
+```python
+orders = client.list_open_orders(asset_id=asset_id, market=condition_id)
+```
+
+The deprecated `token_id` alias also requires `market`. Unfiltered and market-only
+queries remain supported. Asset-only queries raise `UserInputError` when the
+paginator fetches a page. This applies to both sync and async clients.
+
+`associate_trades` is deprecated and defaults to an empty tuple when absent. Use
+`size_matched` for an order's cumulative filled quantity, or
+`list_account_trades()` for individual fills, matching `taker_order_id` or
+`maker_orders[].order_id` to the order ID. An empty `associate_trades` tuple does
+not mean an order has no fills.
+
 ## API Design
 
 See [SDK Direction](docs/sdk-direction.md) for public API design principles and developer-experience decisions.

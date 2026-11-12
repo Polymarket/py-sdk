@@ -66,7 +66,14 @@ class OpenOrder(BaseModel):
     outcome: str
     order_type: str = Field(validation_alias="order_type")
     status: str
-    associate_trades: tuple[str, ...] = Field(default=(), validation_alias="associate_trades")
+    associate_trades: tuple[str, ...] = Field(
+        default=(),
+        validation_alias="associate_trades",
+        description=(
+            "Deprecated: use size_matched or account trade records to track fills. "
+            "May be empty when omitted by the API."
+        ),
+    )
     created_at: datetime = Field(validation_alias="created_at")
     expires_at: datetime | None = Field(default=None, validation_alias="expiration")
 
