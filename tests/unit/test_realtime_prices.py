@@ -1394,11 +1394,21 @@ def test_price_connections_authenticate_with_the_spec_chainlink_api_key() -> Non
                 await anext(plain)
                 stream = await manager.subscribe(keyed)
                 await anext(stream)
+                # An accepted filter is not shared across Chainlink API keys.
+                rekeyed = await manager.subscribe(
+                    CryptoTwapPriceSpec(
+                        symbols=["ethusd"], provider="chainlink", chainlink_api_key="cl-key-0002"
+                    )
+                )
+                await anext(rekeyed)
             finally:
                 await manager.close()
         auths = feed.operations("auth")
-        assert len(auths) == 2
-        assert sorted(auth.get("chainlink_api_key", "") for auth in auths) == ["", "cl-key-0001"]
+        assert sorted(auth.get("chainlink_api_key", "") for auth in auths) == [
+            "",
+            "cl-key-0001",
+            "cl-key-0002",
+        ]
         assert all("cl-key-0001" not in str(frame) for frame in feed.operations("subscribe"))
 
     asyncio.run(asyncio.wait_for(run(), 5))

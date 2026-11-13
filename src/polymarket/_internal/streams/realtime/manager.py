@@ -43,8 +43,8 @@ class RealtimeStreamManager:
             for session, session_key in self._sessions.items()
             if not session.closed
         }
-        for session in self._sessions:
-            if session.has(key):
+        for session, session_key in self._sessions.items():
+            if session_key == chainlink_api_key and session.has(key):
                 return session
         for session, session_key in self._sessions.items():
             if (
