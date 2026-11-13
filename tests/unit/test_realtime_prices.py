@@ -1398,6 +1398,7 @@ def test_secure_client_authenticates_with_chainlink_api_key_only_when_set(
                 validate_credentials=False,
                 chainlink_api_key=chainlink_api_key,
             )
+            assert "cl-key-0001" not in repr(client._ctx)
             async with client:
                 stream = await client.subscribe(CryptoTwapPriceSpec(symbols=["btcusd"]))
                 await anext(stream)
