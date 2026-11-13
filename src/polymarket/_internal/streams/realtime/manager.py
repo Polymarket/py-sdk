@@ -30,29 +30,41 @@ class RealtimeStreamManager:
             headers,
             logger,
         )
-        self._sessions: list[PriceSession] = []
+        # A connection authenticates with one provider API key, so sessions are
+        # grouped by it alongside the requested provider.
+        self._sessions: dict[PriceSession, str | None] = {}
         self._handles: set[AsyncSubscriptionHandle[PriceEvent]] = set()
         self._closed = False
         self._closing: asyncio.Task[None] | None = None
 
-    def _place(self, key: PriceKey) -> PriceSession:
-        self._sessions = [session for session in self._sessions if not session.closed]
-        for session in self._sessions:
-            if session.has(key):
+    def _place(self, key: PriceKey, provider_api_key: str | None) -> PriceSession:
+        self._sessions = {
+            session: session_key
+            for session, session_key in self._sessions.items()
+            if not session.closed
+        }
+        for session, session_key in self._sessions.items():
+            if session_key == provider_api_key and session.has(key):
                 return session
-        for session in self._sessions:
-            if session.provider == key.provider and session.size < session.key_target:
+        for session, session_key in self._sessions.items():
+            if (
+                session.provider == key.provider
+                and session_key == provider_api_key
+                and session.size < session.key_target
+            ):
                 return session
         session = PriceSession(
             PriceConnection(
                 url=self._url,
                 credentials=self._credentials,
+                provider=key.provider,
+                provider_api_key=provider_api_key,
                 headers=self._headers,
                 logger=self._logger,
             ),
             provider=key.provider,
         )
-        self._sessions.append(session)
+        self._sessions[session] = provider_api_key
         return session
 
     async def subscribe(self, spec: PriceSpec) -> AsyncSubscriptionHandle[PriceEvent]:
@@ -90,7 +102,7 @@ class RealtimeStreamManager:
         waits: list[asyncio.Future[None]] = []
         try:
             for key in subscriptions_for(spec):
-                session = self._place(key)
+                session = self._place(key, spec.provider_api_key)
                 # Capture each placement before registering the next filter.
                 releases.append(lambda session=session, key=key: session.remove(key, listener))
                 waits.append(asyncio.ensure_future(session.add(key, listener)))

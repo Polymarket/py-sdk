@@ -479,6 +479,8 @@ class CryptoPriceSpec:
     symbols: Sequence[str]
     provider: PriceProviderInput | None = None
     """Optional provider preference. Check payload ``source`` for the actual source."""
+    provider_api_key: str | None = field(default=None, repr=False)
+    """Optional API key for the requested provider."""
     topic: Literal["prices.crypto"] = field(default="prices.crypto", init=False)
 
     def __post_init__(self) -> None:
@@ -497,6 +499,8 @@ class CryptoTwapPriceSpec:
     symbols: Sequence[str]
     provider: PriceProviderInput | None = None
     """Optional provider preference. Check payload ``source`` for the actual source."""
+    provider_api_key: str | None = field(default=None, repr=False)
+    """Optional API key for the requested provider."""
     topic: Literal["prices.crypto.twap"] = field(default="prices.crypto.twap", init=False)
 
     def __post_init__(self) -> None:
@@ -518,6 +522,8 @@ class EquityPriceSpec:
     types: Sequence[EquityPricesEventType] | None = None
     provider: PriceProviderInput | None = None
     """Optional provider preference. Check payload ``source`` for the actual source."""
+    provider_api_key: str | None = field(default=None, repr=False)
+    """Optional API key for the requested provider."""
     topic: Literal["prices.equity"] = field(default="prices.equity", init=False)
 
     def __post_init__(self) -> None:
@@ -545,6 +551,8 @@ class EquityTwapPriceSpec:
     symbol: str
     provider: PriceProviderInput | None = None
     """Optional provider preference. Check payload ``source`` for the actual source."""
+    provider_api_key: str | None = field(default=None, repr=False)
+    """Optional API key for the requested provider."""
     topic: Literal["prices.equity.twap"] = field(default="prices.equity.twap", init=False)
 
     def __post_init__(self) -> None:

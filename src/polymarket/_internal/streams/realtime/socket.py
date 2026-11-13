@@ -15,6 +15,7 @@ from polymarket._internal.ws.connection import AsyncWebSocketConnection
 from polymarket.errors import ConnectionLostError, RequestRejectedError, TransportError
 from polymarket.models.clob.api_key import ApiKeyCreds
 from polymarket.models.price_events import PriceEvent, RealtimeErrorCode
+from polymarket.streams._specs import PriceProviderInput
 
 Operation = Literal["subscribe", "unsubscribe"]
 ACK_TIMEOUT_S = 10.0
@@ -39,11 +40,15 @@ class PriceConnection:
         *,
         url: str,
         credentials: ApiKeyCreds,
+        provider: PriceProviderInput | None = None,
+        provider_api_key: str | None = None,
         headers: Mapping[str, str] | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
         self._url = url
         self._credentials = credentials
+        self._provider = provider
+        self._provider_api_key = provider_api_key
         self._headers = headers
         self._connection = AsyncWebSocketConnection(
             heartbeat=PriceHeartbeat(), logger=logger, close_timeout_s=1.0
@@ -86,18 +91,17 @@ class PriceConnection:
         )
 
     async def authorize(self) -> None:
-        await self._request(
-            {
-                "op": "auth",
-                "auth": {
-                    "apiKey": self._credentials.key,
-                    "secret": self._credentials.secret,
-                    "passphrase": self._credentials.passphrase,
-                },
+        frame: dict[str, object] = {
+            "op": "auth",
+            "auth": {
+                "apiKey": self._credentials.key,
+                "secret": self._credentials.secret,
+                "passphrase": self._credentials.passphrase,
             },
-            "authed",
-            [],
-        )
+        }
+        if self._provider == "chainlink" and self._provider_api_key is not None:
+            frame["chainlink_api_key"] = self._provider_api_key
+        await self._request(frame, "authed", [])
 
     async def change(
         self,
