@@ -1376,3 +1376,34 @@ def test_acceptance_timeout_and_cancellation_release_only_joining_listener(
                 await manager.close()
 
     asyncio.run(asyncio.wait_for(run(), 5))
+
+
+@pytest.mark.parametrize("chainlink_api_key", ["cl-key-0001", None])
+def test_secure_client_authenticates_with_chainlink_api_key_only_when_set(
+    chainlink_api_key: str | None,
+) -> None:
+    async def run() -> None:
+        feed = Feed()
+        async with feed_server(feed) as url:
+            environment = create_environment(
+                name="test", config=replace(PRODUCTION_CONFIG, realtime_ws_url=url)
+            )
+            client = await AsyncSecureClient._create(
+                private_key=PRIVATE_KEY,
+                wallet=WALLET,
+                credentials=CREDS,
+                environment=environment,
+                validate_credentials=False,
+                chainlink_api_key=chainlink_api_key,
+            )
+            async with client:
+                stream = await client.subscribe(CryptoTwapPriceSpec(symbols=["btcusd"]))
+                await anext(stream)
+                await stream.close()
+        [auth] = feed.operations("auth")
+        if chainlink_api_key is None:
+            assert "chainlink_api_key" not in auth
+        else:
+            assert auth["chainlink_api_key"] == chainlink_api_key
+
+    asyncio.run(asyncio.wait_for(run(), 5))

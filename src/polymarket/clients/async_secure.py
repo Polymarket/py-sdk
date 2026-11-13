@@ -829,6 +829,7 @@ class AsyncSecureClient:
         nonce: int = 0,
         logger: logging.Logger | None = None,
         on_rate_limit_update: RateLimitUpdateListener | None = None,
+        chainlink_api_key: str | None = None,
     ) -> Self:
         """Create an authenticated async client.
 
@@ -842,6 +843,7 @@ class AsyncSecureClient:
             on_rate_limit_update: Listener invoked whenever a response reports
                 per-signer rate-limit state, as order and cancellation responses
                 do. Errors raised by the listener are ignored.
+            chainlink_api_key: Optional Chainlink API key.
 
         Raises:
             UserInputError: If key material, wallet, nonce, or credentials are invalid.
@@ -857,6 +859,7 @@ class AsyncSecureClient:
             validate_credentials=True,
             logger=logger,
             on_rate_limit_update=on_rate_limit_update,
+            chainlink_api_key=chainlink_api_key,
         )
         try:
             return await client._ensure_wallet_ready()
@@ -877,6 +880,7 @@ class AsyncSecureClient:
         validate_credentials: bool = True,
         logger: logging.Logger | None = None,
         on_rate_limit_update: RateLimitUpdateListener | None = None,
+        chainlink_api_key: str | None = None,
     ) -> Self:
         if not private_key:
             raise UserInputError("private_key is required")
@@ -930,6 +934,7 @@ class AsyncSecureClient:
             api_key=api_key,
             logger=logger,
             on_rate_limit_update=on_rate_limit_update,
+            chainlink_api_key=chainlink_api_key,
         )
 
     @classmethod
@@ -946,6 +951,7 @@ class AsyncSecureClient:
         api_key: ApiKey | None,
         logger: logging.Logger | None,
         on_rate_limit_update: RateLimitUpdateListener | None,
+        chainlink_api_key: str | None = None,
     ) -> Self:
         wallet_checksum = to_checksum_address(wallet)
         branded_wallet = cast(EvmAddress, wallet_checksum)
@@ -1003,6 +1009,7 @@ class AsyncSecureClient:
             api_key=api_key,
             rpc=rpc,
             order_metadata=AsyncOrderMetadataCache(),
+            chainlink_api_key=chainlink_api_key,
         )
         return cls(ctx=ctx, _create_token=_CREATE_TOKEN, logger=logger)
 
@@ -1334,6 +1341,7 @@ class AsyncSecureClient:
                 url=self._ctx.environment_config.realtime_ws_url,
                 headers=self._ctx.environment_config.realtime_ws_headers,
                 credentials=self._ctx.credentials,
+                chainlink_api_key=self._ctx.chainlink_api_key,
                 logger=self._streams_logger,
             )
         return self._realtime_manager

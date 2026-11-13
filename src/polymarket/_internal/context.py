@@ -79,6 +79,7 @@ class AsyncSecureClientContext(AsyncClientContext):
     api_key: ApiKey | None
     rpc: JsonRpcClient
     order_metadata: AsyncOrderMetadataCache
+    chainlink_api_key: str | None = None
 
 
 __all__ = [

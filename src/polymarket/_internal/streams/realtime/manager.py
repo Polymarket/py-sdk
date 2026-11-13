@@ -21,6 +21,7 @@ class RealtimeStreamManager:
         *,
         url: str,
         credentials: ApiKeyCreds,
+        chainlink_api_key: str | None = None,
         headers: Mapping[str, str] | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
@@ -30,6 +31,7 @@ class RealtimeStreamManager:
             headers,
             logger,
         )
+        self._chainlink_api_key = chainlink_api_key
         self._sessions: list[PriceSession] = []
         self._handles: set[AsyncSubscriptionHandle[PriceEvent]] = set()
         self._closed = False
@@ -47,6 +49,7 @@ class RealtimeStreamManager:
             PriceConnection(
                 url=self._url,
                 credentials=self._credentials,
+                chainlink_api_key=self._chainlink_api_key,
                 headers=self._headers,
                 logger=self._logger,
             ),

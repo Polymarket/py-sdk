@@ -39,11 +39,13 @@ class PriceConnection:
         *,
         url: str,
         credentials: ApiKeyCreds,
+        chainlink_api_key: str | None = None,
         headers: Mapping[str, str] | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
         self._url = url
         self._credentials = credentials
+        self._chainlink_api_key = chainlink_api_key
         self._headers = headers
         self._connection = AsyncWebSocketConnection(
             heartbeat=PriceHeartbeat(), logger=logger, close_timeout_s=1.0
@@ -86,18 +88,17 @@ class PriceConnection:
         )
 
     async def authorize(self) -> None:
-        await self._request(
-            {
-                "op": "auth",
-                "auth": {
-                    "apiKey": self._credentials.key,
-                    "secret": self._credentials.secret,
-                    "passphrase": self._credentials.passphrase,
-                },
+        frame: dict[str, object] = {
+            "op": "auth",
+            "auth": {
+                "apiKey": self._credentials.key,
+                "secret": self._credentials.secret,
+                "passphrase": self._credentials.passphrase,
             },
-            "authed",
-            [],
-        )
+        }
+        if self._chainlink_api_key is not None:
+            frame["chainlink_api_key"] = self._chainlink_api_key
+        await self._request(frame, "authed", [])
 
     async def change(
         self,
