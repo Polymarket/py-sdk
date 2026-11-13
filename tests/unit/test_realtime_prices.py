@@ -859,7 +859,7 @@ def test_send_failure_restarts_and_preserves_existing_listener(
             try:
                 existing = await manager.subscribe(CryptoPriceSpec(symbols=["btcusd"]))
                 await anext(existing)
-                connection = manager._sessions[0]._connection._connection
+                connection = next(iter(manager._sessions))._connection._connection
                 original_send = connection.send
                 failed = False
 
@@ -1380,34 +1380,26 @@ def test_acceptance_timeout_and_cancellation_release_only_joining_listener(
     asyncio.run(asyncio.wait_for(run(), 5))
 
 
-@pytest.mark.parametrize("chainlink_api_key", ["cl-key-0001", None])
-def test_secure_client_authenticates_with_chainlink_api_key_only_when_set(
-    chainlink_api_key: str | None,
-) -> None:
+def test_price_connections_authenticate_with_the_spec_chainlink_api_key() -> None:
     async def run() -> None:
         feed = Feed()
         async with feed_server(feed) as url:
-            environment = create_environment(
-                name="test", config=replace(PRODUCTION_CONFIG, realtime_ws_url=url)
+            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            keyed = CryptoTwapPriceSpec(
+                symbols=["ethusd", "solusd"], provider="chainlink", chainlink_api_key="cl-key-0001"
             )
-            client = await AsyncSecureClient._create(
-                private_key=PRIVATE_KEY,
-                wallet=WALLET,
-                credentials=CREDS,
-                environment=environment,
-                validate_credentials=False,
-                chainlink_api_key=chainlink_api_key,
-            )
-            assert "cl-key-0001" not in repr(client._ctx)
-            async with client:
-                stream = await client.subscribe(CryptoTwapPriceSpec(symbols=["btcusd"]))
+            assert "cl-key-0001" not in repr(keyed)
+            try:
+                plain = await manager.subscribe(CryptoTwapPriceSpec(symbols=["btcusd"]))
+                await anext(plain)
+                stream = await manager.subscribe(keyed)
                 await anext(stream)
-                await stream.close()
-        [auth] = feed.operations("auth")
-        if chainlink_api_key is None:
-            assert "chainlink_api_key" not in auth
-        else:
-            assert auth["chainlink_api_key"] == chainlink_api_key
+            finally:
+                await manager.close()
+        auths = feed.operations("auth")
+        assert len(auths) == 2
+        assert sorted(auth.get("chainlink_api_key", "") for auth in auths) == ["", "cl-key-0001"]
+        assert all("cl-key-0001" not in str(frame) for frame in feed.operations("subscribe"))
 
     asyncio.run(asyncio.wait_for(run(), 5))
 
