@@ -37,6 +37,7 @@ from polymarket.streams import (
     MarketSpec,
     PriceSource,
     PriceSpec,
+    RealtimeErrorCode,
     RealtimePriceSnapshot,
     RealtimePriceUpdate,
     RealtimeTwapSnapshot,
@@ -85,6 +86,7 @@ class Feed:
         self.frames: list[dict[str, Any]] = []
         self.received_times: list[float] = []
         self.reject_symbols: set[str] = set()
+        self.reject_code = "bad_filter"
         self.auth_errors: list[str] = []
         self.ack_gate: asyncio.Event | None = None
         self.ignore_subscriptions = 0
@@ -141,7 +143,7 @@ class Feed:
                         if op == "subscribed" and self.ack_provider is not None:
                             ack["provider"] = self.ack_provider
                         if op == "subscribed" and symbol in self.reject_symbols:
-                            ack.update(op="error", code="bad_filter")
+                            ack.update(op="error", code=self.reject_code)
                         await ws.send(json.dumps(ack))
                         if op == "unsubscribed":
                             self.unsubscribed.set()
@@ -1405,5 +1407,22 @@ def test_secure_client_authenticates_with_chainlink_api_key_only_when_set(
             assert "chainlink_api_key" not in auth
         else:
             assert auth["chainlink_api_key"] == chainlink_api_key
+
+    asyncio.run(asyncio.wait_for(run(), 5))
+
+
+def test_missing_chainlink_api_key_rejection_is_reported() -> None:
+    async def run() -> None:
+        feed = Feed()
+        feed.reject_symbols.add("btcusd")
+        feed.reject_code = "chainlink_key_required"
+        async with feed_server(feed) as url:
+            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            try:
+                with pytest.raises(RequestRejectedError) as raised:
+                    await manager.subscribe(CryptoTwapPriceSpec(symbols=["btcusd"]))
+                assert raised.value.code == RealtimeErrorCode.CHAINLINK_KEY_REQUIRED
+            finally:
+                await manager.close()
 
     asyncio.run(asyncio.wait_for(run(), 5))
