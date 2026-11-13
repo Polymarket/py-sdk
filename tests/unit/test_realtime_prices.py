@@ -1380,13 +1380,13 @@ def test_acceptance_timeout_and_cancellation_release_only_joining_listener(
     asyncio.run(asyncio.wait_for(run(), 5))
 
 
-def test_price_connections_authenticate_with_the_spec_chainlink_api_key() -> None:
+def test_price_connections_authenticate_with_the_spec_chainlink_provider_api_key() -> None:
     async def run() -> None:
         feed = Feed()
         async with feed_server(feed) as url:
             manager = RealtimeStreamManager(url=url, credentials=CREDS)
             keyed = CryptoTwapPriceSpec(
-                symbols=["ethusd", "solusd"], provider="chainlink", chainlink_api_key="cl-key-0001"
+                symbols=["ethusd", "solusd"], provider="chainlink", provider_api_key="cl-key-0001"
             )
             assert "cl-key-0001" not in repr(keyed)
             try:
@@ -1394,22 +1394,30 @@ def test_price_connections_authenticate_with_the_spec_chainlink_api_key() -> Non
                 await anext(plain)
                 stream = await manager.subscribe(keyed)
                 await anext(stream)
-                # An accepted filter is not shared across Chainlink API keys.
+                # An accepted filter is not shared across provider API keys.
                 rekeyed = await manager.subscribe(
                     CryptoTwapPriceSpec(
-                        symbols=["ethusd"], provider="chainlink", chainlink_api_key="cl-key-0002"
+                        symbols=["ethusd"], provider="chainlink", provider_api_key="cl-key-0002"
                     )
                 )
                 await anext(rekeyed)
+                # Only Chainlink subscriptions send the key.
+                pyth = await manager.subscribe(
+                    CryptoTwapPriceSpec(
+                        symbols=["xrpusd"], provider="pyth", provider_api_key="pyth-key-0001"
+                    )
+                )
+                await anext(pyth)
             finally:
                 await manager.close()
         auths = feed.operations("auth")
         assert sorted(auth.get("chainlink_api_key", "") for auth in auths) == [
             "",
+            "",
             "cl-key-0001",
             "cl-key-0002",
         ]
-        assert all("cl-key-0001" not in str(frame) for frame in feed.operations("subscribe"))
+        assert all("key-0001" not in str(frame) for frame in feed.operations("subscribe"))
 
     asyncio.run(asyncio.wait_for(run(), 5))
 
