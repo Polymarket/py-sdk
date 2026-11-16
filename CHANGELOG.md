@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.18.0...polymarket-client-v0.19.0) (2026-11-16)
+
+
+### Features
+
+* add chainlink_api_key option ([#420](https://github.com/Polymarket/py-sdk/issues/420)) ([91f4b54](https://github.com/Polymarket/py-sdk/commit/91f4b542170e8e0c97285b3bdffd97ff28c55a9f))
+
 ## [0.18.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.17.0...polymarket-client-v0.18.0) (2026-11-09)
 
 
