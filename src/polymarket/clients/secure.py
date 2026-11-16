@@ -2049,6 +2049,9 @@ class SecureClient:
         On a Deposit Wallet, use :meth:`list_wallet_open_orders` to include
         orders placed by the owner and its session keys.
 
+        Supply the market condition ID in ``market`` when filtering by
+        ``asset_id`` or its deprecated alias ``token_id``.
+
         Returns:
             A paginator over matching open orders.
         """
