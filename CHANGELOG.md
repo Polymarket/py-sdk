@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.1](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.19.0...polymarket-client-v0.19.1) (2026-11-16)
+
+
+### Bug Fixes
+
+* **account:** support clob changes ([28a253f](https://github.com/Polymarket/py-sdk/commit/28a253f0a4303e6e28311f390262d4ab1f9ea2a4))
+
 ## [0.19.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.18.0...polymarket-client-v0.19.0) (2026-11-16)
 
 
