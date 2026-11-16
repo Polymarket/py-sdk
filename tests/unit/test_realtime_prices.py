@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
+from functools import partial
 from typing import Any, cast, get_type_hints
 
 import pytest
@@ -1394,18 +1395,15 @@ def test_price_connections_authenticate_with_the_spec_chainlink_provider_api_key
                 await anext(plain)
                 stream = await manager.subscribe(keyed)
                 await anext(stream)
-                # An accepted filter is not shared across provider API keys.
+                # An accepted filter is not shared across Chainlink API keys.
                 rekeyed = await manager.subscribe(
                     CryptoTwapPriceSpec(
                         symbols=["ethusd"], provider="chainlink", provider_api_key="cl-key-0002"
                     )
                 )
                 await anext(rekeyed)
-                # Only Chainlink subscriptions send the key.
                 pyth = await manager.subscribe(
-                    CryptoTwapPriceSpec(
-                        symbols=["xrpusd"], provider="pyth", provider_api_key="pyth-key-0001"
-                    )
+                    CryptoTwapPriceSpec(symbols=["xrpusd"], provider="pyth")
                 )
                 await anext(pyth)
             finally:
@@ -1437,3 +1435,29 @@ def test_missing_chainlink_api_key_rejection_is_reported() -> None:
                 await manager.close()
 
     asyncio.run(asyncio.wait_for(run(), 5))
+
+
+@pytest.mark.parametrize(
+    "make",
+    [
+        partial(CryptoPriceSpec, symbols=["btcusd"]),
+        partial(CryptoTwapPriceSpec, symbols=["btcusd"]),
+        partial(EquityPriceSpec, symbol="aapl"),
+        partial(EquityTwapPriceSpec, symbol="usdjpy"),
+    ],
+)
+def test_price_spec_provider_api_key_requires_the_chainlink_provider(
+    make: Callable[..., PriceSpec],
+) -> None:
+    spec = make(provider="chainlink", provider_api_key="cl-key")
+    assert spec.provider_api_key == "cl-key"
+    assert "cl-key" not in repr(spec)
+    assert (
+        make(provider=KnownPriceSource.CHAINLINK, provider_api_key="cl-key").provider_api_key
+        == "cl-key"
+    )
+    for provider in (None, "pyth", "binance"):
+        with pytest.raises(UserInputError, match="provider='chainlink'"):
+            make(provider=provider, provider_api_key="key")
+    with pytest.raises(UserInputError, match="non-empty"):
+        make(provider="chainlink", provider_api_key="")
