@@ -56,6 +56,13 @@ def _normalize_price_provider(provider: PriceProviderInput | None) -> PriceProvi
     raise UserInputError("provider must be 'chainlink', 'pyth' or 'binance'")
 
 
+def _validate_price_api_key(provider_api_key: str | None) -> None:
+    if provider_api_key is None:
+        return
+    if not isinstance(provider_api_key, str):
+        raise UserInputError("provider_api_key must be a string")
+
+
 def _normalize_crypto_symbols(symbols: Sequence[str] | None) -> tuple[str, ...] | None:
     if symbols is None:
         return None
@@ -479,11 +486,14 @@ class CryptoPriceSpec:
     symbols: Sequence[str]
     provider: PriceProviderInput | None = None
     """Optional provider preference. Check payload ``source`` for the actual source."""
+    provider_api_key: str | None = field(default=None, repr=False)
+    """Chainlink API key. Used only with ``provider="chainlink"``; ignored otherwise."""
     topic: Literal["prices.crypto"] = field(default="prices.crypto", init=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "symbols", _normalize_price_symbols(self.symbols))
         object.__setattr__(self, "provider", _normalize_price_provider(self.provider))
+        _validate_price_api_key(self.provider_api_key)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -497,11 +507,14 @@ class CryptoTwapPriceSpec:
     symbols: Sequence[str]
     provider: PriceProviderInput | None = None
     """Optional provider preference. Check payload ``source`` for the actual source."""
+    provider_api_key: str | None = field(default=None, repr=False)
+    """Chainlink API key. Used only with ``provider="chainlink"``; ignored otherwise."""
     topic: Literal["prices.crypto.twap"] = field(default="prices.crypto.twap", init=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "symbols", _normalize_price_symbols(self.symbols))
         object.__setattr__(self, "provider", _normalize_price_provider(self.provider))
+        _validate_price_api_key(self.provider_api_key)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -518,11 +531,14 @@ class EquityPriceSpec:
     types: Sequence[EquityPricesEventType] | None = None
     provider: PriceProviderInput | None = None
     """Optional provider preference. Check payload ``source`` for the actual source."""
+    provider_api_key: str | None = field(default=None, repr=False)
+    """Chainlink API key. Used only with ``provider="chainlink"``; ignored otherwise."""
     topic: Literal["prices.equity"] = field(default="prices.equity", init=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "symbol", _normalize_equity_symbol(self.symbol))
         object.__setattr__(self, "provider", _normalize_price_provider(self.provider))
+        _validate_price_api_key(self.provider_api_key)
         if self.types is not None:
             if (
                 not isinstance(self.types, Sequence)
@@ -545,11 +561,14 @@ class EquityTwapPriceSpec:
     symbol: str
     provider: PriceProviderInput | None = None
     """Optional provider preference. Check payload ``source`` for the actual source."""
+    provider_api_key: str | None = field(default=None, repr=False)
+    """Chainlink API key. Used only with ``provider="chainlink"``; ignored otherwise."""
     topic: Literal["prices.equity.twap"] = field(default="prices.equity.twap", init=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "symbol", _normalize_equity_symbol(self.symbol))
         object.__setattr__(self, "provider", _normalize_price_provider(self.provider))
+        _validate_price_api_key(self.provider_api_key)
 
 
 PriceSpec = CryptoPriceSpec | CryptoTwapPriceSpec | EquityPriceSpec | EquityTwapPriceSpec

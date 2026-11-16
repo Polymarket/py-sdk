@@ -55,6 +55,7 @@ class RealtimeErrorCode(StrEnum):
     AUTH_EXPIRED = "auth_expired"
     AUTH_ATTEMPTS = "auth_attempts"
     AUTH_INVALID = "auth_invalid"
+    CHAINLINK_KEY_REQUIRED = "chainlink_key_required"
 
 
 class RealtimePricePoint(BaseModel):

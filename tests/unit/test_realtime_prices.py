@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
+from functools import partial
 from typing import Any, cast, get_type_hints
 
 import pytest
@@ -37,6 +38,7 @@ from polymarket.streams import (
     MarketSpec,
     PriceSource,
     PriceSpec,
+    RealtimeErrorCode,
     RealtimePriceSnapshot,
     RealtimePriceUpdate,
     RealtimeTwapSnapshot,
@@ -85,6 +87,7 @@ class Feed:
         self.frames: list[dict[str, Any]] = []
         self.received_times: list[float] = []
         self.reject_symbols: set[str] = set()
+        self.reject_code = "bad_filter"
         self.auth_errors: list[str] = []
         self.ack_gate: asyncio.Event | None = None
         self.ignore_subscriptions = 0
@@ -141,7 +144,7 @@ class Feed:
                         if op == "subscribed" and self.ack_provider is not None:
                             ack["provider"] = self.ack_provider
                         if op == "subscribed" and symbol in self.reject_symbols:
-                            ack.update(op="error", code="bad_filter")
+                            ack.update(op="error", code=self.reject_code)
                         await ws.send(json.dumps(ack))
                         if op == "unsubscribed":
                             self.unsubscribed.set()
@@ -857,7 +860,7 @@ def test_send_failure_restarts_and_preserves_existing_listener(
             try:
                 existing = await manager.subscribe(CryptoPriceSpec(symbols=["btcusd"]))
                 await anext(existing)
-                connection = manager._sessions[0]._connection._connection
+                connection = next(iter(manager._sessions))._connection._connection
                 original_send = connection.send
                 failed = False
 
@@ -1376,3 +1379,84 @@ def test_acceptance_timeout_and_cancellation_release_only_joining_listener(
                 await manager.close()
 
     asyncio.run(asyncio.wait_for(run(), 5))
+
+
+def test_price_connections_authenticate_with_the_spec_chainlink_provider_api_key() -> None:
+    async def run() -> None:
+        feed = Feed()
+        async with feed_server(feed) as url:
+            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            keyed = CryptoTwapPriceSpec(
+                symbols=["ethusd", "solusd"], provider="chainlink", provider_api_key="cl-key-0001"
+            )
+            assert "cl-key-0001" not in repr(keyed)
+            try:
+                plain = await manager.subscribe(CryptoTwapPriceSpec(symbols=["btcusd"]))
+                await anext(plain)
+                stream = await manager.subscribe(keyed)
+                await anext(stream)
+                # An accepted filter is not shared across Chainlink API keys.
+                rekeyed = await manager.subscribe(
+                    CryptoTwapPriceSpec(
+                        symbols=["ethusd"], provider="chainlink", provider_api_key="cl-key-0002"
+                    )
+                )
+                await anext(rekeyed)
+                # Other providers ignore the key.
+                pyth = await manager.subscribe(
+                    CryptoTwapPriceSpec(
+                        symbols=["xrpusd"], provider="pyth", provider_api_key="pyth-key-0001"
+                    )
+                )
+                await anext(pyth)
+            finally:
+                await manager.close()
+        auths = feed.operations("auth")
+        assert sorted(auth.get("chainlink_api_key", "") for auth in auths) == [
+            "",
+            "",
+            "cl-key-0001",
+            "cl-key-0002",
+        ]
+        assert all("key-0001" not in str(frame) for frame in feed.operations("subscribe"))
+        assert all("pyth-key" not in str(frame) for frame in feed.frames)
+
+    asyncio.run(asyncio.wait_for(run(), 5))
+
+
+def test_missing_chainlink_api_key_rejection_is_reported() -> None:
+    async def run() -> None:
+        feed = Feed()
+        feed.reject_symbols.add("btcusd")
+        feed.reject_code = "chainlink_key_required"
+        async with feed_server(feed) as url:
+            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            try:
+                with pytest.raises(RequestRejectedError) as raised:
+                    await manager.subscribe(CryptoTwapPriceSpec(symbols=["btcusd"]))
+                assert raised.value.code == RealtimeErrorCode.CHAINLINK_KEY_REQUIRED
+            finally:
+                await manager.close()
+
+    asyncio.run(asyncio.wait_for(run(), 5))
+
+
+@pytest.mark.parametrize(
+    "make",
+    [
+        partial(CryptoPriceSpec, symbols=["btcusd"]),
+        partial(CryptoTwapPriceSpec, symbols=["btcusd"]),
+        partial(EquityPriceSpec, symbol="aapl"),
+        partial(EquityTwapPriceSpec, symbol="usdjpy"),
+    ],
+)
+def test_price_spec_provider_api_key_is_optional_for_every_provider(
+    make: Callable[..., PriceSpec],
+) -> None:
+    spec = make(provider="chainlink", provider_api_key="cl-key")
+    assert spec.provider_api_key == "cl-key"
+    assert "cl-key" not in repr(spec)
+    for provider in (None, "pyth", "binance", KnownPriceSource.CHAINLINK):
+        assert make(provider=provider, provider_api_key="key").provider_api_key == "key"
+    with pytest.raises(UserInputError, match="must be a string"):
+        make(provider="chainlink", provider_api_key=123)
