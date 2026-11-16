@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.20.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.19.0...polymarket-client-v0.20.0) (2026-11-16)
+
+
+### ⚠ BREAKING CHANGES
+
+* **account:** Filtering open orders by `asset_id` or the deprecated `token_id` alias now requires a nonblank market condition ID in `market`. Asset-only queries raise `UserInputError` when the paginator fetches a page, for both sync and async clients. Unfiltered and market-only queries remain supported. This breaking change uses a minor release on the 0.x line.
+
+  ```diff
+  - client.list_open_orders(asset_id=asset_id)
+  + client.list_open_orders(asset_id=asset_id, market=condition_id)
+  ```
+
+### Bug Fixes
+
+* **account:** Prepare for the December 14 order-query changes ([28a253f](https://github.com/Polymarket/py-sdk/commit/28a253f0a4303e6e28311f390262d4ab1f9ea2a4)). `associate_trades` is deprecated and defaults to an empty tuple when absent, while preserving legacy values. Track cumulative fills with `size_matched` or individual fills with `list_account_trades()`, matching `taker_order_id` or `maker_orders[].order_id` to the order ID. An empty `associate_trades` tuple does not mean an order has no fills.
+
 ## [0.19.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.18.0...polymarket-client-v0.19.0) (2026-11-16)
 
 
