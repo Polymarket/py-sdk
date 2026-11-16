@@ -1402,8 +1402,11 @@ def test_price_connections_authenticate_with_the_spec_chainlink_provider_api_key
                     )
                 )
                 await anext(rekeyed)
+                # Other providers ignore the key.
                 pyth = await manager.subscribe(
-                    CryptoTwapPriceSpec(symbols=["xrpusd"], provider="pyth")
+                    CryptoTwapPriceSpec(
+                        symbols=["xrpusd"], provider="pyth", provider_api_key="pyth-key-0001"
+                    )
                 )
                 await anext(pyth)
             finally:
@@ -1416,6 +1419,7 @@ def test_price_connections_authenticate_with_the_spec_chainlink_provider_api_key
             "cl-key-0002",
         ]
         assert all("key-0001" not in str(frame) for frame in feed.operations("subscribe"))
+        assert all("pyth-key" not in str(frame) for frame in feed.frames)
 
     asyncio.run(asyncio.wait_for(run(), 5))
 
@@ -1446,18 +1450,13 @@ def test_missing_chainlink_api_key_rejection_is_reported() -> None:
         partial(EquityTwapPriceSpec, symbol="usdjpy"),
     ],
 )
-def test_price_spec_provider_api_key_requires_the_chainlink_provider(
+def test_price_spec_provider_api_key_is_optional_for_every_provider(
     make: Callable[..., PriceSpec],
 ) -> None:
     spec = make(provider="chainlink", provider_api_key="cl-key")
     assert spec.provider_api_key == "cl-key"
     assert "cl-key" not in repr(spec)
-    assert (
-        make(provider=KnownPriceSource.CHAINLINK, provider_api_key="cl-key").provider_api_key
-        == "cl-key"
-    )
-    for provider in (None, "pyth", "binance"):
-        with pytest.raises(UserInputError, match="provider='chainlink'"):
-            make(provider=provider, provider_api_key="key")
-    with pytest.raises(UserInputError, match="non-empty"):
-        make(provider="chainlink", provider_api_key="")
+    for provider in (None, "pyth", "binance", KnownPriceSource.CHAINLINK):
+        assert make(provider=provider, provider_api_key="key").provider_api_key == "key"
+    with pytest.raises(UserInputError, match="must be a string"):
+        make(provider="chainlink", provider_api_key=123)
