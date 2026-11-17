@@ -30,6 +30,7 @@ from polymarket.models.types import (
     PositionId,
     validate_combo_condition_id,
     validate_condition_id_response,
+    validate_optional_condition_id_response,
 )
 from polymarket.types import EvmAddress
 
@@ -217,7 +218,7 @@ class ComboPositionLeg(BaseModel):
 
     leg_index: int
     leg_position_id: PositionId
-    leg_condition_id: ConditionId
+    leg_condition_id: ConditionId | None
     leg_outcome_index: int
     leg_outcome_label: str | None = None
     leg_status: ComboPositionStatus
@@ -225,9 +226,10 @@ class ComboPositionLeg(BaseModel):
     leg_current_price: Decimal | None = None
     market: ComboPositionMarket | None = None
 
-    _validate_condition_id_response = field_validator("leg_condition_id", mode="before")(
-        validate_condition_id_response
-    )
+    @field_validator("leg_condition_id", mode="before")
+    @classmethod
+    def _validate_condition_id_response(cls, value: object) -> ConditionId | None:
+        return validate_optional_condition_id_response(optional_text(value))
 
     _optional_text = field_validator("leg_outcome_label", mode="before")(optional_text)
 
@@ -255,13 +257,17 @@ class ComboPosition(BaseModel):
     realized_payout_usdc: Decimal
     status: ComboPositionStatus
     redeemable: bool
-    first_entry_at: datetime
+    first_entry_at: datetime | None
     resolved_at: datetime | None = None
     updated_at: datetime
     legs_total: int
     legs_resolved: int
     legs_pending: int
     legs: tuple[ComboPositionLeg, ...]
+
+    _first_entry_at = field_validator("first_entry_at", mode="before")(
+        optional_datetime_from_epoch_or_iso
+    )
 
     _validate_combo_condition_id = field_validator("condition_id", mode="before")(
         validate_combo_condition_id

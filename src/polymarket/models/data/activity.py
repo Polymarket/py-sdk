@@ -29,6 +29,7 @@ from polymarket.models.types import (
     PositionId,
     validate_combo_condition_id,
     validate_condition_id_response,
+    validate_optional_condition_id_response,
 )
 from polymarket.types import EvmAddress, TransactionHash
 
@@ -89,7 +90,7 @@ class _KnownActivityBase(BaseModel):
 
     wallet: EvmAddress = Field(validation_alias="proxy_wallet")
     timestamp: datetime
-    transaction_hash: TransactionHash = Field(validation_alias="transaction_hash")
+    transaction_hash: TransactionHash | None = Field(validation_alias="transaction_hash")
     name: str | None = None
     pseudonym: str | None = None
     bio: str | None = None
@@ -103,6 +104,7 @@ class _KnownActivityBase(BaseModel):
     )(optional_text)
 
     _timestamp = field_validator("timestamp", mode="before")(datetime_from_epoch_seconds)
+    _transaction_hash = field_validator("transaction_hash", mode="before")(optional_text)
 
     def _repr_html_(self) -> str:
         from polymarket._jupyter import card, safe_html_repr, truncate_mid
@@ -112,7 +114,7 @@ class _KnownActivityBase(BaseModel):
             title = type(self).__name__
             rows: list[tuple[str, str]] = [
                 ("timestamp", self.timestamp.isoformat()),
-                ("tx", truncate_mid(self.transaction_hash)),
+                ("tx", truncate_mid(self.transaction_hash) if self.transaction_hash else ""),
                 ("wallet", truncate_mid(self.wallet)),
             ]
             for attr in ("amount", "shares", "price", "side", "outcome", "title"):
@@ -127,8 +129,8 @@ class _KnownActivityBase(BaseModel):
 class TradeActivity(_KnownActivityBase):
     type: Literal[ActivityType.TRADE]
     is_combo: Literal[False] = Field(default=False, validation_alias="is_combo")
-    condition_id: ConditionId = Field(validation_alias="condition_id")
-    asset_id: ClobAssetId = Field(validation_alias="token_id")
+    condition_id: ConditionId | None = Field(validation_alias="condition_id")
+    asset_id: ClobAssetId | None = Field(validation_alias="token_id")
     side: OrderSide
     shares: Decimal = Field(validation_alias="size")
     amount: Decimal = Field(validation_alias="usdc_size")
@@ -144,18 +146,19 @@ class TradeActivity(_KnownActivityBase):
         "title", "slug", "icon", "event_slug", "outcome", mode="before"
     )(optional_text)
     _outcome_index = field_validator("outcome_index", mode="before")(optional_outcome_index)
+    _asset_id = field_validator("asset_id", mode="before")(optional_text)
 
     @computed_field
     @property
-    def token_id(self) -> ClobAssetId:
+    def token_id(self) -> ClobAssetId | None:
         """Deprecated alias for :attr:`asset_id`."""
 
         return self.asset_id
 
     @field_validator("condition_id", mode="before")
     @classmethod
-    def _validate_condition_id(cls, value: object) -> ConditionId:
-        return validate_condition_id_response(value)
+    def _validate_condition_id(cls, value: object) -> ConditionId | None:
+        return validate_optional_condition_id_response(optional_text(value))
 
     @field_validator("shares", "amount", "price", mode="before")
     @classmethod
@@ -192,7 +195,7 @@ class ComboTradeActivity(_KnownActivityBase):
 
 
 class _MarketEventActivity(_KnownActivityBase):
-    condition_id: ConditionId = Field(validation_alias="condition_id")
+    condition_id: ConditionId | None = Field(validation_alias="condition_id")
     amount: Decimal = Field(validation_alias="usdc_size")
     title: str | None = None
     slug: str | None = None
@@ -205,8 +208,8 @@ class _MarketEventActivity(_KnownActivityBase):
 
     @field_validator("condition_id", mode="before")
     @classmethod
-    def _validate_condition_id(cls, value: object) -> ConditionId:
-        return validate_condition_id_response(value)
+    def _validate_condition_id(cls, value: object) -> ConditionId | None:
+        return validate_optional_condition_id_response(optional_text(value))
 
     @field_validator("amount", mode="before")
     @classmethod
