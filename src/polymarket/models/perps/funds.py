@@ -60,6 +60,12 @@ class PerpsDeposit(BaseModel):
     """One deposit into the Perps account."""
 
     hash: str
+    log_index: int | None = Field(default=None, strict=True, ge=0)
+    """Position of the deposit event within its transaction.
+
+    None for deposits recorded without one. Together with the transaction hash, it identifies
+    the deposit.
+    """
     asset: str
     amount: Decimal
     status: PerpsDepositStatus
