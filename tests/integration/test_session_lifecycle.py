@@ -148,13 +148,14 @@ def test_session_without_a_wallet_is_bound_without_a_signature(
 
 @pytest.mark.integration
 @pytest.mark.metered
-def test_session_without_a_wallet_skips_wallet_setup_until_bound(
+def test_session_without_a_wallet_skips_wallet_setup_until_upgraded(
     integration_environment: Environment,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     account = Account.create()
     with PublicClient(environment=integration_environment) as public:
         saved = public.login(private_key=account.key.hex())
+    changes: list[BearerCredentials] = []
 
     def refuse_to_sign(*_: object, **__: object) -> str:
         raise AssertionError("restoring a session must not ask the wallet to sign")
@@ -168,7 +169,9 @@ def test_session_without_a_wallet_skips_wallet_setup_until_bound(
         credentials=saved,
         environment=integration_environment,
         wallet_setup=False,
+        on_credentials_changed=changes.append,
     )
+    client = onboarding
     try:
         # The session stays without a wallet, and the default wallet is not deployed.
         claims = identity.parse_access_token_claims(onboarding.credentials.access_token)
@@ -176,18 +179,21 @@ def test_session_without_a_wallet_skips_wallet_setup_until_bound(
         assert onboarding.wallet.lower() == default_wallet.lower()
         assert onboarding.wallet_type == "DEPOSIT_WALLET"
 
-        # Once onboarding completes, wallet setup binds the saved session.
-        with SecureClient.create(
-            private_key=account.key.hex(),
-            wallet=account.address,
-            credentials=onboarding.credentials,
-            environment=integration_environment,
-        ) as bound:
-            claims = identity.parse_access_token_claims(bound.credentials.access_token)
-            assert claims.wallet == account.address
-            bound.list_open_orders().first_page()
+        # Once onboarding completes, the session is bound without a signature.
+        client = onboarding.upgrade_credentials(wallet=account.address)
+        claims = identity.parse_access_token_claims(client.credentials.access_token)
+        assert claims.wallet == account.address
+        assert client.wallet == account.address
+        assert client.wallet_type == "EOA"
+        assert changes[-1] == client.credentials
+        # The upgraded client owns the session, and the original one is closed.
+        with pytest.raises(RuntimeError):
+            _ = onboarding.credentials
+        client.list_open_orders().first_page()
+        renewed = client.refresh_credentials()
+        assert identity.parse_access_token_claims(renewed.access_token).wallet == account.address
     finally:
-        onboarding.end_authentication()
+        client.end_authentication()
 
 
 @pytest.mark.integration
@@ -198,15 +204,22 @@ def test_sign_in_without_wallet_setup_opens_a_session_without_a_wallet(
     account = Account.create()
 
     async def run() -> None:
-        client = await AsyncSecureClient.create(
+        onboarding = await AsyncSecureClient.create(
             private_key=account.key.hex(),
             environment=integration_environment,
             wallet_setup=False,
         )
+        client = onboarding
         try:
-            claims = identity.parse_access_token_claims(client.credentials.access_token)
+            claims = identity.parse_access_token_claims(onboarding.credentials.access_token)
             assert claims.wallet is None
-            assert client.wallet_type == "DEPOSIT_WALLET"
+            assert onboarding.wallet_type == "DEPOSIT_WALLET"
+
+            client = await onboarding.upgrade_credentials(wallet=account.address)
+            claims = identity.parse_access_token_claims(client.credentials.access_token)
+            assert claims.wallet == account.address
+            assert client.wallet_type == "EOA"
+            await client.list_open_orders().first_page()
         finally:
             await client.end_authentication()
 

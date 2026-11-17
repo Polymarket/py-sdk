@@ -694,11 +694,14 @@ class SecureClient:
         ctx: SyncSecureClientContext,
         _create_token: object | None = None,
         logger: logging.Logger | None = None,
+        on_rate_limit_update: RateLimitUpdateListener | None = None,
     ) -> None:
         if _create_token is not _CREATE_TOKEN:
             raise RuntimeError("Use SecureClient.create(...) to create a secure client")
         self._ended = False
         self._ctx_inner = ctx
+        self._logger = logger
+        self._on_rate_limit_update = on_rate_limit_update
 
     @property
     def _ctx(self) -> SyncSecureClientContext:
@@ -943,9 +946,13 @@ class SecureClient:
                 environment=environment,
                 config=config,
                 auth=auth,
-                credentials=session_credentials,
-                expires_in=None if issued is None else issued.expires_in,
-                on_credentials_changed=notifier,
+                session=SyncAuthSession(
+                    credentials=session_credentials,
+                    expires_in=None if issued is None else issued.expires_in,
+                    refresh=partial(_identity_actions.refresh_session_sync, auth),
+                    on_credentials_changed=notifier,
+                    logger=logger,
+                ),
                 api_key=api_key,
                 platform_api_key=platform_api_key,
                 logger=logger,
@@ -985,22 +992,13 @@ class SecureClient:
         environment: Environment,
         config: EnvironmentConfig,
         auth: SyncTransport,
-        credentials: BearerCredentials,
-        expires_in: int | None,
-        on_credentials_changed: CredentialsChanged | None,
+        session: SyncAuthSession,
         api_key: ApiKey | None,
         platform_api_key: PlatformApiKey | None,
         logger: logging.Logger | None,
         on_rate_limit_update: RateLimitUpdateListener | None,
     ) -> Self:
         branded_wallet = _identity_actions.checksum_wallet(wallet)
-        session = SyncAuthSession(
-            credentials=credentials,
-            expires_in=expires_in,
-            refresh=partial(_identity_actions.refresh_session_sync, auth),
-            on_credentials_changed=on_credentials_changed,
-            logger=logger,
-        )
 
         predictions = SyncTransport(
             base_url=config.predictions_url,
@@ -1041,7 +1039,12 @@ class SecureClient:
             rpc=rpc,
             order_metadata=SyncOrderMetadataCache(),
         )
-        return cls(ctx=ctx, _create_token=_CREATE_TOKEN, logger=logger)
+        return cls(
+            ctx=ctx,
+            _create_token=_CREATE_TOKEN,
+            logger=logger,
+            on_rate_limit_update=on_rate_limit_update,
+        )
 
     @property
     def environment(self) -> Environment:
@@ -1088,6 +1091,67 @@ class SecureClient:
             UnexpectedResponseError: If the renewal response is invalid.
         """
         return self._ctx.session.refresh()
+
+    def upgrade_credentials(self, *, wallet: str) -> Self:
+        """Bind a wallet to a session that has none and return a client for it.
+
+        Use this after creating the client with ``wallet_setup=False`` and
+        completing your own onboarding, such as deploying the Deposit Wallet.
+        Binding needs no new signature and keeps the refresh token.
+        ``on_credentials_changed`` receives the new access token and keeps
+        receiving renewals. The returned client takes over the session, and this
+        client is closed without ending it, so use the returned client from now
+        on. A session already bound to ``wallet`` is handed over without a
+        request. If binding fails, this client stays usable.
+
+        Example::
+
+            upgraded = client.upgrade_credentials(wallet=wallet)
+            save_credentials(upgraded.credentials)
+
+        Raises:
+            UserInputError: If the wallet is invalid or the session is bound to
+                another wallet.
+            RequestRejectedError: If binding is rejected.
+            RateLimitError: If binding is rate-limited.
+            TransportError: If a network request fails or the session is closed.
+            UnexpectedResponseError: If the binding response is invalid.
+        """
+        ctx = self._ctx
+        requested = _identity_actions.checksum_wallet(wallet)
+        # Validate the wallet identity before the session changes.
+        account = classify_account(
+            signer=ctx.signer.address,
+            wallet=requested,
+            config=ctx.environment_config.wallet_derivation,
+        )
+        bound = ctx.session.claims.wallet
+        if bound is not None and bound.lower() != requested.lower():
+            raise UserInputError(f"The session is already bound to wallet {bound}.")
+        if bound is None:
+            ctx.session.bind_wallet(
+                requested, partial(_upgrade_session_sync, ctx.auth, wallet=requested)
+            )
+        upgraded = type(self)._construct_for_wallet(
+            signer=ctx.signer,
+            wallet=requested,
+            wallet_type=account.wallet_type,
+            signer_type=account.signer_type,
+            environment=ctx.environment,
+            config=ctx.environment_config,
+            auth=ctx.auth,
+            session=ctx.session,
+            api_key=ctx.api_key,
+            platform_api_key=ctx.platform_api_key,
+            logger=self._logger,
+            on_rate_limit_update=self._on_rate_limit_update,
+        )
+        # The upgraded client owns the session and the authentication transport.
+        self._ended = True
+        # Closing local resources is best effort, because the session has moved.
+        with contextlib.suppress(Exception):
+            self._close_resources()
+        return upgraded
 
     def authorize_session_key(
         self,
@@ -1184,15 +1248,20 @@ class SecureClient:
         ctx = self._ctx_inner
         ctx.session.close()
         try:
+            self._close_resources()
+        finally:
+            ctx.auth.close()
+
+    def _close_resources(self) -> None:
+        """Close what this client owns apart from the session and its transport."""
+        ctx = self._ctx_inner
+        try:
             ctx.predictions.close()
         finally:
             try:
-                ctx.auth.close()
+                ctx.secure_clob.close()
             finally:
-                try:
-                    ctx.secure_clob.close()
-                finally:
-                    ctx.rpc.close()
+                ctx.rpc.close()
 
     def _user_or_wallet(self, user: str | None) -> str:
         return self._ctx.wallet if user is None else user

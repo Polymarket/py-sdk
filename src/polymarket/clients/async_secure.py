@@ -119,7 +119,6 @@ from polymarket._internal.auth_session import (
     AsyncAuthSession,
     AsyncCredentialsChanged,
     BackgroundCredentialsListener,
-    CredentialsChanged,
     DeferredCredentialsListener,
 )
 from polymarket._internal.context import AsyncSecureClientContext
@@ -787,11 +786,14 @@ class AsyncSecureClient:
         ctx: AsyncSecureClientContext,
         _create_token: object | None = None,
         logger: logging.Logger | None = None,
+        on_rate_limit_update: RateLimitUpdateListener | None = None,
     ) -> None:
         if _create_token is not _CREATE_TOKEN:
             raise RuntimeError("Use AsyncSecureClient.create(...) to create a secure client")
         self._ended = False
         self._ctx_inner = ctx
+        self._logger = logger
+        self._on_rate_limit_update = on_rate_limit_update
         self._market_manager: ClobMarketStreamManager | None = None
         self._sports_manager: SportsStreamManager | None = None
         self._rtds_manager: RtdsStreamManager | None = None
@@ -1053,9 +1055,13 @@ class AsyncSecureClient:
                 environment=environment,
                 config=config,
                 auth=auth,
-                credentials=session_credentials,
-                expires_in=None if issued is None else issued.expires_in,
-                on_credentials_changed=notifier,
+                session=AsyncAuthSession(
+                    credentials=session_credentials,
+                    expires_in=None if issued is None else issued.expires_in,
+                    refresh=partial(_identity_actions.refresh_session, auth),
+                    on_credentials_changed=notifier,
+                    logger=logger,
+                ),
                 api_key=api_key,
                 platform_api_key=platform_api_key,
                 logger=logger,
@@ -1095,22 +1101,13 @@ class AsyncSecureClient:
         environment: Environment,
         config: EnvironmentConfig,
         auth: AsyncTransport,
-        credentials: BearerCredentials,
-        expires_in: int | None,
-        on_credentials_changed: CredentialsChanged | None,
+        session: AsyncAuthSession,
         api_key: ApiKey | None,
         platform_api_key: PlatformApiKey | None,
         logger: logging.Logger | None,
         on_rate_limit_update: RateLimitUpdateListener | None,
     ) -> Self:
         branded_wallet = _identity_actions.checksum_wallet(wallet)
-        session = AsyncAuthSession(
-            credentials=credentials,
-            expires_in=expires_in,
-            refresh=partial(_identity_actions.refresh_session, auth),
-            on_credentials_changed=on_credentials_changed,
-            logger=logger,
-        )
 
         predictions = AsyncTransport(
             base_url=config.predictions_url,
@@ -1146,7 +1143,12 @@ class AsyncSecureClient:
             rpc=rpc,
             order_metadata=AsyncOrderMetadataCache(),
         )
-        return cls(ctx=ctx, _create_token=_CREATE_TOKEN, logger=logger)
+        return cls(
+            ctx=ctx,
+            _create_token=_CREATE_TOKEN,
+            logger=logger,
+            on_rate_limit_update=on_rate_limit_update,
+        )
 
     @property
     def environment(self) -> Environment:
@@ -1193,6 +1195,67 @@ class AsyncSecureClient:
             UnexpectedResponseError: If the renewal response is invalid.
         """
         return await self._ctx.session.refresh()
+
+    async def upgrade_credentials(self, *, wallet: str) -> Self:
+        """Bind a wallet to a session that has none and return a client for it.
+
+        Use this after creating the client with ``wallet_setup=False`` and
+        completing your own onboarding, such as deploying the Deposit Wallet.
+        Binding needs no new signature and keeps the refresh token.
+        ``on_credentials_changed`` receives the new access token and keeps
+        receiving renewals. The returned client takes over the session, and this
+        client is closed without ending it, so use the returned client from now
+        on. A session already bound to ``wallet`` is handed over without a
+        request. If binding fails, this client stays usable.
+
+        Example::
+
+            upgraded = await client.upgrade_credentials(wallet=wallet)
+            save_credentials(upgraded.credentials)
+
+        Raises:
+            UserInputError: If the wallet is invalid or the session is bound to
+                another wallet.
+            RequestRejectedError: If binding is rejected.
+            RateLimitError: If binding is rate-limited.
+            TransportError: If a network request fails or the session is closed.
+            UnexpectedResponseError: If the binding response is invalid.
+        """
+        ctx = self._ctx
+        requested = _identity_actions.checksum_wallet(wallet)
+        # Validate the wallet identity before the session changes.
+        account = classify_account(
+            signer=ctx.signer.address,
+            wallet=requested,
+            config=ctx.environment_config.wallet_derivation,
+        )
+        bound = ctx.session.claims.wallet
+        if bound is not None and bound.lower() != requested.lower():
+            raise UserInputError(f"The session is already bound to wallet {bound}.")
+        if bound is None:
+            await ctx.session.bind_wallet(
+                requested, partial(_upgrade_session, ctx.auth, wallet=requested)
+            )
+        upgraded = type(self)._construct_for_wallet(
+            signer=ctx.signer,
+            wallet=requested,
+            wallet_type=account.wallet_type,
+            signer_type=account.signer_type,
+            environment=ctx.environment,
+            config=ctx.environment_config,
+            auth=ctx.auth,
+            session=ctx.session,
+            api_key=ctx.api_key,
+            platform_api_key=ctx.platform_api_key,
+            logger=self._logger,
+            on_rate_limit_update=self._on_rate_limit_update,
+        )
+        # The upgraded client owns the session and the authentication transport.
+        self._ended = True
+        # Closing local resources is best effort, because the session has moved.
+        with contextlib.suppress(Exception):
+            await self._close_resources()
+        return upgraded
 
     async def authorize_session_key(
         self,
@@ -1791,6 +1854,14 @@ class AsyncSecureClient:
         """Close the underlying network transports and any open streams."""
         ctx = self._ctx_inner
         ctx.session.close()
+        try:
+            await self._close_resources()
+        finally:
+            await ctx.auth.close()
+
+    async def _close_resources(self) -> None:
+        """Close what this client owns apart from the session and its transport."""
+        ctx = self._ctx_inner
         await _close_all(
             ctx.order_metadata,
             self._market_manager,
@@ -1805,7 +1876,6 @@ class AsyncSecureClient:
             ctx.perps,
             ctx.secure_clob,
             ctx.rpc,
-            ctx.auth,
         )
 
     async def _close_rfq_session(self) -> None:
