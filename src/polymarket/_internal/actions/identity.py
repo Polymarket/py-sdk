@@ -375,6 +375,12 @@ def issued_for(tokens: IssuedTokens, *, signer: str, wallet: str | None) -> bool
     return wallet is None or (claims.wallet is not None and claims.wallet.lower() == wallet.lower())
 
 
+def issued_wallet(tokens: IssuedTokens) -> str | None:
+    """Wallet that an issued session is bound to, if the token carries one."""
+    claims = _decode_claims(tokens.access_token)
+    return None if claims is None else claims.wallet
+
+
 def issue_login_session_sync(
     auth: SyncTransport,
     *,
@@ -649,6 +655,7 @@ __all__ = [
     "issue_migrated_session",
     "issue_migrated_session_sync",
     "issued_for",
+    "issued_wallet",
     "make_platform_header_resolver",
     "make_platform_header_resolver_sync",
     "parse_access_token_claims",

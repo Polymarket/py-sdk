@@ -832,6 +832,7 @@ class AsyncSecureClient:
         on_credentials_changed: AsyncCredentialsChanged | None = None,
         logger: logging.Logger | None = None,
         on_rate_limit_update: RateLimitUpdateListener | None = None,
+        wallet_setup: bool = True,
     ) -> Self:
         """Create an authenticated async client.
 
@@ -859,6 +860,16 @@ class AsyncSecureClient:
             on_rate_limit_update: Listener invoked whenever a response reports
                 per-signer rate-limit state, as order and cancellation responses
                 do. Errors raised by the listener are ignored.
+            wallet_setup: Whether creation completes wallet setup: finding the
+                default wallet, binding a session that has no wallet, and deploying
+                the default Deposit Wallet. Pass ``False`` to use the session as it
+                is, for example while your application runs its own onboarding. A
+                new sign-in or credential exchange then includes ``wallet`` only
+                when you pass it. For a session without a wallet, :attr:`wallet` is
+                the ``wallet`` you pass, or the signer's current Deposit Wallet
+                address, which may not be deployed yet. Once onboarding completes,
+                create a client from the saved credentials with wallet setup
+                enabled to bind the wallet.
 
         Raises:
             UserInputError: If key material, wallet, nonce, or credentials are invalid.
@@ -881,6 +892,7 @@ class AsyncSecureClient:
             validate_credentials=True,
             logger=logger,
             on_rate_limit_update=on_rate_limit_update,
+            wallet_setup=wallet_setup,
         )
 
     @classmethod
@@ -898,6 +910,7 @@ class AsyncSecureClient:
         validate_credentials: bool = True,
         logger: logging.Logger | None = None,
         on_rate_limit_update: RateLimitUpdateListener | None = None,
+        wallet_setup: bool = True,
     ) -> Self:
         # Without validation, saved session credentials are trusted as given and
         # no authentication or wallet request is made.
@@ -925,13 +938,14 @@ class AsyncSecureClient:
             else _identity_actions.make_platform_header_resolver(platform_api_key),
         )
         issued: _identity_actions.IssuedTokens | None = None
+        requested_wallet: str | None = None
         bind_wallet = False
         try:
             if isinstance(credentials, BearerCredentials):
                 claims = _identity_actions.parse_access_token_claims(credentials.access_token)
                 if claims.sub.lower() != signer.address.lower():
                     raise UserInputError("The saved credentials belong to a different signer.")
-                if claims.wallet is None:
+                if claims.wallet is None and wallet_setup:
                     resolved_wallet = _identity_actions.checksum_wallet(
                         await _resolve_requested_wallet(
                             signer=signer,
@@ -943,6 +957,14 @@ class AsyncSecureClient:
                         )
                     )
                     bind_wallet = True
+                elif claims.wallet is None:
+                    resolved_wallet = _identity_actions.checksum_wallet(
+                        wallet
+                        if wallet is not None
+                        else derive_beacon_deposit_wallet_address(
+                            signer.address, config.wallet_derivation
+                        )
+                    )
                 else:
                     if wallet is not None and wallet.lower() != claims.wallet.lower():
                         raise UserInputError(
@@ -955,14 +977,29 @@ class AsyncSecureClient:
                 )
                 session_credentials = credentials
             else:
-                resolved_wallet = _identity_actions.checksum_wallet(
-                    await _resolve_requested_wallet(
-                        signer=signer,
-                        wallet=wallet,
-                        config=config,
-                        api_key=api_key,
-                        platform_api_key=platform_api_key,
-                        logger=logger,
+                # Without wallet setup, a new session carries only a wallet the caller names.
+                if wallet_setup:
+                    requested_wallet = _identity_actions.checksum_wallet(
+                        await _resolve_requested_wallet(
+                            signer=signer,
+                            wallet=wallet,
+                            config=config,
+                            api_key=api_key,
+                            platform_api_key=platform_api_key,
+                            logger=logger,
+                        )
+                    )
+                else:
+                    requested_wallet = (
+                        None if wallet is None else _identity_actions.checksum_wallet(wallet)
+                    )
+                resolved_wallet = (
+                    requested_wallet
+                    if requested_wallet is not None
+                    else _identity_actions.checksum_wallet(
+                        derive_beacon_deposit_wallet_address(
+                            signer.address, config.wallet_derivation
+                        )
                     )
                 )
                 # Validate the wallet identity before authentication has side effects.
@@ -974,14 +1011,28 @@ class AsyncSecureClient:
                         auth,
                         signer=signer,
                         chain_id=config.chain_id,
-                        wallet=resolved_wallet,
+                        wallet=requested_wallet,
                         nonce=nonce,
                     )
                 else:
                     issued = await _identity_actions.issue_migrated_session(
-                        auth, credentials=credentials, signer=signer.address, wallet=resolved_wallet
+                        auth,
+                        credentials=credentials,
+                        signer=signer.address,
+                        wallet=requested_wallet,
                     )
                 session_credentials = issued.credentials
+                # A session issued without a requested wallet may still carry one.
+                issued_wallet = (
+                    _identity_actions.issued_wallet(issued) if requested_wallet is None else None
+                )
+                if issued_wallet is not None:
+                    resolved_wallet = _identity_actions.checksum_wallet(issued_wallet)
+                    account = classify_account(
+                        signer=signer.address,
+                        wallet=resolved_wallet,
+                        config=config.wallet_derivation,
+                    )
         except BaseException:
             await auth.close()
             raise
@@ -989,7 +1040,7 @@ class AsyncSecureClient:
         client: Self | None = None
         try:
             if issued is not None and not _identity_actions.issued_for(
-                issued, signer=signer.address, wallet=resolved_wallet
+                issued, signer=signer.address, wallet=requested_wallet
             ):
                 raise UnexpectedResponseError(
                     "The issued session does not match the requested signer and wallet."
@@ -1023,7 +1074,8 @@ class AsyncSecureClient:
                     partial(_upgrade_session, auth, wallet=resolved_wallet),
                 )
             session.start()
-            await client._ensure_wallet_ready()
+            if wallet_setup:
+                await client._ensure_wallet_ready()
         except BaseException:
             await _discard_failed_creation(
                 client, auth=auth, credentials=session_credentials, restored=restored

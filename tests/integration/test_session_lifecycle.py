@@ -20,9 +20,11 @@ from polymarket import (
     Environment,
     PublicClient,
     RequestRejectedError,
+    SecureClient,
 )
 from polymarket._internal.actions import identity
 from polymarket._internal.environment import get_environment_config
+from polymarket._internal.wallet import derive_beacon_deposit_wallet_address
 
 # API credentials the migration test sets up for itself, apart from other keys of the signer.
 _MIGRATION_NONCE = 3
@@ -138,6 +140,73 @@ def test_session_without_a_wallet_is_bound_without_a_signature(
             claims = identity.parse_access_token_claims(client.credentials.access_token)
             assert claims.wallet == account.address
             await client.list_open_orders().first_page()
+        finally:
+            await client.end_authentication()
+
+    asyncio.run(run())
+
+
+@pytest.mark.integration
+@pytest.mark.metered
+def test_session_without_a_wallet_skips_wallet_setup_until_bound(
+    integration_environment: Environment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    account = Account.create()
+    with PublicClient(environment=integration_environment) as public:
+        saved = public.login(private_key=account.key.hex())
+
+    def refuse_to_sign(*_: object, **__: object) -> str:
+        raise AssertionError("restoring a session must not ask the wallet to sign")
+
+    monkeypatch.setattr(identity, "sign_ownership_challenge", refuse_to_sign)
+    config = get_environment_config(integration_environment)
+    default_wallet = derive_beacon_deposit_wallet_address(account.address, config.wallet_derivation)
+
+    onboarding = SecureClient.create(
+        private_key=account.key.hex(),
+        credentials=saved,
+        environment=integration_environment,
+        wallet_setup=False,
+    )
+    try:
+        # The session stays without a wallet, and the default wallet is not deployed.
+        claims = identity.parse_access_token_claims(onboarding.credentials.access_token)
+        assert claims.wallet is None
+        assert onboarding.wallet.lower() == default_wallet.lower()
+        assert onboarding.wallet_type == "DEPOSIT_WALLET"
+
+        # Once onboarding completes, wallet setup binds the saved session.
+        with SecureClient.create(
+            private_key=account.key.hex(),
+            wallet=account.address,
+            credentials=onboarding.credentials,
+            environment=integration_environment,
+        ) as bound:
+            claims = identity.parse_access_token_claims(bound.credentials.access_token)
+            assert claims.wallet == account.address
+            bound.list_open_orders().first_page()
+    finally:
+        onboarding.end_authentication()
+
+
+@pytest.mark.integration
+@pytest.mark.metered
+def test_sign_in_without_wallet_setup_opens_a_session_without_a_wallet(
+    integration_environment: Environment,
+) -> None:
+    account = Account.create()
+
+    async def run() -> None:
+        client = await AsyncSecureClient.create(
+            private_key=account.key.hex(),
+            environment=integration_environment,
+            wallet_setup=False,
+        )
+        try:
+            claims = identity.parse_access_token_claims(client.credentials.access_token)
+            assert claims.wallet is None
+            assert client.wallet_type == "DEPOSIT_WALLET"
         finally:
             await client.end_authentication()
 
