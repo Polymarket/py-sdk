@@ -6,14 +6,15 @@ import contextlib
 import json
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from websockets.asyncio.server import ServerConnection, serve
 
 from polymarket._internal.streams.perps.market import PerpsMarketStreamManager
-from polymarket._internal.streams.perps.market_protocol import derive_state
-from polymarket.models.perps.events import PerpsBookEvent, PerpsTradeEvent
+from polymarket._internal.streams.perps.market_protocol import derive_state, match_for
+from polymarket.errors import UserInputError
+from polymarket.models.perps.events import PerpsBookEvent, PerpsTradeEvent, parse_perps_market_event
 from polymarket.streams._specs import (
     PerpsBookSpec,
     PerpsCandlesSpec,
@@ -125,7 +126,8 @@ def test_derive_state_collapses_all_subscriptions() -> None:
     )
 
 
-def test_subscribe_sends_channel_frame_and_routes_matching_events() -> None:
+@pytest.mark.parametrize("depth", [20, 50])
+def test_subscribe_sends_channel_frame_and_routes_matching_events(depth: Literal[20, 50]) -> None:
     received: list[dict[str, Any]] = []
 
     async def handler(ws: ServerConnection) -> None:
@@ -136,7 +138,11 @@ def test_subscribe_sends_channel_frame_and_routes_matching_events() -> None:
             received.append(frame)
             if frame["req"] == "sub":
                 await ws.send(json.dumps({"id": frame["id"], "data": {"status": "ok"}}))
-                await ws.send(json.dumps(_book_frame(7)))
+                await ws.send(
+                    json.dumps(
+                        {**_book_frame(7), "ch": "book::7::50" if depth == 50 else "book::7"}
+                    )
+                )
                 await ws.send(json.dumps(_book_frame(8)))
                 await ws.send(json.dumps(_trade_frame(7)))
 
@@ -144,7 +150,7 @@ def test_subscribe_sends_channel_frame_and_routes_matching_events() -> None:
         async with ws_server(handler) as url:
             manager = PerpsMarketStreamManager(url=url)
             try:
-                handle = await manager.subscribe(PerpsBookSpec(instrument_id=7))
+                handle = await manager.subscribe(PerpsBookSpec(instrument_id=7, depth=depth))
                 async with handle:
                     event = await asyncio.wait_for(handle.__anext__(), timeout=5.0)
                     assert isinstance(event, PerpsBookEvent)
@@ -154,7 +160,7 @@ def test_subscribe_sends_channel_frame_and_routes_matching_events() -> None:
 
     asyncio.run(asyncio.wait_for(run(), timeout=15.0))
     assert received[0]["req"] == "sub"
-    assert received[0]["chs"] == ["book::7"]
+    assert received[0]["chs"] == ["book::7::50" if depth == 50 else "book::7"]
 
 
 def test_closing_one_handle_unsubscribes_only_its_channels() -> None:
@@ -255,3 +261,25 @@ def test_reconnect_resubscribes_active_channels() -> None:
     assert connections == 2
     assert subscribe_frames[-1]["req"] == "sub"
     assert subscribe_frames[-1]["chs"] == ["book::7"]
+
+
+@pytest.mark.parametrize("depth", [20, 50])
+def test_book_depth_channels_route_independently(depth: Literal[20, 50]) -> None:
+    spec = PerpsBookSpec(instrument_id=7, depth=depth)
+    suffix = "::50" if depth == 50 else ""
+    assert derive_state([spec]) == frozenset({f"book::7{suffix}"})
+    for candidate in ["", "::20", "::50"]:
+        frame = {**_book_frame(7), "ch": f"book::7{candidate}"}
+        event = parse_perps_market_event(frame)
+        assert isinstance(event, PerpsBookEvent)
+        assert match_for(spec)(event) == (
+            candidate == "::50" if depth == 50 else candidate != "::50"
+        )
+
+
+def test_book_depth_rejects_unsupported_channels() -> None:
+    from typing import Any, cast
+
+    for depth in [10, 100, True]:
+        with pytest.raises(UserInputError, match="depth"):
+            PerpsBookSpec(instrument_id=7, depth=cast(Any, depth))
