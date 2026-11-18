@@ -4,6 +4,7 @@ from typing import Any
 
 from polymarket.models import ApiKeyCreds
 from polymarket.models.clob.user_events import UserEvent
+from polymarket.models.types import validate_combo_condition_id
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,9 +82,17 @@ def matcher_for(sub: UserSubscription) -> Callable[[UserEvent], bool]:
     if sub.is_all_markets:
         return lambda _event: True
     allowed = frozenset(m.lower() for m in sub.markets)
+    combo_allowed: set[str] = set()
+    for market in allowed:
+        try:
+            combo_allowed.add(validate_combo_condition_id(market))
+        except ValueError:
+            continue
 
     def matches(event: UserEvent) -> bool:
-        return event.payload.market.lower() in allowed
+        if event.type == "combo_auto_redeem":
+            return event.payload.condition_id.lower() in combo_allowed
+        return event.payload.condition_id.lower() in allowed
 
     return matches
 
