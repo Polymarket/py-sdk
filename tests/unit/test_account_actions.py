@@ -187,7 +187,7 @@ def test_build_get_order_request_rejects_empty_order_id() -> None:
 
 
 def test_parse_open_order_succeeds_on_valid_payload() -> None:
-    order = parse_open_order(_OPEN_ORDER_PAYLOAD)
+    order = parse_open_order(_OPEN_ORDER_PAYLOAD, order_id="order-1")
     assert order.id == "order-1"
     assert order.token_id == "8501497"
 
