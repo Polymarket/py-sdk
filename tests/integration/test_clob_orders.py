@@ -13,7 +13,7 @@ from polymarket import (
     Market,
     SecureClient,
 )
-from polymarket.errors import InsufficientLiquidityError, UserInputError
+from polymarket.errors import InsufficientLiquidityError, RequestRejectedError, UserInputError
 
 pytestmark = pytest.mark.anyio
 UNKNOWN_BUILDER_CODE = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd"
@@ -168,7 +168,44 @@ async def test_create_limit_order_reuses_live_market_metadata(
     assert paths.count(f"/clob-markets/{_market_condition_id(tradable_market)}") == 1
 
 
+@pytest.mark.integration
+async def test_get_order_raises_404_for_an_order_the_account_does_not_have(
+    deposit_wallet_client: AsyncSecureClient,
+) -> None:
+    with pytest.raises(RequestRejectedError) as error:
+        await deposit_wallet_client.get_order(order_id="0x" + "ab" * 32)
+
+    assert error.value.status == 404
+
+
 # Metered tests below place/cancel live orders or execute FAK market orders.
+@pytest.mark.integration
+@pytest.mark.metered
+async def test_get_order_returns_owned_order_while_live_and_after_cancellation(
+    deposit_wallet_client: AsyncSecureClient,
+    tradable_market: Market,
+) -> None:
+    # Side effects: rests one minimum-size BUY at the minimum tick, then cancels it.
+    placed = await deposit_wallet_client.place_limit_order(
+        token_id=_yes_token_id(tradable_market),
+        price=_limit_buy_price(tradable_market),
+        size=_minimum_order_size(tradable_market),
+        side="BUY",
+    )
+    assert isinstance(placed, AcceptedOrder)
+    order_id = placed.order_id
+    try:
+        live_order = await deposit_wallet_client.get_order(order_id=order_id)
+        assert live_order.id == order_id
+        assert live_order.status == "LIVE"
+    finally:
+        await deposit_wallet_client.cancel_order(order_id=order_id)
+
+    canceled_order = await deposit_wallet_client.get_order(order_id=order_id)
+    assert canceled_order.id == order_id
+    assert canceled_order.status == "CANCELED"
+
+
 @pytest.mark.integration
 @pytest.mark.metered
 async def test_place_limit_order_buy_creates_visible_open_order_and_cancels_cleanly(

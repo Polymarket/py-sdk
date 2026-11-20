@@ -9,7 +9,7 @@ import pytest
 from polymarket import ApiKeyCreds, SecureClient
 from polymarket._internal.actions.account import END_CURSOR
 from polymarket.clients._transport import SyncTransport
-from polymarket.errors import UserInputError
+from polymarket.errors import RequestRejectedError, UserInputError
 
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 SIGNER_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
@@ -158,6 +158,20 @@ def test_get_order_targets_data_order_path() -> None:
     request = captured[0]
     assert urlparse(str(request.url)).path == "/data/order/order-1"
     _assert_l2_headers(request)
+
+
+def test_get_order_raises_404_when_account_has_no_such_order() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, content=b"null", headers={"content-type": "application/json"}, request=request
+        )
+
+    with _make_client() as client:
+        _install_secure_clob(client, httpx.MockTransport(handler))
+        with pytest.raises(RequestRejectedError) as error:
+            client.get_order(order_id="order-missing")
+
+    assert error.value.status == 404
 
 
 def test_list_account_trades_paginates_and_passes_filters() -> None:

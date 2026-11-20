@@ -12,7 +12,7 @@ from polymarket._internal.actions._cursor import (
 from polymarket._internal.actions.exchange_asset import resolve_optional_asset_id
 from polymarket._internal.request import QueryParamValue
 from polymarket._internal.validation import require_nonempty
-from polymarket.errors import UnexpectedResponseError, UserInputError
+from polymarket.errors import RequestRejectedError, UnexpectedResponseError, UserInputError
 from polymarket.models.clob import (
     AssetType,
     BalanceAllowance,
@@ -149,7 +149,10 @@ def build_get_order_request(*, order_id: str) -> tuple[str, dict[str, str]]:
     return f"/data/order/{validated}", {}
 
 
-def parse_open_order(data: object) -> OpenOrder:
+def parse_open_order(data: object, *, order_id: str) -> OpenOrder:
+    # The API answers null when the account has no order with the requested id.
+    if data is None:
+        raise RequestRejectedError(f"Order {order_id} not found", status=404)
     return OpenOrder.parse_response(data)
 
 

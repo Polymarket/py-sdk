@@ -2562,10 +2562,13 @@ class AsyncSecureClient:
         return AsyncPaginator(fetch=fetch, initial_cursor=cursor)
 
     async def get_order(self, *, order_id: str) -> OpenOrder:
-        """Get one open order for the authenticated account."""
+        """Get one order for the authenticated account, in any status.
+
+        Raises ``RequestRejectedError`` with status 404 when the account has no
+        order with ``order_id``, including when the order belongs to another account."""
         path, params = _account_actions.build_get_order_request(order_id=order_id)
         return _account_actions.parse_open_order(
-            await self._ctx.secure_clob.get_json(path, params=params)
+            await self._ctx.secure_clob.get_json(path, params=params), order_id=order_id
         )
 
     def list_account_trades(
