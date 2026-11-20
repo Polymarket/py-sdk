@@ -45,6 +45,7 @@ from polymarket.models import (
     LastTradePrice,
     LastTradePriceForAsset,
     Market,
+    MarketClarification,
     MarketResolutionStatus,
     OrderBook,
     OrderSide,
@@ -1114,6 +1115,32 @@ class PublicClient:
             name=name,
             order=order,
             provider_ids=provider_ids,
+        )
+        return sync_paginate_offset(self._ctx, spec, page_size=page_size)
+
+    def list_market_clarifications(
+        self,
+        *,
+        ascending: bool | None = None,
+        event_ids: str | Sequence[str] | None = None,
+        market_ids: str | Sequence[str] | None = None,
+        order: str | None = None,
+        question_ids: str | Sequence[str] | None = None,
+        tx_hash: str | None = None,
+        page_size: int = 20,
+    ) -> Paginator[MarketClarification]:
+        """List market clarifications.
+
+        Returns:
+            A paginator over matching clarifications.
+        """
+        spec = _gamma_actions.list_market_clarifications_spec(
+            ascending=ascending,
+            event_ids=event_ids,
+            market_ids=market_ids,
+            order=order,
+            question_ids=question_ids,
+            tx_hash=tx_hash,
         )
         return sync_paginate_offset(self._ctx, spec, page_size=page_size)
 
