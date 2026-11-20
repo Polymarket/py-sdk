@@ -28,6 +28,7 @@ from polymarket.models import (
     Comment,
     Event,
     Market,
+    MarketClarification,
     MarketResolutionStatus,
     ProtocolVersion,
     PublicProfile,
@@ -745,6 +746,33 @@ def list_teams_spec(
         # Matches the upstream per-request limit cap.
         max_page_size=100,
         parse_items=Team.parse_response_list,
+        base_params=params or None,
+    )
+
+
+def list_market_clarifications_spec(
+    *,
+    ascending: bool | None = None,
+    event_ids: str | Sequence[str] | None = None,
+    market_ids: str | Sequence[str] | None = None,
+    order: str | None = None,
+    question_ids: str | Sequence[str] | None = None,
+    tx_hash: str | None = None,
+) -> OffsetPaginatedSpec[MarketClarification]:
+    params: dict[str, QueryParamValue] = {}
+    _add_optional(params, "ascending", ascending)
+    _add_optional_seq(params, "event_id", event_ids)
+    _add_optional_seq(params, "market_id", market_ids)
+    _add_optional(params, "order", order)
+    _add_optional_seq(params, "question_id", question_ids)
+    _add_optional(params, "tx_hash", tx_hash)
+
+    return OffsetPaginatedSpec(
+        service="gamma",
+        path="/market-clarifications",
+        # Matches the upstream per-request limit cap.
+        max_page_size=100,
+        parse_items=MarketClarification.parse_response_list,
         base_params=params or None,
     )
 

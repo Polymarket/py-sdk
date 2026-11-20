@@ -13,6 +13,8 @@ from polymarket.models.gamma import (
     Event,
     EventPartner,
     Market,
+    MarketClarification,
+    MarketClarificationState,
     MarketResolutionStatus,
     ProtocolVersion,
     PublicProfile,
@@ -1020,3 +1022,40 @@ def test_tag_reference_parse_response_list_rejects_non_list() -> None:
 def test_market_parse_response_raises_unexpected_response_on_bad_payload() -> None:
     with pytest.raises(UnexpectedResponseError):
         Market.parse_response({"id": "MARKET-1"})
+
+
+def test_market_clarification_parses_payload_with_numeric_ids() -> None:
+    clarification = MarketClarification.parse_response(
+        {
+            "id": 23029,
+            "marketId": 4900727,
+            "eventId": 1072668,
+            "questionId": "0x06e6",
+            "content": "This market's rules have been updated for clarity.",
+            "state": "success",
+            "clearBook": True,
+            "notifyDiscord": False,
+            "showInFrontend": True,
+            "adapterAddress": "0x69c47De9D4D3Dad79590d61b9e05918E03775f24",
+            "negRiskRequestId": "0x5088",
+            "txHash": "0xcc3c",
+            "createdAt": "2026-09-25T18:52:36.114766Z",
+            "queuedAt": "2026-09-25T18:52:52.215716Z",
+            "scheduledFor": "2026-09-25T18:51:00Z",
+            "txTimestamp": "2026-09-25T18:53:01.335415Z",
+        }
+    )
+
+    assert clarification.market_id == "4900727"
+    assert clarification.event_id == "1072668"
+    assert clarification.state is MarketClarificationState.SUCCESS
+    assert clarification.clear_book is True
+    assert clarification.scheduled_for == datetime(2026, 9, 25, 18, 51, tzinfo=UTC)
+    assert clarification.tx_timestamp == datetime(2026, 9, 25, 18, 53, 1, 335415, tzinfo=UTC)
+
+
+def test_market_clarification_accepts_minimal_payload() -> None:
+    clarification = MarketClarification.parse_response({"id": 1})
+
+    assert clarification.market_id is None
+    assert clarification.state is None

@@ -1,5 +1,6 @@
 """Public SDK models."""
 
+from polymarket.models.gamma.clarification import MarketClarification, MarketClarificationState
 from polymarket.models.gamma.comment import (
     Comment,
     CommentMedia,
@@ -91,6 +92,8 @@ __all__ = [
     "FeeSchedule",
     "ImageOptimization",
     "Market",
+    "MarketClarification",
+    "MarketClarificationState",
     "MarketEvent",
     "MarketMetrics",
     "MarketOutcome",

@@ -10,6 +10,7 @@ from polymarket import (
     Comment,
     Event,
     Market,
+    MarketClarification,
     ProtocolVersion,
     PublicClient,
     SearchResults,
@@ -205,6 +206,32 @@ def test_async_list_tags_returns_paginator() -> None:
 
             assert first.items
             assert all(isinstance(tag, Tag) for tag in first.items)
+
+    asyncio.run(run())
+
+
+@pytest.mark.integration
+def test_list_market_clarifications_filters_by_market() -> None:
+    with PublicClient() as client:
+        first = client.list_market_clarifications(page_size=5).first_page()
+        assert first.items
+        assert all(isinstance(item, MarketClarification) for item in first.items)
+
+        market_id = next(item.market_id for item in first.items if item.market_id)
+        filtered = client.list_market_clarifications(market_ids=market_id).first_page()
+
+        assert filtered.items
+        assert {item.market_id for item in filtered.items} == {market_id}
+
+
+@pytest.mark.integration
+def test_async_list_market_clarifications_returns_paginator() -> None:
+    async def run() -> None:
+        async with AsyncPublicClient() as client:
+            first = await client.list_market_clarifications(page_size=5).first_page()
+
+            assert first.items
+            assert all(isinstance(item, MarketClarification) for item in first.items)
 
     asyncio.run(run())
 

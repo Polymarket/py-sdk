@@ -167,6 +167,7 @@ from polymarket.models import (
     LastTradePrice,
     LastTradePriceForAsset,
     Market,
+    MarketClarification,
     MarketResolutionStatus,
     Notification,
     OpenOrder,
@@ -2199,6 +2200,44 @@ class AsyncSecureClient:
             name=name,
             order=order,
             provider_ids=provider_ids,
+        )
+        return async_paginate_offset(self._ctx, spec, page_size=page_size)
+
+    def list_market_clarifications(
+        self,
+        *,
+        ascending: bool | None = None,
+        event_ids: str | Sequence[str] | None = None,
+        market_ids: str | Sequence[str] | None = None,
+        order: str | None = None,
+        question_ids: str | Sequence[str] | None = None,
+        tx_hash: str | None = None,
+        page_size: int = 20,
+    ) -> AsyncPaginator[MarketClarification]:
+        """List market clarifications.
+
+        Clarifications are official notes that resolve ambiguity in how a market
+        settles. Only published clarifications are returned.
+
+        Args:
+            ascending: Sort in ascending order of ``order``.
+            event_ids: Only return clarifications for these event IDs.
+            market_ids: Only return clarifications for these market IDs.
+            order: Field to sort by, such as ``"id"``.
+            question_ids: Only return clarifications for these question IDs.
+            tx_hash: Only return clarifications posted in this transaction.
+            page_size: Number of clarifications per page, up to 100.
+
+        Returns:
+            An async paginator over matching clarifications.
+        """
+        spec = _gamma_actions.list_market_clarifications_spec(
+            ascending=ascending,
+            event_ids=event_ids,
+            market_ids=market_ids,
+            order=order,
+            question_ids=question_ids,
+            tx_hash=tx_hash,
         )
         return async_paginate_offset(self._ctx, spec, page_size=page_size)
 

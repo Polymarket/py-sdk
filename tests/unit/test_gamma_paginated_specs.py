@@ -393,6 +393,54 @@ def test_list_teams_spec_maps_provider_ids_to_singular() -> None:
     assert spec.base_params == {"league": ("NBA",), "provider_id": (7, 8)}
 
 
+def test_list_market_clarifications_spec_maps_plural_filters_to_repeated_params() -> None:
+    spec = gamma_actions.list_market_clarifications_spec(
+        event_ids="1072668",
+        market_ids=["4900727", "4900728"],
+        question_ids=["0xq"],
+        tx_hash="0xtx",
+        order="id",
+        ascending=True,
+    )
+
+    assert spec.path == "/market-clarifications"
+    assert spec.base_params == {
+        "ascending": True,
+        "event_id": ("1072668",),
+        "market_id": ("4900727", "4900728"),
+        "order": "id",
+        "question_id": ("0xq",),
+        "tx_hash": "0xtx",
+    }
+
+
+def test_list_market_clarifications_sends_filters_and_follows_offset_pages() -> None:
+    clarification = {"id": 23029, "marketId": 4900727, "state": "success"}
+    requests: list[httpx.Request] = []
+    responses = iter(
+        [
+            httpx.Response(200, json=[clarification, {**clarification, "id": 23030}]),
+            httpx.Response(200, json=[{**clarification, "id": 23031}]),
+        ]
+    )
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return next(responses)
+
+    with respx.mock as router:
+        router.get("https://gamma-api.polymarket.com/market-clarifications").side_effect = respond
+        with PublicClient() as client:
+            pages = list(client.list_market_clarifications(market_ids=["4900727"], page_size=2))
+
+    assert [[item.id for item in page.items] for page in pages] == [[23029, 23030], [23031]]
+    assert pages[0].items[0].market_id == "4900727"
+    assert [dict(request.url.params) for request in requests] == [
+        {"market_id": "4900727", "limit": "2", "offset": "0"},
+        {"market_id": "4900727", "limit": "2", "offset": "2"},
+    ]
+
+
 def test_list_comments_spec_requires_parent_entity_id() -> None:
     with pytest.raises(UserInputError, match="parent_entity_id is required"):
         gamma_actions.list_comments_spec(parent_entity_id="", parent_entity_type="Event")
@@ -555,13 +603,14 @@ def test_keyset_parser_accepts_valid_next_cursor() -> None:
         (gamma_actions.list_series_spec(), 50),
         (gamma_actions.list_tags_spec(), 100),
         (gamma_actions.list_teams_spec(), 100),
+        (gamma_actions.list_market_clarifications_spec(), 100),
         (
             gamma_actions.list_comments_spec(parent_entity_id="1", parent_entity_type="Event"),
             100,
         ),
         (gamma_actions.list_comments_by_user_address_spec(address="0x" + "a" * 40), 100),
     ],
-    ids=["series", "tags", "teams", "comments", "comments-by-user-address"],
+    ids=["series", "tags", "teams", "clarifications", "comments", "comments-by-user-address"],
 )
 def test_offset_specs_cap_page_size_at_server_limit(spec: object, expected_max: int) -> None:
     # Each cap matches the server-side limit cap. Page sizes past the cap fail
@@ -577,13 +626,14 @@ def test_offset_specs_cap_page_size_at_server_limit(spec: object, expected_max: 
         (gamma_actions.list_series_spec(), None),
         (gamma_actions.list_tags_spec(), None),
         (gamma_actions.list_teams_spec(), None),
+        (gamma_actions.list_market_clarifications_spec(), None),
         (
             gamma_actions.list_comments_spec(parent_entity_id="1", parent_entity_type="Event"),
             200,
         ),
         (gamma_actions.list_comments_by_user_address_spec(address="0x" + "a" * 40), 200),
     ],
-    ids=["series", "tags", "teams", "comments", "comments-by-user-address"],
+    ids=["series", "tags", "teams", "clarifications", "comments", "comments-by-user-address"],
 )
 def test_offset_specs_cap_offset_at_server_limit(
     spec: object, expected_max_offset: int | None
