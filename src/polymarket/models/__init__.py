@@ -162,6 +162,16 @@ from polymarket.models.data import (
     WithdrawalActivity,
     YieldActivity,
 )
+from polymarket.models.directional import (
+    DecodedPositionId,
+    DirectionalBucketPositions,
+    DirectionalInstrumentKind,
+    DirectionalPair,
+    DirectionalSide,
+    DirectionalThresholdPositions,
+    ThresholdSide,
+    ThresholdSideInput,
+)
 from polymarket.models.gamma import (
     ComboKnownStatus,
     ComboStatus,
@@ -318,6 +328,7 @@ from polymarket.models.types import (
     CommentId,
     ConditionId,
     CtfConditionId,
+    DirectionalEventId,
     EventId,
     MarketId,
     OrderId,
@@ -335,6 +346,15 @@ from polymarket.models.types import (
 )
 
 __all__ = [
+    "DecodedPositionId",
+    "DirectionalBucketPositions",
+    "DirectionalInstrumentKind",
+    "DirectionalPair",
+    "DirectionalSide",
+    "DirectionalThresholdPositions",
+    "ThresholdSide",
+    "ThresholdSideInput",
+    "DirectionalEventId",
     "PerpsPositionSnapshotFill",
     "PerpsPositionSnapshotCandle",
     "PerpsPositionSnapshotMarker",

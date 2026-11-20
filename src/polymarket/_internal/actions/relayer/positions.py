@@ -45,7 +45,7 @@ class ComboPositionContext:
 @dataclass(frozen=True, slots=True)
 class MarketPositionContext:
     protocol: Literal["ctf", "v2"]
-    market_id: MarketId
+    market_id: MarketId | None
     condition_id: ConditionId
     position_erc1155_address: EvmAddress
     token_ids: tuple[ClobAssetId, ClobAssetId]
@@ -55,6 +55,37 @@ class MarketPositionContext:
     @property
     def outcome_ids(self) -> tuple[ClobAssetId, ClobAssetId]:
         return self.token_ids
+
+
+def resolve_directional_condition_context(
+    condition_id: str, *, position_manager: EvmAddress
+) -> MarketPositionContext | None:
+    from polymarket._internal.directional import (
+        derive_outcome_position_id,
+        normalize_directional_condition_id,
+    )
+
+    if not condition_id.lower().startswith("0x04"):
+        return None
+    if len(condition_id) == 66:
+        try:
+            if int(condition_id, 16) & (((1 << 64) - 1) << 40):
+                return None
+        except ValueError:
+            return None
+    elif len(condition_id) != 64:
+        return None
+    condition = normalize_directional_condition_id(condition_id)
+    return MarketPositionContext(
+        protocol="v2",
+        market_id=None,
+        condition_id=condition,
+        position_erc1155_address=position_manager,
+        token_ids=(
+            derive_outcome_position_id(condition, 0),
+            derive_outcome_position_id(condition, 1),
+        ),
+    )
 
 
 DecodedComboOutcomePositionId = DecodedV2OutcomePositionId
