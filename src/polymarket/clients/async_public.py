@@ -1362,18 +1362,6 @@ class AsyncPublicClient:
     ) -> AsyncPaginator[MarketClarification]:
         """List market clarifications.
 
-        Clarifications are official notes that resolve ambiguity in how a market
-        settles. Only published clarifications are returned.
-
-        Args:
-            ascending: Sort in ascending order of ``order``.
-            event_ids: Only return clarifications for these event IDs.
-            market_ids: Only return clarifications for these market IDs.
-            order: Field to sort by, such as ``"id"``.
-            question_ids: Only return clarifications for these question IDs.
-            tx_hash: Only return clarifications posted in this transaction.
-            page_size: Number of clarifications per page, up to 100.
-
         Returns:
             An async paginator over matching clarifications.
         """

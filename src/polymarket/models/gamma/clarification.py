@@ -25,8 +25,6 @@ class MarketClarificationState(StrEnum):
 
 
 class MarketClarification(BaseModel):
-    """An official note that resolves ambiguity in how a market settles."""
-
     id: int
     market_id: MarketId | None = Field(default=None, validation_alias="marketId")
     event_id: EventId | None = Field(default=None, validation_alias="eventId")
