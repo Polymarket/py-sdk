@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.21.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.20.0...polymarket-client-v0.21.0) (2026-11-20)
+## [0.20.1](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.20.0...polymarket-client-v0.20.1) (2026-11-20)
 
 
 ### Features
@@ -10,7 +10,6 @@
 
 ### Bug Fixes
 
-* **account:** raise a 404 from get_order when the order is not found ([6f3121f](https://github.com/Polymarket/py-sdk/commit/6f3121fa2f72ea7b58e03f12230957d65847153a))
 * **account:** raise a 404 from get_order when the order is not found ([2f44485](https://github.com/Polymarket/py-sdk/commit/2f44485259a1ac304f4da5448289e66751761217))
 
 ## [0.20.0](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.19.0...polymarket-client-v0.20.0) (2026-11-16)
