@@ -60,8 +60,38 @@ def test_sync_transport_maps_rejected_json_error_response() -> None:
         transport.get_json("/markets/1")
 
     assert exc_info.value.status == 400
+    assert exc_info.value.code is None
     assert exc_info.value.retry_after is None
     assert exc_info.value.restriction is None
+
+
+@pytest.mark.parametrize(
+    ("status", "error", "code"),
+    [
+        (403, "NOT_ALLOWED", "NOT_ALLOWED"),
+        (422, "signer_does_not_match_account", "signer_does_not_match_account"),
+        (403, "not allowed", None),
+        (400, "invalid_request", None),
+    ],
+)
+def test_sync_transport_uses_json_error_identifiers_as_fallback_codes(
+    status: int, error: str, code: str | None
+) -> None:
+    transport = SyncTransport(
+        base_url="https://example.test",
+        client=httpx.Client(
+            base_url="https://example.test",
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(status, json={"error": error}, request=request)
+            ),
+        ),
+    )
+
+    with pytest.raises(RequestRejectedError) as exc_info:
+        transport.post_json("/submit", json={})
+
+    assert exc_info.value.status == status
+    assert exc_info.value.code == code
 
 
 def test_sync_transport_exposes_retry_after_header_on_rejection() -> None:
