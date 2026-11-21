@@ -8,7 +8,7 @@ import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, TypeAlias
+from typing import Any, TypeAlias, cast
 
 import httpx
 from httpx import USE_CLIENT_DEFAULT
@@ -402,11 +402,16 @@ def _raise_for_response_status(response: httpx.Response, *, path: str) -> None:
     if response.is_success:
         return
 
+    retryable, trace_id, parameter = _extract_response_error_metadata(response)
+
     if response.status_code == 429:
         raise RateLimitError(
             f"Request to {response.url} was rate limited",
             retry_after=_extract_retry_after(response),
             rate_limit=_parse_rate_limit_headers(response.headers),
+            retryable=retryable,
+            trace_id=trace_id,
+            parameter=parameter,
         )
 
     if response.status_code == 400 and path == "/v1/heartbeats":
@@ -415,7 +420,12 @@ def _raise_for_response_status(response: httpx.Response, *, path: str) -> None:
         except ValueError:
             pass
         else:
-            raise OrderHeartbeatMismatchError(mismatch.heartbeat_id)
+            raise OrderHeartbeatMismatchError(
+                mismatch.heartbeat_id,
+                retryable=retryable,
+                trace_id=trace_id,
+                parameter=parameter,
+            )
 
     raise RequestRejectedError(
         _extract_response_error_message(response),
@@ -423,6 +433,9 @@ def _raise_for_response_status(response: httpx.Response, *, path: str) -> None:
         code=_extract_response_error_code(response),
         retry_after=_extract_retry_after(response),
         restriction=_detect_trading_restriction(response),
+        retryable=retryable,
+        trace_id=trace_id,
+        parameter=parameter,
     )
 
 
@@ -572,6 +585,31 @@ def _read_json(response: httpx.Response) -> Any:
         return response.json()
     except ValueError as error:
         raise UnexpectedResponseError(f"Received non-JSON response from {response.url}") from error
+
+
+def _extract_response_error_metadata(
+    response: httpx.Response,
+) -> tuple[bool | None, str | None, str | None]:
+    body: dict[str, Any] = {}
+    if "application/json" in response.headers.get("content-type", "").lower():
+        try:
+            payload = response.json()
+        except ValueError:
+            pass
+        else:
+            if isinstance(payload, dict):
+                body = cast(dict[str, Any], payload)
+
+    retryable = body.get("retryable")
+    trace_id = body.get("trace_id")
+    parameter = body.get("parameter")
+    return (
+        retryable if isinstance(retryable, bool) else None,
+        trace_id
+        if isinstance(trace_id, str) and trace_id.strip()
+        else _parse_text_header(response.headers.get("x-trace-id")),
+        parameter if isinstance(parameter, str) and parameter.strip() else None,
+    )
 
 
 def _extract_response_error_code(response: httpx.Response) -> str | None:

@@ -19,6 +19,7 @@ from polymarket.errors import RateLimitError, RequestRejectedError
         (429, "120", 1, 1, []),
         (429, "0", 4, 3, [0, 0]),
         (400, None, 1, 1, []),
+        (503, None, 1, 1, []),
     ],
 )
 @pytest.mark.parametrize("mode", ["sync", "async"])
@@ -49,7 +50,12 @@ def test_retry_at_dispatch_boundary(
             return httpx.Response(
                 status,
                 headers={} if header is None else {"Retry-After": header},
-                json={"error": "test rejection"},
+                json={
+                    "error": "test rejection",
+                    "retryable": status != 429,
+                    "trace_id": f"attempt-{calls}",
+                    "parameter": "user",
+                },
             )
         return httpx.Response(
             200, json={"data": [], "pagination": {"has_more": False, "next_cursor": None}}
@@ -92,8 +98,11 @@ def test_retry_at_dispatch_boundary(
                 await client.get_open_interests()
 
     if failures >= attempts:
-        with pytest.raises(RateLimitError if status == 429 else RequestRejectedError):
+        with pytest.raises(RateLimitError if status == 429 else RequestRejectedError) as caught:
             sync_run() if mode == "sync" else asyncio.run(async_run())
+        assert caught.value.retryable is (status != 429)
+        assert caught.value.trace_id == f"attempt-{attempts}"
+        assert caught.value.parameter == "user"
     else:
         sync_run() if mode == "sync" else asyncio.run(async_run())
     assert calls == attempts
