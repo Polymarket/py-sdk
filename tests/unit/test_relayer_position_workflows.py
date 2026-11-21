@@ -29,6 +29,82 @@ _COMBO_CONDITION_ID = "0x032def24bfb0c5c57fb236fac08b94236a000000000000000000000
 _CONDITION_ID = "0x" + "11" * 32
 
 
+@pytest.mark.parametrize(
+    ("operation", "selector"),
+    [("convert", "9380f1c8"), ("horizontal_split", "40657b52"), ("horizontal_merge", "24f24944")],
+)
+@pytest.mark.parametrize("suffix", ["", "00"])
+@pytest.mark.parametrize("metadata", [None, "Neg risk", ""])
+def test_neg_risk_operations_submit_one_router_call(
+    operation: str, selector: str, suffix: str, metadata: str | None
+) -> None:
+    captured: list[httpx.Request] = []
+    event_id = "0x02" + "11" * 16 + "0003" + "00" * 8 + "00ff"
+
+    async def run() -> None:
+        client = await make_deposit_client()
+        _setup_relayer(client, captured, "tx-neg-risk")
+        try:
+            if operation == "convert":
+                handle = await client.convert(
+                    condition_id="0x" + event_id[2:].upper() + "0003" + suffix,
+                    amount=5,
+                    metadata=metadata,
+                )
+            elif operation == "horizontal_split":
+                handle = await client.horizontal_split(
+                    condition_id="0x" + event_id[2:].upper() + "0002" + suffix,
+                    amount=5,
+                    metadata=metadata,
+                )
+            else:
+                handle = await client.horizontal_merge(
+                    condition_id="0x" + event_id[2:].upper() + "0002" + suffix,
+                    amount=5,
+                    metadata=metadata,
+                )
+            assert isinstance(handle, GaslessTransactionHandle)
+        finally:
+            await client.close()
+
+    asyncio.run(run())
+    body = _submit_body(captured)
+    calls = _deposit_wallet_calls(body)
+    assert len(calls) == 1
+    assert calls[0]["target"].lower() == PRODUCTION_CONFIG.protocol_v2_router.lower()
+    index_word = f"{3:064x}" if operation == "convert" else ""
+    assert calls[0]["data"] == "0x" + selector + event_id[2:] + "000000" + index_word + f"{5:064x}"
+    expected_metadata = {
+        "convert": f"Convert 5 positions for condition {event_id}0003",
+        "horizontal_split": f"Horizontal split 5 positions for event {event_id}",
+        "horizontal_merge": f"Horizontal merge 5 positions for event {event_id}",
+    }
+    assert body["metadata"] == (metadata if metadata is not None else expected_metadata[operation])
+
+
+@pytest.mark.parametrize("operation", ["convert", "horizontal_split", "horizontal_merge"])
+def test_neg_risk_validation_precedes_submission(operation: str) -> None:
+    captured: list[httpx.Request] = []
+    event_id = "0x02" + "11" * 16 + "0003" + "00" * 10
+
+    async def run() -> None:
+        client = await make_deposit_client()
+        _setup_relayer(client, captured, "tx-neg-risk-invalid")
+        try:
+            with pytest.raises(UserInputError):
+                if operation == "convert":
+                    await client.convert(condition_id=event_id + "0004", amount=5)
+                elif operation == "horizontal_split":
+                    await client.horizontal_split(condition_id=event_id + "000001", amount=5)
+                else:
+                    await client.horizontal_merge(condition_id=event_id + "0000", amount=0)
+        finally:
+            await client.close()
+
+    asyncio.run(run())
+    assert captured == []
+
+
 def test_split_position_with_combo_legs_bundles_prepare_and_split() -> None:
     captured: list[httpx.Request] = []
 
