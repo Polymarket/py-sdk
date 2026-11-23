@@ -641,6 +641,8 @@ class AsyncPublicClient:
     ) -> BearerCredentials:
         """Sign in and return session credentials without creating a secure client.
 
+        Experimental: may change in breaking ways, including patch releases.
+
         Omit ``wallet`` to open a session without a wallet. Passing the returned
         credentials and a wallet to :meth:`AsyncSecureClient.create` binds the
         wallet without a new signature.
@@ -672,6 +674,8 @@ class AsyncPublicClient:
         self, *, credentials: ApiKeyCreds, signer_address: str, wallet: str | None = None
     ) -> BearerCredentials:
         """Exchange saved API credentials for session credentials.
+
+        Experimental: may change in breaking ways, including patch releases.
 
         No wallet signature is needed, and the API secret is never sent. The
         saved API credentials stay valid after the exchange.

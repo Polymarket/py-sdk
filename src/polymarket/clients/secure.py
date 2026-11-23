@@ -768,6 +768,7 @@ class SecureClient:
                 address, which may not be deployed yet. Once onboarding completes,
                 create a client from the saved credentials with wallet setup
                 enabled to bind the wallet.
+                Experimental: may change in breaking ways, including patch releases.
 
         Raises:
             UserInputError: If key material, wallet, nonce, or credentials are invalid.
@@ -1071,6 +1072,8 @@ class SecureClient:
     def refresh_credentials(self) -> BearerCredentials:
         """Renew the session now and return the renewed credentials.
 
+        Experimental: may change in breaking ways, including patch releases.
+
         The client renews its session before the access token expires, so most
         applications never call this. A call made while a renewal is in progress
         joins it instead of starting another. ``on_credentials_changed`` receives
@@ -1087,6 +1090,8 @@ class SecureClient:
 
     def upgrade_credentials(self, *, wallet: str) -> Self:
         """Bind a wallet to a session that has none and return a client for it.
+
+        Experimental: may change in breaking ways, including patch releases.
 
         Use this after creating the client with ``wallet_setup=False`` and
         completing your own onboarding, such as deploying the Deposit Wallet.
