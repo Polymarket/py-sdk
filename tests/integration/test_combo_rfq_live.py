@@ -1,3 +1,4 @@
+# pyright: reportPrivateUsage=false
 from __future__ import annotations
 
 from decimal import Decimal
@@ -17,16 +18,24 @@ from polymarket import (
 pytestmark = [pytest.mark.integration, pytest.mark.anyio]
 
 
-@pytest.fixture
-async def builder_client(
+_ZERO_BUILDER_CODE = "0x" + "0" * 64
+
+
+# With a builder key the RFQ goes to the builder routes; with only the session
+# it goes to the requester routes, without builder attribution.
+@pytest.fixture(params=[True, False], ids=["with a builder key", "with only the session"])
+async def rfq_client(
+    request: pytest.FixtureRequest,
     deposit_wallet_private_key: str,
     deposit_wallet_address: str,
-    builder_api_key: BuilderApiKey,
 ):
+    api_key: BuilderApiKey | None = (
+        request.getfixturevalue("builder_api_key") if request.param else None
+    )
     client = await AsyncSecureClient.create(
         private_key=deposit_wallet_private_key,
         wallet=deposit_wallet_address,
-        api_key=builder_api_key,
+        api_key=api_key,
     )
     try:
         yield client
@@ -35,10 +44,10 @@ async def builder_client(
 
 
 async def test_fetch_rfq_status_rejects_unknown_rfq(
-    builder_client: AsyncSecureClient,
+    rfq_client: AsyncSecureClient,
 ) -> None:
     with pytest.raises(RfqRequestRejectedError):
-        await builder_client.fetch_rfq_status(rfq_id="rfq-00000000-0000-0000-0000-000000000000")
+        await rfq_client.fetch_rfq_status(rfq_id="rfq-00000000-0000-0000-0000-000000000000")
 
 
 # Combo-enabled markets churn as games resolve, so fixed legs go stale. Pick
@@ -65,23 +74,23 @@ async def _discover_combo_leg_position_ids(client: AsyncSecureClient) -> list[st
 # Metered: creates a live combo RFQ, but does not accept it or execute an order.
 @pytest.mark.metered
 async def test_combo_sell_quote_returns_exact_net_proceeds(
-    builder_client: AsyncSecureClient,
+    rfq_client: AsyncSecureClient,
     combo_leg_position_ids: list[str] | None,
 ) -> None:
-    legs = combo_leg_position_ids or await _discover_combo_leg_position_ids(builder_client)
+    legs = combo_leg_position_ids or await _discover_combo_leg_position_ids(rfq_client)
     if legs is None:
         pytest.skip(
             "No combo legs discoverable; set POLYMARKET_COMBO_LEG_POSITION_IDS to override."
         )
 
-    result = await builder_client.request_combo_quote(
-        leg_position_ids=legs, direction="SELL", size=1
-    )
+    result = await rfq_client.request_combo_quote(leg_position_ids=legs, direction="SELL", size=1)
 
     if result.quote is None:
         pytest.skip(f"No SELL combo quote available: {result.reason}")
 
     assert result.quote.direction is RfqDirection.SELL
+    if rfq_client._ctx.api_key is None:
+        assert result.quote.builder_code == _ZERO_BUILDER_CODE
     assert result.quote.net_receive is not None
     assert result.quote.net_receive > 0
 
@@ -89,23 +98,21 @@ async def test_combo_sell_quote_returns_exact_net_proceeds(
 # Metered: an accepted combo quote executes a live trade with real funds.
 @pytest.mark.metered
 async def test_combo_quote_request_accept_and_fill(
-    builder_client: AsyncSecureClient,
+    rfq_client: AsyncSecureClient,
     combo_leg_position_ids: list[str] | None,
 ) -> None:
-    legs = combo_leg_position_ids or await _discover_combo_leg_position_ids(builder_client)
+    legs = combo_leg_position_ids or await _discover_combo_leg_position_ids(rfq_client)
     if legs is None:
         pytest.skip(
             "No combo legs discoverable; set POLYMARKET_COMBO_LEG_POSITION_IDS to override."
         )
 
-    result = await builder_client.request_combo_quote(
-        leg_position_ids=legs, direction="BUY", amount=1
-    )
+    result = await rfq_client.request_combo_quote(leg_position_ids=legs, direction="BUY", amount=1)
 
     if result.quote is None:
         pytest.skip(f"No combo quote available: {result.reason}")
 
-    acceptance = await builder_client.accept_combo_quote(result.quote)
+    acceptance = await rfq_client.accept_combo_quote(result.quote)
 
     if acceptance.status == "failed":
         if acceptance.reason is ComboAcceptFailureReason.EXECUTION_FAILED:
@@ -114,7 +121,7 @@ async def test_combo_quote_request_accept_and_fill(
             )
         pytest.skip(f"Combo acceptance did not execute: {acceptance.reason}")
 
-    fill = await builder_client.wait_for_combo_fill(rfq_id=acceptance.rfq_id, timeout=120.0)
+    fill = await rfq_client.wait_for_combo_fill(rfq_id=acceptance.rfq_id, timeout=120.0)
 
     assert fill.rfq_id == acceptance.rfq_id
     if fill.status is not RfqStatus.FILLED:

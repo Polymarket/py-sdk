@@ -96,7 +96,7 @@ def build_midpoint_request(
     *, asset_id: str | None = None, token_id: str | None = None
 ) -> tuple[str, dict[str, str]]:
     resolved = resolve_asset_id(asset_id=asset_id, token_id=token_id)
-    return "/midpoint", {"token_id": resolved}
+    return "/v1/pricing/midpoint", {"token_id": resolved}
 
 
 def parse_midpoint(data: object) -> Decimal:
@@ -107,7 +107,7 @@ def build_midpoints_request(
     *, asset_ids: Sequence[str] | None = None, token_ids: Sequence[str] | None = None
 ) -> tuple[str, list[dict[str, str]]]:
     validated = resolve_asset_ids(asset_ids=asset_ids, token_ids=token_ids)
-    return "/midpoints", [{"token_id": tid} for tid in validated]
+    return "/v1/pricing/midpoints", [{"token_id": tid} for tid in validated]
 
 
 def parse_midpoints(data: object) -> dict[ClobAssetId, Decimal]:
@@ -122,7 +122,7 @@ def build_price_request(
 ) -> tuple[str, dict[str, str]]:
     validated = resolve_asset_id(asset_id=asset_id, token_id=token_id)
     _validate_side(side)
-    return "/price", {"token_id": validated, "side": side}
+    return "/v1/pricing/price", {"token_id": validated, "side": side}
 
 
 def parse_price(data: object) -> Decimal:
@@ -131,7 +131,7 @@ def parse_price(data: object) -> Decimal:
 
 def build_prices_request(*, requests: Sequence[PriceRequest]) -> tuple[str, list[dict[str, str]]]:
     validated = _require_nonempty_price_requests(requests)
-    return "/prices", [{"token_id": r.asset_id, "side": r.side} for r in validated]
+    return "/v1/pricing/prices", [{"token_id": r.asset_id, "side": r.side} for r in validated]
 
 
 def parse_prices(data: object) -> dict[ClobAssetId, dict[OrderSide, Decimal]]:
@@ -145,7 +145,7 @@ def build_order_book_request(
     *, asset_id: str | None = None, token_id: str | None = None
 ) -> tuple[str, dict[str, str]]:
     resolved = resolve_asset_id(asset_id=asset_id, token_id=token_id)
-    return "/book", {"token_id": resolved}
+    return "/v1/pricing/book", {"token_id": resolved}
 
 
 def parse_order_book(data: object) -> OrderBook:
@@ -156,7 +156,7 @@ def build_order_books_request(
     *, asset_ids: Sequence[str] | None = None, token_ids: Sequence[str] | None = None
 ) -> tuple[str, list[dict[str, str]]]:
     validated = resolve_asset_ids(asset_ids=asset_ids, token_ids=token_ids)
-    return "/books", [{"token_id": tid} for tid in validated]
+    return "/v1/pricing/books", [{"token_id": tid} for tid in validated]
 
 
 def parse_order_books(data: object) -> tuple[OrderBook, ...]:
@@ -172,7 +172,7 @@ def build_spread_request(
     *, asset_id: str | None = None, token_id: str | None = None
 ) -> tuple[str, dict[str, str]]:
     resolved = resolve_asset_id(asset_id=asset_id, token_id=token_id)
-    return "/spread", {"token_id": resolved}
+    return "/v1/pricing/spread", {"token_id": resolved}
 
 
 def parse_spread(data: object) -> Decimal:
@@ -183,7 +183,7 @@ def build_spreads_request(
     *, asset_ids: Sequence[str] | None = None, token_ids: Sequence[str] | None = None
 ) -> tuple[str, list[dict[str, str]]]:
     validated = resolve_asset_ids(asset_ids=asset_ids, token_ids=token_ids)
-    return "/spreads", [{"token_id": tid} for tid in validated]
+    return "/v1/pricing/spreads", [{"token_id": tid} for tid in validated]
 
 
 def parse_spreads(data: object) -> dict[ClobAssetId, Decimal]:
@@ -197,7 +197,7 @@ def build_last_trade_price_request(
     *, asset_id: str | None = None, token_id: str | None = None
 ) -> tuple[str, dict[str, str]]:
     resolved = resolve_asset_id(asset_id=asset_id, token_id=token_id)
-    return "/last-trade-price", {"token_id": resolved}
+    return "/v1/pricing/last-trade-price", {"token_id": resolved}
 
 
 def parse_last_trade_price(data: object) -> LastTradePrice | None:
@@ -211,7 +211,7 @@ def build_last_trade_prices_request(
     *, asset_ids: Sequence[str] | None = None, token_ids: Sequence[str] | None = None
 ) -> tuple[str, list[dict[str, str]]]:
     validated = resolve_asset_ids(asset_ids=asset_ids, token_ids=token_ids)
-    return "/last-trades-prices", [{"token_id": tid} for tid in validated]
+    return "/v1/pricing/last-trades-prices", [{"token_id": tid} for tid in validated]
 
 
 def parse_last_trade_prices(data: object) -> tuple[LastTradePriceForAsset, ...]:

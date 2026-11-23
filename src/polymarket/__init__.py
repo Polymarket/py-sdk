@@ -1,4 +1,4 @@
-from polymarket.auth import BuilderApiKey, RelayerApiKey
+from polymarket.auth import BearerCredentials, BuilderApiKey, PlatformApiKey, RelayerApiKey
 from polymarket.calls import TransactionCall
 from polymarket.clients import AsyncPublicClient, AsyncSecureClient, PublicClient, SecureClient
 from polymarket.environments import PRODUCTION, Environment
@@ -28,7 +28,6 @@ from polymarket.models import (
     ApiKeyCreds,
     AssetType,
     BalanceAllowance,
-    BuilderApiKeyInfo,
     BuilderFeeRates,
     BuilderTrade,
     CancelOrdersResponse,
@@ -476,8 +475,8 @@ __all__ = [
     "AuthorizeSessionKeyRequest",
     "AuthorizeSessionKeyResult",
     "BalanceAllowance",
+    "BearerCredentials",
     "BuilderApiKey",
-    "BuilderApiKeyInfo",
     "BuilderFeeRates",
     "BuilderTrade",
     "CancelOrdersResponse",
@@ -605,6 +604,7 @@ __all__ = [
     "PerpsTpSlTrigger",
     "PerpsTrade",
     "PerpsWithdrawal",
+    "PlatformApiKey",
     "PolymarketError",
     "PositionId",
     "PriceRequest",

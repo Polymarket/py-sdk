@@ -8,8 +8,9 @@ from typing import Any, assert_type
 
 import httpx
 import pytest
+from _bearer import bearer_credentials_for
 
-from polymarket import ApiKeyCreds, AsyncPublicClient, AsyncSecureClient
+from polymarket import AsyncPublicClient, AsyncSecureClient
 from polymarket._internal.actions.perps.position_snapshots import (
     build_position_snapshot_selection,
     fetch_own_position_snapshots,
@@ -153,8 +154,8 @@ async def _test_public_client_request_is_anonymous_and_preserves_order(secure: b
         await AsyncSecureClient._create(
             private_key="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
             wallet="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-            credentials=ApiKeyCreds(
-                key="test-key", passphrase="test-passphrase", secret="dGVzdA=="
+            credentials=bearer_credentials_for(
+                "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
             ),
             validate_credentials=False,
         )

@@ -7,15 +7,15 @@ from urllib.parse import urlparse
 
 import httpx
 import pytest
+from _bearer import bearer_credentials_for
 
-from polymarket import ApiKeyCreds, AsyncSecureClient
+from polymarket import AsyncSecureClient
 from polymarket._internal.actions.orders.estimate import resolve_estimated_market_price
 from polymarket.clients._transport import AsyncTransport
 from polymarket.errors import InsufficientLiquidityError, UserInputError
 
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 SIGNER_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-FAKE_CREDS = ApiKeyCreds(key="test-key", passphrase="test-passphrase", secret="dGVzdA==")
 
 
 def _book_payload(*, bids: list[dict[str, str]], asks: list[dict[str, str]]) -> dict[str, Any]:
@@ -45,14 +45,14 @@ def _install_public_clob(
             base_url="https://clob.test", transport=httpx.MockTransport(handler)
         ),
     )
-    client._ctx = dataclasses.replace(client._ctx, clob=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 async def _make_client() -> AsyncSecureClient:
     return await AsyncSecureClient._create(
         private_key=PRIVATE_KEY,
         wallet=SIGNER_ADDRESS,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PRIVATE_KEY),
         validate_credentials=False,
     )
 
@@ -84,7 +84,7 @@ def test_resolve_market_price_buy_walks_asks_in_reverse() -> None:
 
     price = asyncio.run(run())
     assert price == Decimal("0.50")
-    assert urlparse(str(captured[0].url)).path == "/book"
+    assert urlparse(str(captured[0].url)).path == "/v1/pricing/book"
 
 
 def test_resolve_market_price_sell_walks_bids_in_reverse() -> None:
@@ -210,7 +210,7 @@ def test_public_client_exposes_estimate_market_price() -> None:
         ],
     )
 
-    routes = {"/book": payload}
+    routes = {"/v1/pricing/book": payload}
 
     def handler(request: httpx.Request) -> httpx.Response:
         from urllib.parse import urlparse
@@ -224,7 +224,7 @@ def test_public_client_exposes_estimate_market_price() -> None:
         client = AsyncPublicClient()
         client._ctx = dataclasses.replace(
             client._ctx,
-            clob=AsyncTransport(
+            predictions=AsyncTransport(
                 base_url="https://clob.test",
                 client=httpx.AsyncClient(
                     base_url="https://clob.test", transport=httpx.MockTransport(handler)

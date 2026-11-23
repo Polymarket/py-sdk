@@ -16,7 +16,7 @@ async def fetch_deployed(
     params: dict[str, str | None] = {"address": address}
     if type is not None:
         params["type"] = type.value
-    data = await relayer.get_json("/deployed", params=params)
+    data = await relayer.get_json("/v1/wallets/deployed", params=params)
     return RelayerDeployedResponse.parse_response(data).deployed
 
 
@@ -29,7 +29,7 @@ def fetch_deployed_sync(
     params: dict[str, str | None] = {"address": address}
     if type is not None:
         params["type"] = type.value
-    data = relayer.get_json("/deployed", params=params)
+    data = relayer.get_json("/v1/wallets/deployed", params=params)
     return RelayerDeployedResponse.parse_response(data).deployed
 
 

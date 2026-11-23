@@ -44,9 +44,9 @@ from polymarket.session_keys import (
 from polymarket.transactions import GaslessTransactionHandle, SyncGaslessTransactionHandle
 from polymarket.types import EvmAddress, TransactionHash
 
-_AUTHORIZATIONS_PATH = "/v1/session-signers/authorizations"
-_REVOCATIONS_PATH = "/v1/session-signers/revocations"
-_SESSION_KEYS_PATH = "/v1/user/session-signers"
+_AUTHORIZATIONS_PATH = "/v1/wallets/session-signers/authorizations"
+_REVOCATIONS_PATH = "/v1/wallets/session-signers/revocations"
+_SESSION_KEYS_PATH = "/v1/me/session-signers"
 _EVM_ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 _ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 _TRANSACTION_HASH_RE = re.compile(r"^0x[0-9a-fA-F]{64}$")
@@ -173,7 +173,7 @@ async def fetch_session_keys(
 ) -> tuple[AuthorizedSessionKey, ...]:
     _assert_owner_deposit_wallet(ctx)
     response = _FetchSessionKeysResponse.parse_response(
-        await ctx.secure_clob.get_json(_SESSION_KEYS_PATH)
+        await ctx.predictions.get_json(_SESSION_KEYS_PATH)
     )
     return _build_session_keys(ctx, response=response)
 
@@ -183,7 +183,7 @@ def fetch_session_keys_sync(
 ) -> tuple[AuthorizedSessionKey, ...]:
     _assert_owner_deposit_wallet(ctx)
     response = _FetchSessionKeysResponse.parse_response(
-        ctx.secure_clob.get_json(_SESSION_KEYS_PATH)
+        ctx.predictions.get_json(_SESSION_KEYS_PATH)
     )
     return _build_session_keys(ctx, response=response)
 
@@ -196,7 +196,6 @@ async def authorize_session_key(
     idempotency_key: str | None,
 ) -> AuthorizeSessionKeyResult:
     _assert_owner_deposit_wallet(ctx)
-    _require_gasless_api_key(ctx)
     request = _parse_authorize_session_key_request(
         address=address,
         scopes=scopes,
@@ -221,7 +220,7 @@ async def authorize_session_key(
     transaction = await GaslessTransactionHandle(
         transaction_id=response.transaction_id,
         transaction_hash=response.transaction_hash,
-        _relayer=ctx.relayer,
+        _relayer=ctx.predictions,
         _max_polls=ctx.environment_config.relayer_max_polls,
         _poll_delay_s=ctx.environment_config.relayer_poll_frequency_ms / 1000,
     ).wait()
@@ -240,7 +239,6 @@ def authorize_session_key_sync(
     idempotency_key: str | None,
 ) -> AuthorizeSessionKeyResult:
     _assert_owner_deposit_wallet(ctx)
-    _require_gasless_api_key(ctx)
     request = _parse_authorize_session_key_request(
         address=address,
         scopes=scopes,
@@ -265,7 +263,7 @@ def authorize_session_key_sync(
     transaction = SyncGaslessTransactionHandle(
         transaction_id=response.transaction_id,
         transaction_hash=response.transaction_hash,
-        _relayer=ctx.relayer,
+        _relayer=ctx.predictions,
         _max_polls=ctx.environment_config.relayer_max_polls,
         _poll_delay_s=ctx.environment_config.relayer_poll_frequency_ms / 1000,
     ).wait()
@@ -283,7 +281,6 @@ async def revoke_session_key(
     idempotency_key: str | None,
 ) -> None:
     _assert_owner_deposit_wallet(ctx)
-    _require_gasless_api_key(ctx)
     request = _parse_revoke_session_key_request(
         address=address,
         idempotency_key=idempotency_key,
@@ -314,7 +311,6 @@ def revoke_session_key_sync(
     idempotency_key: str | None,
 ) -> None:
     _assert_owner_deposit_wallet(ctx)
-    _require_gasless_api_key(ctx)
     request = _parse_revoke_session_key_request(
         address=address,
         idempotency_key=idempotency_key,
@@ -428,14 +424,6 @@ def _assert_owner_deposit_wallet(ctx: _SecureContext) -> None:
         raise UserInputError("Session keys can only be managed by the Deposit Wallet owner.")
 
 
-def _require_gasless_api_key(ctx: _SecureContext) -> None:
-    if ctx.api_key is None:
-        raise UserInputError(
-            "Session-key management requires api_key=BuilderApiKey(...) or "
-            "api_key=RelayerApiKey(...)."
-        )
-
-
 def _assert_authorization_accepted(status: _AuthorizeSessionSignerStatus) -> None:
     if status in {
         _AuthorizeSessionSignerStatus.FAILED,
@@ -493,7 +481,7 @@ async def _post_session_key_operation(
     headers = {"Idempotency-Key": idempotency_key}
     for attempt in range(_SESSION_KEY_SUBMISSION_MAX_RETRIES + 1):
         try:
-            data = await ctx.relayer.post_json(
+            data = await ctx.predictions.post_json(
                 path,
                 json=payload,
                 headers=headers,
@@ -522,7 +510,7 @@ def _post_session_key_operation_sync(
     headers = {"Idempotency-Key": idempotency_key}
     for attempt in range(_SESSION_KEY_SUBMISSION_MAX_RETRIES + 1):
         try:
-            data = ctx.relayer.post_json(
+            data = ctx.predictions.post_json(
                 path,
                 json=payload,
                 headers=headers,

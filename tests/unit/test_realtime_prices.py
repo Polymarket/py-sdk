@@ -11,11 +11,12 @@ from functools import partial
 from typing import Any, cast, get_type_hints
 
 import pytest
+from _bearer import async_test_session, bearer_credentials_for
 from pydantic import ValidationError
 from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
-from polymarket import ApiKeyCreds, AsyncPublicClient, AsyncSecureClient
+from polymarket import AsyncPublicClient, AsyncSecureClient
 from polymarket._internal.environment import PRODUCTION_CONFIG, create_environment
 from polymarket._internal.streams.realtime import heartbeat as heartbeat_module
 from polymarket._internal.streams.realtime import session as session_module
@@ -45,7 +46,6 @@ from polymarket.streams import (
     RealtimeTwapUpdate,
 )
 
-CREDS = ApiKeyCreds(key="test-key", secret="test-secret", passphrase="test-pass")
 # Deterministic dummy signer, shared by existing SDK tests; never a live credential.
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 WALLET = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
@@ -110,11 +110,7 @@ class Feed:
                     if self.auth_close_code is not None:
                         await ws.close(self.auth_close_code, "authorization closed")
                         return
-                    assert frame["auth"] == {
-                        "apiKey": "test-key",
-                        "secret": "test-secret",
-                        "passphrase": "test-pass",
-                    }
+                    assert set(frame["auth"]) == {"accessToken"}
                     if self.auth_errors:
                         await ws.send(
                             json.dumps(
@@ -237,7 +233,7 @@ def test_price_provider_subscribe_and_unsubscribe_requests(
     async def scenario() -> None:
         feed = Feed()
         async with feed_server(feed) as url:
-            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            manager = RealtimeStreamManager(url=url, session=async_test_session())
             try:
                 spec = spec_type(**arguments, provider=provider)
                 handle = await manager.subscribe(spec)
@@ -263,7 +259,7 @@ def test_provider_groups_isolate_frames_and_reuse_duplicate_pins(ack_provider: s
         feed = Feed()
         feed.ack_provider = ack_provider
         async with feed_server(feed) as url:
-            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            manager = RealtimeStreamManager(url=url, session=async_test_session())
             try:
                 default = await manager.subscribe(EquityPriceSpec(symbol="aapl"))
                 chainlink = await manager.subscribe(
@@ -310,7 +306,7 @@ def test_idle_provider_group_survives_cancellation_and_reconnect(
         feed = Feed()
         feed.ack_provider = "future-vendor"
         async with feed_server(feed) as url:
-            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            manager = RealtimeStreamManager(url=url, session=async_test_session())
             try:
                 default = await manager.subscribe(EquityPriceSpec(symbol="aapl"))
                 await anext(default)
@@ -576,7 +572,7 @@ def test_market_status_reaches_subscribers_and_late_joiners(twap: bool) -> None:
         spec = EquityTwapPriceSpec(symbol="usdjpy") if twap else EquityPriceSpec(symbol="usdjpy")
         feed = Feed()
         async with feed_server(feed) as url:
-            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            manager = RealtimeStreamManager(url=url, session=async_test_session())
             try:
                 first = await manager.subscribe(spec)
                 initial = await anext(first)
@@ -666,7 +662,7 @@ def test_secure_client_equity_twap_subscribe_and_unsubscribe_requests() -> None:
             client = await AsyncSecureClient._create(
                 private_key=PRIVATE_KEY,
                 wallet=WALLET,
-                credentials=CREDS,
+                credentials=bearer_credentials_for(PRIVATE_KEY),
                 environment=environment,
                 validate_credentials=False,
             )
@@ -694,7 +690,7 @@ def test_equity_twap_late_joiner_gets_current_history() -> None:
     async def run() -> None:
         feed = Feed()
         async with feed_server(feed) as url:
-            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            manager = RealtimeStreamManager(url=url, session=async_test_session())
             try:
                 spec = EquityTwapPriceSpec(symbol="usdjpy")
                 first = await manager.subscribe(spec)
@@ -824,7 +820,7 @@ def test_failed_client_batch_rolls_back_its_handles_and_preserves_existing_strea
             client = await AsyncSecureClient._create(
                 private_key=PRIVATE_KEY,
                 wallet=WALLET,
-                credentials=CREDS,
+                credentials=bearer_credentials_for(PRIVATE_KEY),
                 environment=environment,
                 validate_credentials=False,
             )
@@ -856,7 +852,7 @@ def test_send_failure_restarts_and_preserves_existing_listener(
     async def run() -> None:
         feed = Feed()
         async with feed_server(feed) as url:
-            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            manager = RealtimeStreamManager(url=url, session=async_test_session())
             try:
                 existing = await manager.subscribe(CryptoPriceSpec(symbols=["btcusd"]))
                 await anext(existing)
@@ -891,7 +887,7 @@ def test_authentication_terminal_close_is_not_retried() -> None:
         feed = Feed()
         feed.auth_close_code = 4001
         async with feed_server(feed) as url:
-            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            manager = RealtimeStreamManager(url=url, session=async_test_session())
             try:
                 with pytest.raises(ConnectionLostError) as failure:
                     await manager.subscribe(CryptoPriceSpec(symbols=["btcusd"]))
@@ -909,7 +905,7 @@ def test_control_frames_are_paced(monkeypatch: pytest.MonkeyPatch) -> None:
     async def run() -> None:
         feed = Feed()
         async with feed_server(feed) as url:
-            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            manager = RealtimeStreamManager(url=url, session=async_test_session())
             try:
                 await manager.subscribe(CryptoPriceSpec(symbols=["btcusd"]))
                 await manager.subscribe(CryptoPriceSpec(symbols=["ethusd"]))
@@ -930,7 +926,7 @@ def test_equity_filter_ignores_history_and_invalid_frames_but_preserves_updates(
     async def run() -> None:
         feed = Feed()
         async with feed_server(feed) as url:
-            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            manager = RealtimeStreamManager(url=url, session=async_test_session())
             try:
                 stream = await manager.subscribe(EquityPriceSpec(symbol=" AAPL ", types=["update"]))
                 await feed.connections[0].send("not json")
@@ -953,7 +949,7 @@ def test_identified_batch_rejection_isolated_from_other_channel() -> None:
         feed = Feed()
         feed.reject_symbols.add("badusd")
         async with feed_server(feed) as url:
-            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            manager = RealtimeStreamManager(url=url, session=async_test_session())
             try:
                 bad, good = await asyncio.gather(
                     manager.subscribe(CryptoPriceSpec(symbols=["badusd"])),
@@ -978,7 +974,7 @@ def test_same_channel_rejection_preserves_concurrent_subscriptions(
         feed = Feed()
         feed.reject_symbols.add("badusd")
         async with feed_server(feed) as url:
-            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            manager = RealtimeStreamManager(url=url, session=async_test_session())
             try:
                 first, bad, last = await asyncio.gather(
                     manager.subscribe(spec_type(symbols=["btcusd"])),
@@ -1011,7 +1007,7 @@ def test_same_channel_rejection_during_reconnect_preserves_live_siblings(
     async def run() -> None:
         feed = Feed()
         async with feed_server(feed) as url:
-            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            manager = RealtimeStreamManager(url=url, session=async_test_session())
             try:
                 first, rejected, last = await asyncio.gather(
                     manager.subscribe(spec_type(symbols=["btcusd"])),
@@ -1048,7 +1044,7 @@ def test_unsubscribe_timeout_replays_replacement_without_orphaned_filter(
     async def run() -> None:
         feed = Feed()
         async with feed_server(feed) as url:
-            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            manager = RealtimeStreamManager(url=url, session=async_test_session())
             try:
                 first = await manager.subscribe(CryptoPriceSpec(symbols=["btcusd"]))
                 feed.ignore_unsubscriptions = 1
@@ -1073,7 +1069,7 @@ def test_disconnect_during_idle_grace_allows_a_new_subscription() -> None:
     async def run() -> None:
         feed = Feed()
         async with feed_server(feed) as url:
-            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            manager = RealtimeStreamManager(url=url, session=async_test_session())
             try:
                 first = await manager.subscribe(CryptoPriceSpec(symbols=["btcusd"]))
                 await first.close()
@@ -1092,7 +1088,7 @@ def test_failed_initial_connection_rejects_and_releases_unowned_filters() -> Non
         feed = Feed()
         async with feed_server(feed) as url:
             closed_url = url
-        manager = RealtimeStreamManager(url=closed_url, credentials=CREDS)
+        manager = RealtimeStreamManager(url=closed_url, session=async_test_session())
         try:
             with pytest.raises(TransportError):
                 await manager.subscribe(CryptoPriceSpec(symbols=["btcusd"]))
@@ -1125,7 +1121,7 @@ def test_drops_reduce_new_connection_capacity_without_replaying_existing_keys(
         nonlocal elapsed
         feed = Feed()
         async with feed_server(feed) as url:
-            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            manager = RealtimeStreamManager(url=url, session=async_test_session())
             try:
                 stream = await manager.subscribe(
                     CryptoPriceSpec(symbols=[f"coin{i}usd" for i in range(32)])
@@ -1186,7 +1182,7 @@ def test_pool_partitions_above_64_filters_and_reuses_existing_keys() -> None:
     async def run() -> None:
         feed = Feed()
         async with feed_server(feed) as url:
-            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            manager = RealtimeStreamManager(url=url, session=async_test_session())
             try:
                 stream = await manager.subscribe(
                     CryptoPriceSpec(symbols=[f"coin{i}usd" for i in range(65)])
@@ -1209,7 +1205,7 @@ def test_rejected_new_filter_preserves_established_sibling() -> None:
         feed = Feed()
         feed.reject_symbols.add("badusd")
         async with feed_server(feed) as url:
-            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            manager = RealtimeStreamManager(url=url, session=async_test_session())
             try:
                 existing = await manager.subscribe(CryptoPriceSpec(symbols=["btcusd"]))
                 await anext(existing)
@@ -1230,7 +1226,7 @@ def test_terminal_close_ends_every_shared_handle(code: int) -> None:
     async def run() -> None:
         feed = Feed()
         async with feed_server(feed) as url:
-            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            manager = RealtimeStreamManager(url=url, session=async_test_session())
             try:
                 first = await manager.subscribe(CryptoPriceSpec(symbols=["btcusd", "ethusd"]))
                 second = await manager.subscribe(CryptoPriceSpec(symbols=["ethusd"]))
@@ -1255,7 +1251,7 @@ def test_ack_timeout_reconnects_without_losing_existing_listener(
     async def run() -> None:
         feed = Feed()
         async with feed_server(feed) as url:
-            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            manager = RealtimeStreamManager(url=url, session=async_test_session())
             try:
                 first = await manager.subscribe(CryptoPriceSpec(symbols=["btcusd"]))
                 await anext(first)
@@ -1290,7 +1286,7 @@ def test_reconnect_joiners_wait_for_fresh_acceptance(
     async def run() -> None:
         feed = Feed()
         async with feed_server(feed) as url:
-            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            manager = RealtimeStreamManager(url=url, session=async_test_session())
             try:
                 first = await manager.subscribe(spec)
                 await anext(first)
@@ -1325,7 +1321,7 @@ def test_auth_rejection_is_typed_and_temporary_unavailability_retries() -> None:
         feed = Feed()
         feed.auth_errors = ["auth_invalid"]
         async with feed_server(feed) as url:
-            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            manager = RealtimeStreamManager(url=url, session=async_test_session())
             try:
                 with pytest.raises(RequestRejectedError) as failure:
                     await manager.subscribe(CryptoPriceSpec(symbols=["btcusd"]))
@@ -1333,7 +1329,7 @@ def test_auth_rejection_is_typed_and_temporary_unavailability_retries() -> None:
             finally:
                 await manager.close()
             feed.auth_errors = ["auth_unavailable"]
-            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            manager = RealtimeStreamManager(url=url, session=async_test_session())
             try:
                 stream = await manager.subscribe(CryptoPriceSpec(symbols=["btcusd"]))
                 assert (await anext(stream)).topic == "prices.crypto"
@@ -1352,7 +1348,7 @@ def test_acceptance_timeout_and_cancellation_release_only_joining_listener(
     async def run() -> None:
         feed = Feed()
         async with feed_server(feed) as url:
-            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            manager = RealtimeStreamManager(url=url, session=async_test_session())
             try:
                 first = await manager.subscribe(CryptoPriceSpec(symbols=["btcusd"]))
                 await anext(first)
@@ -1385,7 +1381,7 @@ def test_price_connections_authenticate_with_the_spec_chainlink_provider_api_key
     async def run() -> None:
         feed = Feed()
         async with feed_server(feed) as url:
-            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            manager = RealtimeStreamManager(url=url, session=async_test_session())
             keyed = CryptoTwapPriceSpec(
                 symbols=["ethusd", "solusd"], provider="chainlink", provider_api_key="cl-key-0001"
             )
@@ -1430,7 +1426,7 @@ def test_missing_chainlink_api_key_rejection_is_reported() -> None:
         feed.reject_symbols.add("btcusd")
         feed.reject_code = "chainlink_key_required"
         async with feed_server(feed) as url:
-            manager = RealtimeStreamManager(url=url, credentials=CREDS)
+            manager = RealtimeStreamManager(url=url, session=async_test_session())
             try:
                 with pytest.raises(RequestRejectedError) as raised:
                     await manager.subscribe(CryptoTwapPriceSpec(symbols=["btcusd"]))

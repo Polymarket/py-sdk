@@ -4,9 +4,9 @@ import inspect
 from typing import cast
 
 import pytest
+from _bearer import bearer_credentials_for
 
 from polymarket import (
-    ApiKeyCreds,
     AsyncPublicClient,
     AsyncSecureClient,
     PublicClient,
@@ -19,7 +19,6 @@ from polymarket.errors import UserInputError
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 SIGNER_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 PRIVATE_KEY_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-FAKE_CREDS = ApiKeyCreds(key="test-key", passphrase="test-passphrase", secret="dGVzdA==")
 
 
 def test_client_uses_production_by_default() -> None:
@@ -51,7 +50,7 @@ def test_secure_client_factory_uses_production_by_default() -> None:
     client = SecureClient._create(
         private_key=PRIVATE_KEY,
         wallet=SIGNER_ADDRESS,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PRIVATE_KEY),
         validate_credentials=False,
     )
     try:
@@ -76,7 +75,7 @@ def test_secure_client_supports_context_manager() -> None:
     with SecureClient._create(
         private_key=PRIVATE_KEY,
         wallet=SIGNER_ADDRESS,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PRIVATE_KEY),
         validate_credentials=False,
     ) as client:
         assert client.environment.name == "production"
@@ -87,7 +86,7 @@ def test_async_secure_client_factory_uses_production_by_default() -> None:
         client = await AsyncSecureClient._create(
             private_key=PRIVATE_KEY,
             wallet=SIGNER_ADDRESS,
-            credentials=FAKE_CREDS,
+            credentials=bearer_credentials_for(PRIVATE_KEY),
             validate_credentials=False,
         )
         try:
@@ -108,7 +107,7 @@ def test_async_secure_client_supports_context_manager() -> None:
         client = await AsyncSecureClient._create(
             private_key=PRIVATE_KEY,
             wallet=SIGNER_ADDRESS,
-            credentials=FAKE_CREDS,
+            credentials=bearer_credentials_for(PRIVATE_KEY),
             validate_credentials=False,
         )
         async with client:
@@ -121,7 +120,7 @@ def test_secure_client_exposes_signer_wallet() -> None:
     with SecureClient._create(
         private_key=PRIVATE_KEY,
         wallet=SIGNER_ADDRESS,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PRIVATE_KEY),
         validate_credentials=False,
     ) as client:
         assert client.wallet == PRIVATE_KEY_ADDRESS
@@ -132,7 +131,7 @@ def test_async_secure_client_exposes_signer_wallet() -> None:
         client = await AsyncSecureClient._create(
             private_key=PRIVATE_KEY,
             wallet=SIGNER_ADDRESS,
-            credentials=FAKE_CREDS,
+            credentials=bearer_credentials_for(PRIVATE_KEY),
             validate_credentials=False,
         )
         try:
@@ -179,7 +178,7 @@ def test_secure_client_wallet_defaults_to_beacon_deposit_wallet_when_omitted(
 
     with SecureClient._create(
         private_key=PRIVATE_KEY,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PRIVATE_KEY),
         validate_credentials=False,
     ) as client:
         assert client.wallet_type == "DEPOSIT_WALLET"
@@ -211,7 +210,7 @@ def test_secure_client_wallet_defaults_to_existing_legacy_deposit_wallet_when_om
 
     with SecureClient._create(
         private_key=PRIVATE_KEY,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PRIVATE_KEY),
         validate_credentials=False,
     ) as client:
         assert client.wallet_type == "DEPOSIT_WALLET"
@@ -258,7 +257,7 @@ def test_async_secure_client_wallet_defaults_to_beacon_deposit_wallet_when_omitt
     async def run() -> str:
         client = await AsyncSecureClient._create(
             private_key=PRIVATE_KEY,
-            credentials=FAKE_CREDS,
+            credentials=bearer_credentials_for(PRIVATE_KEY),
             validate_credentials=False,
         )
         try:
@@ -296,7 +295,7 @@ def test_async_secure_client_wallet_defaults_to_existing_legacy_deposit_wallet_w
     async def run() -> str:
         client = await AsyncSecureClient._create(
             private_key=PRIVATE_KEY,
-            credentials=FAKE_CREDS,
+            credentials=bearer_credentials_for(PRIVATE_KEY),
             validate_credentials=False,
         )
         try:

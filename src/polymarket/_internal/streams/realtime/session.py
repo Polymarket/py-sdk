@@ -160,6 +160,13 @@ class PriceSession:
         self._reset()
         self._wake.set()
 
+    def _failed(self, error: BaseException) -> None:
+        if self.closed:
+            return
+        failure = error if isinstance(error, Exception) else TransportError(str(error))
+        self._reject(list(self._keys.values()), failure, unsubscribe=False)
+        self._start_close()
+
     def _event(self, event: PriceEvent) -> None:
         state = self._keys.get(PriceKey(event.topic, event.payload.symbol, self._provider))
         if state is None:
@@ -223,6 +230,7 @@ class PriceSession:
                             event=self._event,
                             dropped=self._dropped,
                             disconnected=self._disconnected,
+                            failed=self._failed,
                         )
                     except (TransportError, ConnectionLostError) as error:
                         self._reject(

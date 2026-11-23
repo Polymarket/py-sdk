@@ -20,14 +20,14 @@ _TERMINAL_FAILURE = (RelayerTransactionState.FAILED, RelayerTransactionState.INV
 async def fetch_gasless_transaction(
     relayer: AsyncTransport, *, transaction_id: str
 ) -> GaslessTransaction:
-    data = await relayer.get_json(f"/v1/account/transactions/{transaction_id}")
+    data = await relayer.get_json(f"/v1/wallets/transactions/{transaction_id}")
     return GaslessTransaction.parse_response(data)
 
 
 def fetch_gasless_transaction_sync(
     relayer: SyncTransport, *, transaction_id: str
 ) -> GaslessTransaction:
-    data = relayer.get_json(f"/v1/account/transactions/{transaction_id}")
+    data = relayer.get_json(f"/v1/wallets/transactions/{transaction_id}")
     return GaslessTransaction.parse_response(data)
 
 

@@ -19,7 +19,6 @@ from polymarket._internal.data_params import build_data_params
 from polymarket._internal.environment import EnvironmentConfig
 from polymarket._internal.eoa.rpc import JsonRpcClient, SyncJsonRpcClient
 from polymarket._internal.request import RequestSpec
-from polymarket._internal.retry import DATA_READ_RETRY
 from polymarket.errors import UnexpectedResponseError, UserInputError
 from polymarket.models.trading import (
     Erc20TradingApproval,
@@ -35,9 +34,8 @@ def build_get_trading_approvals_state_spec(
 ) -> RequestSpec[TradingApprovalsState]:
     wallet_address = _normalize_wallet(wallet)
     return RequestSpec(
-        service="data",
         method="GET",
-        path="/v2/approvals",
+        path="/v1/wallets/approvals",
         params=build_data_params({"user": wallet_address}),
         parse=lambda payload: parse_data_envelope(
             payload,
@@ -45,7 +43,6 @@ def build_get_trading_approvals_state_spec(
                 data, wallet=wallet_address, config=config
             ),
         ),
-        retry=DATA_READ_RETRY,
     )
 
 

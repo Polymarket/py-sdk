@@ -24,19 +24,14 @@ from polymarket.types import EvmAddress
 # and can take well beyond the transport's standard timeout.
 _REQUEST_TIMEOUT = httpx.Timeout(connect=5.0, read=120.0, write=10.0, pool=5.0)
 
-_PLAN_PATH = "/v1/collateral-return/plan"
-_SUBMIT_PATH = "/v1/collateral-return/submit"
+_PLAN_PATH = "/v1/wallets/collateral-return/plan"
+_SUBMIT_PATH = "/v1/wallets/collateral-return/submit"
 _METADATA = "Collateral return"
-
-_MISSING_API_KEY_MESSAGE = (
-    "Collateral return execution requires a Builder API Key or Relayer API Key. "
-    "Pass api_key= when constructing the client."
-)
 
 
 async def plan_collateral_return(ctx: AsyncSecureClientContext) -> CollateralReturnPlanResponse:
     _require_supported_wallet_type(ctx.wallet_type)
-    data = await ctx.combos.post_json(
+    data = await ctx.predictions.post_json(
         _PLAN_PATH, json={"wallet": str(ctx.wallet)}, timeout=_REQUEST_TIMEOUT
     )
     return CollateralReturnPlanResponse.parse_response(data)
@@ -44,7 +39,7 @@ async def plan_collateral_return(ctx: AsyncSecureClientContext) -> CollateralRet
 
 def plan_collateral_return_sync(ctx: SyncSecureClientContext) -> CollateralReturnPlanResponse:
     _require_supported_wallet_type(ctx.wallet_type)
-    data = ctx.combos.post_json(
+    data = ctx.predictions.post_json(
         _PLAN_PATH, json={"wallet": str(ctx.wallet)}, timeout=_REQUEST_TIMEOUT
     )
     return CollateralReturnPlanResponse.parse_response(data)
@@ -53,8 +48,6 @@ def plan_collateral_return_sync(ctx: SyncSecureClientContext) -> CollateralRetur
 async def execute_collateral_return_plan(
     ctx: AsyncSecureClientContext, *, plan: CollateralReturnPlanResponse
 ) -> GaslessTransactionHandle:
-    if ctx.api_key is None:
-        raise UserInputError(_MISSING_API_KEY_MESSAGE)
     _require_supported_wallet_type(ctx.wallet_type)
     _require_plan_matches_client(plan, wallet=ctx.wallet, chain_id=ctx.environment_config.chain_id)
 
@@ -67,8 +60,6 @@ async def execute_collateral_return_plan(
 def execute_collateral_return_plan_sync(
     ctx: SyncSecureClientContext, *, plan: CollateralReturnPlanResponse
 ) -> SyncGaslessTransactionHandle:
-    if ctx.api_key is None:
-        raise UserInputError(_MISSING_API_KEY_MESSAGE)
     _require_supported_wallet_type(ctx.wallet_type)
     _require_plan_matches_client(plan, wallet=ctx.wallet, chain_id=ctx.environment_config.chain_id)
 
@@ -104,7 +95,7 @@ async def _submit_plan(
 ) -> RelayerExecuteResponse:
     envelope = await build_signed_payload_for_wallet_type(ctx, calls=[call], metadata=_METADATA)
     try:
-        data = await ctx.combos.post_json(
+        data = await ctx.predictions.post_json(
             _SUBMIT_PATH,
             json={"plan_hash": plan_hash, "envelope": envelope},
             timeout=_REQUEST_TIMEOUT,
@@ -116,7 +107,7 @@ async def _submit_plan(
         envelope = await build_signed_deposit_wallet_payload(
             ctx, calls=[call], metadata=_METADATA, nonce=nonce
         )
-        data = await ctx.combos.post_json(
+        data = await ctx.predictions.post_json(
             _SUBMIT_PATH,
             json={"plan_hash": plan_hash, "envelope": envelope},
             timeout=_REQUEST_TIMEOUT,
@@ -129,7 +120,7 @@ def _submit_plan_sync(
 ) -> RelayerExecuteResponse:
     envelope = build_signed_payload_for_wallet_type_sync(ctx, calls=[call], metadata=_METADATA)
     try:
-        data = ctx.combos.post_json(
+        data = ctx.predictions.post_json(
             _SUBMIT_PATH,
             json={"plan_hash": plan_hash, "envelope": envelope},
             timeout=_REQUEST_TIMEOUT,
@@ -141,7 +132,7 @@ def _submit_plan_sync(
         envelope = build_signed_deposit_wallet_payload_sync(
             ctx, calls=[call], metadata=_METADATA, nonce=nonce
         )
-        data = ctx.combos.post_json(
+        data = ctx.predictions.post_json(
             _SUBMIT_PATH,
             json={"plan_hash": plan_hash, "envelope": envelope},
             timeout=_REQUEST_TIMEOUT,

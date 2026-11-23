@@ -5,16 +5,18 @@ from collections.abc import Sequence
 from datetime import datetime
 from decimal import Decimal
 from types import TracebackType
-from typing import Literal, Self, overload
+from typing import Any, Literal, Self, overload
 
 from polymarket._internal.actions import builders as _builders_actions
 from polymarket._internal.actions import clob as _clob_actions
 from polymarket._internal.actions import data as _data_actions
 from polymarket._internal.actions import gamma as _gamma_actions
+from polymarket._internal.actions import identity as _identity_actions
 from polymarket._internal.actions import rewards as _rewards_actions
 from polymarket._internal.actions import rfq as _rfq_actions
 from polymarket._internal.actions.gamma import (
     CommentParentEntityType,
+    CommentSort,
     DateFilter,
     Recurrence,
     SearchSort,
@@ -30,14 +32,14 @@ from polymarket._internal.context import SyncClientContext
 from polymarket._internal.dispatch import (
     sync_dispatch,
     sync_paginate_keyset,
-    sync_paginate_keyset_or_resume_offset,
     sync_paginate_offset,
     sync_paginate_page_based,
 )
 from polymarket._internal.environment import get_environment_config
+from polymarket.auth import BearerCredentials, PlatformApiKey
 from polymarket.clients._transport import SyncTransport
 from polymarket.environments import PRODUCTION, Environment
-from polymarket.errors import RequestRejectedError
+from polymarket.errors import RequestRejectedError, UnexpectedResponseError
 from polymarket.models import (
     ComboMarket,
     Comment,
@@ -62,7 +64,7 @@ from polymarket.models import (
     Team,
     TradingApprovalsState,
 )
-from polymarket.models.clob import BuilderTrade
+from polymarket.models.clob import ApiKeyCreds, BuilderTrade
 from polymarket.models.clob.rewards import (
     CurrentReward,
     MarketReward,
@@ -424,7 +426,7 @@ class PublicClient:
         Unknown selectors contribute no rows. Asset lookups retain request order;
         condition groups retain server order and can repeat assets when selectors
         overlap. Nullable metadata is explicit. Outcome labels and settlement
-        metadata may lag by up to a minute. Transient rate limits are retried.
+        metadata may lag by up to a minute.
         """
         spec = _data_actions.build_get_token_references_spec(
             asset_ids=asset_ids, condition_ids=condition_ids
@@ -517,22 +519,126 @@ class PublicClient:
         self,
         environment: Environment = PRODUCTION,
         *,
+        platform_api_key: PlatformApiKey | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
         config = get_environment_config(environment)
+        platform_resolver = (
+            None
+            if platform_api_key is None
+            else _identity_actions.make_platform_header_resolver_sync(platform_api_key)
+        )
         self._ctx = SyncClientContext(
             environment=environment,
             _resolved_environment_config=config,
-            gamma=SyncTransport(base_url=config.gamma_url, logger=logger),
-            data=SyncTransport(base_url=config.data_url, logger=logger),
-            rfq=SyncTransport(base_url=config.rfq_url, logger=logger),
-            clob=SyncTransport(base_url=config.clob_url, logger=logger),
+            predictions=SyncTransport(
+                base_url=config.predictions_url, logger=logger, header_resolver=platform_resolver
+            ),
+            auth=SyncTransport(
+                base_url=config.predictions_url, logger=logger, header_resolver=platform_resolver
+            ),
+            platform_api_key=platform_api_key,
         )
 
     @property
     def environment(self) -> Environment:
         """Environment this client sends requests to."""
         return self._ctx.environment
+
+    def create_ownership_challenge(
+        self,
+        *,
+        signer: str,
+        wallet: str | None = None,
+        nonce: int = 0,
+        verification_token: str | None = None,
+    ) -> dict[str, Any]:
+        """Request the ownership challenge that ``signer`` signs to sign in.
+
+        Use it to serve sign-in challenges to browsers and other untrusted
+        clients, which sign them and complete sign-in themselves. With a
+        Platform API Key, the session they open is attributed to your
+        application. Check that the caller may sign in as ``signer`` before
+        calling it. Return the challenge to the caller unchanged; it carries
+        no credentials.
+
+        Raises:
+            UserInputError: If an input is invalid.
+            RequestRejectedError: If the challenge request is rejected.
+            RateLimitError: If the challenge request is rate-limited.
+            TransportError: If a network request fails.
+            UnexpectedResponseError: If the challenge is not a valid sign-in challenge.
+        """
+        return _identity_actions.request_ownership_challenge_sync(
+            self._ctx.auth,
+            signer=_identity_actions.checksum_signer(signer),
+            wallet=None if wallet is None else _identity_actions.checksum_wallet(wallet),
+            nonce=nonce,
+            verification_token=verification_token,
+        )
+
+    def login(
+        self, *, private_key: str, wallet: str | None = None, nonce: int = 0
+    ) -> BearerCredentials:
+        """Sign in and return session credentials without creating a secure client.
+
+        Experimental: may change in breaking ways, including patch releases.
+
+        Omit ``wallet`` to open a session without a wallet. Passing the returned
+        credentials and a wallet to :meth:`SecureClient.create` binds the wallet
+        without a new signature.
+
+        Raises:
+            UserInputError: If the key material, wallet, or nonce is invalid.
+            SigningError: If the ownership signature cannot be produced.
+            RequestRejectedError: If sign-in is rejected.
+            RateLimitError: If sign-in is rate-limited.
+            TransportError: If a network request fails.
+            UnexpectedResponseError: If the ownership challenge or the session is invalid.
+        """
+        signer = _identity_actions.signer_from_private_key(private_key)
+        requested_wallet = None if wallet is None else _identity_actions.checksum_wallet(wallet)
+        tokens = _identity_actions.issue_login_session_sync(
+            self._ctx.auth,
+            signer=signer,
+            chain_id=self._ctx.environment_config.chain_id,
+            wallet=requested_wallet,
+            nonce=nonce,
+        )
+        if not _identity_actions.issued_for(tokens, signer=signer.address, wallet=requested_wallet):
+            raise UnexpectedResponseError(
+                "The issued session does not match the requested signer and wallet."
+            )
+        return tokens.credentials
+
+    def migrate_credentials(
+        self, *, credentials: ApiKeyCreds, signer_address: str, wallet: str | None = None
+    ) -> BearerCredentials:
+        """Exchange saved API credentials for session credentials.
+
+        Experimental: may change in breaking ways, including patch releases.
+
+        No wallet signature is needed, and the API secret is never sent. The
+        saved API credentials stay valid after the exchange.
+
+        Raises:
+            UserInputError: If the signer address or wallet is invalid.
+            SigningError: If ownership of the saved credentials cannot be proven.
+            RequestRejectedError: If the exchange is rejected.
+            RateLimitError: If the exchange is rate-limited.
+            TransportError: If a network request fails.
+            UnexpectedResponseError: If the session response is invalid.
+        """
+        signer = _identity_actions.checksum_wallet(signer_address)
+        requested_wallet = None if wallet is None else _identity_actions.checksum_wallet(wallet)
+        tokens = _identity_actions.issue_migrated_session_sync(
+            self._ctx.auth, credentials=credentials, signer=signer, wallet=requested_wallet
+        )
+        if not _identity_actions.issued_for(tokens, signer=signer, wallet=requested_wallet):
+            raise UnexpectedResponseError(
+                "The issued session does not match the requested signer and wallet."
+            )
+        return tokens.credentials
 
     def __enter__(self) -> Self:
         return self
@@ -548,15 +654,9 @@ class PublicClient:
     def close(self) -> None:
         """Close the underlying network transports."""
         try:
-            self._ctx.gamma.close()
+            self._ctx.predictions.close()
         finally:
-            try:
-                self._ctx.data.close()
-            finally:
-                try:
-                    self._ctx.rfq.close()
-                finally:
-                    self._ctx.clob.close()
+            self._ctx.auth.close()
 
     @overload
     def get_market(
@@ -792,7 +892,7 @@ class PublicClient:
                 before=before,
                 cursor=cursor,
             )
-            payload = self._ctx.clob.get_json(path, params=params)
+            payload = self._ctx.predictions.get_json(path, params=params)
             return _builders_actions.parse_builder_trades_page(payload)
 
         return Paginator(fetch=fetch)
@@ -1150,9 +1250,7 @@ class PublicClient:
         parent_entity_id: str,
         parent_entity_type: CommentParentEntityType,
         ascending: bool | None = None,
-        get_positions: bool | None = None,
-        holders_only: bool | None = None,
-        order: str | None = None,
+        order: CommentSort | None = None,
         page_size: int = 20,
     ) -> Paginator[Comment]:
         """List comments for an event or series.
@@ -1161,49 +1259,24 @@ class PublicClient:
         With ``order`` (``id`` or ``createdAt``), pages are ascending unless
         ``ascending`` is ``False``.
 
-        Reads without ``holders_only`` or ``get_positions`` and with one of
-        those orders page through the whole thread. Their cursors continue that
-        exact query and are rejected for a different parent, order or
+        Pages follow the whole thread. Cursors continue the exact query they
+        were created for and are rejected for a different parent, order or
         direction.
 
-        Reads with ``holders_only``, ``get_positions`` or another order serve
-        pages up to offset 200. Automatic iteration yields the final accessible
-        full page with ``limit_reached=True`` and stops normally. Its
-        ``has_more`` stays True: completeness is unknown, not proof that more
-        comments exist. Explicitly following its cursor raises
-        ``PaginationLimitError`` before any request is sent. Cursors saved from
-        earlier versions keep working with the same arguments.
-
         ``page_size`` counts top-level comments; replies ride along in the same
-        page. A thread ending exactly on a page boundary may return one final
+        page. A thread that ends exactly on a page boundary may return one final
         empty page.
 
         Returns:
             A paginator over matching comments.
         """
-        spec = _gamma_actions.list_comments_spec(
+        spec = _gamma_actions.list_comments_keyset_spec(
             parent_entity_id=parent_entity_id,
             parent_entity_type=parent_entity_type,
             ascending=ascending,
-            get_positions=get_positions,
-            holders_only=holders_only,
             order=order,
         )
-        if not _gamma_actions.comments_paginate_by_cursor(
-            get_positions=get_positions, holders_only=holders_only, order=order
-        ):
-            return sync_paginate_offset(self._ctx, spec, page_size=page_size)
-        return sync_paginate_keyset_or_resume_offset(
-            self._ctx,
-            keyset_spec=_gamma_actions.list_comments_keyset_spec(
-                parent_entity_id=parent_entity_id,
-                parent_entity_type=parent_entity_type,
-                ascending=ascending,
-                order=order,
-            ),
-            offset_spec=spec,
-            page_size=page_size,
-        )
+        return sync_paginate_keyset(self._ctx, spec, page_size=page_size)
 
     def list_comments_by_user_address(
         self,
@@ -1290,7 +1363,7 @@ class PublicClient:
     def get_midpoint(self, *, asset_id: str | None = None, token_id: str | None = None) -> Decimal:
         """Get the midpoint price for a CLOB asset."""
         path, params = _clob_actions.build_midpoint_request(asset_id=asset_id, token_id=token_id)
-        return _clob_actions.parse_midpoint(self._ctx.clob.get_json(path, params=params))
+        return _clob_actions.parse_midpoint(self._ctx.predictions.get_json(path, params=params))
 
     def get_midpoints(
         self,
@@ -1300,7 +1373,7 @@ class PublicClient:
     ) -> dict[ClobAssetId, Decimal]:
         """Get midpoint prices for multiple CLOB assets."""
         path, body = _clob_actions.build_midpoints_request(asset_ids=asset_ids, token_ids=token_ids)
-        return _clob_actions.parse_midpoints(self._ctx.clob.post_json(path, json=body))
+        return _clob_actions.parse_midpoints(self._ctx.predictions.post_json(path, json=body))
 
     def get_price(
         self,
@@ -1313,21 +1386,21 @@ class PublicClient:
         path, params = _clob_actions.build_price_request(
             asset_id=asset_id, token_id=token_id, side=side
         )
-        return _clob_actions.parse_price(self._ctx.clob.get_json(path, params=params))
+        return _clob_actions.parse_price(self._ctx.predictions.get_json(path, params=params))
 
     def get_prices(
         self, *, requests: Sequence[PriceRequest]
     ) -> dict[ClobAssetId, dict[OrderSide, Decimal]]:
         """Get executable prices for multiple CLOB asset-side requests."""
         path, body = _clob_actions.build_prices_request(requests=requests)
-        return _clob_actions.parse_prices(self._ctx.clob.post_json(path, json=body))
+        return _clob_actions.parse_prices(self._ctx.predictions.post_json(path, json=body))
 
     def get_order_book(
         self, *, asset_id: str | None = None, token_id: str | None = None
     ) -> OrderBook:
         """Get the order book for a CLOB asset."""
         path, params = _clob_actions.build_order_book_request(asset_id=asset_id, token_id=token_id)
-        return _clob_actions.parse_order_book(self._ctx.clob.get_json(path, params=params))
+        return _clob_actions.parse_order_book(self._ctx.predictions.get_json(path, params=params))
 
     def get_order_books(
         self,
@@ -1339,12 +1412,12 @@ class PublicClient:
         path, body = _clob_actions.build_order_books_request(
             asset_ids=asset_ids, token_ids=token_ids
         )
-        return _clob_actions.parse_order_books(self._ctx.clob.post_json(path, json=body))
+        return _clob_actions.parse_order_books(self._ctx.predictions.post_json(path, json=body))
 
     def get_spread(self, *, asset_id: str | None = None, token_id: str | None = None) -> Decimal:
         """Get the bid-ask spread for a CLOB asset."""
         path, params = _clob_actions.build_spread_request(asset_id=asset_id, token_id=token_id)
-        return _clob_actions.parse_spread(self._ctx.clob.get_json(path, params=params))
+        return _clob_actions.parse_spread(self._ctx.predictions.get_json(path, params=params))
 
     def get_spreads(
         self,
@@ -1354,7 +1427,7 @@ class PublicClient:
     ) -> dict[ClobAssetId, Decimal]:
         """Get bid-ask spreads for multiple CLOB assets."""
         path, body = _clob_actions.build_spreads_request(asset_ids=asset_ids, token_ids=token_ids)
-        return _clob_actions.parse_spreads(self._ctx.clob.post_json(path, json=body))
+        return _clob_actions.parse_spreads(self._ctx.predictions.post_json(path, json=body))
 
     def get_last_trade_price(
         self, *, asset_id: str | None = None, token_id: str | None = None
@@ -1366,7 +1439,9 @@ class PublicClient:
         path, params = _clob_actions.build_last_trade_price_request(
             asset_id=asset_id, token_id=token_id
         )
-        return _clob_actions.parse_last_trade_price(self._ctx.clob.get_json(path, params=params))
+        return _clob_actions.parse_last_trade_price(
+            self._ctx.predictions.get_json(path, params=params)
+        )
 
     def get_last_trade_prices(
         self,
@@ -1382,7 +1457,9 @@ class PublicClient:
         path, body = _clob_actions.build_last_trade_prices_request(
             asset_ids=asset_ids, token_ids=token_ids
         )
-        return _clob_actions.parse_last_trade_prices(self._ctx.clob.post_json(path, json=body))
+        return _clob_actions.parse_last_trade_prices(
+            self._ctx.predictions.post_json(path, json=body)
+        )
 
     @overload
     def estimate_market_price(
@@ -1477,7 +1554,7 @@ class PublicClient:
                 cursor=cursor,
             )
             return _rewards_actions.parse_reward_markets_page(
-                self._ctx.clob.get_json(path, params=params)
+                self._ctx.predictions.get_json(path, params=params)
             )
 
         return Paginator(fetch=fetch)
@@ -1491,7 +1568,9 @@ class PublicClient:
         path, params = _rewards_actions.build_get_current_rebates_request(
             date=date, maker_address=maker_address
         )
-        return _rewards_actions.parse_current_rebates(self._ctx.clob.get_json(path, params=params))
+        return _rewards_actions.parse_current_rebates(
+            self._ctx.predictions.get_json(path, params=params)
+        )
 
     def list_current_rewards(self, *, sponsored: bool | None = None) -> Paginator[CurrentReward]:
         """List current rewards.
@@ -1505,7 +1584,7 @@ class PublicClient:
                 sponsored=sponsored, cursor=cursor
             )
             return _rewards_actions.parse_current_rewards_page(
-                self._ctx.clob.get_json(path, params=params)
+                self._ctx.predictions.get_json(path, params=params)
             )
 
         return Paginator(fetch=fetch)
@@ -1524,7 +1603,7 @@ class PublicClient:
                 condition_id=CtfConditionId(condition_id), sponsored=sponsored, cursor=cursor
             )
             return _rewards_actions.parse_market_rewards_page(
-                self._ctx.clob.get_json(path, params=params)
+                self._ctx.predictions.get_json(path, params=params)
             )
 
         return Paginator(fetch=fetch)

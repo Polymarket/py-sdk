@@ -33,11 +33,11 @@ def _setup_relayer(client: Any, captured: list[httpx.Request], tx_id: str) -> No
         client,
         captured,
         {
-            "/v1/account/transactions/params": {
+            "/v1/wallets/execute-params": {
                 "address": client._ctx.signer.address,
                 "nonce": "0",
             },
-            "/submit": {
+            "/v1/wallets/transactions": {
                 "state": "STATE_NEW",
                 "transactionHash": None,
                 "transactionID": tx_id,
@@ -62,7 +62,7 @@ def test_redeem_positions_uses_collateral_adapter_when_neg_risk_false() -> None:
             await client.close()
 
     asyncio.run(run())
-    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
+    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"]
     body = request_json(submit_calls[0])
     inner = body["depositWalletParams"]["calls"][0]
     assert inner["target"].lower() == PRODUCTION_CONFIG.collateral_adapter.lower()
@@ -90,7 +90,7 @@ def test_redeem_positions_uses_neg_risk_collateral_adapter_when_neg_risk_true() 
 
     asyncio.run(run())
     assert market_calls == [{"condition_ids": [_CONDITION_ID], "closed": True, "page_size": 1}]
-    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
+    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"]
     body = request_json(submit_calls[0])
     inner = body["depositWalletParams"]["calls"][0]
     assert inner["target"].lower() == PRODUCTION_CONFIG.neg_risk_collateral_adapter.lower()
@@ -146,7 +146,7 @@ def test_redeem_positions_accepts_market_id() -> None:
 
     asyncio.run(run())
     assert market_calls == [{"ids": [123], "closed": True, "page_size": 1}]
-    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
+    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"]
     assert len(submit_calls) == 1
 
 

@@ -11,7 +11,8 @@ from typing import Any
 
 import httpx
 import pytest
-from _relayer_helpers import BUILDER_AUTH, FAKE_CREDS, PK_DEPLOY_WALLET, make_eoa_client
+from _bearer import bearer_credentials_for
+from _relayer_helpers import BUILDER_AUTH, PK_DEPLOY_WALLET, make_eoa_client
 
 from polymarket import (
     AsyncSecureClient,
@@ -81,9 +82,9 @@ def install_builder_gateway_handler(
         client=httpx.AsyncClient(
             base_url="https://builder-gateway.test", transport=httpx.MockTransport(handler)
         ),
-        header_resolver=client._ctx.builder_gateway._header_resolver,
+        header_resolver=client._ctx.predictions._header_resolver,
     )
-    client._ctx = dataclasses.replace(client._ctx, builder_gateway=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 def make_sync_eoa_client() -> SecureClient:
@@ -93,7 +94,7 @@ def make_sync_eoa_client() -> SecureClient:
     return SecureClient._create(
         private_key=PK_DEPLOY_WALLET,
         wallet=signer.address,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PK_DEPLOY_WALLET),
         api_key=BUILDER_AUTH,
         validate_credentials=False,
     )
@@ -108,9 +109,9 @@ def install_sync_builder_gateway_handler(
         client=httpx.Client(
             base_url="https://builder-gateway.test", transport=httpx.MockTransport(handler)
         ),
-        header_resolver=client._ctx.builder_gateway._header_resolver,
+        header_resolver=client._ctx.predictions._header_resolver,
     )
-    client._ctx = dataclasses.replace(client._ctx, builder_gateway=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 def json_handler(*responses: httpx.Response) -> Callable[[httpx.Request], httpx.Response]:
@@ -176,6 +177,32 @@ def test_request_combo_quote_handles_sell_net_proceeds() -> None:
 
     with pytest.raises(UnexpectedResponseError, match="omitted net sell proceeds"):
         client.request_combo_quote(leg_position_ids=LEGS, direction="SELL", size="2.5")
+
+
+def test_request_combo_quote_without_a_builder_key_uses_the_requester_route() -> None:
+    from eth_account import Account
+
+    requester_response = copy.deepcopy(QUOTE_READY)
+    del requester_response["builder_code"]
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json=requester_response)
+
+    client = SecureClient._create(
+        private_key=PK_DEPLOY_WALLET,
+        wallet=Account.from_key(PK_DEPLOY_WALLET).address,
+        credentials=bearer_credentials_for(PK_DEPLOY_WALLET),
+        validate_credentials=False,
+    )
+    install_sync_builder_gateway_handler(client, handler)
+
+    result = client.request_combo_quote(leg_position_ids=LEGS, direction="BUY", amount=100)
+
+    assert [request.url.path for request in captured] == ["/v1/combos/requester/requests"]
+    assert result.quote is not None
+    assert result.quote.builder_code == "0x" + "0" * 64
 
 
 def test_request_combo_quote_returns_no_quote_outcome() -> None:

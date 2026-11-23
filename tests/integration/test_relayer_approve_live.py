@@ -69,7 +69,9 @@ def test_fetch_relayer_nonce_with_builder_auth(
                 if client.wallet_type == "POLY_PROXY"
                 else RelayerTransactionType.SAFE
             )
-            params = await fetch_execute_params(client._ctx.relayer, address=client.signer, type=wt)
+            params = await fetch_execute_params(
+                client._ctx.predictions, address=client.signer, type=wt
+            )
             assert params.nonce.isdigit()
             return params.nonce
 

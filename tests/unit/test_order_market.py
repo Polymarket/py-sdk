@@ -7,8 +7,9 @@ from unittest.mock import patch
 
 import httpx
 import pytest
+from _bearer import bearer_credentials_for
 
-from polymarket import ApiKeyCreds, AsyncSecureClient
+from polymarket import AsyncSecureClient
 from polymarket._internal.actions.orders.context import resolve_rounding_config
 from polymarket._internal.actions.orders.market import (
     _compute_market_order_amounts,
@@ -22,7 +23,6 @@ from polymarket.errors import UserInputError
 
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 SIGNER_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-FAKE_CREDS = ApiKeyCreds(key="test-key", passphrase="test-passphrase", secret="dGVzdA==")
 _CONDITION_ID = "0x5c19f205507ce03ff5f3be08a8090a5969ea6870cc07b902a4ca2e61dfe48fdd"
 _CTF_ASSET_ID = str((1 << 40) + 8_501_497)
 
@@ -43,8 +43,8 @@ def _book_payload(*, bids: list[dict[str, str]], asks: list[dict[str, str]]) -> 
 
 def _market_routes(*, neg_risk: bool = False) -> dict[str, dict[str, Any]]:
     return {
-        f"/markets-by-token/{_CTF_ASSET_ID}": {"condition_id": _CONDITION_ID},
-        f"/clob-markets/{_CONDITION_ID}": {
+        f"/v1/trading/markets/token/{_CTF_ASSET_ID}": {"condition_id": _CONDITION_ID},
+        f"/v1/trading/markets/{_CONDITION_ID}": {
             "fd": {"r": 0, "e": 0},
             "mts": 0.01,
             "nr": neg_risk,
@@ -85,14 +85,14 @@ def _install_public_clob(client: AsyncSecureClient, handler: httpx.MockTransport
         base_url="https://clob.test",
         client=httpx.AsyncClient(base_url="https://clob.test", transport=handler),
     )
-    client._ctx = dataclasses.replace(client._ctx, clob=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 async def _make_client() -> AsyncSecureClient:
     return await AsyncSecureClient._create(
         private_key=PRIVATE_KEY,
         wallet=SIGNER_ADDRESS,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PRIVATE_KEY),
         validate_credentials=False,
     )
 
@@ -182,7 +182,7 @@ def test_adjust_buy_amount_for_fees_passes_through_when_rate_zero() -> None:
 def test_prepare_market_order_draft_buy_uses_book_and_tick() -> None:
     captured: list[str] = []
     routes = {
-        "/book": _book_payload(
+        "/v1/pricing/book": _book_payload(
             bids=[{"price": "0.40", "size": "5"}],
             asks=[
                 {"price": "0.55", "size": "5"},
@@ -206,12 +206,12 @@ def test_prepare_market_order_draft_buy_uses_book_and_tick() -> None:
     offered, requested = asyncio.run(run())
     assert offered == 2_000_000  # 2 USDC
     assert requested == 4_000_000  # 2 / 0.5 = 4 shares
-    assert captured == ["/book"]
+    assert captured == ["/v1/pricing/book"]
 
 
 def test_prepare_market_order_draft_sell_swaps_amounts() -> None:
     routes = {
-        "/book": _book_payload(
+        "/v1/pricing/book": _book_payload(
             bids=[
                 {"price": "0.45", "size": "5"},
                 {"price": "0.50", "size": "5"},
@@ -263,7 +263,7 @@ def test_prepare_market_order_draft_buy_uses_max_price_without_book() -> None:
     # price (100 / 181.8181 = 0.5500000...) stays at or above max_price and the
     # order can lift an ask resting exactly at 0.55.
     assert requested == 181_818_100
-    assert "/book" not in captured
+    assert "/v1/pricing/book" not in captured
 
 
 def test_prepare_market_order_draft_buy_max_spend_resizes_then_rounds_shares_down() -> None:
@@ -317,7 +317,7 @@ def test_prepare_market_order_draft_sell_uses_min_price_without_book() -> None:
     offered, requested = asyncio.run(run())
     assert offered == 180_000_000
     assert requested == 97_200_000
-    assert "/book" not in captured
+    assert "/v1/pricing/book" not in captured
 
 
 # Direct coverage of the amount math shared by protected and unprotected market
@@ -356,7 +356,7 @@ def test_protected_market_buy_stays_safe_after_tick_refinement(
     amount: str, max_price: str, tick_size: str
 ) -> None:
     routes = _market_routes()
-    routes[f"/clob-markets/{_CONDITION_ID}"]["mts"] = tick_size
+    routes[f"/v1/trading/markets/{_CONDITION_ID}"]["mts"] = tick_size
     captured: list[str] = []
 
     async def run() -> tuple[int, int]:
@@ -383,8 +383,8 @@ def test_protected_market_buy_stays_safe_after_tick_refinement(
     config = resolve_rounding_config(Decimal(tick_size))
     assert maker % 10 ** (6 - config.size) == 0
     assert taker % 10 ** (6 - config.amount) == 0
-    assert captured.count(f"/clob-markets/{_CONDITION_ID}") == 1
-    assert "/book" not in captured
+    assert captured.count(f"/v1/trading/markets/{_CONDITION_ID}") == 1
+    assert "/v1/pricing/book" not in captured
 
 
 @pytest.mark.parametrize(

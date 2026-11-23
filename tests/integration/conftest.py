@@ -17,6 +17,7 @@ from polymarket import (
     BuilderApiKey,
     Environment,
     Market,
+    PlatformApiKey,
     PublicClient,
     RelayerApiKey,
 )
@@ -109,6 +110,11 @@ def relayer_api_key(require_env: Callable[[str], str]) -> RelayerApiKey:
         key=require_env("POLYMARKET_RELAYER_API_KEY"),
         address=require_env("POLYMARKET_RELAYER_API_KEY_ADDRESS"),
     )
+
+
+@pytest.fixture
+def platform_api_key(require_env: Callable[[str], str]) -> PlatformApiKey:
+    return PlatformApiKey(require_env("POLYMARKET_PLATFORM_API_KEY"))
 
 
 @pytest.fixture

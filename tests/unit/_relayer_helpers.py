@@ -8,9 +8,11 @@ from typing import Any, cast
 from urllib.parse import urlparse
 
 import httpx
+from _bearer import bearer_credentials_for
+from _stacked import stacked_mock
 from eth_utils.crypto import keccak
 
-from polymarket import ApiKeyCreds, AsyncSecureClient, BuilderApiKey, SecureClient
+from polymarket import AsyncSecureClient, BuilderApiKey, SecureClient
 from polymarket._internal.environment import (
     PRODUCTION_CONFIG,
     with_environment_config,
@@ -22,7 +24,6 @@ PK_DEPLOY_WALLET = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 PK_PROXY_WALLET = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 PK_SAFE_WALLET = "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 
-FAKE_CREDS = ApiKeyCreds(key="k", passphrase="p", secret="dGVzdA==")
 BUILDER_AUTH = BuilderApiKey(key="bk", secret="dGVzdA==", passphrase="bp")
 
 TOKEN = "0xDDeeAa11220000000000000000000000000000aA"
@@ -39,7 +40,7 @@ async def make_deposit_client() -> AsyncSecureClient:
     return await AsyncSecureClient._create(
         private_key=PK_DEPLOY_WALLET,
         wallet=wallet,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PK_DEPLOY_WALLET),
         api_key=BUILDER_AUTH,
         validate_credentials=False,
     )
@@ -55,7 +56,7 @@ async def make_session_client() -> AsyncSecureClient:
     return await AsyncSecureClient._create(
         private_key=PK_PROXY_WALLET,
         wallet=wallet,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PK_PROXY_WALLET),
         api_key=BUILDER_AUTH,
         validate_credentials=False,
     )
@@ -71,7 +72,7 @@ async def make_proxy_client() -> AsyncSecureClient:
     return await AsyncSecureClient._create(
         private_key=PK_PROXY_WALLET,
         wallet=wallet,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PK_PROXY_WALLET),
         api_key=BUILDER_AUTH,
         validate_credentials=False,
     )
@@ -84,7 +85,7 @@ async def make_eoa_client(*, with_api_key: bool = True) -> AsyncSecureClient:
     return await AsyncSecureClient._create(
         private_key=PK_DEPLOY_WALLET,
         wallet=signer.address,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PK_DEPLOY_WALLET),
         api_key=BUILDER_AUTH if with_api_key else None,
         validate_credentials=False,
     )
@@ -106,7 +107,7 @@ async def make_eoa_client_with_rpc(
     client = await AsyncSecureClient._create(
         private_key=PK_DEPLOY_WALLET,
         wallet=signer.address,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PK_DEPLOY_WALLET),
         api_key=BUILDER_AUTH,
         environment=env,
         validate_credentials=False,
@@ -291,7 +292,7 @@ async def make_safe_client() -> AsyncSecureClient:
     return await AsyncSecureClient._create(
         private_key=PK_SAFE_WALLET,
         wallet=wallet,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PK_SAFE_WALLET),
         api_key=BUILDER_AUTH,
         validate_credentials=False,
     )
@@ -305,24 +306,13 @@ def install_relayer_routes(
     captured: list[httpx.Request],
     routes: dict[str, Any],
 ) -> None:
-    if "/relay-payload" not in routes and "/v1/account/transactions/params" in routes:
-        legacy = cast(dict[str, Any], routes["/v1/account/transactions/params"])
-        raw_nonce = legacy.get("nonce")
-        nonce: str = raw_nonce if isinstance(raw_nonce, str) else "0"
-        routes = {
-            **routes,
-            "/relay-payload": {
-                "address": RELAY_PAYLOAD_DEFAULT_ADDRESS,
-                "nonce": nonce,
-            },
-        }
-
     def handler(request: httpx.Request) -> httpx.Response:
-        captured.append(request)
         path = urlparse(str(request.url)).path
-        for prefix, payload in routes.items():
-            if path == prefix or path.startswith(f"{prefix}/"):
-                return httpx.Response(200, json=payload, request=request)
+        # An exact route wins; otherwise the longest matching prefix serves the request.
+        matches = [prefix for prefix in routes if path == prefix or path.startswith(f"{prefix}/")]
+        if matches:
+            captured.append(request)
+            return httpx.Response(200, json=routes[max(matches, key=len)], request=request)
         return httpx.Response(404, json={"error": "not mocked"}, request=request)
 
     install_relayer_handler(client, handler)
@@ -335,11 +325,12 @@ def install_relayer_handler(
     transport = AsyncTransport(
         base_url="https://relayer.test",
         client=httpx.AsyncClient(
-            base_url="https://relayer.test", transport=httpx.MockTransport(handler)
+            base_url="https://relayer.test",
+            transport=stacked_mock(client._ctx.predictions, handler),
         ),
-        header_resolver=client._ctx.relayer._header_resolver,
+        header_resolver=client._ctx.predictions._header_resolver,
     )
-    client._ctx = dataclasses.replace(client._ctx, relayer=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 def install_combos_routes(
@@ -348,14 +339,28 @@ def install_combos_routes(
     routes: dict[str, Any],
 ) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        captured.append(request)
         path = urlparse(str(request.url)).path
-        for prefix, payload in routes.items():
-            if path == prefix or path.startswith(f"{prefix}/"):
-                return httpx.Response(200, json=payload, request=request)
+        # An exact route wins; otherwise the longest matching prefix serves the request.
+        matches = [prefix for prefix in routes if path == prefix or path.startswith(f"{prefix}/")]
+        if matches:
+            captured.append(request)
+            return httpx.Response(200, json=routes[max(matches, key=len)], request=request)
         return httpx.Response(404, json={"error": "not mocked"}, request=request)
 
     install_combos_handler(client, handler)
+
+
+def _collateral_return_only(
+    handler: Callable[[httpx.Request], httpx.Response],
+) -> Callable[[httpx.Request], httpx.Response]:
+    # Collateral-return mocks answer only their own operations; other wallet
+    # requests fall through to the wallet mock installed alongside them.
+    def serve(request: httpx.Request) -> httpx.Response:
+        if not urlparse(str(request.url)).path.startswith("/v1/wallets/collateral-return/"):
+            return httpx.Response(404, request=request)
+        return handler(request)
+
+    return serve
 
 
 def install_combos_handler(
@@ -365,11 +370,12 @@ def install_combos_handler(
     transport = AsyncTransport(
         base_url="https://collateral-return.test",
         client=httpx.AsyncClient(
-            base_url="https://collateral-return.test", transport=httpx.MockTransport(handler)
+            base_url="https://collateral-return.test",
+            transport=stacked_mock(client._ctx.predictions, _collateral_return_only(handler)),
         ),
-        header_resolver=client._ctx.combos._header_resolver,
+        header_resolver=client._ctx.predictions._header_resolver,
     )
-    client._ctx = dataclasses.replace(client._ctx, combos=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 def install_rpc_handler(
@@ -394,7 +400,7 @@ def make_sync_eoa_client(*, with_api_key: bool = True) -> SecureClient:
     return SecureClient._create(
         private_key=PK_DEPLOY_WALLET,
         wallet=signer.address,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PK_DEPLOY_WALLET),
         api_key=BUILDER_AUTH if with_api_key else None,
         validate_credentials=False,
     )
@@ -410,7 +416,7 @@ def make_sync_deposit_client(*, api_key: ApiKey | None = BUILDER_AUTH) -> Secure
     return SecureClient._create(
         private_key=PK_DEPLOY_WALLET,
         wallet=wallet,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PK_DEPLOY_WALLET),
         api_key=api_key,
         validate_credentials=False,
     )
@@ -426,7 +432,7 @@ def make_sync_session_client() -> SecureClient:
     return SecureClient._create(
         private_key=PK_PROXY_WALLET,
         wallet=wallet,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PK_PROXY_WALLET),
         api_key=BUILDER_AUTH,
         validate_credentials=False,
     )
@@ -442,7 +448,7 @@ def make_sync_proxy_client() -> SecureClient:
     return SecureClient._create(
         private_key=PK_PROXY_WALLET,
         wallet=wallet,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PK_PROXY_WALLET),
         api_key=BUILDER_AUTH,
         validate_credentials=False,
     )
@@ -458,7 +464,7 @@ def make_sync_safe_client() -> SecureClient:
     return SecureClient._create(
         private_key=PK_SAFE_WALLET,
         wallet=wallet,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PK_SAFE_WALLET),
         api_key=BUILDER_AUTH,
         validate_credentials=False,
     )
@@ -473,11 +479,12 @@ def install_sync_relayer_handler(
     transport = SyncTransport(
         base_url="https://relayer.test",
         client=httpx.Client(
-            base_url="https://relayer.test", transport=httpx.MockTransport(handler)
+            base_url="https://relayer.test",
+            transport=stacked_mock(client._ctx.predictions, handler),
         ),
-        header_resolver=client._ctx.relayer._header_resolver,
+        header_resolver=client._ctx.predictions._header_resolver,
     )
-    client._ctx = dataclasses.replace(client._ctx, relayer=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 def install_sync_combos_handler(
@@ -489,11 +496,12 @@ def install_sync_combos_handler(
     transport = SyncTransport(
         base_url="https://collateral-return.test",
         client=httpx.Client(
-            base_url="https://collateral-return.test", transport=httpx.MockTransport(handler)
+            base_url="https://collateral-return.test",
+            transport=stacked_mock(client._ctx.predictions, _collateral_return_only(handler)),
         ),
-        header_resolver=client._ctx.combos._header_resolver,
+        header_resolver=client._ctx.predictions._header_resolver,
     )
-    client._ctx = dataclasses.replace(client._ctx, combos=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 def install_sync_rpc_handler(
@@ -548,7 +556,6 @@ def request_json(request: httpx.Request) -> Any:
 
 __all__ = [
     "BUILDER_AUTH",
-    "FAKE_CREDS",
     "PK_DEPLOY_WALLET",
     "PK_PROXY_WALLET",
     "PK_SAFE_WALLET",

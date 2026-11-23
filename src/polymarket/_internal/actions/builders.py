@@ -44,7 +44,7 @@ def build_list_builder_trades_request(
     validated_cursor = validate_cursor(cursor)
     if validated_cursor is not None:
         params["next_cursor"] = validated_cursor
-    return "/builder/trades", params
+    return "/v1/builders/trades", params
 
 
 def parse_builder_trades_page(data: object) -> Page[BuilderTrade]:

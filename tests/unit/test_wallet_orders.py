@@ -74,7 +74,7 @@ def _wallet_orders(request: httpx.Request) -> httpx.Response:
 def test_wallet_order_clients_follow_cursor_and_cancel(async_client: bool) -> None:
     bodies: list[object] = []
     with respx.mock as router:
-        router.get("https://clob.polymarket.com/data/wallet-open-orders").mock(
+        router.get("https://api.defi.polymarket.com/v1/me/wallet-orders").mock(
             side_effect=_wallet_orders
         )
 
@@ -82,7 +82,9 @@ def test_wallet_order_clients_follow_cursor_and_cancel(async_client: bool) -> No
             bodies.append(json.loads(request.content))
             return httpx.Response(200, json={"canceled": [], "not_canceled": {}})
 
-        router.delete("https://clob.polymarket.com/cancel-wallet-orders").mock(side_effect=cancel)
+        router.delete("https://api.defi.polymarket.com/v1/orders/by-wallet").mock(
+            side_effect=cancel
+        )
 
         async def run_async() -> int:
             client = await make_deposit_client()

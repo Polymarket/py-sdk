@@ -11,6 +11,9 @@ from polymarket.errors import RequestRejectedError, UnexpectedResponseError, Use
 _JSON_RPC_REVERT_CODES = frozenset({3, -32_000, -32_003, -32_015, -32_603})
 _JSON_RPC_REVERT_TOKENS = ("execution reverted", "revert", "invalid opcode")
 EthCallBatchRequest: TypeAlias = tuple[str, str]
+# Largest JSON-RPC batch sent in one request. Public RPC plans, including the
+# default endpoint, commonly reject larger batches.
+_MAX_BATCH_SIZE = 10
 
 
 class JsonRpcCallError(RequestRejectedError):
@@ -98,7 +101,13 @@ class JsonRpcClient:
     ) -> list[str]:
         if not requests:
             return []
-        return await self._eth_call_batch_with_split(requests, block=block)
+        results = await asyncio.gather(
+            *(
+                self._eth_call_batch_with_split(batch, block=block)
+                for batch in _split_into_batches(requests)
+            )
+        )
+        return [result for batch in results for result in batch]
 
     async def _eth_call_batch_with_split(
         self, requests: Sequence[EthCallBatchRequest], *, block: str
@@ -213,7 +222,11 @@ class SyncJsonRpcClient:
     ) -> list[str]:
         if not requests:
             return []
-        return self._eth_call_batch_with_split(requests, block=block)
+        return [
+            result
+            for batch in _split_into_batches(requests)
+            for result in self._eth_call_batch_with_split(batch, block=block)
+        ]
 
     def _eth_call_batch_with_split(
         self, requests: Sequence[EthCallBatchRequest], *, block: str
@@ -290,6 +303,15 @@ def _parse_rpc_response(method: str, raw: object) -> Any:
         code, message, data = _extract_error_fields(err)
         raise JsonRpcCallError(method=method, code=code, message=message, data=data)
     return response.get("result")
+
+
+def _split_into_batches(
+    requests: Sequence[EthCallBatchRequest],
+) -> list[Sequence[EthCallBatchRequest]]:
+    return [
+        requests[start : start + _MAX_BATCH_SIZE]
+        for start in range(0, len(requests), _MAX_BATCH_SIZE)
+    ]
 
 
 def _parse_eth_call_batch_response(raw: object, envelopes: Sequence[dict[str, Any]]) -> list[str]:

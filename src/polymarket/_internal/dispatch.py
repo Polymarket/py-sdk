@@ -7,7 +7,6 @@ from polymarket._internal.pagination import (
     compute_keyset_page,
     compute_offset_page,
     compute_page_based_page,
-    cursor_path,
     decode_keyset_cursor,
     decode_offset_cursor,
     decode_page_cursor,
@@ -18,59 +17,28 @@ from polymarket._internal.request import (
     PageBasedSpec,
     QueryParamValue,
     RequestSpec,
-    Service,
 )
-from polymarket._internal.retry import async_run_with_rate_limit_retry, run_with_rate_limit_retry
-from polymarket.clients._transport import AsyncTransport, SyncTransport
 from polymarket.errors import PaginationLimitError, UserInputError
 from polymarket.pagination import AsyncPaginator, Page, Paginator
 
 T = TypeVar("T")
 
 
-def _sync_transport_for(ctx: SyncClientContext, service: Service) -> SyncTransport:
-    match service:
-        case "gamma":
-            return ctx.gamma
-        case "data":
-            return ctx.data
-        case "rfq":
-            return ctx.rfq
-        case _ as unreachable:
-            assert_never(unreachable)
-
-
-def _async_transport_for(ctx: AsyncClientContext, service: Service) -> AsyncTransport:
-    match service:
-        case "gamma":
-            return ctx.gamma
-        case "data":
-            return ctx.data
-        case "rfq":
-            return ctx.rfq
-        case _ as unreachable:
-            assert_never(unreachable)
-
-
 def sync_dispatch(ctx: SyncClientContext, spec: RequestSpec[T]) -> T:
-    transport = _sync_transport_for(ctx, spec.service)
+    transport = ctx.predictions
     match spec.method:
         case "GET":
-            payload = run_with_rate_limit_retry(
-                lambda: transport.get_json(spec.path, params=spec.params), spec.retry
-            )
+            payload = transport.get_json(spec.path, params=spec.params)
         case _ as unreachable:
             assert_never(unreachable)
     return spec.parse(payload)
 
 
 async def async_dispatch(ctx: AsyncClientContext, spec: RequestSpec[T]) -> T:
-    transport = _async_transport_for(ctx, spec.service)
+    transport = ctx.predictions
     match spec.method:
         case "GET":
-            payload = await async_run_with_rate_limit_retry(
-                lambda: transport.get_json(spec.path, params=spec.params), spec.retry
-            )
+            payload = await transport.get_json(spec.path, params=spec.params)
         case _ as unreachable:
             assert_never(unreachable)
     return spec.parse(payload)
@@ -101,13 +69,12 @@ def sync_paginate_offset(
         raise UserInputError("page_size must be a positive integer.")
     if spec.max_page_size is not None and page_size > spec.max_page_size:
         raise UserInputError(f"page_size must be at most {spec.max_page_size}.")
-    transport = _sync_transport_for(ctx, spec.service)
+    transport = ctx.predictions
 
     def fetch(cursor: str | None) -> Page[T]:
         offset, effective_size = (
             decode_offset_cursor(
                 cursor,
-                expected_service=spec.service,
                 expected_path=spec.path,
                 expected_base_params=spec.base_params,
             )
@@ -123,13 +90,11 @@ def sync_paginate_offset(
         payload = transport.get_json(spec.path, params=params)
         items = spec.parse_items(payload)
         return compute_offset_page(
-            service=spec.service,
             path=spec.path,
             base_params=spec.base_params,
             offset=offset,
             page_size=effective_size,
             items=items,
-            page_fill=spec.page_fill,
             max_offset=spec.max_offset,
         )
 
@@ -147,13 +112,12 @@ def async_paginate_offset(
         raise UserInputError("page_size must be a positive integer.")
     if spec.max_page_size is not None and page_size > spec.max_page_size:
         raise UserInputError(f"page_size must be at most {spec.max_page_size}.")
-    transport = _async_transport_for(ctx, spec.service)
+    transport = ctx.predictions
 
     async def fetch(cursor: str | None) -> Page[T]:
         offset, effective_size = (
             decode_offset_cursor(
                 cursor,
-                expected_service=spec.service,
                 expected_path=spec.path,
                 expected_base_params=spec.base_params,
             )
@@ -169,13 +133,11 @@ def async_paginate_offset(
         payload = await transport.get_json(spec.path, params=params)
         items = spec.parse_items(payload)
         return compute_offset_page(
-            service=spec.service,
             path=spec.path,
             base_params=spec.base_params,
             offset=offset,
             page_size=effective_size,
             items=items,
-            page_fill=spec.page_fill,
             max_offset=spec.max_offset,
         )
 
@@ -193,13 +155,12 @@ def sync_paginate_keyset(
         raise UserInputError("page_size must be a positive integer.")
     if spec.max_page_size is not None and page_size > spec.max_page_size:
         raise UserInputError(f"page_size must be at most {spec.max_page_size}.")
-    transport = _sync_transport_for(ctx, spec.service)
+    transport = ctx.predictions
 
     def fetch(cursor: str | None) -> Page[T]:
         server_cursor = (
             decode_keyset_cursor(
                 cursor,
-                expected_service=spec.service,
                 expected_path=spec.path,
                 expected_base_params=spec.base_params,
             )
@@ -212,12 +173,9 @@ def sync_paginate_keyset(
         }
         if server_cursor is not None:
             params[spec.cursor_param] = server_cursor
-        payload = run_with_rate_limit_retry(
-            lambda: transport.get_json(spec.path, params=params), spec.retry
-        )
+        payload = transport.get_json(spec.path, params=params)
         keyset_page = spec.parse_page(payload)
         return compute_keyset_page(
-            service=spec.service,
             path=spec.path,
             base_params=spec.base_params,
             items=keyset_page.items,
@@ -238,13 +196,12 @@ def async_paginate_keyset(
         raise UserInputError("page_size must be a positive integer.")
     if spec.max_page_size is not None and page_size > spec.max_page_size:
         raise UserInputError(f"page_size must be at most {spec.max_page_size}.")
-    transport = _async_transport_for(ctx, spec.service)
+    transport = ctx.predictions
 
     async def fetch(cursor: str | None) -> Page[T]:
         server_cursor = (
             decode_keyset_cursor(
                 cursor,
-                expected_service=spec.service,
                 expected_path=spec.path,
                 expected_base_params=spec.base_params,
             )
@@ -257,12 +214,9 @@ def async_paginate_keyset(
         }
         if server_cursor is not None:
             params[spec.cursor_param] = server_cursor
-        payload = await async_run_with_rate_limit_retry(
-            lambda: transport.get_json(spec.path, params=params), spec.retry
-        )
+        payload = await transport.get_json(spec.path, params=params)
         keyset_page = spec.parse_page(payload)
         return compute_keyset_page(
-            service=spec.service,
             path=spec.path,
             base_params=spec.base_params,
             items=keyset_page.items,
@@ -270,49 +224,6 @@ def async_paginate_keyset(
         )
 
     return AsyncPaginator(fetch=fetch, initial_cursor=initial_cursor)
-
-
-def sync_paginate_keyset_or_resume_offset(
-    ctx: SyncClientContext,
-    *,
-    keyset_spec: KeysetPaginatedSpec[T],
-    offset_spec: OffsetPaginatedSpec[T],
-    page_size: int,
-) -> Paginator[T]:
-    # New walks page by server cursor. A cursor minted by the offset spec
-    # (saved before cursor pagination existed) finishes on offset pages, where
-    # the offset cap still applies; a walk never switches route midway.
-    keyset = sync_paginate_keyset(ctx, keyset_spec, page_size=page_size)
-    offset = sync_paginate_offset(ctx, offset_spec, page_size=page_size)
-
-    def fetch(cursor: str | None) -> Page[T]:
-        if cursor is None:
-            return keyset.first_page()
-        if cursor_path(cursor) == offset_spec.path:
-            return offset.from_cursor(cursor).first_page()
-        return keyset.from_cursor(cursor).first_page()
-
-    return Paginator(fetch=fetch)
-
-
-def async_paginate_keyset_or_resume_offset(
-    ctx: AsyncClientContext,
-    *,
-    keyset_spec: KeysetPaginatedSpec[T],
-    offset_spec: OffsetPaginatedSpec[T],
-    page_size: int,
-) -> AsyncPaginator[T]:
-    keyset = async_paginate_keyset(ctx, keyset_spec, page_size=page_size)
-    offset = async_paginate_offset(ctx, offset_spec, page_size=page_size)
-
-    async def fetch(cursor: str | None) -> Page[T]:
-        if cursor is None:
-            return await keyset.first_page()
-        if cursor_path(cursor) == offset_spec.path:
-            return await offset.from_cursor(cursor).first_page()
-        return await keyset.from_cursor(cursor).first_page()
-
-    return AsyncPaginator(fetch=fetch)
 
 
 def sync_paginate_page_based(
@@ -327,13 +238,12 @@ def sync_paginate_page_based(
         raise UserInputError("page_size must be a positive integer.")
     if initial_page < 1:
         raise UserInputError("page must be a positive integer.")
-    transport = _sync_transport_for(ctx, spec.service)
+    transport = ctx.predictions
 
     def fetch(cursor: str | None) -> Page[T]:
         page, effective_size = (
             decode_page_cursor(
                 cursor,
-                expected_service=spec.service,
                 expected_path=spec.path,
                 expected_base_params=spec.base_params,
             )
@@ -348,7 +258,6 @@ def sync_paginate_page_based(
         payload = transport.get_json(spec.path, params=params)
         page_payload = spec.parse_page(payload)
         return compute_page_based_page(
-            service=spec.service,
             path=spec.path,
             base_params=spec.base_params,
             page=page,
@@ -371,13 +280,12 @@ def async_paginate_page_based(
         raise UserInputError("page_size must be a positive integer.")
     if initial_page < 1:
         raise UserInputError("page must be a positive integer.")
-    transport = _async_transport_for(ctx, spec.service)
+    transport = ctx.predictions
 
     async def fetch(cursor: str | None) -> Page[T]:
         page, effective_size = (
             decode_page_cursor(
                 cursor,
-                expected_service=spec.service,
                 expected_path=spec.path,
                 expected_base_params=spec.base_params,
             )
@@ -392,7 +300,6 @@ def async_paginate_page_based(
         payload = await transport.get_json(spec.path, params=params)
         page_payload = spec.parse_page(payload)
         return compute_page_based_page(
-            service=spec.service,
             path=spec.path,
             base_params=spec.base_params,
             page=page,
@@ -406,12 +313,10 @@ def async_paginate_page_based(
 __all__ = [
     "async_dispatch",
     "async_paginate_keyset",
-    "async_paginate_keyset_or_resume_offset",
     "async_paginate_offset",
     "async_paginate_page_based",
     "sync_dispatch",
     "sync_paginate_keyset",
-    "sync_paginate_keyset_or_resume_offset",
     "sync_paginate_offset",
     "sync_paginate_page_based",
 ]

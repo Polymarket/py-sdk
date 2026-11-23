@@ -49,11 +49,11 @@ def test_split_position_uses_collateral_adapter_when_neg_risk_false() -> None:
             client,
             captured,
             {
-                "/v1/account/transactions/params": {
+                "/v1/wallets/execute-params": {
                     "address": client._ctx.signer.address,
                     "nonce": "0",
                 },
-                "/submit": {
+                "/v1/wallets/transactions": {
                     "state": "STATE_NEW",
                     "transactionHash": None,
                     "transactionID": "tx-split",
@@ -69,7 +69,7 @@ def test_split_position_uses_collateral_adapter_when_neg_risk_false() -> None:
             await client.close()
 
     asyncio.run(run())
-    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
+    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"]
     body = request_json(submit_calls[0])
     inner = body["depositWalletParams"]["calls"][0]
     assert inner["target"].lower() == PRODUCTION_CONFIG.collateral_adapter.lower()
@@ -85,11 +85,11 @@ def test_split_position_uses_neg_risk_collateral_adapter_when_neg_risk_true() ->
             client,
             captured,
             {
-                "/v1/account/transactions/params": {
+                "/v1/wallets/execute-params": {
                     "address": client._ctx.signer.address,
                     "nonce": "0",
                 },
-                "/submit": {
+                "/v1/wallets/transactions": {
                     "state": "STATE_NEW",
                     "transactionHash": None,
                     "transactionID": "tx-split-nr",
@@ -105,7 +105,7 @@ def test_split_position_uses_neg_risk_collateral_adapter_when_neg_risk_true() ->
             await client.close()
 
     asyncio.run(run())
-    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
+    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"]
     body = request_json(submit_calls[0])
     inner = body["depositWalletParams"]["calls"][0]
     assert inner["target"].lower() == PRODUCTION_CONFIG.neg_risk_collateral_adapter.lower()

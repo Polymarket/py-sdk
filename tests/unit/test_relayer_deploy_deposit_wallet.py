@@ -21,7 +21,7 @@ def test_deploy_deposit_wallet_wire_payload_has_no_signature() -> None:
             client,
             captured,
             {
-                "/submit": {
+                "/v1/wallets/transactions": {
                     "state": "STATE_NEW",
                     "transactionHash": None,
                     "transactionID": "tx-dep-create",
@@ -35,7 +35,7 @@ def test_deploy_deposit_wallet_wire_payload_has_no_signature() -> None:
             await client.close()
 
     asyncio.run(run())
-    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
+    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"]
     body = request_json(submit_calls[0])
     assert body["type"] == "WALLET-CREATE"
     assert "signature" not in body

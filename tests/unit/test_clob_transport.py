@@ -8,9 +8,9 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
+from _bearer import bearer_credentials_for
 
 from polymarket import (
-    ApiKeyCreds,
     AsyncPublicClient,
     AsyncSecureClient,
     ClobAssetId,
@@ -26,7 +26,6 @@ from polymarket.errors import UnexpectedResponseError
 
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 SIGNER_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-FAKE_CREDS = ApiKeyCreds(key="test-key", passphrase="test-passphrase", secret="dGVzdA==")
 
 
 def _clob_handler(captured: list[httpx.Request], payload: object) -> httpx.MockTransport:
@@ -44,7 +43,9 @@ def _install_async_clob(
         base_url="https://clob.test",
         client=httpx.AsyncClient(base_url="https://clob.test", transport=handler),
     )
-    client._ctx = cast(AsyncSecureClientContext, dataclasses.replace(client._ctx, clob=transport))
+    client._ctx = cast(
+        AsyncSecureClientContext, dataclasses.replace(client._ctx, predictions=transport)
+    )
 
 
 def _body(request: httpx.Request) -> object:
@@ -65,7 +66,7 @@ def test_async_public_get_midpoint_hits_clob_midpoint_with_token_id() -> None:
     assert len(captured) == 1
     parsed = urlparse(str(captured[0].url))
     assert captured[0].method == "GET"
-    assert parsed.path == "/midpoint"
+    assert parsed.path == "/v1/pricing/midpoint"
     assert parse_qs(parsed.query) == {"token_id": ["8501497"]}
 
 
@@ -76,7 +77,7 @@ def test_async_secure_get_midpoint_uses_same_clob_endpoint() -> None:
         client = await AsyncSecureClient._create(
             private_key=PRIVATE_KEY,
             wallet=SIGNER_ADDRESS,
-            credentials=FAKE_CREDS,
+            credentials=bearer_credentials_for(PRIVATE_KEY),
             validate_credentials=False,
         )
         try:
@@ -87,7 +88,7 @@ def test_async_secure_get_midpoint_uses_same_clob_endpoint() -> None:
 
     assert asyncio.run(run()) == Decimal("0.42")
     parsed = urlparse(str(captured[0].url))
-    assert parsed.path == "/midpoint"
+    assert parsed.path == "/v1/pricing/midpoint"
 
 
 def test_async_get_midpoint_propagates_malformed_response_error() -> None:
@@ -112,7 +113,7 @@ def test_async_get_midpoints_posts_token_ids_to_clob() -> None:
 
     assert result == {"1": Decimal("0.5"), "2": Decimal("0.4")}
     assert captured[0].method == "POST"
-    assert urlparse(str(captured[0].url)).path == "/midpoints"
+    assert urlparse(str(captured[0].url)).path == "/v1/pricing/midpoints"
     assert _body(captured[0]) == [{"token_id": "1"}, {"token_id": "2"}]
 
 
@@ -128,7 +129,7 @@ def test_async_get_price_includes_token_id_and_side() -> None:
 
     assert result == Decimal("0.52")
     parsed = urlparse(str(captured[0].url))
-    assert parsed.path == "/price"
+    assert parsed.path == "/v1/pricing/price"
     assert parse_qs(parsed.query) == {"token_id": ["123"], "side": ["BUY"]}
 
 
@@ -149,7 +150,7 @@ def test_async_get_prices_posts_token_id_and_side() -> None:
 
     assert result == {"1": {"BUY": Decimal("0.52"), "SELL": Decimal("0.53")}}
     assert captured[0].method == "POST"
-    assert urlparse(str(captured[0].url)).path == "/prices"
+    assert urlparse(str(captured[0].url)).path == "/v1/pricing/prices"
     assert _body(captured[0]) == [
         {"token_id": "1", "side": "BUY"},
         {"token_id": "1", "side": "SELL"},
@@ -199,7 +200,7 @@ def test_async_get_order_book_returns_parsed_model() -> None:
 
     book = asyncio.run(run())
 
-    assert urlparse(str(captured[0].url)).path == "/book"
+    assert urlparse(str(captured[0].url)).path == "/v1/pricing/book"
     assert book.token_id == "8501497"
     assert book.min_order_size == Decimal("5")
 
@@ -216,7 +217,7 @@ def test_async_get_order_books_posts_token_ids() -> None:
 
     assert len(books) == 1
     assert captured[0].method == "POST"
-    assert urlparse(str(captured[0].url)).path == "/books"
+    assert urlparse(str(captured[0].url)).path == "/v1/pricing/books"
     assert _body(captured[0]) == [{"token_id": "8501497"}]
 
 
@@ -229,7 +230,7 @@ def test_async_get_spread_returns_decimal() -> None:
             return await client.get_spread(token_id="123")
 
     assert asyncio.run(run()) == Decimal("0.02")
-    assert urlparse(str(captured[0].url)).path == "/spread"
+    assert urlparse(str(captured[0].url)).path == "/v1/pricing/spread"
 
 
 def test_async_get_spreads_posts_token_ids() -> None:
@@ -242,7 +243,7 @@ def test_async_get_spreads_posts_token_ids() -> None:
 
     assert asyncio.run(run()) == {"1": Decimal("0.02")}
     assert captured[0].method == "POST"
-    assert urlparse(str(captured[0].url)).path == "/spreads"
+    assert urlparse(str(captured[0].url)).path == "/v1/pricing/spreads"
 
 
 def test_async_get_last_trade_price_returns_model() -> None:
@@ -258,7 +259,7 @@ def test_async_get_last_trade_price_returns_model() -> None:
     assert result is not None
     assert result.price == Decimal("0.53")
     assert result.side == "BUY"
-    assert urlparse(str(captured[0].url)).path == "/last-trade-price"
+    assert urlparse(str(captured[0].url)).path == "/v1/pricing/last-trade-price"
 
 
 def test_async_get_last_trade_prices_posts_token_ids_at_correct_path() -> None:
@@ -282,5 +283,5 @@ def test_async_get_last_trade_prices_posts_token_ids_at_correct_path() -> None:
 
     assert len(result) == 2
     assert captured[0].method == "POST"
-    assert urlparse(str(captured[0].url)).path == "/last-trades-prices"
+    assert urlparse(str(captured[0].url)).path == "/v1/pricing/last-trades-prices"
     assert _body(captured[0]) == [{"token_id": "1"}, {"token_id": "2"}]

@@ -14,7 +14,7 @@ _ORDER_HASH = re.compile(r"0x[0-9a-fA-F]{64}")
 
 def build_cancel_order_request(*, order_id: str) -> tuple[str, dict[str, str]]:
     validated = require_nonempty("order_id", order_id)
-    return "/order", {"orderID": validated}
+    return "/v1/orders", {"orderID": validated}
 
 
 def build_cancel_orders_request(*, order_ids: Sequence[str]) -> tuple[str, list[str]]:
@@ -26,11 +26,11 @@ def build_cancel_orders_request(*, order_ids: Sequence[str]) -> tuple[str, list[
     if len(items) > _MAX_CANCEL_BATCH:
         raise UserInputError(f"order_ids cannot exceed {_MAX_CANCEL_BATCH} entries.")
     validated = [require_nonempty("order id", item) for item in items]
-    return "/orders", validated
+    return "/v1/orders/batch", validated
 
 
 def build_cancel_all_request() -> tuple[str, None]:
-    return "/cancel-all", None
+    return "/v1/orders/all", None
 
 
 def require_deposit_wallet_owner(ctx: AsyncSecureClientContext | SyncSecureClientContext) -> None:
@@ -47,11 +47,11 @@ def build_cancel_wallet_orders_request(
         isinstance(i, str) and _ORDER_HASH.fullmatch(i) for i in cast(Sequence[object], order_ids)
     ):
         raise UserInputError("order_ids must contain 0x-prefixed 32-byte order hashes.")
-    return "/cancel-wallet-orders", {"order_ids": list(order_ids)}
+    return "/v1/orders/by-wallet", {"order_ids": list(order_ids)}
 
 
 def build_cancel_all_wallet_orders_request() -> tuple[str, dict[str, bool]]:
-    return "/cancel-wallet-orders", {"all": True}
+    return "/v1/orders/by-wallet", {"all": True}
 
 
 def build_cancel_market_orders_request(
@@ -68,7 +68,7 @@ def build_cancel_market_orders_request(
         body["asset_id"] = resolved_asset
     if market is not None:
         body["market"] = require_nonempty("market", market)
-    return "/cancel-market-orders", body
+    return "/v1/orders/by-market", body
 
 
 def parse_cancel_orders_response(data: object) -> CancelOrdersResponse:

@@ -7,8 +7,9 @@ from typing import Any
 
 import httpx
 import pytest
+from _bearer import bearer_credentials_for
 
-from polymarket import ApiKeyCreds, AsyncSecureClient
+from polymarket import AsyncSecureClient
 from polymarket._internal.actions.orders.limit import (
     prepare_limit_order_draft,
     validate_limit_order_params,
@@ -19,15 +20,14 @@ from polymarket.errors import UserInputError
 
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 SIGNER_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-FAKE_CREDS = ApiKeyCreds(key="test-key", passphrase="test-passphrase", secret="dGVzdA==")
 _CONDITION_ID = "0x5c19f205507ce03ff5f3be08a8090a5969ea6870cc07b902a4ca2e61dfe48fdd"
 _CTF_ASSET_ID = str((1 << 40) + 8_501_497)
 
 
 def _market_routes(*, tick_size: float = 0.01, neg_risk: bool = False) -> dict[str, Any]:
     return {
-        f"/markets-by-token/{_CTF_ASSET_ID}": {"condition_id": _CONDITION_ID},
-        f"/clob-markets/{_CONDITION_ID}": {
+        f"/v1/trading/markets/token/{_CTF_ASSET_ID}": {"condition_id": _CONDITION_ID},
+        f"/v1/trading/markets/{_CONDITION_ID}": {
             "fd": {"r": 0, "e": 0},
             "mts": tick_size,
             "nr": neg_risk,
@@ -53,14 +53,14 @@ def _install_public_clob(client: AsyncSecureClient, handler: httpx.MockTransport
         base_url="https://clob.test",
         client=httpx.AsyncClient(base_url="https://clob.test", transport=handler),
     )
-    client._ctx = dataclasses.replace(client._ctx, clob=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 async def _make_client() -> AsyncSecureClient:
     return await AsyncSecureClient._create(
         private_key=PRIVATE_KEY,
         wallet=SIGNER_ADDRESS,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PRIVATE_KEY),
         validate_credentials=False,
     )
 

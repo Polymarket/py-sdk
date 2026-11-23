@@ -1,10 +1,12 @@
 import asyncio
 import json
 import logging
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Literal, cast
 
+from polymarket._internal.auth_session import AsyncAuthSession
+from polymarket._internal.streams.authentication import SocketAuthentication
 from polymarket._internal.streams.realtime.heartbeat import PriceHeartbeat
 from polymarket._internal.streams.realtime.protocol import (
     PriceKey,
@@ -13,7 +15,6 @@ from polymarket._internal.streams.realtime.protocol import (
 )
 from polymarket._internal.ws.connection import AsyncWebSocketConnection
 from polymarket.errors import ConnectionLostError, RequestRejectedError, TransportError
-from polymarket.models.clob.api_key import ApiKeyCreds
 from polymarket.models.price_events import PriceEvent, RealtimeErrorCode
 from polymarket.streams._specs import PriceProviderInput
 
@@ -39,16 +40,22 @@ class PriceConnection:
         self,
         *,
         url: str,
-        credentials: ApiKeyCreds,
+        session: AsyncAuthSession,
         provider: PriceProviderInput | None = None,
         api_key: str | None = None,
         headers: Mapping[str, str] | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
         self._url = url
-        self._credentials = credentials
         self._provider = provider
         self._api_key = api_key
+        self._authentication = SocketAuthentication(
+            session=session,
+            authenticate=self._authenticate,
+            expired=self._on_authentication_expired,
+            fail=self._on_session_failure,
+        )
+        self._tasks: set[asyncio.Task[None]] = set()
         self._headers = headers
         self._connection = AsyncWebSocketConnection(
             heartbeat=PriceHeartbeat(), logger=logger, close_timeout_s=1.0
@@ -60,6 +67,8 @@ class PriceConnection:
         self._generation = 0
         self._event: Callable[[PriceEvent], None] | None = None
         self._dropped: Callable[[], None] | None = None
+        self._disconnected: Callable[[ConnectionLostError], None] | None = None
+        self._failed: Callable[[BaseException], None] | None = None
 
     async def open(
         self,
@@ -67,13 +76,17 @@ class PriceConnection:
         event: Callable[[PriceEvent], None],
         dropped: Callable[[], None],
         disconnected: Callable[[ConnectionLostError], None],
+        failed: Callable[[BaseException], None],
     ) -> None:
         generation = self._generation
         self._event, self._dropped = event, dropped
+        self._disconnected, self._failed = disconnected, failed
 
         def lost(code: int, reason: str) -> None:
             if generation != self._generation:
                 return
+            self._generation += 1
+            self._authentication.stop()
             error = ConnectionLostError("Realtime connection closed", code=code, reason=reason)
             self._cancel(error)
             disconnected(error)
@@ -91,17 +104,43 @@ class PriceConnection:
         )
 
     async def authorize(self) -> None:
-        frame: dict[str, object] = {
-            "op": "auth",
-            "auth": {
-                "apiKey": self._credentials.key,
-                "secret": self._credentials.secret,
-                "passphrase": self._credentials.passphrase,
-            },
-        }
+        credentials = await self._authentication.prepare()
+        await self._authenticate(credentials.access_token)
+        self._authentication.accepted(credentials.access_token)
+
+    async def _authenticate(self, access_token: str) -> None:
+        frame: dict[str, object] = {"op": "auth", "auth": {"accessToken": access_token}}
         if self._provider == "chainlink" and self._api_key is not None:
             frame["chainlink_api_key"] = self._api_key
         await self._request(frame, "authed", [])
+
+    def _on_authentication_expired(self) -> None:
+        self._spawn(self._expire(self._disconnected))
+
+    def _on_session_failure(self, error: BaseException) -> None:
+        self._cancel(error if isinstance(error, Exception) else TransportError(str(error)))
+        self._spawn(self._fail(self._failed, error))
+
+    async def _expire(self, disconnected: Callable[[ConnectionLostError], None] | None) -> None:
+        await self.close()
+        if disconnected is not None:
+            disconnected(
+                ConnectionLostError(
+                    "Realtime authentication expired", code=1008, reason="authentication expired"
+                )
+            )
+
+    async def _fail(
+        self, failed: Callable[[BaseException], None] | None, error: BaseException
+    ) -> None:
+        await self.close()
+        if failed is not None:
+            failed(error)
+
+    def _spawn(self, coroutine: Coroutine[object, object, None]) -> None:
+        task = asyncio.get_running_loop().create_task(coroutine)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
 
     async def change(
         self,
@@ -224,6 +263,8 @@ class PriceConnection:
 
     async def close(self) -> None:
         self._generation += 1
+        self._authentication.stop()
         self._event = self._dropped = None
+        self._disconnected = self._failed = None
         self._cancel(TransportError("Realtime connection closed"))
         await self._connection.close()

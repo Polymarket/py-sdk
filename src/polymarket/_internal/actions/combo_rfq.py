@@ -1,4 +1,4 @@
-"""Requester-side combo RFQ actions over the builder gateway."""
+"""Requester-side combo RFQ actions."""
 
 from __future__ import annotations
 
@@ -58,7 +58,8 @@ _PROTOCOL_VERSION_V3 = "3"
 _MIN_LEGS = 2
 _MAX_LEGS = 50
 
-_REQUESTS_PATH = "/v1/builder/rfq/requests"
+_BUILDER_REQUESTS_PATH = "/v1/combos/builder/requests"
+_REQUESTER_REQUESTS_PATH = "/v1/combos/requester/requests"
 _ACCEPT_OUTCOME_TIMEOUT_S = 30.0
 _ACCEPT_OUTCOME_POLL_INTERVAL_S = 0.5
 _DEFAULT_FILL_TIMEOUT_S = 30.0
@@ -67,10 +68,6 @@ _DEFAULT_FILL_POLL_INTERVAL_S = 1.0
 # Create and accept are held through the quote competition and maker last
 # look respectively, so allow generous read timeouts.
 _HELD_REQUEST_TIMEOUT = httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=5.0)
-
-_MISSING_API_KEY_MESSAGE = (
-    "Combo RFQ requests require a Builder API Key. Pass api_key= when constructing the client."
-)
 
 _SecureContext = AsyncSecureClientContext | SyncSecureClientContext
 
@@ -93,10 +90,9 @@ async def request_combo_quote(
         size=size,
         side=side,
     )
-    _require_builder_api_key(ctx)
     try:
-        data = await ctx.builder_gateway.post_json(
-            _REQUESTS_PATH, json=body, timeout=_HELD_REQUEST_TIMEOUT
+        data = await ctx.predictions.post_json(
+            _requests_path(ctx), json=body, timeout=_HELD_REQUEST_TIMEOUT
         )
     except RequestRejectedError as error:
         raise _to_rfq_request_rejected(error) from error
@@ -121,10 +117,9 @@ def request_combo_quote_sync(
         size=size,
         side=side,
     )
-    _require_builder_api_key(ctx)
     try:
-        data = ctx.builder_gateway.post_json(
-            _REQUESTS_PATH, json=body, timeout=_HELD_REQUEST_TIMEOUT
+        data = ctx.predictions.post_json(
+            _requests_path(ctx), json=body, timeout=_HELD_REQUEST_TIMEOUT
         )
     except RequestRejectedError as error:
         raise _to_rfq_request_rejected(error) from error
@@ -136,22 +131,17 @@ async def accept_combo_quote(
 ) -> ComboQuoteAcceptance:
     assert_combos_supported(ctx)
     quote = _parse_combo_quote_input(quote)
-    _require_builder_api_key(ctx)
     body = _build_accept_request_body(ctx, quote)
-    path = f"{_REQUESTS_PATH}/{_encode_path_segment(quote.rfq_id)}/accept"
+    path = f"{_requests_path(ctx)}/{_encode_path_segment(quote.rfq_id)}/accept"
     try:
         try:
-            data = await ctx.builder_gateway.post_json(
-                path, json=body, timeout=_HELD_REQUEST_TIMEOUT
-            )
+            data = await ctx.predictions.post_json(path, json=body, timeout=_HELD_REQUEST_TIMEOUT)
             status = _parse_rfq_status(data, expected_rfq_id=quote.rfq_id)
         except (TransportError, UnexpectedResponseError):
             # Acceptance is idempotent server-side. Retry the same signed order
             # once when the request or response is interrupted during the maker
             # last-look hold.
-            data = await ctx.builder_gateway.post_json(
-                path, json=body, timeout=_HELD_REQUEST_TIMEOUT
-            )
+            data = await ctx.predictions.post_json(path, json=body, timeout=_HELD_REQUEST_TIMEOUT)
             status = _parse_rfq_status(data, expected_rfq_id=quote.rfq_id)
     except RequestRejectedError as error:
         expired = _to_expired_acceptance(quote.rfq_id, error)
@@ -178,18 +168,17 @@ def accept_combo_quote_sync(
 ) -> ComboQuoteAcceptance:
     assert_combos_supported(ctx)
     quote = _parse_combo_quote_input(quote)
-    _require_builder_api_key(ctx)
     body = _build_accept_request_body(ctx, quote)
-    path = f"{_REQUESTS_PATH}/{_encode_path_segment(quote.rfq_id)}/accept"
+    path = f"{_requests_path(ctx)}/{_encode_path_segment(quote.rfq_id)}/accept"
     try:
         try:
-            data = ctx.builder_gateway.post_json(path, json=body, timeout=_HELD_REQUEST_TIMEOUT)
+            data = ctx.predictions.post_json(path, json=body, timeout=_HELD_REQUEST_TIMEOUT)
             status = _parse_rfq_status(data, expected_rfq_id=quote.rfq_id)
         except (TransportError, UnexpectedResponseError):
             # Acceptance is idempotent server-side. Retry the same signed order
             # once when the request or response is interrupted during the maker
             # last-look hold.
-            data = ctx.builder_gateway.post_json(path, json=body, timeout=_HELD_REQUEST_TIMEOUT)
+            data = ctx.predictions.post_json(path, json=body, timeout=_HELD_REQUEST_TIMEOUT)
             status = _parse_rfq_status(data, expected_rfq_id=quote.rfq_id)
     except RequestRejectedError as error:
         expired = _to_expired_acceptance(quote.rfq_id, error)
@@ -259,8 +248,8 @@ async def fetch_rfq_status(ctx: AsyncSecureClientContext, *, rfq_id: str) -> Rfq
     assert_combos_supported(ctx)
     _require_rfq_id(rfq_id)
     try:
-        data = await ctx.builder_gateway.get_json(
-            f"{_REQUESTS_PATH}/{_encode_path_segment(rfq_id)}"
+        data = await ctx.predictions.get_json(
+            f"{_requests_path(ctx)}/{_encode_path_segment(rfq_id)}"
         )
     except RequestRejectedError as error:
         raise _to_rfq_request_rejected(error) from error
@@ -271,7 +260,7 @@ def fetch_rfq_status_sync(ctx: SyncSecureClientContext, *, rfq_id: str) -> RfqSt
     assert_combos_supported(ctx)
     _require_rfq_id(rfq_id)
     try:
-        data = ctx.builder_gateway.get_json(f"{_REQUESTS_PATH}/{_encode_path_segment(rfq_id)}")
+        data = ctx.predictions.get_json(f"{_requests_path(ctx)}/{_encode_path_segment(rfq_id)}")
     except RequestRejectedError as error:
         raise _to_rfq_request_rejected(error) from error
     return _parse_rfq_status(data, expected_rfq_id=rfq_id)
@@ -399,9 +388,15 @@ def _order_signer_address(ctx: _SecureContext) -> EvmAddress:
     return EvmAddress(ctx.signer.address)
 
 
-def _require_builder_api_key(ctx: _SecureContext) -> None:
-    if not isinstance(ctx.api_key, BuilderApiKey):
-        raise UserInputError(_MISSING_API_KEY_MESSAGE)
+def _requests_path(ctx: _SecureContext) -> str:
+    """A builder key attributes the RFQ to its builder.
+
+    Without one, the RFQ goes to the requester routes, which the session
+    authorizes on its own.
+    """
+    if isinstance(ctx.api_key, BuilderApiKey):
+        return _BUILDER_REQUESTS_PATH
+    return _REQUESTER_REQUESTS_PATH
 
 
 def _require_rfq_id(rfq_id: str) -> None:
@@ -608,7 +603,7 @@ def _parse_combo_quote_result(data: object, *, request: Mapping[str, object]) ->
         quote = ComboQuote(
             rfq_id=rfq_id,
             quote_id=_expect_str(quote_object, "quote_id"),
-            builder_code=_parse_builder_code(_expect_str(payload, "builder_code")),
+            builder_code=_parse_builder_code(_expect_optional_str(payload, "builder_code")),
             direction=direction,
             position_id=_parse_response_position_id(
                 _expect_str(request_payload, "yes_position_id")
@@ -662,7 +657,7 @@ def _validate_quote_response_request(
 
     if mismatched_fields:
         raise UnexpectedResponseError(
-            "Builder RFQ response did not echo the submitted " + ", ".join(mismatched_fields) + "."
+            "RFQ response did not echo the submitted " + ", ".join(mismatched_fields) + "."
         )
     return echoed_direction
 
@@ -780,7 +775,10 @@ def _parse_response_position_id(value: str) -> PositionId:
     return PositionId(str(int(value)))
 
 
-def _parse_builder_code(value: str) -> HexString:
+def _parse_builder_code(value: str | None) -> HexString:
+    # Requests without builder attribution omit the builder code.
+    if value is None:
+        return HexString(BYTES32_ZERO)
     if re.fullmatch(r"0x[0-9a-fA-F]{64}", value) is None:
         raise UnexpectedResponseError(f"Invalid combo builder code: {value}")
     return HexString(value)

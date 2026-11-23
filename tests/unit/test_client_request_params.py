@@ -6,10 +6,10 @@ from typing import Any, Literal, cast
 
 import httpx
 import pytest
+from _bearer import bearer_credentials_for
 from data_v2_samples import position_payload, sample
 
 from polymarket import (
-    ApiKeyCreds,
     AsyncPublicClient,
     AsyncSecureClient,
     ProtocolVersion,
@@ -23,7 +23,6 @@ from polymarket.pagination import AsyncPaginator
 
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 WALLET = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-CREDS = ApiKeyCreds(key="test", passphrase="test", secret="dGVzdA==")
 CONDITION = "0x" + "ab" * 32
 COMBO = "0x03" + "ab" * 30
 
@@ -69,7 +68,7 @@ def test_event_protocol_filter_and_cursor_binding(
             client = SecureClient._create(
                 private_key=PRIVATE_KEY,
                 wallet=WALLET,
-                credentials=CREDS,
+                credentials=bearer_credentials_for(PRIVATE_KEY),
                 validate_credentials=False,
             )
         elif mode == "async_public":
@@ -78,7 +77,7 @@ def test_event_protocol_filter_and_cursor_binding(
             client = await AsyncSecureClient._create(
                 private_key=PRIVATE_KEY,
                 wallet=WALLET,
-                credentials=CREDS,
+                credentials=bearer_credentials_for(PRIVATE_KEY),
                 validate_credentials=False,
             )
         asynchronous = isinstance(client, AsyncPublicClient | AsyncSecureClient)
@@ -94,14 +93,15 @@ def test_event_protocol_filter_and_cursor_binding(
         # Replacing a dataclass preserves its concrete context type. Keep this
         # private transport seam dynamic while checking the public calls below.
         if isinstance(client, AsyncPublicClient | AsyncSecureClient):
-            await client._ctx.gamma.close()
+            await client._ctx.predictions.close()
             cast(Any, client)._ctx = dataclasses.replace(
-                client._ctx, gamma=AsyncTransport(base_url="https://example.test", client=http)
+                client._ctx,
+                predictions=AsyncTransport(base_url="https://example.test", client=http),
             )
         else:
-            client._ctx.gamma.close()
+            client._ctx.predictions.close()
             cast(Any, client)._ctx = dataclasses.replace(
-                client._ctx, gamma=SyncTransport(base_url="https://example.test", client=http)
+                client._ctx, predictions=SyncTransport(base_url="https://example.test", client=http)
             )
         try:
             if version is None:
@@ -131,8 +131,7 @@ def test_event_protocol_filter_and_cursor_binding(
             # An omitted filter must still resume a cursor created with the old query.
             cursor = (
                 encode_keyset_cursor(
-                    service="gamma",
-                    path="/events/keyset",
+                    path="/v1/events",
                     base_params={"closed": False},
                     server_cursor="server-next",
                 )
@@ -193,7 +192,7 @@ def test_event_protocol_filter_and_cursor_binding(
         expected,
         {**expected, "after_cursor": "server-next"},
     ]
-    assert all(request.url.path == "/events/keyset" for request in captured)
+    assert all(request.url.path == "/v1/events" for request in captured)
 
 
 @pytest.mark.parametrize("mode", ["public", "secure", "async_public", "async_secure"])
@@ -269,7 +268,7 @@ def test_feed_queries_cursor_replay_and_wallet_binding(
             client = SecureClient._create(
                 private_key=PRIVATE_KEY,
                 wallet=WALLET,
-                credentials=CREDS,
+                credentials=bearer_credentials_for(PRIVATE_KEY),
                 validate_credentials=False,
             )
         elif mode == "async_public":
@@ -278,7 +277,7 @@ def test_feed_queries_cursor_replay_and_wallet_binding(
             client = await AsyncSecureClient._create(
                 private_key=PRIVATE_KEY,
                 wallet=WALLET,
-                credentials=CREDS,
+                credentials=bearer_credentials_for(PRIVATE_KEY),
                 validate_credentials=False,
             )
         asynchronous = mode.startswith("async")
@@ -297,10 +296,10 @@ def test_feed_queries_cursor_replay_and_wallet_binding(
             else SyncTransport(base_url="https://example.test", client=http)
         )
         if asynchronous:
-            await client._ctx.data.close()
+            await client._ctx.predictions.close()
         else:
-            client._ctx.data.close()
-        client._ctx = dataclasses.replace(client._ctx, data=transport)
+            client._ctx.predictions.close()
+        client._ctx = dataclasses.replace(client._ctx, predictions=transport)
         options = {**kwargs, **({"user": WALLET} if "secure" not in mode else {})}
         try:
             paginator = getattr(client, method)(**options, page_size=5)
@@ -332,7 +331,7 @@ def test_feed_queries_cursor_replay_and_wallet_binding(
     expected = {**query, "user": WALLET, "limit": "5"}
     assert dict(captured[0].url.params) == expected
     assert dict(captured[1].url.params) == {**expected, "cursor": "server-next"}
-    assert captured[0].url.path.startswith("/v2/")
+    assert captured[0].url.path.startswith("/v1/")
 
 
 @pytest.mark.parametrize("mode", ["sync", "async"])
@@ -359,23 +358,24 @@ def test_secure_metrics_bind_wallet(mode: str, method: str, fixture: str) -> Non
                 SecureClient._create(
                     private_key=PRIVATE_KEY,
                     wallet=WALLET,
-                    credentials=CREDS,
+                    credentials=bearer_credentials_for(PRIVATE_KEY),
                     validate_credentials=False,
                 ) as client,
                 httpx.Client(
                     base_url="https://example.test", transport=httpx.MockTransport(handler)
                 ) as http,
             ):
-                client._ctx.data.close()
+                client._ctx.predictions.close()
                 client._ctx = dataclasses.replace(
-                    client._ctx, data=SyncTransport(base_url="https://example.test", client=http)
+                    client._ctx,
+                    predictions=SyncTransport(base_url="https://example.test", client=http),
                 )
                 getattr(client, method)()
         else:
             async_client = await AsyncSecureClient._create(
                 private_key=PRIVATE_KEY,
                 wallet=WALLET,
-                credentials=CREDS,
+                credentials=bearer_credentials_for(PRIVATE_KEY),
                 validate_credentials=False,
             )
             async with (
@@ -384,10 +384,10 @@ def test_secure_metrics_bind_wallet(mode: str, method: str, fixture: str) -> Non
                     base_url="https://example.test", transport=httpx.MockTransport(handler)
                 ) as async_http,
             ):
-                await async_client._ctx.data.close()
+                await async_client._ctx.predictions.close()
                 async_client._ctx = dataclasses.replace(
                     async_client._ctx,
-                    data=AsyncTransport(base_url="https://example.test", client=async_http),
+                    predictions=AsyncTransport(base_url="https://example.test", client=async_http),
                 )
                 await getattr(async_client, method)()
 

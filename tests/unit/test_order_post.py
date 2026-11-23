@@ -47,7 +47,7 @@ def _signed_order(**overrides: object) -> SignedOrder:
 
 def test_build_post_order_request_targets_order_path() -> None:
     path, _ = build_post_order_request(_signed_order(), owner_api_key="api-key")
-    assert path == "/order"
+    assert path == "/v1/orders"
 
 
 def test_build_post_order_request_sends_salt_as_int_and_strings_for_amounts() -> None:
@@ -101,7 +101,7 @@ def test_build_post_orders_request_targets_orders_path() -> None:
     path, payload = build_post_orders_request(
         [_signed_order(), _signed_order()], owner_api_key="api-key"
     )
-    assert path == "/orders"
+    assert path == "/v1/orders/batch"
     assert len(payload) == 2
 
 

@@ -1,7 +1,7 @@
 """Synchronous secure Polymarket client."""
 
+import contextlib
 import logging
-import time
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from decimal import Decimal
@@ -9,24 +9,24 @@ from functools import partial
 from types import TracebackType
 from typing import TYPE_CHECKING, Literal, Self, cast, overload
 
-from eth_account import Account
 from eth_account.signers.local import LocalAccount
 from eth_utils.address import to_checksum_address
 
 from polymarket._internal.actions import account as _account_actions
-from polymarket._internal.actions import auth as _auth_actions
 from polymarket._internal.actions import builders as _builders_actions
 from polymarket._internal.actions import clob as _clob_actions
 from polymarket._internal.actions import combo_rfq as _combo_rfq_actions
 from polymarket._internal.actions import combos as _combos_actions
 from polymarket._internal.actions import data as _data_actions
 from polymarket._internal.actions import gamma as _gamma_actions
+from polymarket._internal.actions import identity as _identity_actions
 from polymarket._internal.actions import order_heartbeats as _order_heartbeat_actions
 from polymarket._internal.actions import rewards as _rewards_actions
 from polymarket._internal.actions import rfq as _rfq_actions
 from polymarket._internal.actions import session_keys as _session_key_actions
 from polymarket._internal.actions.gamma import (
     CommentParentEntityType,
+    CommentSort,
     DateFilter,
     Recurrence,
     SearchSort,
@@ -66,10 +66,6 @@ from polymarket._internal.actions.relayer.approvals import (
     build_missing_trading_approval_calls,
     get_trading_approvals_state_sync,
 )
-from polymarket._internal.actions.relayer.auth import (
-    build_builder_key_headers,
-    make_relayer_header_resolver_sync,
-)
 from polymarket._internal.actions.relayer.calls import (
     MAX_UINT256,
     TransactionCall,
@@ -104,19 +100,22 @@ from polymarket._internal.actions.relayer.positions import (
     parse_market_id,
     resolve_merge_amount_from_balances,
 )
+from polymarket._internal.auth_session import (
+    CredentialsChanged,
+    DeferredCredentialsListener,
+    SyncAuthSession,
+)
 from polymarket._internal.context import SyncSecureClientContext
 from polymarket._internal.dispatch import (
     sync_dispatch,
     sync_paginate_keyset,
-    sync_paginate_keyset_or_resume_offset,
     sync_paginate_offset,
     sync_paginate_page_based,
 )
 from polymarket._internal.environment import EnvironmentConfig, get_environment_config
 from polymarket._internal.eoa.broadcast import broadcast_eoa_call_sync
 from polymarket._internal.eoa.rpc import SyncJsonRpcClient
-from polymarket._internal.hmac import build_hmac_signature
-from polymarket._internal.l1_auth import sign_api_key_auth
+from polymarket._internal.prediction_signing import build_api_key_headers
 from polymarket._internal.wallet import (
     SignerType,
     WalletType,
@@ -126,7 +125,7 @@ from polymarket._internal.wallet import (
     signature_type_for,
     wrap_deposit_wallet_signature,
 )
-from polymarket.auth import ApiKey, BuilderApiKey
+from polymarket.auth import ApiKey, BearerCredentials, PlatformApiKey
 from polymarket.clients._transport import SyncHeaderResolver, SyncTransport
 from polymarket.environments import PRODUCTION, Environment
 from polymarket.errors import (
@@ -167,7 +166,7 @@ from polymarket.models import (
     TradingApprovalsState,
     WalletOpenOrder,
 )
-from polymarket.models.clob import BuilderApiKeyInfo, BuilderTrade
+from polymarket.models.clob import BuilderTrade
 from polymarket.models.clob.cancel import CancelOrdersResponse
 from polymarket.models.clob.order_heartbeats import OrderHeartbeat
 from polymarket.models.clob.order_response import AcceptedOrder, OrderResponse
@@ -265,8 +264,8 @@ def _validate_nonce(nonce: object) -> None:
 class SecureClient:
     """Synchronous client for authenticated account, trading, and wallet workflows.
 
-    Create instances with :meth:`SecureClient.create` so the SDK can derive or
-    validate credentials before authenticated requests are made.
+    Create instances with :meth:`SecureClient.create`, which signs in or restores
+    a saved session before authenticated requests are made.
     """
 
     def list_trades(
@@ -598,7 +597,7 @@ class SecureClient:
         Unknown selectors contribute no rows. Asset lookups retain request order;
         condition groups retain server order and can repeat assets when selectors
         overlap. Nullable metadata is explicit. Outcome labels and settlement
-        metadata may lag by up to a minute. Transient rate limits are retried.
+        metadata may lag by up to a minute.
         """
         spec = _data_actions.build_get_token_references_spec(
             asset_ids=asset_ids, condition_ids=condition_ids
@@ -695,11 +694,14 @@ class SecureClient:
         ctx: SyncSecureClientContext,
         _create_token: object | None = None,
         logger: logging.Logger | None = None,
+        on_rate_limit_update: RateLimitUpdateListener | None = None,
     ) -> None:
         if _create_token is not _CREATE_TOKEN:
             raise RuntimeError("Use SecureClient.create(...) to create a secure client")
         self._ended = False
         self._ctx_inner = ctx
+        self._logger = logger
+        self._on_rate_limit_update = on_rate_limit_update
 
     @property
     def _ctx(self) -> SyncSecureClientContext:
@@ -721,45 +723,77 @@ class SecureClient:
         private_key: str,
         wallet: str | None = None,
         environment: Environment = PRODUCTION,
-        credentials: ApiKeyCreds | None = None,
+        credentials: BearerCredentials | ApiKeyCreds | None = None,
         api_key: ApiKey | None = None,
+        platform_api_key: PlatformApiKey | None = None,
         nonce: int = 0,
+        on_credentials_changed: CredentialsChanged | None = None,
         logger: logging.Logger | None = None,
         on_rate_limit_update: RateLimitUpdateListener | None = None,
+        wallet_setup: bool = True,
     ) -> Self:
         """Create an authenticated synchronous client.
+
+        Without ``credentials``, the client signs in with ``private_key``. Saved
+        :class:`BearerCredentials` restore that session, and saved
+        :class:`ApiKeyCreds` are exchanged for a new session. Neither needs a new
+        wallet signature. Save :attr:`credentials` after creation, and every pair
+        passed to ``on_credentials_changed``, to restore the session later.
 
         Args:
             private_key: EVM private key used for signing.
             wallet: Wallet address to act for. Defaults to the signer's Deposit Wallet.
-            credentials: Existing API credentials. When omitted, credentials are
-                derived during client creation.
-            api_key: Optional key for gasless wallet and relayed transaction workflows.
-            nonce: Credential derivation nonce. Cannot be combined with ``credentials``.
+                Saved session credentials that are bound to a wallet keep it.
+            credentials: Saved session or API credentials. Credentials that no longer
+                work raise instead of signing in again.
+            api_key: Optional builder or relayer key. The session already authorizes
+                gasless transactions, collateral return, and session-key changes; the
+                key adds its own authentication to them. A builder key also attributes
+                order, cancellation, and account requests.
+            platform_api_key: Optional Platform API Key that attributes sign-in and
+                requests to your application. Keep it on the server.
+            nonce: Sign-in nonce. Cannot be combined with ``credentials``.
+            on_credentials_changed: Called with the new credentials after each
+                renewal. It can run on a background thread. Exceptions it raises are
+                logged and ignored, so handle storage failures inside it.
             on_rate_limit_update: Listener invoked whenever a response reports
                 per-signer rate-limit state, as order and cancellation responses
                 do. Errors raised by the listener are ignored.
+            wallet_setup: Whether creation completes wallet setup: finding the
+                default wallet, binding a session that has no wallet, and deploying
+                the default Deposit Wallet. Pass ``False`` to use the session as it
+                is, for example while your application runs its own onboarding. A
+                new sign-in or credential exchange then includes ``wallet`` only
+                when you pass it. For a session without a wallet, :attr:`wallet` is
+                the ``wallet`` you pass, or the signer's current Deposit Wallet
+                address, which may not be deployed yet. Once onboarding completes,
+                create a client from the saved credentials with wallet setup
+                enabled to bind the wallet.
+                Experimental: may change in breaking ways, including patch releases.
 
         Raises:
             UserInputError: If key material, wallet, nonce, or credentials are invalid.
-            RequestRejectedError: If credential derivation or validation is rejected.
+            SigningError: If the ownership signature or proof cannot be produced.
+            RequestRejectedError: If sign-in, the credential exchange, or the saved
+                session is rejected.
+            RateLimitError: If an authentication request is rate-limited.
+            TransportError: If a network request fails.
+            UnexpectedResponseError: If an authentication response is invalid.
         """
-        client = cls._create(
+        return cls._create(
             private_key=private_key,
             wallet=wallet,
             environment=environment,
             credentials=credentials,
             api_key=api_key,
+            platform_api_key=platform_api_key,
             nonce=nonce,
+            on_credentials_changed=on_credentials_changed,
             validate_credentials=True,
             logger=logger,
             on_rate_limit_update=on_rate_limit_update,
+            wallet_setup=wallet_setup,
         )
-        try:
-            return client._ensure_wallet_ready()
-        except BaseException:
-            client.close()
-            raise
 
     @classmethod
     def _create(
@@ -768,62 +802,187 @@ class SecureClient:
         private_key: str,
         wallet: str | None = None,
         environment: Environment = PRODUCTION,
-        credentials: ApiKeyCreds | None = None,
+        credentials: BearerCredentials | ApiKeyCreds | None = None,
         api_key: ApiKey | None = None,
+        platform_api_key: PlatformApiKey | None = None,
         nonce: int = 0,
+        on_credentials_changed: CredentialsChanged | None = None,
         validate_credentials: bool = True,
         logger: logging.Logger | None = None,
         on_rate_limit_update: RateLimitUpdateListener | None = None,
+        wallet_setup: bool = True,
     ) -> Self:
-        if not private_key:
-            raise UserInputError("private_key is required")
+        # Without validation, saved session credentials are trusted as given and
+        # no authentication or wallet request is made.
         _validate_nonce(nonce)
         if credentials is not None and nonce != 0:
             raise UserInputError("nonce cannot be combined with credentials.")
+        if not validate_credentials and not isinstance(credentials, BearerCredentials):
+            raise UserInputError("Saved session credentials are required.")
+        signer = _identity_actions.signer_from_private_key(private_key)
         config = get_environment_config(environment)
-        try:
-            signer = cast(LocalAccount, Account.from_key(private_key))
-        except (ValueError, TypeError) as error:
-            raise UserInputError(f"Invalid private_key: {error}") from error
+        restored = isinstance(credentials, BearerCredentials)
+        notifier = DeferredCredentialsListener(
+            on_credentials_changed, publish=restored, logger=logger
+        )
 
-        resolved_wallet = _resolve_requested_wallet_sync(
-            signer=signer,
-            wallet=wallet,
-            config=config,
+        auth = SyncTransport(
+            base_url=config.predictions_url,
             logger=logger,
+            header_resolver=None
+            if platform_api_key is None
+            else _identity_actions.make_platform_header_resolver_sync(platform_api_key),
         )
-        account = classify_account(
-            signer=signer.address,
-            wallet=resolved_wallet,
-            config=config.wallet_derivation,
-        )
-
-        bootstrap_clob = SyncTransport(base_url=config.clob_url, logger=logger)
+        issued: _identity_actions.IssuedTokens | None = None
+        requested_wallet: str | None = None
+        bind_wallet = False
         try:
-            resolved_credentials = _bootstrap_credentials_sync(
-                config=config,
+            if isinstance(credentials, BearerCredentials):
+                claims = _identity_actions.parse_access_token_claims(credentials.access_token)
+                if claims.sub.lower() != signer.address.lower():
+                    raise UserInputError("The saved credentials belong to a different signer.")
+                if claims.wallet is None and wallet_setup:
+                    resolved_wallet = _identity_actions.checksum_wallet(
+                        _resolve_requested_wallet_sync(
+                            signer=signer,
+                            wallet=wallet,
+                            config=config,
+                            api_key=api_key,
+                            platform_api_key=platform_api_key,
+                            logger=logger,
+                        )
+                    )
+                    bind_wallet = True
+                elif claims.wallet is None:
+                    resolved_wallet = _identity_actions.checksum_wallet(
+                        wallet
+                        if wallet is not None
+                        else derive_beacon_deposit_wallet_address(
+                            signer.address, config.wallet_derivation
+                        )
+                    )
+                else:
+                    if wallet is not None and wallet.lower() != claims.wallet.lower():
+                        raise UserInputError(
+                            f"The saved credentials are bound to wallet {claims.wallet}. "
+                            "Omit wallet or pass that wallet."
+                        )
+                    resolved_wallet = claims.wallet
+                account = classify_account(
+                    signer=signer.address, wallet=resolved_wallet, config=config.wallet_derivation
+                )
+                session_credentials = credentials
+            else:
+                # Without wallet setup, a new session carries only a wallet the caller names.
+                if wallet_setup:
+                    requested_wallet = _identity_actions.checksum_wallet(
+                        _resolve_requested_wallet_sync(
+                            signer=signer,
+                            wallet=wallet,
+                            config=config,
+                            api_key=api_key,
+                            platform_api_key=platform_api_key,
+                            logger=logger,
+                        )
+                    )
+                else:
+                    requested_wallet = (
+                        None if wallet is None else _identity_actions.checksum_wallet(wallet)
+                    )
+                resolved_wallet = (
+                    requested_wallet
+                    if requested_wallet is not None
+                    else _identity_actions.checksum_wallet(
+                        derive_beacon_deposit_wallet_address(
+                            signer.address, config.wallet_derivation
+                        )
+                    )
+                )
+                # Validate the wallet identity before authentication has side effects.
+                account = classify_account(
+                    signer=signer.address, wallet=resolved_wallet, config=config.wallet_derivation
+                )
+                if credentials is None:
+                    issued = _identity_actions.issue_login_session_sync(
+                        auth,
+                        signer=signer,
+                        chain_id=config.chain_id,
+                        wallet=requested_wallet,
+                        nonce=nonce,
+                    )
+                else:
+                    issued = _identity_actions.issue_migrated_session_sync(
+                        auth,
+                        credentials=credentials,
+                        signer=signer.address,
+                        wallet=requested_wallet,
+                    )
+                session_credentials = issued.credentials
+                # A session issued without a requested wallet may still carry one.
+                issued_wallet = (
+                    _identity_actions.issued_wallet(issued) if requested_wallet is None else None
+                )
+                if issued_wallet is not None:
+                    resolved_wallet = _identity_actions.checksum_wallet(issued_wallet)
+                    account = classify_account(
+                        signer=signer.address,
+                        wallet=resolved_wallet,
+                        config=config.wallet_derivation,
+                    )
+        except BaseException:
+            auth.close()
+            raise
+
+        client: Self | None = None
+        try:
+            if issued is not None and not _identity_actions.issued_for(
+                issued, signer=signer.address, wallet=requested_wallet
+            ):
+                raise UnexpectedResponseError(
+                    "The issued session does not match the requested signer and wallet."
+                )
+            client = cls._construct_for_wallet(
                 signer=signer,
-                clob=bootstrap_clob,
-                provided=credentials,
-                nonce=nonce,
-                validate=validate_credentials,
+                wallet=resolved_wallet,
+                wallet_type=account.wallet_type,
+                signer_type=account.signer_type,
+                environment=environment,
+                config=config,
+                auth=auth,
+                session=SyncAuthSession(
+                    credentials=session_credentials,
+                    expires_in=None if issued is None else issued.expires_in,
+                    refresh=partial(_identity_actions.refresh_session_sync, auth),
+                    on_credentials_changed=notifier,
+                    logger=logger,
+                ),
+                api_key=api_key,
+                platform_api_key=platform_api_key,
                 logger=logger,
+                on_rate_limit_update=on_rate_limit_update,
             )
-        finally:
-            bootstrap_clob.close()
-
-        return cls._construct_for_wallet(
-            signer=signer,
-            wallet=resolved_wallet,
-            wallet_type=account.wallet_type,
-            signer_type=account.signer_type,
-            environment=environment,
-            config=config,
-            credentials=resolved_credentials,
-            api_key=api_key,
-            logger=logger,
-            on_rate_limit_update=on_rate_limit_update,
-        )
+            if not validate_credentials:
+                return client
+            session = client._ctx.session
+            if restored:
+                session.refresh()
+            else:
+                session.ready()
+            if bind_wallet:
+                session.bind_wallet(
+                    resolved_wallet,
+                    partial(_upgrade_session_sync, auth, wallet=resolved_wallet),
+                )
+            session.start()
+            if wallet_setup:
+                client._ensure_wallet_ready()
+        except BaseException:
+            _discard_failed_creation_sync(
+                client, auth=auth, credentials=session_credentials, restored=restored
+            )
+            raise
+        notifier.publish()
+        return client
 
     @classmethod
     def _construct_for_wallet(
@@ -835,85 +994,52 @@ class SecureClient:
         signer_type: SignerType,
         environment: Environment,
         config: EnvironmentConfig,
-        credentials: ApiKeyCreds,
+        auth: SyncTransport,
+        session: SyncAuthSession,
         api_key: ApiKey | None,
+        platform_api_key: PlatformApiKey | None,
         logger: logging.Logger | None,
         on_rate_limit_update: RateLimitUpdateListener | None,
     ) -> Self:
-        try:
-            wallet_checksum = to_checksum_address(wallet)
-        except ValueError as error:
-            raise UserInputError(f"Invalid wallet address: {error}") from error
-        branded_wallet = cast(EvmAddress, wallet_checksum)
+        branded_wallet = _identity_actions.checksum_wallet(wallet)
 
-        gamma = SyncTransport(base_url=config.gamma_url, logger=logger)
-        data = SyncTransport(base_url=config.data_url, logger=logger)
-        rfq = SyncTransport(base_url=config.rfq_url, logger=logger)
-        clob = SyncTransport(
-            base_url=config.clob_url,
+        predictions = SyncTransport(
+            base_url=config.predictions_url,
             logger=logger,
-            on_rate_limit_update=on_rate_limit_update,
-        )
-        relayer_resolver = (
-            make_relayer_header_resolver_sync(api_key) if api_key is not None else None
-        )
-        relayer = SyncTransport(
-            base_url=config.relayer_url,
-            logger=logger,
-            header_resolver=relayer_resolver,
-        )
-        combos = SyncTransport(
-            base_url=config.collateral_return_url,
-            logger=logger,
-            header_resolver=relayer_resolver,
-        )
-        builder_gateway = SyncTransport(
-            base_url=config.builder_gateway_url,
-            logger=logger,
-            header_resolver=_make_builder_gateway_header_resolver_sync(
-                api_key, signer, credentials
+            header_resolver=_make_predictions_header_resolver_sync(
+                session, api_key, platform_api_key
             ),
+            on_rate_limit_update=on_rate_limit_update,
+            recover_expired_token=session.recover,
         )
         try:
-            secure_clob = SyncTransport(
-                base_url=config.clob_url,
-                logger=logger,
-                header_resolver=_make_l2_header_resolver_sync(signer, credentials),
-                on_rate_limit_update=on_rate_limit_update,
-            )
             rpc_transport = SyncTransport(base_url=config.rpc_url, logger=logger)
             rpc = SyncJsonRpcClient(rpc_transport)
         except BaseException:
-            gamma.close()
-            data.close()
-            rfq.close()
-            clob.close()
-            relayer.close()
-            combos.close()
-            builder_gateway.close()
+            predictions.close()
             raise
 
         ctx = SyncSecureClientContext(
             environment=environment,
             _resolved_environment_config=config,
-            gamma=gamma,
-            data=data,
-            rfq=rfq,
-            clob=clob,
+            predictions=predictions,
+            auth=auth,
             signer=signer,
-            credentials=credentials,
-            secure_clob=secure_clob,
+            session=session,
             wallet=branded_wallet,
             wallet_type=wallet_type,
             signer_type=signer_type,
-            relayer=relayer,
-            combos=combos,
-            builder_gateway=builder_gateway,
             api_key=api_key,
+            platform_api_key=platform_api_key,
             rpc=rpc,
             order_metadata=SyncOrderMetadataCache(),
         )
-        return cls(ctx=ctx, _create_token=_CREATE_TOKEN, logger=logger)
+        return cls(
+            ctx=ctx,
+            _create_token=_CREATE_TOKEN,
+            logger=logger,
+            on_rate_limit_update=on_rate_limit_update,
+        )
 
     @property
     def environment(self) -> Environment:
@@ -936,9 +1062,95 @@ class SecureClient:
         return self._ctx.wallet_type
 
     @property
-    def credentials(self) -> ApiKeyCreds:
-        """API credentials used for authenticated requests."""
-        return self._ctx.credentials
+    def credentials(self) -> BearerCredentials:
+        """Current session credentials.
+
+        Both tokens are secrets. Store them securely to restore this session
+        with :meth:`create` without a new wallet signature.
+        """
+        return self._ctx.session.credentials
+
+    def refresh_credentials(self) -> BearerCredentials:
+        """Renew the session now and return the renewed credentials.
+
+        Experimental: may change in breaking ways, including patch releases.
+
+        The client renews its session before the access token expires, so most
+        applications never call this. A call made while a renewal is in progress
+        joins it instead of starting another. ``on_credentials_changed`` receives
+        the renewed pair. A failure that ends the session also fails every later
+        authenticated request.
+
+        Raises:
+            RequestRejectedError: If the session is rejected.
+            RateLimitError: If renewal is rate-limited.
+            TransportError: If a network request fails or the session is closed.
+            UnexpectedResponseError: If the renewal response is invalid.
+        """
+        return self._ctx.session.refresh()
+
+    def upgrade_credentials(self, *, wallet: str) -> Self:
+        """Bind a wallet to a session that has none and return a client for it.
+
+        Experimental: may change in breaking ways, including patch releases.
+
+        Use this after creating the client with ``wallet_setup=False`` and
+        completing your own onboarding, such as deploying the Deposit Wallet.
+        Binding needs no new signature and keeps the refresh token.
+        ``on_credentials_changed`` receives the new access token and keeps
+        receiving renewals. The returned client takes over the session, and this
+        client is closed without ending it, so use the returned client from now
+        on. A session already bound to ``wallet`` is handed over without a
+        request. If binding fails, this client stays usable.
+
+        Example::
+
+            upgraded = client.upgrade_credentials(wallet=wallet)
+            save_credentials(upgraded.credentials)
+
+        Raises:
+            UserInputError: If the wallet is invalid or the session is bound to
+                another wallet.
+            RequestRejectedError: If binding is rejected.
+            RateLimitError: If binding is rate-limited.
+            TransportError: If a network request fails or the session is closed.
+            UnexpectedResponseError: If the binding response is invalid.
+        """
+        ctx = self._ctx
+        requested = _identity_actions.checksum_wallet(wallet)
+        # Validate the wallet identity before the session changes.
+        account = classify_account(
+            signer=ctx.signer.address,
+            wallet=requested,
+            config=ctx.environment_config.wallet_derivation,
+        )
+        bound = ctx.session.claims.wallet
+        if bound is not None and bound.lower() != requested.lower():
+            raise UserInputError(f"The session is already bound to wallet {bound}.")
+        if bound is None:
+            ctx.session.bind_wallet(
+                requested, partial(_upgrade_session_sync, ctx.auth, wallet=requested)
+            )
+        upgraded = type(self)._construct_for_wallet(
+            signer=ctx.signer,
+            wallet=requested,
+            wallet_type=account.wallet_type,
+            signer_type=account.signer_type,
+            environment=ctx.environment,
+            config=ctx.environment_config,
+            auth=ctx.auth,
+            session=ctx.session,
+            api_key=ctx.api_key,
+            platform_api_key=ctx.platform_api_key,
+            logger=self._logger,
+            on_rate_limit_update=self._on_rate_limit_update,
+        )
+        # The upgraded client owns the session and the authentication transport.
+        self._ended = True
+        # Closing local resources is best effort, because the session has moved.
+        with contextlib.suppress(Exception):
+            self._close_resources()
+        return upgraded
 
     def authorize_session_key(
         self,
@@ -951,8 +1163,6 @@ class SecureClient:
 
         The SDK receives only the public address. The application remains
         responsible for generating, storing, and protecting the private key.
-        Requires a ``BuilderApiKey`` or ``RelayerApiKey`` passed as ``api_key=``
-        when constructing the client. Account credentials alone are insufficient.
         Scope names are normalized to uppercase. Unknown names remain usable
         before this SDK enumerates them. When scopes are omitted,
         authorization defaults to ``ALL``.
@@ -1000,8 +1210,6 @@ class SecureClient:
         """Revoke a session key authorized for the Deposit Wallet.
 
         Returns once the key is absent from the active-key registry and unusable.
-        Requires a ``BuilderApiKey`` or ``RelayerApiKey`` passed as ``api_key=``
-        when constructing the client.
 
         Raises:
             UserInputError: If the client or revocation input is invalid.
@@ -1033,31 +1241,19 @@ class SecureClient:
     def close(self) -> None:
         """Close the underlying network transports."""
         ctx = self._ctx_inner
+        ctx.session.close()
         try:
-            ctx.gamma.close()
+            self._close_resources()
         finally:
-            try:
-                ctx.data.close()
-            finally:
-                try:
-                    ctx.clob.close()
-                finally:
-                    try:
-                        ctx.rfq.close()
-                    finally:
-                        try:
-                            ctx.secure_clob.close()
-                        finally:
-                            try:
-                                ctx.relayer.close()
-                            finally:
-                                try:
-                                    ctx.combos.close()
-                                finally:
-                                    try:
-                                        ctx.builder_gateway.close()
-                                    finally:
-                                        ctx.rpc.close()
+            ctx.auth.close()
+
+    def _close_resources(self) -> None:
+        """Close what this client owns apart from the session and its transport."""
+        ctx = self._ctx_inner
+        try:
+            ctx.predictions.close()
+        finally:
+            ctx.rpc.close()
 
     def _user_or_wallet(self, user: str | None) -> str:
         return self._ctx.wallet if user is None else user
@@ -1282,7 +1478,7 @@ class SecureClient:
                 before=before,
                 cursor=cursor,
             )
-            payload = self._ctx.clob.get_json(path, params=params)
+            payload = self._ctx.predictions.get_json(path, params=params)
             return _builders_actions.parse_builder_trades_page(payload)
 
         return Paginator(fetch=fetch)
@@ -1610,9 +1806,7 @@ class SecureClient:
         parent_entity_id: str,
         parent_entity_type: CommentParentEntityType,
         ascending: bool | None = None,
-        get_positions: bool | None = None,
-        holders_only: bool | None = None,
-        order: str | None = None,
+        order: CommentSort | None = None,
         page_size: int = 20,
     ) -> Paginator[Comment]:
         """List comments for an event or series.
@@ -1621,49 +1815,24 @@ class SecureClient:
         With ``order`` (``id`` or ``createdAt``), pages are ascending unless
         ``ascending`` is ``False``.
 
-        Reads without ``holders_only`` or ``get_positions`` and with one of
-        those orders page through the whole thread. Their cursors continue that
-        exact query and are rejected for a different parent, order or
+        Pages follow the whole thread. Cursors continue the exact query they
+        were created for and are rejected for a different parent, order or
         direction.
 
-        Reads with ``holders_only``, ``get_positions`` or another order serve
-        pages up to offset 200. Automatic iteration yields the final accessible
-        full page with ``limit_reached=True`` and stops normally. Its
-        ``has_more`` stays True: completeness is unknown, not proof that more
-        comments exist. Explicitly following its cursor raises
-        ``PaginationLimitError`` before any request is sent. Cursors saved from
-        earlier versions keep working with the same arguments.
-
         ``page_size`` counts top-level comments; replies ride along in the same
-        page. A thread ending exactly on a page boundary may return one final
+        page. A thread that ends exactly on a page boundary may return one final
         empty page.
 
         Returns:
             A paginator over matching comments.
         """
-        spec = _gamma_actions.list_comments_spec(
+        spec = _gamma_actions.list_comments_keyset_spec(
             parent_entity_id=parent_entity_id,
             parent_entity_type=parent_entity_type,
             ascending=ascending,
-            get_positions=get_positions,
-            holders_only=holders_only,
             order=order,
         )
-        if not _gamma_actions.comments_paginate_by_cursor(
-            get_positions=get_positions, holders_only=holders_only, order=order
-        ):
-            return sync_paginate_offset(self._ctx, spec, page_size=page_size)
-        return sync_paginate_keyset_or_resume_offset(
-            self._ctx,
-            keyset_spec=_gamma_actions.list_comments_keyset_spec(
-                parent_entity_id=parent_entity_id,
-                parent_entity_type=parent_entity_type,
-                ascending=ascending,
-                order=order,
-            ),
-            offset_spec=spec,
-            page_size=page_size,
-        )
+        return sync_paginate_keyset(self._ctx, spec, page_size=page_size)
 
     def list_comments_by_user_address(
         self,
@@ -1744,7 +1913,7 @@ class SecureClient:
     def get_midpoint(self, *, asset_id: str | None = None, token_id: str | None = None) -> Decimal:
         """Get the midpoint price for a CLOB asset."""
         path, params = _clob_actions.build_midpoint_request(asset_id=asset_id, token_id=token_id)
-        return _clob_actions.parse_midpoint(self._ctx.clob.get_json(path, params=params))
+        return _clob_actions.parse_midpoint(self._ctx.predictions.get_json(path, params=params))
 
     def get_midpoints(
         self,
@@ -1754,7 +1923,7 @@ class SecureClient:
     ) -> dict[ClobAssetId, Decimal]:
         """Get midpoint prices for multiple CLOB assets."""
         path, body = _clob_actions.build_midpoints_request(asset_ids=asset_ids, token_ids=token_ids)
-        return _clob_actions.parse_midpoints(self._ctx.clob.post_json(path, json=body))
+        return _clob_actions.parse_midpoints(self._ctx.predictions.post_json(path, json=body))
 
     def get_price(
         self,
@@ -1767,21 +1936,21 @@ class SecureClient:
         path, params = _clob_actions.build_price_request(
             asset_id=asset_id, token_id=token_id, side=side
         )
-        return _clob_actions.parse_price(self._ctx.clob.get_json(path, params=params))
+        return _clob_actions.parse_price(self._ctx.predictions.get_json(path, params=params))
 
     def get_prices(
         self, *, requests: Sequence[PriceRequest]
     ) -> dict[ClobAssetId, dict[OrderSide, Decimal]]:
         """Get executable prices for multiple CLOB asset-side requests."""
         path, body = _clob_actions.build_prices_request(requests=requests)
-        return _clob_actions.parse_prices(self._ctx.clob.post_json(path, json=body))
+        return _clob_actions.parse_prices(self._ctx.predictions.post_json(path, json=body))
 
     def get_order_book(
         self, *, asset_id: str | None = None, token_id: str | None = None
     ) -> OrderBook:
         """Get the order book for a CLOB asset."""
         path, params = _clob_actions.build_order_book_request(asset_id=asset_id, token_id=token_id)
-        return _clob_actions.parse_order_book(self._ctx.clob.get_json(path, params=params))
+        return _clob_actions.parse_order_book(self._ctx.predictions.get_json(path, params=params))
 
     def get_order_books(
         self,
@@ -1793,12 +1962,12 @@ class SecureClient:
         path, body = _clob_actions.build_order_books_request(
             asset_ids=asset_ids, token_ids=token_ids
         )
-        return _clob_actions.parse_order_books(self._ctx.clob.post_json(path, json=body))
+        return _clob_actions.parse_order_books(self._ctx.predictions.post_json(path, json=body))
 
     def get_spread(self, *, asset_id: str | None = None, token_id: str | None = None) -> Decimal:
         """Get the bid-ask spread for a CLOB asset."""
         path, params = _clob_actions.build_spread_request(asset_id=asset_id, token_id=token_id)
-        return _clob_actions.parse_spread(self._ctx.clob.get_json(path, params=params))
+        return _clob_actions.parse_spread(self._ctx.predictions.get_json(path, params=params))
 
     def get_spreads(
         self,
@@ -1808,7 +1977,7 @@ class SecureClient:
     ) -> dict[ClobAssetId, Decimal]:
         """Get bid-ask spreads for multiple CLOB assets."""
         path, body = _clob_actions.build_spreads_request(asset_ids=asset_ids, token_ids=token_ids)
-        return _clob_actions.parse_spreads(self._ctx.clob.post_json(path, json=body))
+        return _clob_actions.parse_spreads(self._ctx.predictions.post_json(path, json=body))
 
     def get_last_trade_price(
         self, *, asset_id: str | None = None, token_id: str | None = None
@@ -1820,7 +1989,9 @@ class SecureClient:
         path, params = _clob_actions.build_last_trade_price_request(
             asset_id=asset_id, token_id=token_id
         )
-        return _clob_actions.parse_last_trade_price(self._ctx.clob.get_json(path, params=params))
+        return _clob_actions.parse_last_trade_price(
+            self._ctx.predictions.get_json(path, params=params)
+        )
 
     def get_last_trade_prices(
         self,
@@ -1836,7 +2007,9 @@ class SecureClient:
         path, body = _clob_actions.build_last_trade_prices_request(
             asset_ids=asset_ids, token_ids=token_ids
         )
-        return _clob_actions.parse_last_trade_prices(self._ctx.clob.post_json(path, json=body))
+        return _clob_actions.parse_last_trade_prices(
+            self._ctx.predictions.post_json(path, json=body)
+        )
 
     @overload
     def estimate_market_price(
@@ -1927,7 +2100,7 @@ class SecureClient:
                 cursor=cursor,
             )
             return _rewards_actions.parse_reward_markets_page(
-                self._ctx.clob.get_json(path, params=params)
+                self._ctx.predictions.get_json(path, params=params)
             )
 
         return Paginator(fetch=fetch)
@@ -1941,7 +2114,9 @@ class SecureClient:
         path, params = _rewards_actions.build_get_current_rebates_request(
             date=date, maker_address=maker_address
         )
-        return _rewards_actions.parse_current_rebates(self._ctx.clob.get_json(path, params=params))
+        return _rewards_actions.parse_current_rebates(
+            self._ctx.predictions.get_json(path, params=params)
+        )
 
     def send_order_heartbeat(self, *, heartbeat_id: str = "") -> OrderHeartbeat:
         """Send one authenticated order heartbeat and retain the returned ID.
@@ -1972,7 +2147,7 @@ class SecureClient:
             heartbeat_id=heartbeat_id
         )
         return _order_heartbeat_actions.parse_order_heartbeat(
-            self._ctx.secure_clob.post_json(path, json=body)
+            self._ctx.predictions.post_json(path, json=body)
         )
 
     def list_current_rewards(self, *, sponsored: bool | None = None) -> Paginator[CurrentReward]:
@@ -1987,7 +2162,7 @@ class SecureClient:
                 sponsored=sponsored, cursor=cursor
             )
             return _rewards_actions.parse_current_rewards_page(
-                self._ctx.clob.get_json(path, params=params)
+                self._ctx.predictions.get_json(path, params=params)
             )
 
         return Paginator(fetch=fetch)
@@ -2006,61 +2181,44 @@ class SecureClient:
                 condition_id=CtfConditionId(condition_id), sponsored=sponsored, cursor=cursor
             )
             return _rewards_actions.parse_market_rewards_page(
-                self._ctx.clob.get_json(path, params=params)
+                self._ctx.predictions.get_json(path, params=params)
             )
 
         return Paginator(fetch=fetch)
 
-    def fetch_api_keys(self) -> tuple[str, ...]:
-        """Fetch API key identifiers for the authenticated account."""
-        return _auth_actions.fetch_api_keys_sync(self._ctx.secure_clob)
-
-    def delete_api_key(self) -> None:
-        """Delete the API key currently used by this client."""
-        _auth_actions.delete_api_key_sync(self._ctx.secure_clob)
-
-    def create_builder_api_key(self) -> BuilderApiKey:
-        """Create a new builder API key for the authenticated account."""
-        return _auth_actions.create_builder_api_key_sync(self._ctx.secure_clob)
-
-    def fetch_builder_api_keys(self) -> tuple[BuilderApiKeyInfo, ...]:
-        """List the builder API keys for the authenticated account."""
-        return _auth_actions.fetch_builder_api_keys_sync(self._ctx.secure_clob)
-
-    def revoke_builder_api_key(self) -> None:
-        """Revoke the builder API key this client is configured with.
-
-        The revocation is authenticated by the builder key itself, so the client must have been
-        created with the key to revoke (``SecureClient.create(api_key=BuilderApiKey(...))``).
-        """
-        builder_key = self._ctx.api_key
-        if not isinstance(builder_key, BuilderApiKey):
-            raise UserInputError(
-                "revoke_builder_api_key requires a client created with the builder key to "
-                "revoke (pass api_key=BuilderApiKey(...) to SecureClient.create)."
-            )
-        _auth_actions.revoke_builder_api_key_sync(self._ctx.clob, builder_key)
-
     def end_authentication(self) -> "PublicClient":
-        """Delete current credentials, close this client, and return a public client."""
+        """End the session, close this client, and return a public client.
+
+        The refresh token stops working. Access tokens already issued stay valid
+        until they expire. API credentials exchanged for this session are not
+        revoked. Local resources are closed even when the session cannot be ended.
+
+        Raises:
+            RequestRejectedError: If ending the session is rejected.
+            RateLimitError: If ending the session is rate-limited.
+            TransportError: If a network request fails.
+            UnexpectedResponseError: If a renewal needed to end the session is invalid.
+        """
         from polymarket.clients.public import PublicClient
 
         environment = self._ctx.environment
+        platform_api_key = self._ctx.platform_api_key
+        self._end_session()
+        return PublicClient(environment=environment, platform_api_key=platform_api_key)
+
+    def _end_session(self) -> None:
+        ctx = self._ctx
         try:
-            self.delete_api_key()
-        except RequestRejectedError as error:
-            if error.status not in (401, 404):
-                raise
+            ctx.session.logout(partial(_identity_actions.revoke_session_sync, ctx.auth))
         finally:
             self.close()
             self._ended = True
-        return PublicClient(environment=environment)
 
     def get_closed_only_mode(self) -> bool:
         """Return whether the authenticated account is in closed-only mode."""
         path, params = _account_actions.build_closed_only_mode_request()
         return _account_actions.parse_closed_only_mode(
-            self._ctx.secure_clob.get_json(path, params=params)
+            self._ctx.predictions.get_json(path, params=params)
         )
 
     def list_open_orders(
@@ -2087,7 +2245,7 @@ class SecureClient:
             path, params = _account_actions.build_list_open_orders_request(
                 asset_id=asset_id, token_id=token_id, id=id, market=market, cursor=cursor
             )
-            payload = self._ctx.secure_clob.get_json(path, params=params)
+            payload = self._ctx.predictions.get_json(path, params=params)
             return _account_actions.parse_open_orders_page(payload)
 
         return Paginator(fetch=fetch)
@@ -2125,7 +2283,7 @@ class SecureClient:
 
         def fetch(next_cursor: str | None) -> Page[WalletOpenOrder]:
             path, params = build(cursor=next_cursor)
-            payload = self._ctx.secure_clob.get_json(path, params=params)
+            payload = self._ctx.predictions.get_json(path, params=params)
             return _account_actions.parse_wallet_open_orders_page(payload)
 
         return Paginator(fetch=fetch, initial_cursor=cursor)
@@ -2137,7 +2295,7 @@ class SecureClient:
         order with ``order_id``, including when the order belongs to another account."""
         path, params = _account_actions.build_get_order_request(order_id=order_id)
         return _account_actions.parse_open_order(
-            self._ctx.secure_clob.get_json(path, params=params), order_id=order_id
+            self._ctx.predictions.get_json(path, params=params), order_id=order_id
         )
 
     def list_account_trades(
@@ -2168,7 +2326,7 @@ class SecureClient:
                 before=before,
                 cursor=cursor,
             )
-            payload = self._ctx.secure_clob.get_json(path, params=params)
+            payload = self._ctx.predictions.get_json(path, params=params)
             return _account_actions.parse_account_trades_page(payload)
 
         return Paginator(fetch=fetch)
@@ -2179,7 +2337,7 @@ class SecureClient:
             signature_type=signature_type_for(self._ctx.wallet_type)
         )
         return _account_actions.parse_notifications(
-            self._ctx.secure_clob.get_json(path, params=params)
+            self._ctx.predictions.get_json(path, params=params)
         )
 
     def drop_notifications(self, *, ids: Sequence[int | str]) -> None:
@@ -2187,7 +2345,7 @@ class SecureClient:
         path, params = _account_actions.build_drop_notifications_request(
             ids=ids, signature_type=signature_type_for(self._ctx.wallet_type)
         )
-        self._ctx.secure_clob.delete(path, params=params)
+        self._ctx.predictions.delete(path, params=params)
 
     def get_balance_allowance(
         self,
@@ -2208,7 +2366,7 @@ class SecureClient:
             signature_type=signature_type_for(self._ctx.wallet_type),
         )
         return _account_actions.parse_balance_allowance(
-            self._ctx.secure_clob.get_json(path, params=params)
+            self._ctx.predictions.get_json(path, params=params)
         )
 
     def create_limit_order(
@@ -2451,19 +2609,20 @@ class SecureClient:
     def post_order(self, signed_order: SignedOrder) -> OrderResponse:
         """Post a signed order for the authenticated account."""
         path, payload = _post_actions.build_post_order_request(
-            signed_order, owner_api_key=self._ctx.credentials.key
+            signed_order, owner_api_key=_identity_actions.trading_identity(self._ctx.session.claims)
         )
         return _post_actions.parse_order_response(
-            self._ctx.secure_clob.post_json(path, json=payload)
+            self._ctx.predictions.post_json(path, json=payload)
         )
 
     def post_orders(self, signed_orders: Sequence[SignedOrder]) -> tuple[OrderResponse, ...]:
         """Post multiple signed orders for the authenticated account."""
         path, payload = _post_actions.build_post_orders_request(
-            signed_orders, owner_api_key=self._ctx.credentials.key
+            signed_orders,
+            owner_api_key=_identity_actions.trading_identity(self._ctx.session.claims),
         )
         return _post_actions.parse_order_responses(
-            self._ctx.secure_clob.post_json(path, json=payload)
+            self._ctx.predictions.post_json(path, json=payload)
         )
 
     def wait_for_order_fill_settlement(
@@ -2489,7 +2648,7 @@ class SecureClient:
             TransactionFailedError: If every fill failed execution.
         """
         return _settlement_actions.wait_for_order_fill_settlement_sync(
-            self._ctx.secure_clob, order, timeout_s=timeout_s
+            self._ctx.predictions, order, timeout_s=timeout_s
         )
 
     def cancel_order(self, *, order_id: str) -> CancelOrdersResponse:
@@ -2500,7 +2659,7 @@ class SecureClient:
         """
         path, body = _cancel_actions.build_cancel_order_request(order_id=order_id)
         return _cancel_actions.parse_cancel_orders_response(
-            self._ctx.secure_clob.delete_json(path, json=body)
+            self._ctx.predictions.delete_json(path, json=body)
         )
 
     def cancel_orders(self, *, order_ids: Sequence[str]) -> CancelOrdersResponse:
@@ -2511,7 +2670,7 @@ class SecureClient:
         """
         path, body = _cancel_actions.build_cancel_orders_request(order_ids=order_ids)
         return _cancel_actions.parse_cancel_orders_response(
-            self._ctx.secure_clob.delete_json(path, json=body)
+            self._ctx.predictions.delete_json(path, json=body)
         )
 
     def cancel_all(self) -> CancelOrdersResponse:
@@ -2522,7 +2681,7 @@ class SecureClient:
         """
         path, body = _cancel_actions.build_cancel_all_request()
         return _cancel_actions.parse_cancel_orders_response(
-            self._ctx.secure_clob.delete_json(path, json=body)
+            self._ctx.predictions.delete_json(path, json=body)
         )
 
     def cancel_wallet_orders(self, *, order_ids: Sequence[str]) -> CancelOrdersResponse:
@@ -2540,7 +2699,7 @@ class SecureClient:
         _cancel_actions.require_deposit_wallet_owner(self._ctx)
         path, body = _cancel_actions.build_cancel_wallet_orders_request(order_ids=order_ids)
         return _cancel_actions.parse_cancel_orders_response(
-            self._ctx.secure_clob.delete_json(path, json=body)
+            self._ctx.predictions.delete_json(path, json=body)
         )
 
     def cancel_all_wallet_orders(self) -> CancelOrdersResponse:
@@ -2557,7 +2716,7 @@ class SecureClient:
         _cancel_actions.require_deposit_wallet_owner(self._ctx)
         path, body = _cancel_actions.build_cancel_all_wallet_orders_request()
         return _cancel_actions.parse_cancel_orders_response(
-            self._ctx.secure_clob.delete_json(path, json=body)
+            self._ctx.predictions.delete_json(path, json=body)
         )
 
     def cancel_market_orders(
@@ -2574,7 +2733,7 @@ class SecureClient:
             token_id=token_id,
         )
         return _cancel_actions.parse_cancel_orders_response(
-            self._ctx.secure_clob.delete_json(path, json=body)
+            self._ctx.predictions.delete_json(path, json=body)
         )
 
     def _prepare_and_sign_limit_order(
@@ -2653,14 +2812,14 @@ class SecureClient:
         """Return whether an order is currently scoring rewards."""
         path, params = _rewards_actions.build_get_order_scoring_request(order_id=order_id)
         return _rewards_actions.parse_order_scoring(
-            self._ctx.secure_clob.get_json(path, params=params)
+            self._ctx.predictions.get_json(path, params=params)
         )
 
     def get_orders_scoring(self, *, order_ids: Sequence[str]) -> dict[str, bool]:
         """Return reward-scoring status for multiple orders."""
         path, body = _rewards_actions.build_get_orders_scoring_request(order_ids=order_ids)
         return _rewards_actions.parse_orders_scoring(
-            self._ctx.secure_clob.post_json(path, json=body)
+            self._ctx.predictions.post_json(path, json=body)
         )
 
     def list_user_earnings_for_day(self, *, date: str) -> Paginator[UserEarning]:
@@ -2677,7 +2836,7 @@ class SecureClient:
                 cursor=cursor,
             )
             return _rewards_actions.parse_user_earnings_page(
-                self._ctx.secure_clob.get_json(path, params=params)
+                self._ctx.predictions.get_json(path, params=params)
             )
 
         return Paginator(fetch=fetch)
@@ -2695,7 +2854,7 @@ class SecureClient:
             date=date, signature_type=signature_type_for(self._ctx.wallet_type), sponsored=sponsored
         )
         return _rewards_actions.parse_total_user_earnings(
-            self._ctx.secure_clob.get_json(path, params=params)
+            self._ctx.predictions.get_json(path, params=params)
         )
 
     def list_user_earnings_and_markets_config(
@@ -2724,7 +2883,7 @@ class SecureClient:
                 cursor=cursor,
             )
             return _rewards_actions.parse_user_rewards_earnings_page(
-                self._ctx.secure_clob.get_json(path, params=params)
+                self._ctx.predictions.get_json(path, params=params)
             )
 
         return Paginator(fetch=fetch)
@@ -2735,7 +2894,7 @@ class SecureClient:
             signature_type=signature_type_for(self._ctx.wallet_type)
         )
         return _rewards_actions.parse_reward_percentages(
-            self._ctx.secure_clob.get_json(path, params=params)
+            self._ctx.predictions.get_json(path, params=params)
         )
 
     def approve_erc20(
@@ -3324,8 +3483,9 @@ class SecureClient:
         BUY requests are sized in collateral via ``amount``; SELL requests
         are sized in outcome tokens via ``size``. Amounts are human-readable:
         ``1`` means one dollar or one full share, not one 6-decimal base
-        unit. Requires a Builder API Key passed as ``api_key=`` when
-        constructing the client.
+        unit. With a Builder API Key passed as ``api_key=``, the RFQ is
+        attributed to that builder. Without one, the session authorizes it with
+        no builder attribution; EOA wallets aren't accepted in that case.
 
         The call resolves when the quote competition window closes. A request
         that attracts no usable quotes is a normal outcome, returned with
@@ -3338,7 +3498,7 @@ class SecureClient:
 
         Raises:
             UserInputError: If the legs, direction/sizing pair, or side are
-                invalid, or the client has no Builder API Key.
+                invalid.
             RfqRequestRejectedError: If the request is rejected; inspect
                 ``code`` to distinguish permanent input problems from
                 transient conditions.
@@ -3377,8 +3537,7 @@ class SecureClient:
             The acceptance outcome.
 
         Raises:
-            UserInputError: If the quote is invalid or the client has no
-                Builder API Key.
+            UserInputError: If the quote is invalid.
             RfqRequestRejectedError: If the acceptance is rejected.
             TimeoutError: If the outcome is still pending after the wait
                 window; resume with :meth:`fetch_rfq_status`.
@@ -3459,7 +3618,7 @@ class SecureClient:
         if ctx.wallet_type == "EOA":
             return self
         deployed = fetch_deployed_sync(
-            ctx.relayer,
+            ctx.predictions,
             address=str(ctx.wallet),
             type=_relayer_transaction_type_for_wallet(ctx.wallet_type),
         )
@@ -3530,34 +3689,36 @@ class SecureClient:
         )
 
 
-def _bootstrap_credentials_sync(
-    *,
-    config: EnvironmentConfig,
-    signer: LocalAccount,
-    clob: SyncTransport,
-    provided: ApiKeyCreds | None,
-    nonce: int,
-    validate: bool,
-    logger: logging.Logger | None,
-) -> ApiKeyCreds:
-    if provided is not None and (
-        not validate
-        or _credentials_are_active_sync(
-            config=config,
-            signer=signer,
-            credentials=provided,
-            logger=logger,
-        )
-    ):
-        return provided
+def _upgrade_session_sync(
+    auth: SyncTransport, access_token: str, *, wallet: str
+) -> _identity_actions.AccessTokenGrant:
+    return _identity_actions.upgrade_session_sync(auth, access_token=access_token, wallet=wallet)
 
-    signature = sign_api_key_auth(
-        signer,
-        chain_id=config.chain_id,
-        timestamp=int(time.time()),
-        nonce=nonce,
-    )
-    return _auth_actions.create_or_derive_api_key_sync(clob, signature)
+
+def _discard_failed_creation_sync(
+    client: SecureClient | None,
+    *,
+    auth: SyncTransport,
+    credentials: BearerCredentials,
+    restored: bool,
+) -> None:
+    """Release a client whose creation failed. Cleanup failures keep the original error.
+
+    A session opened during creation is ended. A restored session belongs to the
+    caller and is only closed locally.
+    """
+    if client is not None and not restored:
+        with contextlib.suppress(Exception):
+            client._end_session()  # pyright: ignore[reportPrivateUsage]
+        return
+    if client is None and not restored:
+        with contextlib.suppress(Exception):
+            _identity_actions.revoke_session_sync(auth, credentials.access_token)
+    with contextlib.suppress(Exception):
+        if client is not None:
+            client.close()
+        else:
+            auth.close()
 
 
 def _resolve_requested_wallet_sync(
@@ -3565,6 +3726,8 @@ def _resolve_requested_wallet_sync(
     signer: LocalAccount,
     wallet: str | None,
     config: EnvironmentConfig,
+    api_key: ApiKey | None,
+    platform_api_key: PlatformApiKey | None,
     logger: logging.Logger | None,
 ) -> str:
     if wallet is not None:
@@ -3572,17 +3735,21 @@ def _resolve_requested_wallet_sync(
     legacy_deposit_wallet = derive_uups_deposit_wallet_address(
         signer.address, config.wallet_derivation
     )
-    relayer = SyncTransport(base_url=config.relayer_url, logger=logger)
+    predictions = SyncTransport(
+        base_url=config.predictions_url,
+        logger=logger,
+        header_resolver=_make_api_key_header_resolver_sync(api_key, platform_api_key),
+    )
     try:
         if fetch_deployed_sync(
-            relayer,
+            predictions,
             address=legacy_deposit_wallet,
             type=RelayerTransactionType.WALLET,
         ):
             return legacy_deposit_wallet
         return derive_beacon_deposit_wallet_address(signer.address, config.wallet_derivation)
     finally:
-        relayer.close()
+        predictions.close()
 
 
 def _relayer_transaction_type_for_wallet(
@@ -3597,65 +3764,26 @@ def _relayer_transaction_type_for_wallet(
     return None
 
 
-def _credentials_are_active_sync(
-    *,
-    config: EnvironmentConfig,
-    signer: LocalAccount,
-    credentials: ApiKeyCreds,
-    logger: logging.Logger | None,
-) -> bool:
-    probe = SyncTransport(
-        base_url=config.clob_url,
-        logger=logger,
-        header_resolver=_make_l2_header_resolver_sync(signer, credentials),
-    )
-    try:
-        keys = _auth_actions.fetch_api_keys_sync(probe)
-    except RequestRejectedError as error:
-        if error.status == 401:
-            return False
-        raise
-    finally:
-        probe.close()
-    return credentials.key in keys
-
-
-def _make_builder_gateway_header_resolver_sync(
-    api_key: ApiKey | None, signer: LocalAccount, credentials: ApiKeyCreds
+def _make_api_key_header_resolver_sync(
+    api_key: ApiKey | None, platform_api_key: PlatformApiKey | None
 ) -> SyncHeaderResolver:
-    l2_resolver = _make_l2_header_resolver_sync(signer, credentials)
-
     def resolver(method: str, path: str, body: str | None) -> Mapping[str, str]:
-        headers = dict(l2_resolver(method, path, body))
-        # Status reads authenticate with account headers only; builder
-        # headers are required on the mutating requests.
-        if method != "GET" and isinstance(api_key, BuilderApiKey):
-            headers.update(
-                build_builder_key_headers(creds=api_key, method=method, path=path, body=body)
-            )
+        headers = _identity_actions.build_platform_api_key_headers(platform_api_key, path=path)
+        if api_key is not None:
+            headers.update(build_api_key_headers(api_key, method=method, path=path, body=body))
         return headers
 
     return resolver
 
 
-def _make_l2_header_resolver_sync(
-    signer: LocalAccount, credentials: ApiKeyCreds
+def _make_predictions_header_resolver_sync(
+    session: SyncAuthSession, api_key: ApiKey | None, platform_api_key: PlatformApiKey | None
 ) -> SyncHeaderResolver:
     def resolver(method: str, path: str, body: str | None) -> Mapping[str, str]:
-        timestamp = int(time.time())
-        signature = build_hmac_signature(
-            secret=credentials.secret,
-            timestamp=timestamp,
-            method=method,
-            path=path,
-            body=body,
-        )
-        return {
-            "POLY_ADDRESS": signer.address,
-            "POLY_API_KEY": credentials.key,
-            "POLY_PASSPHRASE": credentials.passphrase,
-            "POLY_SIGNATURE": signature,
-            "POLY_TIMESTAMP": str(timestamp),
-        }
+        headers = _identity_actions.build_platform_api_key_headers(platform_api_key, path=path)
+        headers.update(_identity_actions.build_bearer_headers(session.ready().access_token))
+        if api_key is not None:
+            headers.update(build_api_key_headers(api_key, method=method, path=path, body=body))
+        return headers
 
     return resolver

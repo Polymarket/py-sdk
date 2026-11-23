@@ -30,6 +30,76 @@ could not be established at the depth limit. Converting a depth-limited
 ``Page`` directly preserves these same markers. Polars has no stable
 per-frame metadata; depth-limited exports emit a ``UserWarning`` instead.
 
+Sessions
+--------
+
+A secure client authenticates with a session. ``SecureClient.create`` signs in
+with the private key, or restores saved credentials without a new wallet
+signature. Saved ``BearerCredentials`` restore the session they belong to, and
+saved ``ApiKeyCreds`` are exchanged for a new session.
+
+Save ``client.credentials`` after creation, and every pair passed to
+``on_credentials_changed``, to restore the session later. Both tokens are
+secrets. The client renews its session before the access token expires, also
+while it is idle. Call ``refresh_credentials()`` to renew on your own schedule.
+
+Saved credentials stop working after ``end_authentication()`` or when the
+session expires without renewal. Creating a client from them then raises
+``RequestRejectedError`` instead of signing in again:
+
+.. code-block:: python
+
+   from polymarket import BearerCredentials, RequestRejectedError, SecureClient
+
+
+   def connect(private_key: str, saved: BearerCredentials | None) -> SecureClient:
+       try:
+           return SecureClient.create(
+               private_key=private_key,
+               credentials=saved,
+               on_credentials_changed=save_credentials,
+           )
+       except RequestRejectedError:
+           if saved is None:
+               raise
+           return SecureClient.create(
+               private_key=private_key, on_credentials_changed=save_credentials
+           )
+
+.. autoclass:: polymarket.BearerCredentials
+
+Platform API Keys
+-----------------
+
+A Platform API Key identifies your application. Pass it as ``platform_api_key``
+on a server: sign-in, credential exchanges, and account and market requests
+carry it, and the sessions it opens stay bound to your application. Session
+renewal, ``end_authentication()``, order heartbeats, Perps, and realtime
+connections use their own authentication only.
+
+.. code-block:: python
+
+   import os
+
+   from polymarket import PlatformApiKey, SecureClient
+
+   client = SecureClient.create(
+       private_key=private_key,
+       platform_api_key=PlatformApiKey(os.environ["POLYMARKET_PLATFORM_API_KEY"]),
+   )
+
+Keep the key on the server. To sign in browsers or other untrusted clients,
+serve them challenges from a server route with
+``PublicClient.create_ownership_challenge``: check that the caller may sign in as
+the requested signer, then return the challenge unchanged. The caller signs it
+and completes sign-in itself.
+
+Gasless wallet operations run on the session alone, with or without a
+Platform API Key. A builder or relayer key passed as ``api_key`` adds its own
+authentication to them.
+
+.. autoclass:: polymarket.PlatformApiKey
+
 PublicClient
 ------------
 

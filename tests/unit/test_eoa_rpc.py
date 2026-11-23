@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Callable
 
 import httpx
 
@@ -146,3 +147,58 @@ def _batch_requests() -> list[tuple[str, str]]:
         (to, "0x33333333"),
         (to, "0x44444444"),
     ]
+
+
+def _echo_batch_handler(batch_sizes: list[int]) -> Callable[[httpx.Request], httpx.Response]:
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode("utf-8"))
+        batch_sizes.append(len(body))
+        if len(body) > 10:
+            return httpx.Response(400, request=request)
+        return httpx.Response(
+            200,
+            json=[
+                {"jsonrpc": "2.0", "id": call["id"], "result": call["params"][0]["data"]}
+                for call in body
+            ],
+            request=request,
+        )
+
+    return handler
+
+
+def _numbered_requests(count: int) -> list[tuple[str, str]]:
+    return [(f"0x{'1' * 40}", f"0x{index:08x}") for index in range(count)]
+
+
+def test_async_eth_call_batch_sends_at_most_ten_calls_per_request() -> None:
+    batch_sizes: list[int] = []
+
+    async def run() -> list[str]:
+        http_client = httpx.AsyncClient(
+            base_url="https://rpc.test",
+            transport=httpx.MockTransport(_echo_batch_handler(batch_sizes)),
+        )
+        client = JsonRpcClient(AsyncTransport(base_url="https://rpc.test", client=http_client))
+        try:
+            return await client.eth_call_batch(_numbered_requests(17))
+        finally:
+            await http_client.aclose()
+
+    assert asyncio.run(run()) == [f"0x{index:08x}" for index in range(17)]
+    assert sorted(batch_sizes, reverse=True) == [10, 7]
+
+
+def test_sync_eth_call_batch_sends_at_most_ten_calls_per_request() -> None:
+    batch_sizes: list[int] = []
+    http_client = httpx.Client(
+        base_url="https://rpc.test", transport=httpx.MockTransport(_echo_batch_handler(batch_sizes))
+    )
+    client = SyncJsonRpcClient(SyncTransport(base_url="https://rpc.test", client=http_client))
+    try:
+        result = client.eth_call_batch(_numbered_requests(17))
+    finally:
+        http_client.close()
+
+    assert result == [f"0x{index:08x}" for index in range(17)]
+    assert batch_sizes == [10, 7]

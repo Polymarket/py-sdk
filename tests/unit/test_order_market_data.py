@@ -7,8 +7,9 @@ from urllib.parse import urlparse
 
 import httpx
 import pytest
+from _bearer import bearer_credentials_for
 
-from polymarket import ApiKeyCreds, AsyncSecureClient
+from polymarket import AsyncSecureClient
 from polymarket._internal.actions.orders.market_data import (
     fetch_market_info,
     fetch_neg_risk,
@@ -22,7 +23,6 @@ from polymarket.models.types import ClobAssetId, CtfConditionId, TokenId
 
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 SIGNER_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-FAKE_CREDS = ApiKeyCreds(key="test-key", passphrase="test-passphrase", secret="dGVzdA==")
 _CONDITION_ID = "0x5c19f205507ce03ff5f3be08a8090a5969ea6870cc07b902a4ca2e61dfe48fdd"
 
 
@@ -39,14 +39,14 @@ def _install_public_clob(client: AsyncSecureClient, handler: httpx.MockTransport
         base_url="https://clob.test",
         client=httpx.AsyncClient(base_url="https://clob.test", transport=handler),
     )
-    client._ctx = dataclasses.replace(client._ctx, clob=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 async def _make_client() -> AsyncSecureClient:
     return await AsyncSecureClient._create(
         private_key=PRIVATE_KEY,
         wallet=SIGNER_ADDRESS,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PRIVATE_KEY),
         validate_credentials=False,
     )
 
@@ -64,7 +64,7 @@ def test_fetch_tick_size_returns_decimal_for_valid_response() -> None:
 
     tick = asyncio.run(run())
     assert tick == Decimal("0.01")
-    assert urlparse(str(captured[0].url)).path == "/tick-size"
+    assert urlparse(str(captured[0].url)).path == "/v1/pricing/tick-size"
 
 
 def test_fetch_tick_size_accepts_new_supported_value() -> None:
@@ -129,7 +129,7 @@ def test_resolve_condition_by_token_returns_condition_id() -> None:
             await client.close()
 
     assert asyncio.run(run()) == _CONDITION_ID
-    assert urlparse(str(captured[0].url)).path == "/markets-by-token/8501497"
+    assert urlparse(str(captured[0].url)).path == "/v1/trading/markets/token/8501497"
 
 
 def test_resolve_condition_by_token_rejects_malformed_condition_id() -> None:

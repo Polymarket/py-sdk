@@ -65,9 +65,9 @@ def _payload(rows: list[dict[str, object]]) -> dict[str, object]:
 
 def _read(payload: object) -> TradingApprovalsState:
     with respx.mock as router, PublicClient() as client:
-        route = router.get(f"{CONFIG.data_url}/v2/approvals", params={"user": WALLET}).respond(
-            200, json=payload
-        )
+        route = router.get(
+            f"{CONFIG.predictions_url}/v1/wallets/approvals", params={"user": WALLET}
+        ).respond(200, json=payload)
         state = client.get_trading_approvals_state(wallet=WALLET)
         assert route.call_count == 1
         return state
@@ -106,7 +106,9 @@ def test_clients_read_data_without_rpc(mode: str, override: bool) -> None:
             return await public.get_trading_approvals_state(wallet=WALLET)
 
     with respx.mock as router:
-        route = router.get(f"{CONFIG.data_url}/v2/approvals").mock(side_effect=handler)
+        route = router.get(f"{CONFIG.predictions_url}/v1/wallets/approvals").mock(
+            side_effect=handler
+        )
         if mode.startswith("async"):
             state = asyncio.run(async_run())
         elif mode == "sync_secure":
@@ -210,15 +212,17 @@ def test_read_uses_configured_endpoint_chain_and_required_targets() -> None:
     token = "0x" + "12" * 20
     environment = with_environment_config(
         PRODUCTION,
-        config=replace(CONFIG, data_url="https://data.test", chain_id=123, collateral_token=token),
+        config=replace(
+            CONFIG, predictions_url="https://data.test", chain_id=123, collateral_token=token
+        ),
     )
     rows = _rows(approved=False)
     for row in rows[:7]:
         row["token"] = token
     with respx.mock as router, PublicClient(environment) as client:
-        route = router.get("https://data.test/v2/approvals", params={"user": WALLET}).respond(
-            200, json={"data": {"address": WALLET, "chain_id": 123, "contracts": rows}}
-        )
+        route = router.get(
+            "https://data.test/v1/wallets/approvals", params={"user": WALLET}
+        ).respond(200, json={"data": {"address": WALLET, "chain_id": 123, "contracts": rows}})
         state = client.get_trading_approvals_state(wallet=WALLET)
         assert route.call_count == 1
     assert len(state.missing.erc20) == 7
@@ -226,7 +230,7 @@ def test_read_uses_configured_endpoint_chain_and_required_targets() -> None:
 
 
 @pytest.mark.parametrize("mode", ["sync", "async"])
-@pytest.mark.parametrize("status,attempts", [(400, 1), (503, 1), (429, 3)])
+@pytest.mark.parametrize("status,attempts", [(400, 1), (503, 1), (429, 1)])
 def test_http_failure_is_preserved_without_rpc_fallback(
     mode: str, status: int, attempts: int
 ) -> None:
@@ -235,7 +239,7 @@ def test_http_failure_is_preserved_without_rpc_fallback(
             await client.get_trading_approvals_state(wallet=WALLET)
 
     with respx.mock as router, PublicClient() as client:
-        route = router.get(f"{CONFIG.data_url}/v2/approvals").respond(
+        route = router.get(f"{CONFIG.predictions_url}/v1/wallets/approvals").respond(
             status, headers={"Retry-After": "0"}, json={"error": "unavailable"}
         )
         with pytest.raises(RateLimitError if status == 429 else RequestRejectedError):

@@ -6,8 +6,9 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
+from _bearer import bearer_credentials_for
 
-from polymarket import ApiKeyCreds, SecureClient
+from polymarket import SecureClient
 from polymarket.clients._transport import SyncTransport
 from polymarket.errors import TimeoutError, TransactionFailedError
 from polymarket.models.clob.order_response import AcceptedOrder
@@ -16,7 +17,6 @@ from polymarket.types import TransactionHash
 
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 SIGNER_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-FAKE_CREDS = ApiKeyCreds(key="test-key", passphrase="test-passphrase", secret="dGVzdA==")
 
 TX_HASH = "0x" + "11" * 32
 OTHER_TX_HASH = "0x" + "22" * 32
@@ -26,7 +26,7 @@ def _make_client() -> SecureClient:
     return SecureClient._create(
         private_key=PRIVATE_KEY,
         wallet=SIGNER_ADDRESS,
-        credentials=FAKE_CREDS,
+        credentials=bearer_credentials_for(PRIVATE_KEY),
         validate_credentials=False,
     )
 
@@ -67,7 +67,7 @@ def _install_trades_handler(
     def handler(request: httpx.Request) -> httpx.Response:
         captured.append(request)
         parsed = urlparse(str(request.url))
-        if parsed.path != "/data/trades":
+        if parsed.path != "/v1/me/trades":
             return httpx.Response(404, json={"error": "not mocked"}, request=request)
         trade_id = parse_qs(parsed.query)["id"][0]
         queued = pages_by_trade_id[trade_id]
@@ -77,9 +77,9 @@ def _install_trades_handler(
     transport = SyncTransport(
         base_url="https://clob.test",
         client=httpx.Client(base_url="https://clob.test", transport=httpx.MockTransport(handler)),
-        header_resolver=client._ctx.secure_clob._header_resolver,
+        header_resolver=client._ctx.predictions._header_resolver,
     )
-    client._ctx = dataclasses.replace(client._ctx, secure_clob=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
     return captured
 
 

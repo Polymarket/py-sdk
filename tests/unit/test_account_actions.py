@@ -83,7 +83,7 @@ _CLOB_TRADE_PAYLOAD: dict[str, Any] = {
 
 def test_build_closed_only_mode_request_targets_correct_path() -> None:
     path, params = build_closed_only_mode_request()
-    assert path == "/auth/ban-status/closed-only"
+    assert path == "/v1/me/trading-status"
     assert params == {}
 
 
@@ -107,7 +107,7 @@ def test_build_list_open_orders_request_includes_all_filter_params(asset_key: st
     path, params = build_list_open_orders_request(
         **{asset_key: "t1"}, id="order-1", market="0xMARKET", cursor="abc"
     )
-    assert path == "/data/orders"
+    assert path == "/v1/me/orders"
     assert params == {
         "asset_id": "t1",
         "id": "order-1",
@@ -127,14 +127,14 @@ def test_build_list_open_orders_request_requires_market_for_asset(
 
 def test_build_list_open_orders_request_allows_market_without_asset() -> None:
     assert build_list_open_orders_request(market="0xMARKET") == (
-        "/data/orders",
+        "/v1/me/orders",
         {"market": "0xMARKET"},
     )
 
 
 def test_build_list_open_orders_request_omits_unset_params() -> None:
     path, params = build_list_open_orders_request()
-    assert path == "/data/orders"
+    assert path == "/v1/me/orders"
     assert params == {}
 
 
@@ -177,7 +177,7 @@ def test_parse_open_orders_page_rejects_non_string_next_cursor() -> None:
 
 def test_build_get_order_request_includes_order_id_in_path() -> None:
     path, params = build_get_order_request(order_id="order-1")
-    assert path == "/data/order/order-1"
+    assert path == "/v1/me/orders/order-1"
     assert params == {}
 
 
@@ -201,7 +201,7 @@ def test_build_list_account_trades_request_includes_filters_and_cursor() -> None
         before="200",
         cursor="next",
     )
-    assert path == "/data/trades"
+    assert path == "/v1/me/trades"
     assert params == {
         "asset_id": "t1",
         "market": "0xMARKET",
@@ -237,7 +237,7 @@ def test_parse_account_trades_page_parses_full_trade() -> None:
 
 def test_build_notifications_request_includes_signature_type() -> None:
     path, params = build_notifications_request(signature_type=3)
-    assert path == "/notifications"
+    assert path == "/v1/me/notifications"
     assert params == {"signature_type": 3}
 
 
@@ -339,7 +339,7 @@ def test_parse_notifications_rejects_non_list() -> None:
 
 def test_build_drop_notifications_request_joins_ids_and_sends_signature_type() -> None:
     path, params = build_drop_notifications_request(ids=["a", "b", "c"], signature_type=2)
-    assert path == "/notifications"
+    assert path == "/v1/me/notifications"
     assert params == {"ids": "a,b,c", "signature_type": 2}
 
 
@@ -360,7 +360,7 @@ def test_build_drop_notifications_request_rejects_empty_id_entry() -> None:
 
 def test_build_drop_notifications_request_stringifies_int_ids() -> None:
     path, params = build_drop_notifications_request(ids=[1, 2, 3], signature_type=0)
-    assert path == "/notifications"
+    assert path == "/v1/me/notifications"
     assert params == {"ids": "1,2,3", "signature_type": 0}
 
 
@@ -373,7 +373,7 @@ def test_build_balance_allowance_request_includes_signature_type_and_asset_type(
     path, params = build_balance_allowance_request(
         asset_type="COLLATERAL", token_id=None, signature_type=0
     )
-    assert path == "/balance-allowance"
+    assert path == "/v1/me/balance-allowances"
     assert params == {"asset_type": "COLLATERAL", "signature_type": 0}
 
 
@@ -381,7 +381,7 @@ def test_build_balance_allowance_request_adds_token_id_for_conditional() -> None
     path, params = build_balance_allowance_request(
         asset_type="CONDITIONAL", token_id="t1", signature_type=1
     )
-    assert path == "/balance-allowance"
+    assert path == "/v1/me/balance-allowances"
     assert params == {
         "asset_type": "CONDITIONAL",
         "signature_type": 1,

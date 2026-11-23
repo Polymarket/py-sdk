@@ -46,9 +46,9 @@ def _deposit_relayer_handler(captured: list[httpx.Request]):  # type: ignore[no-
     def handler(request: httpx.Request) -> httpx.Response:
         captured.append(request)
         path = urlparse(str(request.url)).path
-        if path == "/v1/account/transactions/params":
+        if path == "/v1/wallets/execute-params":
             return httpx.Response(200, json={"address": "0xRELAY", "nonce": "0"}, request=request)
-        if path == "/submit":
+        if path == "/v1/wallets/transactions":
             return httpx.Response(
                 200,
                 json={
@@ -72,7 +72,7 @@ def test_approve_erc20_gasless_returns_sync_handle() -> None:
 
     assert isinstance(handle, SyncGaslessTransactionHandle)
     assert handle.transaction_id == "tx-sync"
-    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
+    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"]
     assert len(submit_calls) == 1
     body = request_json(submit_calls[0])
     assert body["type"] == "WALLET"
@@ -129,9 +129,9 @@ def test_split_position_routes_through_collateral_adapter() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         captured.append(request)
         path = urlparse(str(request.url)).path
-        if path == "/v1/account/transactions/params":
+        if path == "/v1/wallets/execute-params":
             return httpx.Response(200, json={"address": "0xRELAY", "nonce": "0"}, request=request)
-        if path == "/submit":
+        if path == "/v1/wallets/transactions":
             return httpx.Response(
                 200,
                 json={
@@ -151,7 +151,7 @@ def test_split_position_routes_through_collateral_adapter() -> None:
         install_sync_relayer_handler(client, handler)
         client.split_position(condition_id=_CONDITION_ID, amount=1_000_000)
 
-    submit = [r for r in captured if urlparse(str(r.url)).path == "/submit"][0]
+    submit = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"][0]
     body = request_json(submit)
     inner = body["depositWalletParams"]["calls"][0]
     assert inner["target"].lower() == PRODUCTION_CONFIG.collateral_adapter.lower()
@@ -163,9 +163,9 @@ def test_setup_trading_approvals_bundles_required_calls_for_deposit_wallet() -> 
     def handler(request: httpx.Request) -> httpx.Response:
         captured.append(request)
         path = urlparse(str(request.url)).path
-        if path == "/v1/account/transactions/params":
+        if path == "/v1/wallets/execute-params":
             return httpx.Response(200, json={"address": "0xRELAY", "nonce": "0"}, request=request)
-        if path == "/submit":
+        if path == "/v1/wallets/transactions":
             return httpx.Response(
                 200,
                 json={
@@ -175,7 +175,7 @@ def test_setup_trading_approvals_bundles_required_calls_for_deposit_wallet() -> 
                 },
                 request=request,
             )
-        if path == "/v1/account/transactions/tx-setup":
+        if path == "/v1/wallets/transactions/tx-setup":
             return httpx.Response(
                 200,
                 json={
@@ -192,7 +192,7 @@ def test_setup_trading_approvals_bundles_required_calls_for_deposit_wallet() -> 
         install_sync_rpc_handler(client, trading_approval_rpc_handler())
         client.setup_trading_approvals()
 
-    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
+    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"]
     body = request_json(submit_calls[0])
     inner_calls = body["depositWalletParams"]["calls"]
     assert len(inner_calls) == 17
@@ -214,7 +214,7 @@ def test_setup_trading_approvals_skips_submit_when_already_approved() -> None:
         handle = client.setup_trading_approvals()
         handle.wait()
 
-    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
+    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"]
     assert submit_calls == []
 
 
@@ -227,13 +227,14 @@ def _proxy_relayer_handler(captured: list[httpx.Request]):  # type: ignore[no-un
     def handler(request: httpx.Request) -> httpx.Response:
         captured.append(request)
         path = urlparse(str(request.url)).path
-        if path == "/relay-payload":
+        if path == "/v1/wallets/execute-params":
+            assert request.url.params["type"] == "PROXY"
             return httpx.Response(
                 200,
                 json={"address": "0xe679d14b2fe0bdee4a54f25bcec2978e372de566", "nonce": "0"},
                 request=request,
             )
-        if path == "/submit":
+        if path == "/v1/wallets/transactions":
             return httpx.Response(
                 200,
                 json={
@@ -252,9 +253,9 @@ def _safe_relayer_handler(captured: list[httpx.Request]):  # type: ignore[no-unt
     def handler(request: httpx.Request) -> httpx.Response:
         captured.append(request)
         path = urlparse(str(request.url)).path
-        if path == "/v1/account/transactions/params":
+        if path == "/v1/wallets/execute-params":
             return httpx.Response(200, json={"address": "0xRELAY", "nonce": "0"}, request=request)
-        if path == "/submit":
+        if path == "/v1/wallets/transactions":
             return httpx.Response(
                 200,
                 json={
@@ -264,7 +265,7 @@ def _safe_relayer_handler(captured: list[httpx.Request]):  # type: ignore[no-unt
                 },
                 request=request,
             )
-        if path == "/v1/account/transactions/tx-safe":
+        if path == "/v1/wallets/transactions/tx-safe":
             return httpx.Response(
                 200,
                 json={
@@ -299,7 +300,7 @@ def test_approve_erc20_proxy_uses_default_gas_limit_when_rpc_estimate_fails() ->
         install_sync_rpc_handler(client, rpc_handler)
         client.approve_erc20(token_address=TOKEN, spender_address=SPENDER, amount=1)
 
-    submit = [r for r in captured if urlparse(str(r.url)).path == "/submit"][0]
+    submit = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"][0]
     body = request_json(submit)
     assert body["type"] == "PROXY"
     assert body["signatureParams"]["gasLimit"] == "200000"
@@ -313,7 +314,7 @@ def test_approve_erc20_safe_single_call_uses_call_operation() -> None:
         install_sync_relayer_handler(client, _safe_relayer_handler(captured))
         client.approve_erc20(token_address=TOKEN, spender_address=SPENDER, amount=1)
 
-    submit = [r for r in captured if urlparse(str(r.url)).path == "/submit"][0]
+    submit = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"][0]
     body = request_json(submit)
     assert body["type"] == "SAFE"
     assert body["signatureParams"]["operation"] == "0"
@@ -328,7 +329,7 @@ def test_setup_trading_approvals_safe_uses_multisend_delegatecall() -> None:
         install_sync_rpc_handler(client, trading_approval_rpc_handler())
         client.setup_trading_approvals()
 
-    submit = [r for r in captured if urlparse(str(r.url)).path == "/submit"][0]
+    submit = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"][0]
     body = request_json(submit)
     assert body["type"] == "SAFE"
     assert body["signatureParams"]["operation"] == "1"
@@ -351,7 +352,7 @@ def test_execute_transaction_batches_custom_calls() -> None:
         )
 
     assert isinstance(handle, SyncGaslessTransactionHandle)
-    submit = [r for r in captured if urlparse(str(r.url)).path == "/submit"][0]
+    submit = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"][0]
     body = request_json(submit)
     assert body["metadata"] == "Merge 3 combo positions"
     inner_calls = body["depositWalletParams"]["calls"]
@@ -383,7 +384,7 @@ def test_merge_multiple_positions_batches_combo_merges() -> None:
         )
 
     assert isinstance(handle, SyncGaslessTransactionHandle)
-    submit = [r for r in captured if urlparse(str(r.url)).path == "/submit"][0]
+    submit = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"][0]
     body = request_json(submit)
     inner_calls = body["depositWalletParams"]["calls"]
     assert len(inner_calls) == 3
@@ -431,7 +432,7 @@ def test_merge_multiple_positions_batches_market_merges() -> None:
         {"condition_ids": [first_condition_id], "page_size": 1},
         {"condition_ids": [second_condition_id], "page_size": 1},
     ]
-    submit = [r for r in captured if urlparse(str(r.url)).path == "/submit"][0]
+    submit = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"][0]
     body = request_json(submit)
     inner_calls = body["depositWalletParams"]["calls"]
     assert len(inner_calls) == 2
@@ -557,7 +558,7 @@ def test_merge_positions_routes_through_collateral_adapter() -> None:
         install_sync_rpc_handler(client, _eth_call_result("uint256[]", [100_000_000, 60_000_000]))
         client.merge_positions(condition_id="0x" + "11" * 32, amount="max")
 
-    submit = [r for r in captured if urlparse(str(r.url)).path == "/submit"][0]
+    submit = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"][0]
     body = request_json(submit)
     inner = body["depositWalletParams"]["calls"][0]
     assert inner["target"].lower() == PRODUCTION_CONFIG.collateral_adapter.lower()
@@ -579,7 +580,7 @@ def test_redeem_positions_routes_through_neg_risk_collateral_adapter() -> None:
         client.redeem_positions(condition_id=condition_id)
 
     assert market_calls == [{"condition_ids": [condition_id], "closed": True, "page_size": 1}]
-    submit = [r for r in captured if urlparse(str(r.url)).path == "/submit"][0]
+    submit = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"][0]
     body = request_json(submit)
     inner = body["depositWalletParams"]["calls"][0]
     assert inner["target"].lower() == PRODUCTION_CONFIG.neg_risk_collateral_adapter.lower()
@@ -608,7 +609,7 @@ def test_sync_market_position_routes_mixed_ids_to_v2(operation: str) -> None:
         else:
             client.redeem_positions(market_id="123")
 
-    submit = [r for r in captured if urlparse(str(r.url)).path == "/submit"][0]
+    submit = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"][0]
     calls = request_json(submit)["depositWalletParams"]["calls"]
     assert len(calls) == (2 if operation == "redeem" else 1)
     assert all(
@@ -644,7 +645,9 @@ def test_sync_market_position_workflows_reject_missing_version_before_submission
                     positions=[{"condition_id": condition_id, "amount": 5}]
                 )
 
-    assert not any(urlparse(str(request.url)).path == "/submit" for request in captured)
+    assert not any(
+        urlparse(str(request.url)).path == "/v1/wallets/transactions" for request in captured
+    )
 
 
 def test_sync_redeem_market_position_requires_two_v2_balances() -> None:
@@ -681,7 +684,7 @@ def test_redeem_positions_market_id_resolves_condition_before_fetching_positions
         client.redeem_positions(market_id="123")
 
     assert market_calls == [{"ids": [123], "closed": True, "page_size": 1}]
-    submit = [r for r in captured if urlparse(str(r.url)).path == "/submit"][0]
+    submit = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"][0]
     body = request_json(submit)
     inner = body["depositWalletParams"]["calls"][0]
     assert inner["target"].lower() == PRODUCTION_CONFIG.neg_risk_collateral_adapter.lower()
@@ -758,15 +761,15 @@ def _decode_merge_positions_amount(data: str) -> int:
 def _wait_relayer_handler(state: str, *, error_msg: str | None = None):  # type: ignore[no-untyped-def]
     def handler(request: httpx.Request) -> httpx.Response:
         path = urlparse(str(request.url)).path
-        if path == "/v1/account/transactions/params":
+        if path == "/v1/wallets/execute-params":
             return httpx.Response(200, json={"address": "0xRELAY", "nonce": "0"}, request=request)
-        if path == "/submit":
+        if path == "/v1/wallets/transactions":
             return httpx.Response(
                 200,
                 json={"state": "STATE_NEW", "transactionHash": None, "transactionID": "tx-w"},
                 request=request,
             )
-        if path.startswith("/v1/account/transactions/"):
+        if path.startswith("/v1/wallets/transactions/"):
             body: dict[str, object] = {
                 "state": state,
                 "transaction_hash": "0x" + "aa" * 32,
@@ -844,9 +847,9 @@ def test_gasless_submit_retries_on_retryable_400_then_succeeds() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         captured.append(request)
         path = urlparse(str(request.url)).path
-        if path == "/v1/account/transactions/params":
+        if path == "/v1/wallets/execute-params":
             return httpx.Response(200, json={"address": "0xRELAY", "nonce": "0"}, request=request)
-        if path == "/submit":
+        if path == "/v1/wallets/transactions":
             attempts["n"] += 1
             if attempts["n"] == 1:
                 return httpx.Response(
@@ -879,7 +882,7 @@ def test_gasless_submit_retries_on_retryable_400_then_succeeds() -> None:
         handle = client.approve_erc20(token_address=TOKEN, spender_address=SPENDER, amount=1)
 
     assert handle.transaction_id == "tx-retry"
-    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
+    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"]
     assert len(submit_calls) == 2
 
 
@@ -890,9 +893,9 @@ def test_gasless_submit_self_heals_with_nonce_from_submit_error() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         captured.append(request)
         path = urlparse(str(request.url)).path
-        if path == "/v1/account/transactions/params":
+        if path == "/v1/wallets/execute-params":
             return httpx.Response(200, json={"address": "0xRELAY", "nonce": "9"}, request=request)
-        if path == "/submit":
+        if path == "/v1/wallets/transactions":
             attempts["n"] += 1
             if attempts["n"] == 1:
                 return httpx.Response(
@@ -916,6 +919,8 @@ def test_gasless_submit_self_heals_with_nonce_from_submit_error() -> None:
         handle = client.approve_erc20(token_address=TOKEN, spender_address=SPENDER, amount=1)
 
     assert handle.transaction_id == "tx-healed"
-    submit_bodies = [request_json(r) for r in captured if urlparse(str(r.url)).path == "/submit"]
+    submit_bodies = [
+        request_json(r) for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"
+    ]
     assert len(submit_bodies) == 2
     assert submit_bodies[1]["nonce"] == "2"

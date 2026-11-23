@@ -6,8 +6,8 @@ from urllib.parse import urlparse
 
 import httpx
 import pytest
+from _bearer import bearer_credentials_for
 from _relayer_helpers import (
-    FAKE_CREDS,
     PK_DEPLOY_WALLET,
     RELAY_PAYLOAD_DEFAULT_ADDRESS,
     SPENDER,
@@ -28,31 +28,6 @@ from polymarket._internal.environment import (
 )
 from polymarket.errors import UserInputError
 from polymarket.transactions import TransactionHandle
-
-
-def test_approve_erc20_rejects_when_no_api_key() -> None:
-    from eth_account import Account
-
-    from polymarket._internal.wallet import derive_uups_deposit_wallet_address
-
-    async def run() -> None:
-        signer = Account.from_key(PK_DEPLOY_WALLET)
-        wallet = derive_uups_deposit_wallet_address(
-            signer.address, PRODUCTION_CONFIG.wallet_derivation
-        )
-        client = await AsyncSecureClient._create(
-            private_key=PK_DEPLOY_WALLET,
-            wallet=wallet,
-            credentials=FAKE_CREDS,
-            validate_credentials=False,
-        )
-        try:
-            with pytest.raises(UserInputError, match="Builder API Key or Relayer API Key"):
-                await client.approve_erc20(token_address=TOKEN, spender_address=SPENDER, amount=1)
-        finally:
-            await client.close()
-
-    asyncio.run(run())
 
 
 def test_approve_erc20_rejects_invalid_amount() -> None:
@@ -98,11 +73,11 @@ def test_approve_erc20_deposit_wallet_payload_shape() -> None:
             client,
             captured,
             {
-                "/v1/account/transactions/params": {
+                "/v1/wallets/execute-params": {
                     "address": client._ctx.signer.address,
                     "nonce": "5",
                 },
-                "/submit": {
+                "/v1/wallets/transactions": {
                     "state": "STATE_NEW",
                     "transactionHash": None,
                     "transactionID": "tx-deposit",
@@ -123,7 +98,7 @@ def test_approve_erc20_deposit_wallet_payload_shape() -> None:
     assert handle.transaction_id == "tx-deposit"
     assert handle.transaction_hash is None
 
-    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
+    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"]
     assert len(submit_calls) == 1
     body = request_json(submit_calls[0])
     assert body["type"] == "WALLET"
@@ -156,11 +131,11 @@ def test_approve_erc20_proxy_payload_shape() -> None:
             client,
             captured,
             {
-                "/v1/account/transactions/params": {
-                    "address": client._ctx.signer.address,
+                "/v1/wallets/execute-params": {
+                    "address": RELAY_PAYLOAD_DEFAULT_ADDRESS,
                     "nonce": "0",
                 },
-                "/submit": {
+                "/v1/wallets/transactions": {
                     "state": "STATE_NEW",
                     "transactionHash": None,
                     "transactionID": "tx-proxy",
@@ -178,7 +153,7 @@ def test_approve_erc20_proxy_payload_shape() -> None:
             await client.close()
 
     asyncio.run(run())
-    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
+    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"]
     body = request_json(submit_calls[0])
     assert body["type"] == "PROXY"
     assert body["to"].lower() == "0xaB45c5A4B0c941a2F231C04C3f49182e1A254052".lower()
@@ -199,11 +174,11 @@ def test_approve_erc20_safe_single_call_payload_shape() -> None:
             client,
             captured,
             {
-                "/v1/account/transactions/params": {
+                "/v1/wallets/execute-params": {
                     "address": client._ctx.signer.address,
                     "nonce": "0",
                 },
-                "/submit": {
+                "/v1/wallets/transactions": {
                     "state": "STATE_NEW",
                     "transactionHash": None,
                     "transactionID": "tx-safe",
@@ -220,7 +195,7 @@ def test_approve_erc20_safe_single_call_payload_shape() -> None:
             await client.close()
 
     asyncio.run(run())
-    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
+    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"]
     body = request_json(submit_calls[0])
     assert body["type"] == "SAFE"
     assert body["to"].lower() == TOKEN.lower()
@@ -239,11 +214,11 @@ def test_approve_erc20_default_metadata_matches_ts_pattern() -> None:
             client,
             captured,
             {
-                "/v1/account/transactions/params": {
+                "/v1/wallets/execute-params": {
                     "address": client._ctx.signer.address,
                     "nonce": "1",
                 },
-                "/submit": {
+                "/v1/wallets/transactions": {
                     "state": "STATE_NEW",
                     "transactionHash": None,
                     "transactionID": "tx-meta",
@@ -260,7 +235,7 @@ def test_approve_erc20_default_metadata_matches_ts_pattern() -> None:
             await client.close()
 
     asyncio.run(run())
-    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
+    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"]
     body = request_json(submit_calls[0])
     assert body["metadata"].startswith("Approve 42 of ")
     assert TOKEN.lower() in body["metadata"].lower()
@@ -276,11 +251,11 @@ def test_approve_erc20_accepts_amount_max() -> None:
             client,
             captured,
             {
-                "/v1/account/transactions/params": {
+                "/v1/wallets/execute-params": {
                     "address": client._ctx.signer.address,
                     "nonce": "0",
                 },
-                "/submit": {
+                "/v1/wallets/transactions": {
                     "state": "STATE_NEW",
                     "transactionHash": None,
                     "transactionID": "tx-max",
@@ -297,7 +272,7 @@ def test_approve_erc20_accepts_amount_max() -> None:
             await client.close()
 
     asyncio.run(run())
-    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
+    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"]
     body = request_json(submit_calls[0])
     assert body["depositWalletParams"]["calls"][0]["data"].lower().endswith("f" * 64)
 
@@ -315,13 +290,13 @@ def test_approve_erc20_retries_with_fresh_nonce_on_nonce_mismatch() -> None:
             nonlocal submit_attempts
             captured.append(request)
             path = urlparse(str(request.url)).path
-            if path == "/v1/account/transactions/params":
+            if path == "/v1/wallets/execute-params":
                 return httpx.Response(
                     200,
                     json={"address": client._ctx.signer.address, "nonce": next(nonces)},
                     request=request,
                 )
-            if path == "/submit":
+            if path == "/v1/wallets/transactions":
                 submit_attempts += 1
                 if submit_attempts == 1:
                     return httpx.Response(
@@ -358,7 +333,9 @@ def test_approve_erc20_retries_with_fresh_nonce_on_nonce_mismatch() -> None:
     asyncio.run(run())
     assert submit_attempts == 2
 
-    submit_bodies = [request_json(r) for r in captured if urlparse(str(r.url)).path == "/submit"]
+    submit_bodies = [
+        request_json(r) for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"
+    ]
     assert submit_bodies[0]["nonce"] == "3"
     assert submit_bodies[1]["nonce"] == "9"
     assert submit_bodies[0]["signature"] != submit_bodies[1]["signature"]
@@ -376,13 +353,13 @@ def test_approve_erc20_self_heals_with_nonce_from_submit_error() -> None:
             nonlocal submit_attempts
             captured.append(request)
             path = urlparse(str(request.url)).path
-            if path == "/v1/account/transactions/params":
+            if path == "/v1/wallets/execute-params":
                 return httpx.Response(
                     200,
                     json={"address": client._ctx.signer.address, "nonce": "9"},
                     request=request,
                 )
-            if path == "/submit":
+            if path == "/v1/wallets/transactions":
                 submit_attempts += 1
                 if submit_attempts == 1:
                     return httpx.Response(
@@ -413,7 +390,9 @@ def test_approve_erc20_self_heals_with_nonce_from_submit_error() -> None:
     assert handle.transaction_id == "tx-healed"
     assert submit_attempts == 2
 
-    submit_bodies = [request_json(r) for r in captured if urlparse(str(r.url)).path == "/submit"]
+    submit_bodies = [
+        request_json(r) for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"
+    ]
     assert submit_bodies[1]["nonce"] == "2"
 
 
@@ -428,13 +407,13 @@ def test_wait_polls_until_confirmed() -> None:
             nonlocal polls
             captured.append(request)
             path = urlparse(str(request.url)).path
-            if path == "/v1/account/transactions/params":
+            if path == "/v1/wallets/execute-params":
                 return httpx.Response(
                     200,
                     json={"address": client._ctx.signer.address, "nonce": "1"},
                     request=request,
                 )
-            if path == "/submit":
+            if path == "/v1/wallets/transactions":
                 return httpx.Response(
                     200,
                     json={
@@ -444,7 +423,7 @@ def test_wait_polls_until_confirmed() -> None:
                     },
                     request=request,
                 )
-            if path.startswith("/v1/account/transactions/"):
+            if path.startswith("/v1/wallets/transactions/"):
                 polls += 1
                 state = "STATE_CONFIRMED" if polls >= 2 else "STATE_NEW"
                 return httpx.Response(
@@ -497,7 +476,7 @@ def test_approve_erc20_works_with_relayer_api_key() -> None:
         client = await AsyncSecureClient._create(
             private_key=PK_DEPLOY_WALLET,
             wallet=wallet,
-            credentials=FAKE_CREDS,
+            credentials=bearer_credentials_for(PK_DEPLOY_WALLET),
             api_key=RelayerApiKey(key="rk", address=signer.address),
             validate_credentials=False,
         )
@@ -505,11 +484,11 @@ def test_approve_erc20_works_with_relayer_api_key() -> None:
             client,
             captured,
             {
-                "/v1/account/transactions/params": {
+                "/v1/wallets/execute-params": {
                     "address": client._ctx.signer.address,
                     "nonce": "0",
                 },
-                "/submit": {
+                "/v1/wallets/transactions": {
                     "state": "STATE_NEW",
                     "transactionHash": None,
                     "transactionID": "tx-rk",
@@ -522,7 +501,7 @@ def test_approve_erc20_works_with_relayer_api_key() -> None:
             await client.close()
 
     asyncio.run(run())
-    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
+    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"]
     headers = submit_calls[0].headers
     assert headers.get("RELAYER_API_KEY") == "rk"
     assert "RELAYER_API_KEY_ADDRESS" in headers

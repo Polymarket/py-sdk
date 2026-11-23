@@ -36,11 +36,11 @@ def _setup_relayer(client: Any, captured: list[httpx.Request], tx_id: str) -> No
         client,
         captured,
         {
-            "/v1/account/transactions/params": {
+            "/v1/wallets/execute-params": {
                 "address": client._ctx.signer.address,
                 "nonce": "0",
             },
-            "/submit": {
+            "/v1/wallets/transactions": {
                 "state": "STATE_NEW",
                 "transactionHash": None,
                 "transactionID": tx_id,
@@ -69,7 +69,7 @@ def test_merge_positions_resolves_max_to_min_of_yes_no() -> None:
             await client.close()
 
     asyncio.run(run())
-    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
+    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"]
     body = request_json(submit_calls[0])
     inner = body["depositWalletParams"]["calls"][0]
     assert inner["target"].lower() == PRODUCTION_CONFIG.collateral_adapter.lower()
@@ -114,7 +114,7 @@ def test_merge_positions_neg_risk_uses_neg_risk_collateral_adapter_target() -> N
             await client.close()
 
     asyncio.run(run())
-    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/submit"]
+    submit_calls = [r for r in captured if urlparse(str(r.url)).path == "/v1/wallets/transactions"]
     body = request_json(submit_calls[0])
     inner = body["depositWalletParams"]["calls"][0]
     assert inner["target"].lower() == PRODUCTION_CONFIG.neg_risk_collateral_adapter.lower()

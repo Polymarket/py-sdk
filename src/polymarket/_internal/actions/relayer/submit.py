@@ -24,14 +24,14 @@ _WALLET_INFLIGHT_RE = re.compile(r"wallet has in-flight action", re.IGNORECASE)
 async def submit_gasless(
     relayer: AsyncTransport, *, payload: RelayerEnvelope
 ) -> RelayerExecuteResponse:
-    data = await relayer.post_json("/submit", json=payload)
+    data = await relayer.post_json("/v1/wallets/transactions", json=payload)
     return RelayerExecuteResponse.parse_response(data)
 
 
 def submit_gasless_sync(
     relayer: SyncTransport, *, payload: RelayerEnvelope
 ) -> RelayerExecuteResponse:
-    data = relayer.post_json("/submit", json=payload)
+    data = relayer.post_json("/v1/wallets/transactions", json=payload)
     return RelayerExecuteResponse.parse_response(data)
 
 
