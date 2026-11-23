@@ -179,6 +179,32 @@ def test_request_combo_quote_handles_sell_net_proceeds() -> None:
         client.request_combo_quote(leg_position_ids=LEGS, direction="SELL", size="2.5")
 
 
+def test_request_combo_quote_without_a_builder_key_uses_the_requester_route() -> None:
+    from eth_account import Account
+
+    requester_response = copy.deepcopy(QUOTE_READY)
+    del requester_response["builder_code"]
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json=requester_response)
+
+    client = SecureClient._create(
+        private_key=PK_DEPLOY_WALLET,
+        wallet=Account.from_key(PK_DEPLOY_WALLET).address,
+        credentials=bearer_credentials_for(PK_DEPLOY_WALLET),
+        validate_credentials=False,
+    )
+    install_sync_builder_gateway_handler(client, handler)
+
+    result = client.request_combo_quote(leg_position_ids=LEGS, direction="BUY", amount=100)
+
+    assert [request.url.path for request in captured] == ["/v1/combos/requester/requests"]
+    assert result.quote is not None
+    assert result.quote.builder_code == "0x" + "0" * 64
+
+
 def test_request_combo_quote_returns_no_quote_outcome() -> None:
     client = make_sync_eoa_client()
     install_sync_builder_gateway_handler(

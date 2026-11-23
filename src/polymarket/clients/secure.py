@@ -3450,8 +3450,9 @@ class SecureClient:
         BUY requests are sized in collateral via ``amount``; SELL requests
         are sized in outcome tokens via ``size``. Amounts are human-readable:
         ``1`` means one dollar or one full share, not one 6-decimal base
-        unit. Requires a Builder API Key passed as ``api_key=`` when
-        constructing the client.
+        unit. With a Builder API Key passed as ``api_key=``, the RFQ is
+        attributed to that builder. Without one, the session authorizes it with
+        no builder attribution; EOA wallets aren't accepted in that case.
 
         The call resolves when the quote competition window closes. A request
         that attracts no usable quotes is a normal outcome, returned with
@@ -3464,7 +3465,7 @@ class SecureClient:
 
         Raises:
             UserInputError: If the legs, direction/sizing pair, or side are
-                invalid, or the client has no Builder API Key.
+                invalid.
             RfqRequestRejectedError: If the request is rejected; inspect
                 ``code`` to distinguish permanent input problems from
                 transient conditions.
@@ -3503,8 +3504,7 @@ class SecureClient:
             The acceptance outcome.
 
         Raises:
-            UserInputError: If the quote is invalid or the client has no
-                Builder API Key.
+            UserInputError: If the quote is invalid.
             RfqRequestRejectedError: If the acceptance is rejected.
             TimeoutError: If the outcome is still pending after the wait
                 window; resume with :meth:`fetch_rfq_status`.
