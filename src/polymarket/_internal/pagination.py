@@ -35,6 +35,7 @@ _LEGACY_CURSOR_ENDPOINTS: Mapping[str, tuple[str, str]] = {
     "/v1/events": ("gamma", "/events/keyset"),
     "/v1/markets": ("gamma", "/markets/keyset"),
     "/v1/comments": ("gamma", "/comments/keyset"),
+    "/v1/markets/clarifications": ("gamma", "/market-clarifications"),
     "/v1/series": ("gamma", "/series"),
     "/v1/tags": ("gamma", "/tags"),
     "/v1/teams": ("gamma", "/teams"),

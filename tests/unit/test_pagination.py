@@ -74,6 +74,17 @@ def test_cursor_saved_before_the_listing_moved_resumes_it() -> None:
     ) == (20, 10)
 
 
+def test_saved_market_clarifications_cursor_resumes_the_listing() -> None:
+    fingerprint = fingerprint_query({"market_id": "1"})
+    saved = _saved_cursor(svc="gamma", p="/market-clarifications", f=fingerprint, o=40, s=20)
+
+    assert decode_offset_cursor(
+        saved,
+        expected_path="/v1/markets/clarifications",
+        expected_base_params={"market_id": "1"},
+    ) == (40, 20)
+
+
 def test_saved_cursor_from_another_listing_is_rejected() -> None:
     fingerprint = fingerprint_query({"user": "0xA"})
     saved = _saved_cursor(svc="data", p="/v2/trades", f=fingerprint, o=20, s=10)
