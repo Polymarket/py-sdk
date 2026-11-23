@@ -6,8 +6,8 @@
       "changelog-path": "CHANGELOG.md",
       "versioning": "prerelease",
       "prerelease": true,
-      "prerelease-type": "b",
-      "release-as": "1.0.0-b1",
+      "prerelease-type": "rc",
+      "release-as": "1.0.0-rc1",
       "extra-files": [
         {
           "type": "toml",
