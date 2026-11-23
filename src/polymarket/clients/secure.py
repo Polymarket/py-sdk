@@ -699,12 +699,19 @@ class SecureClient:
         if _create_token is not _CREATE_TOKEN:
             raise RuntimeError("Use SecureClient.create(...) to create a secure client")
         self._ended = False
+        # Set once upgrade_credentials hands the session to another client.
+        self._handed_over = False
         self._ctx_inner = ctx
         self._logger = logger
         self._on_rate_limit_update = on_rate_limit_update
 
     @property
     def _ctx(self) -> SyncSecureClientContext:
+        if self._handed_over:
+            raise RuntimeError(
+                "SecureClient handed its session to the client returned by "
+                "upgrade_credentials; use that client."
+            )
         if self._ended:
             raise RuntimeError(
                 "SecureClient has ended authentication; use the returned PublicClient "
@@ -1147,6 +1154,7 @@ class SecureClient:
         )
         # The upgraded client owns the session and the authentication transport.
         self._ended = True
+        self._handed_over = True
         # Closing local resources is best effort, because the session has moved.
         with contextlib.suppress(Exception):
             self._close_resources()
@@ -1240,6 +1248,10 @@ class SecureClient:
 
     def close(self) -> None:
         """Close the underlying network transports."""
+        if self._handed_over:
+            # The session and its transport belong to the upgraded client, and the
+            # rest was closed during the handover.
+            return
         ctx = self._ctx_inner
         ctx.session.close()
         try:

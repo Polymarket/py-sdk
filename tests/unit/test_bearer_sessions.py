@@ -1,6 +1,7 @@
 """Client creation, renewal and logout against controlled authentication responses."""
 
 # pyright: reportPrivateUsage=false
+import asyncio
 import time
 from typing import Any
 
@@ -11,6 +12,7 @@ from _bearer import fake_access_token
 from eth_account import Account
 
 from polymarket import (
+    AsyncSecureClient,
     BearerCredentials,
     PublicClient,
     SecureClient,
@@ -165,3 +167,50 @@ def test_a_second_expired_token_rejection_is_not_replayed() -> None:
 
     assert error.value.code == "expired_access_token"
     assert len(status) == 2
+
+
+def test_closing_the_original_client_after_an_upgrade_keeps_the_upgraded_session() -> None:
+    saved = BearerCredentials(access_token=_token(wallet=None), refresh_token="refresh")
+    with respx.mock(assert_all_called=True) as router:
+        _route(router, "POST", f"{AUTH}/v1/auth/upgrade", _ok(_issued(_token())))
+        _route(router, "GET", f"{AUTH}/v1/me/trading-status", _ok({"closed_only": False}))
+        _route(router, "POST", f"{AUTH}/v1/auth/refresh", _ok(_issued(_token())))
+
+        with SecureClient._create(
+            private_key=PRIVATE_KEY,
+            credentials=saved,
+            validate_credentials=False,
+            wallet_setup=False,
+        ) as onboarding:
+            client = onboarding.upgrade_credentials(wallet=SIGNER)
+
+        with client:
+            assert client.get_closed_only_mode() is False
+            client.refresh_credentials()
+        with pytest.raises(RuntimeError, match="upgrade_credentials"):
+            _ = onboarding.credentials
+
+
+def test_closing_the_original_async_client_after_an_upgrade_keeps_the_upgraded_session() -> None:
+    saved = BearerCredentials(access_token=_token(wallet=None), refresh_token="refresh")
+
+    async def run() -> None:
+        async with await AsyncSecureClient._create(
+            private_key=PRIVATE_KEY,
+            credentials=saved,
+            validate_credentials=False,
+            wallet_setup=False,
+        ) as onboarding:
+            client = await onboarding.upgrade_credentials(wallet=SIGNER)
+
+        async with client:
+            assert await client.get_closed_only_mode() is False
+            await client.refresh_credentials()
+        with pytest.raises(RuntimeError, match="upgrade_credentials"):
+            _ = onboarding.credentials
+
+    with respx.mock(assert_all_called=True) as router:
+        _route(router, "POST", f"{AUTH}/v1/auth/upgrade", _ok(_issued(_token())))
+        _route(router, "GET", f"{AUTH}/v1/me/trading-status", _ok({"closed_only": False}))
+        _route(router, "POST", f"{AUTH}/v1/auth/refresh", _ok(_issued(_token())))
+        asyncio.run(run())
