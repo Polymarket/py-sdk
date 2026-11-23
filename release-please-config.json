@@ -5,8 +5,9 @@
       "package-name": "polymarket-client",
       "changelog-path": "CHANGELOG.md",
       "versioning": "prerelease",
-      "prerelease": false,
+      "prerelease": true,
       "prerelease-type": "b",
+      "release-as": "1.0.0-b1",
       "extra-files": [
         {
           "type": "toml",
