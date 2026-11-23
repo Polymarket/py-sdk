@@ -69,6 +69,26 @@ async def _wait_for_order_not_visible(
     return False
 
 
+async def _wait_for_order_status(
+    client: AsyncSecureClient,
+    *,
+    order_id: str,
+    status: str,
+    attempts: int = 8,
+    delay_s: float = 0.25,
+) -> str:
+    """Poll ``get_order`` until it reports ``status``; returns the last status seen."""
+    seen = ""
+    for _ in range(attempts):
+        order = await client.get_order(order_id=order_id)
+        assert order.id == order_id
+        seen = order.status
+        if seen == status:
+            return seen
+        await asyncio.sleep(delay_s)
+    return seen
+
+
 async def _wait_for_open_orders_empty(
     client: AsyncSecureClient,
     *,
@@ -199,11 +219,14 @@ async def test_get_order_returns_owned_order_while_live_and_after_cancellation(
         assert live_order.id == order_id
         assert live_order.status == "LIVE"
     finally:
-        await deposit_wallet_client.cancel_order(order_id=order_id)
+        response = await deposit_wallet_client.cancel_order(order_id=order_id)
+    assert order_id in response.canceled
 
-    canceled_order = await deposit_wallet_client.get_order(order_id=order_id)
-    assert canceled_order.id == order_id
-    assert canceled_order.status == "CANCELED"
+    # Order reads can trail the cancel briefly.
+    status = await _wait_for_order_status(
+        deposit_wallet_client, order_id=order_id, status="CANCELED"
+    )
+    assert status == "CANCELED"
 
 
 @pytest.mark.integration
