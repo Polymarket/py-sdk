@@ -230,7 +230,7 @@ def test_read_uses_configured_endpoint_chain_and_required_targets() -> None:
 
 
 @pytest.mark.parametrize("mode", ["sync", "async"])
-@pytest.mark.parametrize("status,attempts", [(400, 1), (503, 1), (429, 1)])
+@pytest.mark.parametrize("status,attempts", [(400, 1), (503, 1), (429, 3)])
 def test_http_failure_is_preserved_without_rpc_fallback(
     mode: str, status: int, attempts: int
 ) -> None:
