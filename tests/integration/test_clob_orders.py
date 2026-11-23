@@ -77,14 +77,24 @@ async def _wait_for_order_status(
     attempts: int = 8,
     delay_s: float = 0.25,
 ) -> str:
-    """Poll ``get_order`` until it reports ``status``; returns the last status seen."""
+    """Poll ``get_order`` until it reports ``status``; returns the last status seen.
+
+    Order reads can trail placement and cancellation briefly, so a new order may
+    not be found yet.
+    """
     seen = ""
     for _ in range(attempts):
-        order = await client.get_order(order_id=order_id)
-        assert order.id == order_id
-        seen = order.status
-        if seen == status:
-            return seen
+        try:
+            order = await client.get_order(order_id=order_id)
+        except RequestRejectedError as error:
+            if error.status != 404:
+                raise
+            seen = "NOT_FOUND"
+        else:
+            assert order.id == order_id
+            seen = order.status
+            if seen == status:
+                return seen
         await asyncio.sleep(delay_s)
     return seen
 
@@ -215,14 +225,14 @@ async def test_get_order_returns_owned_order_while_live_and_after_cancellation(
     assert isinstance(placed, AcceptedOrder)
     order_id = placed.order_id
     try:
-        live_order = await deposit_wallet_client.get_order(order_id=order_id)
-        assert live_order.id == order_id
-        assert live_order.status == "LIVE"
+        status = await _wait_for_order_status(
+            deposit_wallet_client, order_id=order_id, status="LIVE"
+        )
+        assert status == "LIVE"
     finally:
         response = await deposit_wallet_client.cancel_order(order_id=order_id)
     assert order_id in response.canceled
 
-    # Order reads can trail the cancel briefly.
     status = await _wait_for_order_status(
         deposit_wallet_client, order_id=order_id, status="CANCELED"
     )
