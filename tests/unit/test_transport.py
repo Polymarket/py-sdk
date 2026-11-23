@@ -726,7 +726,9 @@ def test_async_close_does_not_close_injected_client() -> None:
 
 
 @pytest.mark.parametrize("base_url", ["https://clob.test", "https://clob.test/prefix/"])
-@pytest.mark.parametrize("path,expected", [("/v1/heartbeats", True), ("/other-route", False)])
+@pytest.mark.parametrize(
+    "path,expected", [("/v1/trading/heartbeats", True), ("/v1/heartbeats", False)]
+)
 @pytest.mark.parametrize("heartbeat_id", ["expected-id", ""])
 def test_order_heartbeat_rejection_preserves_id_without_retry(
     path: str, expected: bool, heartbeat_id: str, base_url: str
@@ -771,5 +773,5 @@ def test_invalid_heartbeat_payload_has_no_recovery_id(base_url: str) -> None:
         ),
     )
     with pytest.raises(RequestRejectedError, match="Invalid payload") as error:
-        transport.post_json("/v1/heartbeats")
+        transport.post_json("/v1/trading/heartbeats")
     assert not isinstance(error.value, OrderHeartbeatMismatchError)

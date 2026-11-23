@@ -80,7 +80,6 @@ from polymarket._internal.actions.relayer.approvals import (
     build_missing_trading_approval_calls,
     get_trading_approvals_state,
 )
-from polymarket._internal.actions.relayer.auth import build_builder_key_headers
 from polymarket._internal.actions.relayer.calls import (
     MAX_UINT256,
     TransactionCall,
@@ -143,7 +142,7 @@ from polymarket._internal.wallet import (
     signature_type_for,
     wrap_deposit_wallet_signature,
 )
-from polymarket.auth import ApiKey, BearerCredentials, BuilderApiKey, PlatformApiKey
+from polymarket.auth import ApiKey, BearerCredentials, PlatformApiKey
 from polymarket.clients._transport import AsyncTransport
 from polymarket.clients.async_public import AsyncPublicClient
 from polymarket.environments import PRODUCTION, Environment
@@ -1118,13 +1117,6 @@ class AsyncSecureClient:
             on_rate_limit_update=on_rate_limit_update,
             recover_expired_token=session.recover,
         )
-        secure_clob = AsyncTransport(
-            base_url=config.clob_url,
-            logger=logger,
-            header_resolver=_make_trading_header_resolver(session, api_key),
-            on_rate_limit_update=on_rate_limit_update,
-            recover_expired_token=session.recover,
-        )
         rpc_transport = AsyncTransport(base_url=config.rpc_url, logger=logger)
         rpc = JsonRpcClient(rpc_transport)
 
@@ -1136,7 +1128,6 @@ class AsyncSecureClient:
             auth=auth,
             signer=signer,
             session=session,
-            secure_clob=secure_clob,
             wallet=branded_wallet,
             wallet_type=wallet_type,
             signer_type=signer_type,
@@ -1872,7 +1863,6 @@ class AsyncSecureClient:
             _RfqSessionCloser(self._close_rfq_session),
             ctx.predictions,
             ctx.perps,
-            ctx.secure_clob,
             ctx.rpc,
         )
 
@@ -4158,7 +4148,7 @@ class AsyncSecureClient:
             heartbeat_id=heartbeat_id
         )
         return _order_heartbeat_actions.parse_order_heartbeat(
-            await self._ctx.secure_clob.post_json(path, json=body)
+            await self._ctx.predictions.post_json(path, json=body)
         )
 
     def list_current_rewards(
@@ -4591,20 +4581,6 @@ def _make_predictions_header_resolver(
         headers.update(_identity_actions.build_bearer_headers((await session.ready()).access_token))
         if api_key is not None:
             headers.update(build_api_key_headers(api_key, method=method, path=path, body=body))
-        return headers
-
-    return resolver
-
-
-def _make_trading_header_resolver(
-    session: AsyncAuthSession, api_key: ApiKey | None
-) -> _HeaderResolver:
-    async def resolver(method: str, path: str, body: str | None) -> Mapping[str, str]:
-        headers = _identity_actions.build_bearer_headers((await session.ready()).access_token)
-        if isinstance(api_key, BuilderApiKey):
-            headers.update(
-                build_builder_key_headers(creds=api_key, method=method, path=path, body=body)
-            )
         return headers
 
     return resolver

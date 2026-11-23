@@ -57,9 +57,9 @@ def _install_secure_clob(
     transport = AsyncTransport(
         base_url=base_url,
         client=httpx.AsyncClient(base_url=base_url, transport=handler),
-        header_resolver=client._ctx.secure_clob._header_resolver,
+        header_resolver=client._ctx.predictions._header_resolver,
     )
-    client._ctx = dataclasses.replace(client._ctx, secure_clob=transport)
+    client._ctx = dataclasses.replace(client._ctx, predictions=transport)
 
 
 def _install_predictions(client: AsyncSecureClient, handler: httpx.MockTransport) -> None:

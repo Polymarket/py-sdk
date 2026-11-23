@@ -126,6 +126,7 @@ _ROUTES: tuple[_Route, ...] = (
     _route("DELETE", "/v1/orders/all", "/cancel-all", "trading"),
     _route("DELETE", "/v1/orders/by-market", "/cancel-market-orders", "trading"),
     _route("DELETE", "/v1/orders/by-wallet", "/cancel-wallet-orders", "trading"),
+    _route("POST", "/v1/trading/heartbeats", "/v1/heartbeats", "trading"),
     _route("POST", "/v1/combos/builder/requests", "/v1/builder/rfq/requests", "builder-rfq"),
     _route(
         "POST",

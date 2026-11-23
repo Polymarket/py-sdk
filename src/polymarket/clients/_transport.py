@@ -563,7 +563,7 @@ def _raise_for_response_status(
             rate_limit=_parse_rate_limit_headers(response.headers),
         )
 
-    if response.status_code == 400 and path == "/v1/heartbeats":
+    if response.status_code == 400 and path == "/v1/trading/heartbeats":
         try:
             mismatch = OrderHeartbeatMismatchResponse.model_validate(response.json())
         except ValueError:

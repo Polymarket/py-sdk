@@ -66,7 +66,6 @@ from polymarket._internal.actions.relayer.approvals import (
     build_missing_trading_approval_calls,
     get_trading_approvals_state_sync,
 )
-from polymarket._internal.actions.relayer.auth import build_builder_key_headers
 from polymarket._internal.actions.relayer.calls import (
     MAX_UINT256,
     TransactionCall,
@@ -126,7 +125,7 @@ from polymarket._internal.wallet import (
     signature_type_for,
     wrap_deposit_wallet_signature,
 )
-from polymarket.auth import ApiKey, BearerCredentials, BuilderApiKey, PlatformApiKey
+from polymarket.auth import ApiKey, BearerCredentials, PlatformApiKey
 from polymarket.clients._transport import SyncHeaderResolver, SyncTransport
 from polymarket.environments import PRODUCTION, Environment
 from polymarket.errors import (
@@ -1012,13 +1011,6 @@ class SecureClient:
             recover_expired_token=session.recover,
         )
         try:
-            secure_clob = SyncTransport(
-                base_url=config.clob_url,
-                logger=logger,
-                header_resolver=_make_trading_header_resolver_sync(session, api_key),
-                on_rate_limit_update=on_rate_limit_update,
-                recover_expired_token=session.recover,
-            )
             rpc_transport = SyncTransport(base_url=config.rpc_url, logger=logger)
             rpc = SyncJsonRpcClient(rpc_transport)
         except BaseException:
@@ -1032,7 +1024,6 @@ class SecureClient:
             auth=auth,
             signer=signer,
             session=session,
-            secure_clob=secure_clob,
             wallet=branded_wallet,
             wallet_type=wallet_type,
             signer_type=signer_type,
@@ -1256,10 +1247,7 @@ class SecureClient:
         try:
             ctx.predictions.close()
         finally:
-            try:
-                ctx.secure_clob.close()
-            finally:
-                ctx.rpc.close()
+            ctx.rpc.close()
 
     def _user_or_wallet(self, user: str | None) -> str:
         return self._ctx.wallet if user is None else user
@@ -2127,7 +2115,7 @@ class SecureClient:
             heartbeat_id=heartbeat_id
         )
         return _order_heartbeat_actions.parse_order_heartbeat(
-            self._ctx.secure_clob.post_json(path, json=body)
+            self._ctx.predictions.post_json(path, json=body)
         )
 
     def list_current_rewards(self, *, sponsored: bool | None = None) -> Paginator[CurrentReward]:
@@ -3758,20 +3746,6 @@ def _make_predictions_header_resolver_sync(
         headers.update(_identity_actions.build_bearer_headers(session.ready().access_token))
         if api_key is not None:
             headers.update(build_api_key_headers(api_key, method=method, path=path, body=body))
-        return headers
-
-    return resolver
-
-
-def _make_trading_header_resolver_sync(
-    session: SyncAuthSession, api_key: ApiKey | None
-) -> SyncHeaderResolver:
-    def resolver(method: str, path: str, body: str | None) -> Mapping[str, str]:
-        headers = _identity_actions.build_bearer_headers(session.ready().access_token)
-        if isinstance(api_key, BuilderApiKey):
-            headers.update(
-                build_builder_key_headers(creds=api_key, method=method, path=path, body=body)
-            )
         return headers
 
     return resolver

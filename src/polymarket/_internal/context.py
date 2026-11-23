@@ -36,7 +36,6 @@ class SyncClientContext:
 class SyncSecureClientContext(SyncClientContext):
     signer: LocalAccount
     session: SyncAuthSession
-    secure_clob: SyncTransport
     wallet: EvmAddress
     wallet_type: WalletType
     signer_type: SignerType
@@ -64,7 +63,6 @@ class AsyncClientContext:
 class AsyncSecureClientContext(AsyncClientContext):
     signer: LocalAccount
     session: AsyncAuthSession
-    secure_clob: AsyncTransport
     wallet: EvmAddress
     wallet_type: WalletType
     signer_type: SignerType

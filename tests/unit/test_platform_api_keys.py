@@ -1,20 +1,16 @@
 """Platform API Key placement across controlled responses."""
 
 # pyright: reportPrivateUsage=false
-import time
 from typing import Any
 
 import pytest
 import respx
-from _bearer import fake_access_token
 from eth_account import Account
 
 from polymarket import (
-    BearerCredentials,
     PlatformApiKey,
     PublicClient,
     RequestRejectedError,
-    SecureClient,
     UserInputError,
 )
 from polymarket._internal.environment import PRODUCTION_CONFIG
@@ -22,30 +18,7 @@ from polymarket._internal.environment import PRODUCTION_CONFIG
 PRIVATE_KEY = "0x" + "55" * 32
 SIGNER = Account.from_key(PRIVATE_KEY).address
 API = PRODUCTION_CONFIG.predictions_url
-CLOB = PRODUCTION_CONFIG.clob_url
 KEY = PlatformApiKey("pk_test_attribution")
-
-
-def _session() -> BearerCredentials:
-    token = fake_access_token(
-        sub=SIGNER, wallet=SIGNER, clob_api_key="trading-key", exp=int(time.time()) + 900
-    )
-    return BearerCredentials(access_token=token, refresh_token="refresh")
-
-
-def test_order_heartbeats_never_carry_the_key() -> None:
-    # Live tests cover sign-in and account requests; heartbeats are not sent live.
-    with respx.mock(assert_all_called=True) as router:
-        heartbeat = router.post(f"{CLOB}/v1/heartbeats").respond(json={"heartbeat_id": "h"})
-        with SecureClient._create(
-            private_key=PRIVATE_KEY,
-            credentials=_session(),
-            platform_api_key=KEY,
-            validate_credentials=False,
-        ) as client:
-            client.send_order_heartbeat()
-
-    assert "X-API-Key" not in heartbeat.calls.last.request.headers
 
 
 def test_rejections_that_echo_the_key_are_redacted() -> None:

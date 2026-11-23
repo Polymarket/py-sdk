@@ -28,6 +28,7 @@ def _signed_by_builder(
     [
         ("POST", "/v1/orders", "POST", "/order"),
         ("DELETE", "/v1/orders/by-wallet", "DELETE", "/cancel-wallet-orders"),
+        ("POST", "/v1/trading/heartbeats", "POST", "/v1/heartbeats"),
         ("GET", "/v1/me/orders/0xabc%2F1", "GET", "/data/order/0xabc%2F1"),
         # The refresh is sent as a POST but authorized as the original read.
         ("POST", "/v1/me/balance-allowances/refresh", "GET", "/balance-allowance/update"),
@@ -61,6 +62,7 @@ def test_builder_key_signs_the_canonical_operation(
         (BUILDER, "GET", "/v1/combos/builder/requests/rfq-1"),
         # Relayer keys authorize wallet operations only.
         (RELAYER, "POST", "/v1/orders"),
+        (RELAYER, "POST", "/v1/trading/heartbeats"),
         (RELAYER, "POST", "/v1/combos/builder/requests"),
     ],
 )

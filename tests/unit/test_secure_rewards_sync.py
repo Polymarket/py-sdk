@@ -24,15 +24,6 @@ def _capture(captured: list[httpx.Request], status: int, payload: Any) -> httpx.
     return httpx.MockTransport(handler)
 
 
-def _install_secure_clob(client: SecureClient, handler: httpx.MockTransport) -> None:
-    transport = SyncTransport(
-        base_url="https://clob.test",
-        client=httpx.Client(base_url="https://clob.test", transport=handler),
-        header_resolver=client._ctx.secure_clob._header_resolver,
-    )
-    client._ctx = dataclasses.replace(client._ctx, secure_clob=transport)
-
-
 def _install_predictions(client: SecureClient, handler: httpx.MockTransport) -> None:
     transport = SyncTransport(
         base_url="https://api.test",
@@ -172,14 +163,14 @@ def test_order_heartbeats_send_exact_body_and_return_rotated_id() -> None:
 
     with _make_client() as client:
         access_token = client.credentials.access_token
-        _install_secure_clob(client, httpx.MockTransport(handler))
+        _install_predictions(client, httpx.MockTransport(handler))
         heartbeat = client.send_order_heartbeat()
         client.send_order_heartbeat(heartbeat_id=heartbeat.heartbeat_id)
     assert [request.content for request in captured] == [
         b'{"heartbeat_id":""}',
         b'{"heartbeat_id":"next-id"}',
     ]
-    assert [request.url.path for request in captured] == ["/v1/heartbeats"] * 2
+    assert [request.url.path for request in captured] == ["/v1/trading/heartbeats"] * 2
     for request in captured:
         assert request.headers["Authorization"] == f"Bearer {access_token}"
         assert "POLY_SIGNATURE" not in request.headers

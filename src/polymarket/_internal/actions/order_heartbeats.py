@@ -7,7 +7,7 @@ def build_send_order_heartbeat_request(*, heartbeat_id: str = "") -> tuple[str, 
         raise UserInputError(
             "heartbeat_id must be a string; use an empty string for the first send."
         )
-    return "/v1/heartbeats", {"heartbeat_id": heartbeat_id}
+    return "/v1/trading/heartbeats", {"heartbeat_id": heartbeat_id}
 
 
 def parse_order_heartbeat(data: object) -> OrderHeartbeat:
