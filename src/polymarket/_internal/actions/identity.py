@@ -24,7 +24,12 @@ from polymarket.clients._transport import (
     SyncHeaderResolver,
     SyncTransport,
 )
-from polymarket.errors import SigningError, UnexpectedResponseError, UserInputError
+from polymarket.errors import (
+    RequestRejectedError,
+    SigningError,
+    UnexpectedResponseError,
+    UserInputError,
+)
 from polymarket.models.clob import ApiKeyCreds
 from polymarket.types import EvmAddress
 
@@ -381,6 +386,18 @@ def issued_wallet(tokens: IssuedTokens) -> str | None:
     return None if claims is None else claims.wallet
 
 
+def _raise_unusable_wallet(error: RequestRejectedError, *, wallet: str | None) -> None:
+    """Report a wallet the signer cannot use, such as one never deployed, as invalid input.
+
+    The sign-in challenge rejects it before anything is signed.
+    """
+    if wallet is not None and error.code == "wallet_not_authorized":
+        raise UserInputError(
+            f"Wallet {wallet} cannot be used by this signer. Provide an existing wallet "
+            "the signer controls, or omit wallet to use the default Deposit Wallet."
+        ) from error
+
+
 def issue_login_session_sync(
     auth: SyncTransport,
     *,
@@ -390,12 +407,15 @@ def issue_login_session_sync(
     nonce: int,
 ) -> IssuedTokens:
     """Sign the server's ownership challenge for ``signer`` and open a session."""
-    challenge = parse_ownership_challenge(
-        auth.post_json(
+    try:
+        issued_challenge = auth.post_json(
             CHALLENGE_PATH,
             json=build_challenge_request(signer=signer.address, wallet=wallet, nonce=nonce),
         )
-    )
+    except RequestRejectedError as error:
+        _raise_unusable_wallet(error, wallet=wallet)
+        raise
+    challenge = parse_ownership_challenge(issued_challenge)
     signature = sign_ownership_challenge(signer, challenge, chain_id=chain_id)
     return parse_issued_tokens(
         auth.post_json(
@@ -414,12 +434,15 @@ async def issue_login_session(
     nonce: int,
 ) -> IssuedTokens:
     """Sign the server's ownership challenge for ``signer`` and open a session."""
-    challenge = parse_ownership_challenge(
-        await auth.post_json(
+    try:
+        issued_challenge = await auth.post_json(
             CHALLENGE_PATH,
             json=build_challenge_request(signer=signer.address, wallet=wallet, nonce=nonce),
         )
-    )
+    except RequestRejectedError as error:
+        _raise_unusable_wallet(error, wallet=wallet)
+        raise
+    challenge = parse_ownership_challenge(issued_challenge)
     signature = sign_ownership_challenge(signer, challenge, chain_id=chain_id)
     return parse_issued_tokens(
         await auth.post_json(
@@ -501,7 +524,7 @@ async def revoke_session(auth: AsyncTransport, access_token: str) -> None:
     await auth.post(LOGOUT_PATH, headers=build_bearer_headers(access_token))
 
 
-def request_platform_challenge_sync(
+def request_ownership_challenge_sync(
     auth: SyncTransport,
     *,
     signer: str,
@@ -518,7 +541,7 @@ def request_platform_challenge_sync(
     return cast(dict[str, Any], challenge)
 
 
-async def request_platform_challenge(
+async def request_ownership_challenge(
     auth: AsyncTransport,
     *,
     signer: str,
@@ -665,8 +688,8 @@ __all__ = [
     "parse_ownership_challenge",
     "refresh_session",
     "refresh_session_sync",
-    "request_platform_challenge",
-    "request_platform_challenge_sync",
+    "request_ownership_challenge",
+    "request_ownership_challenge_sync",
     "revoke_session",
     "revoke_session_sync",
     "same_session_identity",

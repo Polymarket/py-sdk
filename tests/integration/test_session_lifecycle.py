@@ -1,6 +1,7 @@
 """Session lifecycle against the live authentication service.
 
-Side effects: each test opens its own sessions and revokes them when it ends.
+Side effects: each metered test opens its own sessions and revokes them when it
+ends. The challenge and rejected sign-in tests open no session.
 The migration test creates or derives the signer's API credentials at a
 dedicated nonce and exchanges them; they are never revoked.
 """
@@ -21,6 +22,7 @@ from polymarket import (
     PublicClient,
     RequestRejectedError,
     SecureClient,
+    UserInputError,
 )
 from polymarket._internal.actions import identity
 from polymarket._internal.environment import get_environment_config
@@ -28,6 +30,40 @@ from polymarket._internal.wallet import derive_beacon_deposit_wallet_address
 
 # API credentials the migration test sets up for itself, apart from other keys of the signer.
 _MIGRATION_NONCE = 3
+
+
+@pytest.mark.integration
+def test_ownership_challenge_needs_no_platform_key(
+    integration_environment: Environment,
+) -> None:
+    signer = Account.create().address
+
+    with PublicClient(environment=integration_environment) as client:
+        challenge = client.create_ownership_challenge(signer=signer)
+
+    typed_data = challenge["typedData"]
+    assert typed_data["primaryType"] == "ClobAuth"
+    assert (
+        typed_data["domain"]["chainId"] == get_environment_config(integration_environment).chain_id
+    )
+    assert typed_data["message"]["address"].lower() == signer.lower()
+
+
+@pytest.mark.integration
+def test_sign_in_with_a_wallet_the_signer_cannot_use_is_invalid_input(
+    integration_environment: Environment,
+) -> None:
+    # The challenge rejects the wallet before anything is signed, so no session opens.
+    wallet = Account.create().address
+
+    with (
+        PublicClient(environment=integration_environment) as client,
+        pytest.raises(UserInputError, match="cannot be used by this signer") as error,
+    ):
+        client.login(private_key=Account.create().key.hex(), wallet=wallet)
+
+    assert isinstance(error.value.__cause__, RequestRejectedError)
+    assert error.value.__cause__.code == "wallet_not_authorized"
 
 
 @pytest.mark.integration

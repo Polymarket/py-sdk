@@ -70,7 +70,7 @@ def test_challenge_rejections_do_not_echo_the_key_in_the_code() -> None:
             PublicClient(platform_api_key=KEY) as client,
             pytest.raises(RequestRejectedError) as error,
         ):
-            client.create_platform_challenge(signer=SIGNER)
+            client.create_ownership_challenge(signer=SIGNER)
 
     assert error.value.code is None
     assert KEY.key not in str(error.value)
@@ -94,17 +94,6 @@ def test_untrusted_challenge_input_is_rejected_before_any_request(
         PublicClient(platform_api_key=KEY) as client,
         pytest.raises(UserInputError, match=message),
     ):
-        client.create_platform_challenge(**request_input)
-
-    assert not router.calls
-
-
-def test_platform_challenges_require_a_configured_key() -> None:
-    with (
-        respx.mock(assert_all_called=False) as router,
-        PublicClient() as client,
-        pytest.raises(UserInputError, match="platform_api_key"),
-    ):
-        client.create_platform_challenge(signer=SIGNER)
+        client.create_ownership_challenge(**request_input)
 
     assert not router.calls

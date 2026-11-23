@@ -119,7 +119,7 @@ def test_platform_challenge_is_an_ownership_attestation_for_the_signer(
     with PublicClient(
         environment=integration_environment, platform_api_key=platform_api_key
     ) as client:
-        challenge = client.create_platform_challenge(signer=signer)
+        challenge = client.create_ownership_challenge(signer=signer)
 
     typed_data = challenge["typedData"]
     assert typed_data["primaryType"] == "ClobAuth"
@@ -137,7 +137,7 @@ def test_a_challenge_served_with_the_key_signs_in_a_client_without_it(
     with PublicClient(
         environment=integration_environment, platform_api_key=platform_api_key
     ) as backend:
-        served = backend.create_platform_challenge(signer=signer.address, wallet=signer.address)
+        served = backend.create_ownership_challenge(signer=signer.address, wallet=signer.address)
 
     # The untrusted client signs the served challenge and signs in without the key.
     config = get_environment_config(integration_environment)

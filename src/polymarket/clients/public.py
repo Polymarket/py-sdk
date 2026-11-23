@@ -39,7 +39,7 @@ from polymarket._internal.environment import get_environment_config
 from polymarket.auth import BearerCredentials, PlatformApiKey
 from polymarket.clients._transport import SyncTransport
 from polymarket.environments import PRODUCTION, Environment
-from polymarket.errors import RequestRejectedError, UnexpectedResponseError, UserInputError
+from polymarket.errors import RequestRejectedError, UnexpectedResponseError
 from polymarket.models import (
     ComboMarket,
     Comment,
@@ -544,7 +544,7 @@ class PublicClient:
         """Environment this client sends requests to."""
         return self._ctx.environment
 
-    def create_platform_challenge(
+    def create_ownership_challenge(
         self,
         *,
         signer: str,
@@ -552,26 +552,23 @@ class PublicClient:
         nonce: int = 0,
         verification_token: str | None = None,
     ) -> dict[str, Any]:
-        """Request a sign-in challenge on behalf of another client.
+        """Request the ownership challenge that ``signer`` signs to sign in.
 
-        Use it on a server that holds the Platform API Key to serve sign-in
-        challenges to browsers and other untrusted clients, which sign them
-        and complete sign-in themselves. Check that the caller may sign in as
-        ``signer`` before calling it. Return the challenge to the caller
-        unchanged; it carries no credentials.
+        Use it to serve sign-in challenges to browsers and other untrusted
+        clients, which sign them and complete sign-in themselves. With a
+        Platform API Key, the session they open is attributed to your
+        application. Check that the caller may sign in as ``signer`` before
+        calling it. Return the challenge to the caller unchanged; it carries
+        no credentials.
 
         Raises:
-            UserInputError: If no Platform API Key is configured or an input is invalid.
+            UserInputError: If an input is invalid.
             RequestRejectedError: If the challenge request is rejected.
             RateLimitError: If the challenge request is rate-limited.
             TransportError: If a network request fails.
             UnexpectedResponseError: If the challenge is not a valid sign-in challenge.
         """
-        if self._ctx.platform_api_key is None:
-            raise UserInputError(
-                "Create platform challenges with a client configured with platform_api_key."
-            )
-        return _identity_actions.request_platform_challenge_sync(
+        return _identity_actions.request_ownership_challenge_sync(
             self._ctx.auth,
             signer=_identity_actions.checksum_signer(signer),
             wallet=None if wallet is None else _identity_actions.checksum_wallet(wallet),

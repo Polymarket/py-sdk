@@ -90,7 +90,7 @@ connections use their own authentication only.
 
 Keep the key on the server. To sign in browsers or other untrusted clients,
 serve them challenges from a server route with
-``PublicClient.create_platform_challenge``: check that the caller may sign in as
+``PublicClient.create_ownership_challenge``: check that the caller may sign in as
 the requested signer, then return the challenge unchanged. The caller signs it
 and completes sign-in itself.
 
