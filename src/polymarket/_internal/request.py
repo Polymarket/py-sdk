@@ -2,6 +2,8 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Generic, Literal, TypeVar
 
+from polymarket._internal.retry import RateLimitRetry
+
 Method = Literal["GET"]
 
 QueryParamScalar = str | int | float | bool
@@ -16,6 +18,7 @@ class RequestSpec(Generic[T]):
     path: str
     parse: Callable[[object], T]
     params: Mapping[str, QueryParamValue | None] | None = None
+    retry: RateLimitRetry | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +56,7 @@ class KeysetPaginatedSpec(Generic[T]):
     base_params: Mapping[str, QueryParamValue] | None = None
     cursor_param: str = "after_cursor"
     max_page_size: int | None = None
+    retry: RateLimitRetry | None = None
 
 
 @dataclass(frozen=True, slots=True)

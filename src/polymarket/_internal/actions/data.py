@@ -16,6 +16,7 @@ from polymarket._internal.data_params import (
     to_epoch_seconds,
 )
 from polymarket._internal.request import KeysetPaginatedSpec, RequestSpec
+from polymarket._internal.retry import DATA_READ_RETRY
 from polymarket.errors import UserInputError
 from polymarket.models.data import (
     Activity,
@@ -104,6 +105,7 @@ def list_trades_spec(
         parse_page=lambda payload: parse_data_page(payload, Trade.parse_response_list),
         cursor_param="cursor",
         max_page_size=1000,
+        retry=DATA_READ_RETRY,
     )
 
 
@@ -149,6 +151,7 @@ def list_activity_spec(
         parse_page=lambda payload: parse_data_page(payload, parse_activities),
         cursor_param="cursor",
         max_page_size=1000,
+        retry=DATA_READ_RETRY,
     )
 
 
@@ -165,6 +168,7 @@ def list_combo_activity_spec(
         parse_page=lambda payload: parse_data_page(payload, parse_combo_activities),
         cursor_param="cursor",
         max_page_size=1000,
+        retry=DATA_READ_RETRY,
     )
 
 
@@ -235,6 +239,7 @@ def list_positions_spec(
         parse_page=lambda payload: parse_data_page(payload, Position.parse_response_list),
         cursor_param="cursor",
         max_page_size=1000,
+        retry=DATA_READ_RETRY,
     )
 
 
@@ -281,6 +286,7 @@ def list_combo_positions_spec(
         parse_page=lambda payload: parse_data_page(payload, ComboPosition.parse_response_list),
         cursor_param="cursor",
         max_page_size=1000,
+        retry=DATA_READ_RETRY,
     )
 
 
@@ -296,6 +302,7 @@ def build_get_portfolio_value_spec(
         path="/v1/portfolio/value",
         params=build_data_params({"user": user, "condition_id": condition_ids}),
         parse=lambda payload: parse_data_envelope(payload, PortfolioValue.parse_response),
+        retry=DATA_READ_RETRY,
     )
 
 
@@ -309,6 +316,7 @@ def build_get_user_stats_spec(
         path="/v1/portfolio/stats",
         params=build_data_params({"user": user}),
         parse=lambda payload: parse_optional_data_envelope(payload, UserStats.parse_response),
+        retry=DATA_READ_RETRY,
     )
 
 
@@ -326,6 +334,7 @@ def build_get_user_pnl_spec(
         path="/v1/portfolio/pnl",
         params=build_data_params({"user": user, "interval": interval, "fidelity": fidelity}),
         parse=lambda payload: parse_data_envelope(payload, UserPnlSeries.parse_response),
+        retry=DATA_READ_RETRY,
     )
 
 
@@ -343,6 +352,7 @@ def build_get_user_volume_spec(
         path="/v1/portfolio/volume",
         params=build_data_params({"user": user, "start": start, "end": end}),
         parse=lambda payload: parse_data_envelope(payload, UserVolume.parse_response),
+        retry=DATA_READ_RETRY,
     )
 
 
@@ -366,6 +376,7 @@ def build_list_market_holders_spec(
         parse_page=lambda payload: parse_data_page(payload, MetaHolder.parse_response_list),
         cursor_param="cursor",
         max_page_size=100 if include_pnl else 1000,
+        retry=DATA_READ_RETRY,
     )
 
 
@@ -404,6 +415,7 @@ def build_get_token_references_spec(
         path="/v1/tokens",
         params=params,
         parse=lambda payload: parse_data_envelope(payload, TokenReference.parse_response_list),
+        retry=DATA_READ_RETRY,
     )
 
 
@@ -437,6 +449,7 @@ def get_open_interests_spec(
         path="/v1/markets/open-interest",
         params=build_data_params({"condition_id": condition_ids}),
         parse=lambda payload: parse_data_envelope(payload, OpenInterest.parse_response_list),
+        retry=DATA_READ_RETRY,
     )
 
 
@@ -452,6 +465,7 @@ def build_get_event_live_volume_spec(
         path="/v1/events/live-volume",
         params=build_data_params({"event_id": events}),
         parse=lambda payload: parse_data_envelope(payload, LiveVolume.parse_response),
+        retry=DATA_READ_RETRY,
     )
 
 
@@ -500,6 +514,7 @@ def build_list_price_history_spec(
         parse_page=lambda payload: parse_data_page(payload, PriceHistoryPoint.parse_response_list),
         cursor_param="cursor",
         max_page_size=10000,
+        retry=DATA_READ_RETRY,
     )
 
 
@@ -524,6 +539,7 @@ def build_get_resolutions_spec(
             {"question_id": question_id, "condition_id": condition_ids, "event_id": event_ids}
         ),
         parse=lambda payload: parse_data_envelope(payload, Resolution.parse_response_list),
+        retry=DATA_READ_RETRY,
     )
 
 
@@ -546,6 +562,7 @@ def list_trader_leaderboard_spec(
         ),
         cursor_param="cursor",
         max_page_size=1000,
+        retry=DATA_READ_RETRY,
     )
 
 
@@ -565,6 +582,7 @@ def build_get_trader_leaderboard_standing_spec(
         parse=lambda payload: parse_optional_data_envelope(
             payload, TraderLeaderboardStanding.parse_response
         ),
+        retry=DATA_READ_RETRY,
     )
 
 
@@ -581,6 +599,7 @@ def build_list_biggest_winners_spec(
         parse_page=lambda payload: parse_data_page(payload, parse_biggest_winners),
         cursor_param="cursor",
         max_page_size=1000,
+        retry=DATA_READ_RETRY,
     )
 
 
@@ -595,6 +614,7 @@ def list_builder_leaderboard_spec(
         parse_page=lambda payload: parse_data_page(payload, BuilderStanding.parse_response_list),
         cursor_param="cursor",
         max_page_size=1000,
+        retry=DATA_READ_RETRY,
     )
 
 
@@ -611,6 +631,7 @@ def get_builder_volumes_spec(
         path="/v1/builders/volume",
         params=build_data_params({"interval": interval, "limit": bucket_limit}),
         parse=lambda payload: parse_data_envelope(payload, BuilderVolumePoint.parse_response_list),
+        retry=DATA_READ_RETRY,
     )
 
 

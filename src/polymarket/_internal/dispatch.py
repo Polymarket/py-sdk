@@ -18,6 +18,7 @@ from polymarket._internal.request import (
     QueryParamValue,
     RequestSpec,
 )
+from polymarket._internal.retry import async_run_with_rate_limit_retry, run_with_rate_limit_retry
 from polymarket.errors import PaginationLimitError, UserInputError
 from polymarket.pagination import AsyncPaginator, Page, Paginator
 
@@ -28,7 +29,9 @@ def sync_dispatch(ctx: SyncClientContext, spec: RequestSpec[T]) -> T:
     transport = ctx.predictions
     match spec.method:
         case "GET":
-            payload = transport.get_json(spec.path, params=spec.params)
+            payload = run_with_rate_limit_retry(
+                lambda: transport.get_json(spec.path, params=spec.params), spec.retry
+            )
         case _ as unreachable:
             assert_never(unreachable)
     return spec.parse(payload)
@@ -38,7 +41,9 @@ async def async_dispatch(ctx: AsyncClientContext, spec: RequestSpec[T]) -> T:
     transport = ctx.predictions
     match spec.method:
         case "GET":
-            payload = await transport.get_json(spec.path, params=spec.params)
+            payload = await async_run_with_rate_limit_retry(
+                lambda: transport.get_json(spec.path, params=spec.params), spec.retry
+            )
         case _ as unreachable:
             assert_never(unreachable)
     return spec.parse(payload)
@@ -173,7 +178,9 @@ def sync_paginate_keyset(
         }
         if server_cursor is not None:
             params[spec.cursor_param] = server_cursor
-        payload = transport.get_json(spec.path, params=params)
+        payload = run_with_rate_limit_retry(
+            lambda: transport.get_json(spec.path, params=params), spec.retry
+        )
         keyset_page = spec.parse_page(payload)
         return compute_keyset_page(
             path=spec.path,
@@ -214,7 +221,9 @@ def async_paginate_keyset(
         }
         if server_cursor is not None:
             params[spec.cursor_param] = server_cursor
-        payload = await transport.get_json(spec.path, params=params)
+        payload = await async_run_with_rate_limit_retry(
+            lambda: transport.get_json(spec.path, params=params), spec.retry
+        )
         keyset_page = spec.parse_page(payload)
         return compute_keyset_page(
             path=spec.path,
