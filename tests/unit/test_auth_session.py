@@ -8,9 +8,10 @@ import pytest
 from _bearer import fake_access_token
 
 from polymarket import BearerCredentials
-from polymarket._internal.actions.identity import IssuedTokens
+from polymarket._internal.actions.identity import AccessTokenGrant, IssuedTokens
 from polymarket._internal.auth_session import AsyncAuthSession, SyncAuthSession
 from polymarket.errors import RequestRejectedError, TransportError, UnexpectedResponseError
+from polymarket.types import EvmAddress
 
 SIGNER = "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A"
 WALLET = "0x00000000000000000000000000000000000000aa"
@@ -328,3 +329,144 @@ def test_a_dropped_session_stops_renewing() -> None:
     timers.callbacks[-1]()
 
     assert renewals == []
+
+
+def _unbound_token(clock: FakeClock, lifetime: int = 900) -> str:
+    return fake_access_token(sub=SIGNER, clob_api_key="trading-key", exp=int(clock.now) + lifetime)
+
+
+def _unbound_issued(clock: FakeClock, refresh_token: str = "refresh") -> IssuedTokens:
+    return IssuedTokens(
+        access_token=_unbound_token(clock), refresh_token=refresh_token, expires_in=900
+    )
+
+
+def _bound_grant(clock: FakeClock) -> AccessTokenGrant:
+    return AccessTokenGrant(access_token=_token(clock, 900), expires_in=900)
+
+
+def test_binding_a_wallet_waits_for_a_renewal_in_progress() -> None:
+    clock = FakeClock()
+    started = threading.Event()
+    release = threading.Event()
+    calls: list[str] = []
+
+    def refresh(_: BearerCredentials) -> IssuedTokens:
+        calls.append("refresh")
+        started.set()
+        release.wait(5)
+        # Issued before the binding, so the renewed token carries no wallet.
+        return _unbound_issued(clock)
+
+    def upgrade(_: str) -> AccessTokenGrant:
+        calls.append("upgrade")
+        return _bound_grant(clock)
+
+    session = SyncAuthSession(
+        credentials=BearerCredentials(access_token=_unbound_token(clock), refresh_token="refresh"),
+        expires_in=900,
+        refresh=refresh,
+        clock=clock,
+        timer_factory=RecordedTimers(),
+    )
+    renewal = threading.Thread(target=session.refresh)
+    renewal.start()
+    started.wait(5)
+    binding = threading.Thread(target=lambda: session.bind_wallet(EvmAddress(WALLET), upgrade))
+    binding.start()
+    time.sleep(0.05)
+    release.set()
+    renewal.join(5)
+    binding.join(5)
+
+    assert calls == ["refresh", "upgrade"]
+    assert (session.claims.wallet or "").lower() == WALLET
+    assert session.ready() == session.credentials
+
+
+def test_logout_waits_for_a_renewal_in_progress() -> None:
+    clock = FakeClock()
+    started = threading.Event()
+    release = threading.Event()
+    renewed = _issued(clock)
+    revoked: list[str] = []
+
+    def refresh(_: BearerCredentials) -> IssuedTokens:
+        started.set()
+        release.wait(5)
+        return renewed
+
+    session = SyncAuthSession(
+        credentials=_credentials(clock),
+        expires_in=900,
+        refresh=refresh,
+        clock=clock,
+        timer_factory=RecordedTimers(),
+    )
+    renewal = threading.Thread(target=session.refresh)
+    renewal.start()
+    started.wait(5)
+    logout = threading.Thread(target=lambda: session.logout(revoked.append))
+    logout.start()
+    time.sleep(0.05)
+    release.set()
+    renewal.join(5)
+    logout.join(5)
+
+    assert revoked == [renewed.access_token]
+
+
+def test_async_binding_and_logout_wait_for_a_renewal_in_progress() -> None:
+    clock = FakeClock()
+    calls: list[str] = []
+    revoked: list[str] = []
+
+    async def run() -> None:
+        release = asyncio.Event()
+
+        async def refresh(_: BearerCredentials) -> IssuedTokens:
+            # The server issues the token when the request arrives, bound only if
+            # the wallet was already bound.
+            bound = "upgrade" in calls
+            calls.append("refresh")
+            await release.wait()
+            return _issued(clock) if bound else _unbound_issued(clock)
+
+        async def upgrade(_: str) -> AccessTokenGrant:
+            calls.append("upgrade")
+            return _bound_grant(clock)
+
+        async def revoke(access_token: str) -> None:
+            revoked.append(access_token)
+
+        session = AsyncAuthSession(
+            credentials=BearerCredentials(
+                access_token=_unbound_token(clock), refresh_token="refresh"
+            ),
+            expires_in=900,
+            refresh=refresh,
+            clock=clock,
+        )
+        renewal = asyncio.create_task(session.refresh())
+        await asyncio.sleep(0)
+        binding = asyncio.create_task(session.bind_wallet(EvmAddress(WALLET), upgrade))
+        await asyncio.sleep(0.01)
+        release.set()
+        await renewal
+        await binding
+
+        assert calls == ["refresh", "upgrade"]
+        assert (session.claims.wallet or "").lower() == WALLET
+        assert session.failure is None
+
+        release.clear()
+        renewal = asyncio.create_task(session.refresh())
+        await asyncio.sleep(0)
+        logout = asyncio.create_task(session.logout(revoke))
+        await asyncio.sleep(0.01)
+        release.set()
+        renewed = await renewal
+        await logout
+        assert revoked == [renewed.access_token]
+
+    asyncio.run(run())

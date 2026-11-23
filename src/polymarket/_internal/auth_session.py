@@ -308,27 +308,56 @@ class SyncAuthSession:
         return future.result()
 
     def bind_wallet(self, wallet: EvmAddress, upgrade: Callable[[str], AccessTokenGrant]) -> None:
-        """Bind ``wallet`` to a session without a wallet and adopt the bound access token."""
-        with self._lock:
-            self._state.assert_active()
-            access_token = self._state.credentials.access_token
-        grant = upgrade(access_token)
-        with self._lock:
-            self._state.assert_active()
-            self._state.adopt_wallet_binding(grant, wallet)
-            self._schedule_locked()
-            credentials = self._state.credentials
+        """Bind ``wallet`` to a session without a wallet and adopt the bound access token.
+
+        A renewal in progress finishes first, and renewals wait while binding runs,
+        so a token renewed without the wallet never replaces the bound one.
+        """
+        self.ready()
+        binding = Future[BearerCredentials]()
+        while True:
+            with self._lock:
+                self._state.assert_active()
+                pending = self._refreshing
+                if pending is None:
+                    self._refreshing = binding
+                    self._cancel_timer_locked()
+                    access_token = self._state.credentials.access_token
+                    break
+            with contextlib.suppress(Exception):
+                pending.result()
+        try:
+            grant = upgrade(access_token)
+            with self._lock:
+                self._state.assert_active()
+                self._state.adopt_wallet_binding(grant, wallet)
+        finally:
+            with self._lock:
+                if self._refreshing is binding:
+                    self._refreshing = None
+                self._schedule_locked()
+                credentials = self._state.credentials
+            # Renewals that waited on the binding continue with the current credentials.
+            binding.set_result(credentials)
         self._notify(credentials)
 
     def logout(self, revoke: Callable[[str], None]) -> None:
         """Revoke the session. Tokens renewed for revocation are never adopted or reported."""
-        with self._lock:
-            credentials = self._state.credentials
-            identity = self._state.claims
-            expired = self._state.remaining() <= 0
+        # A renewal in progress finishes first, so its refresh token is not reused.
         # Stop ordinary renewal before acquiring any token needed solely for revocation.
         # A cached renewal failure does not prevent revocation with a valid access token.
-        self.close()
+        while True:
+            with self._lock:
+                pending = self._refreshing
+                if pending is None:
+                    credentials = self._state.credentials
+                    identity = self._state.claims
+                    expired = self._state.remaining() <= 0
+                    self._close_locked()
+                    break
+            with contextlib.suppress(Exception):
+                pending.result()
+        self._stopped.set()
         if expired:
             credentials = _renewal_for_revocation(identity, self._refresh(credentials))
         try:
@@ -342,10 +371,13 @@ class SyncAuthSession:
 
     def close(self) -> None:
         with self._lock:
-            self._state.closed = True
-            self._state.retries = 0
-            self._cancel_timer_locked()
+            self._close_locked()
         self._stopped.set()
+
+    def _close_locked(self) -> None:
+        self._state.closed = True
+        self._state.retries = 0
+        self._cancel_timer_locked()
 
     def _run_renewal(self, future: Future[BearerCredentials]) -> None:
         try:
@@ -448,7 +480,7 @@ class AsyncAuthSession:
         self._on_credentials_changed = on_credentials_changed
         self._logger = logger or _LOGGER
         self._stopped = asyncio.Event()
-        self._refreshing: asyncio.Task[BearerCredentials] | None = None
+        self._refreshing: asyncio.Future[BearerCredentials] | None = None
         self._timer: asyncio.TimerHandle | None = None
         self._background: set[asyncio.Task[None]] = set()
         self._change_listeners: list[Callable[[BearerCredentials], None]] = []
@@ -533,16 +565,37 @@ class AsyncAuthSession:
     async def bind_wallet(
         self, wallet: EvmAddress, upgrade: Callable[[str], Awaitable[AccessTokenGrant]]
     ) -> None:
-        """Bind ``wallet`` to a session without a wallet and adopt the bound access token."""
+        """Bind ``wallet`` to a session without a wallet and adopt the bound access token.
+
+        A renewal in progress finishes first, and renewals wait while binding runs,
+        so a token renewed without the wallet never replaces the bound one.
+        """
+        await self.ready()
+        while (pending := self._refreshing) is not None:
+            with contextlib.suppress(Exception):
+                await asyncio.shield(pending)
         self._state.assert_active()
-        grant = await upgrade(self._state.credentials.access_token)
-        self._state.assert_active()
-        self._state.adopt_wallet_binding(grant, wallet)
-        self._schedule()
+        binding = asyncio.get_running_loop().create_future()
+        self._refreshing = binding
+        self._cancel_timer()
+        try:
+            grant = await upgrade(self._state.credentials.access_token)
+            self._state.assert_active()
+            self._state.adopt_wallet_binding(grant, wallet)
+        finally:
+            if self._refreshing is binding:
+                self._refreshing = None
+            self._schedule()
+            # Renewals that waited on the binding continue with the current credentials.
+            binding.set_result(self._state.credentials)
         self._notify(self._state.credentials)
 
     async def logout(self, revoke: Callable[[str], Awaitable[None]]) -> None:
         """Revoke the session. Tokens renewed for revocation are never adopted or reported."""
+        # A renewal in progress finishes first, so its refresh token is not reused.
+        while (pending := self._refreshing) is not None:
+            with contextlib.suppress(Exception):
+                await asyncio.shield(pending)
         credentials = self._state.credentials
         identity = self._state.claims
         expired = self._state.remaining() <= 0
