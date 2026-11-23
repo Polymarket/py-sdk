@@ -115,7 +115,10 @@ async def test_session_key_wallet_orders_are_read_and_cancelled_by_owner(
 
         # Credential-scoped listing excludes the session signer's order.
         credential_scoped = [
-            order async for order in owner.list_open_orders(asset_id=asset_id).iter_items()
+            order
+            async for order in owner.list_open_orders(
+                asset_id=asset_id, market=tradable_market.condition_id
+            ).iter_items()
         ]
         assert session_order_id not in {order.id for order in credential_scoped}
 

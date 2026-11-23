@@ -9,6 +9,7 @@ from _environment import (
     INTEGRATION_ENVIRONMENT_CONFIG_ENV_VAR,
     load_integration_environment,
 )
+from _sign_in_gate import install_sign_in_gate
 from dotenv import load_dotenv
 
 from polymarket import (
@@ -47,6 +48,13 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     skip_metered = pytest.mark.skip(reason=_METERED_SKIP_REASON)
     for item in metered_items:
         item.add_marker(skip_metered)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def sign_in_gate() -> Iterator[None]:
+    """Space out back-to-back sign-ins for the shared test signer."""
+    with install_sign_in_gate():
+        yield
 
 
 @pytest.fixture
