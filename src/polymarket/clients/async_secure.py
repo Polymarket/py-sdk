@@ -850,8 +850,10 @@ class AsyncSecureClient:
                 Saved session credentials that are bound to a wallet keep it.
             credentials: Saved session or API credentials. Credentials that no longer
                 work raise instead of signing in again.
-            api_key: Optional key for gasless wallet and relayed transaction workflows.
-                A builder key also attributes order, cancellation, and account requests.
+            api_key: Optional builder or relayer key. The session already authorizes
+                gasless transactions, collateral return, and session-key changes; the
+                key adds its own authentication to them. A builder key also attributes
+                order, cancellation, and account requests.
             platform_api_key: Optional Platform API Key that attributes sign-in and
                 requests to your application. Keep it on the server.
             nonce: Sign-in nonce. Cannot be combined with ``credentials``.
@@ -1268,8 +1270,6 @@ class AsyncSecureClient:
 
         The SDK receives only the public address. The application remains
         responsible for generating, storing, and protecting the private key.
-        Requires a ``BuilderApiKey`` or ``RelayerApiKey`` passed as ``api_key=``
-        when constructing the client. Account credentials alone are insufficient.
         Scope names are normalized to uppercase. Unknown names remain usable
         before this SDK enumerates them. When scopes are omitted,
         authorization defaults to ``ALL``.
@@ -1317,8 +1317,6 @@ class AsyncSecureClient:
         """Revoke a session key authorized for the Deposit Wallet.
 
         Returns once the key is absent from the active-key registry and unusable.
-        Requires a ``BuilderApiKey`` or ``RelayerApiKey`` passed as ``api_key=``
-        when constructing the client.
 
         Raises:
             UserInputError: If the client or revocation input is invalid.

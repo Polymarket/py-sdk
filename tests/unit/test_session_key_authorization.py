@@ -689,18 +689,6 @@ def test_authorize_session_key_rejects_invalid_scope_combinations() -> None:
         client.close()
 
 
-def test_authorize_session_key_requires_gasless_api_key() -> None:
-    with make_sync_deposit_client() as client:
-        client._ctx = dataclasses.replace(client._ctx, api_key=None)
-        with pytest.raises(
-            UserInputError,
-            match="Session-key management requires api_key=",
-        ):
-            client.authorize_session_key(
-                address=_SESSION_ADDRESS,
-            )
-
-
 def test_authorize_session_key_accepts_relayer_api_key() -> None:
     relayer_api_key = RelayerApiKey(
         key="relayer-key",
@@ -718,16 +706,6 @@ def test_authorize_session_key_accepts_relayer_api_key() -> None:
         )
 
     assert authorization.transaction.transaction_hash == _TRANSACTION_HASH
-
-
-def test_revoke_session_key_requires_gasless_api_key() -> None:
-    with make_sync_deposit_client() as client:
-        client._ctx = dataclasses.replace(client._ctx, api_key=None)
-        with pytest.raises(
-            UserInputError,
-            match="Session-key management requires api_key=",
-        ):
-            client.revoke_session_key(address=_SESSION_ADDRESS)
 
 
 @pytest.mark.parametrize("status", ("FAILED", "SUPERSEDED", "REPAIR_REQUIRED"))

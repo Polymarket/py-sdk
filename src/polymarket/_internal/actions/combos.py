@@ -28,11 +28,6 @@ _PLAN_PATH = "/v1/wallets/collateral-return/plan"
 _SUBMIT_PATH = "/v1/wallets/collateral-return/submit"
 _METADATA = "Collateral return"
 
-_MISSING_API_KEY_MESSAGE = (
-    "Collateral return execution requires a Builder API Key or Relayer API Key. "
-    "Pass api_key= when constructing the client."
-)
-
 
 async def plan_collateral_return(ctx: AsyncSecureClientContext) -> CollateralReturnPlanResponse:
     _require_supported_wallet_type(ctx.wallet_type)
@@ -53,8 +48,6 @@ def plan_collateral_return_sync(ctx: SyncSecureClientContext) -> CollateralRetur
 async def execute_collateral_return_plan(
     ctx: AsyncSecureClientContext, *, plan: CollateralReturnPlanResponse
 ) -> GaslessTransactionHandle:
-    if ctx.api_key is None:
-        raise UserInputError(_MISSING_API_KEY_MESSAGE)
     _require_supported_wallet_type(ctx.wallet_type)
     _require_plan_matches_client(plan, wallet=ctx.wallet, chain_id=ctx.environment_config.chain_id)
 
@@ -67,8 +60,6 @@ async def execute_collateral_return_plan(
 def execute_collateral_return_plan_sync(
     ctx: SyncSecureClientContext, *, plan: CollateralReturnPlanResponse
 ) -> SyncGaslessTransactionHandle:
-    if ctx.api_key is None:
-        raise UserInputError(_MISSING_API_KEY_MESSAGE)
     _require_supported_wallet_type(ctx.wallet_type)
     _require_plan_matches_client(plan, wallet=ctx.wallet, chain_id=ctx.environment_config.chain_id)
 

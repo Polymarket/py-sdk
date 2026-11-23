@@ -65,11 +65,6 @@ async def prepare_gasless_transaction(
     calls: list[TransactionCall],
     metadata: str = "",
 ) -> GaslessTransactionHandle:
-    if ctx.api_key is None:
-        raise UserInputError(
-            "Gasless transactions require a Builder API Key or Relayer API Key. "
-            "Pass api_key= when constructing the client."
-        )
     if ctx.wallet_type == "EOA":
         raise UserInputError(
             "EOA wallets do not use the relayer in this SDK version. "
@@ -414,11 +409,6 @@ async def submit_deposit_wallet_create(
     *,
     metadata: str = "",
 ) -> GaslessTransactionHandle:
-    if ctx.api_key is None:
-        raise UserInputError(
-            "Gasless transactions require a Builder API Key or Relayer API Key. "
-            "Pass api_key= when constructing the client."
-        )
     if len(metadata) > _METADATA_MAX_LENGTH:
         raise UserInputError(f"metadata must be at most {_METADATA_MAX_LENGTH} characters")
     payload = RelayerEnvelope(
@@ -445,11 +435,6 @@ def prepare_gasless_transaction_sync(
     calls: list[TransactionCall],
     metadata: str = "",
 ) -> SyncGaslessTransactionHandle:
-    if ctx.api_key is None:
-        raise UserInputError(
-            "Gasless transactions require a Builder API Key or Relayer API Key. "
-            "Pass api_key= when constructing the client."
-        )
     if ctx.wallet_type == "EOA":
         raise UserInputError(
             "EOA wallets do not use the relayer in this SDK version. "
@@ -682,11 +667,6 @@ def submit_deposit_wallet_create_sync(
     *,
     metadata: str = "",
 ) -> SyncGaslessTransactionHandle:
-    if ctx.api_key is None:
-        raise UserInputError(
-            "Gasless transactions require a Builder API Key or Relayer API Key. "
-            "Pass api_key= when constructing the client."
-        )
     if len(metadata) > _METADATA_MAX_LENGTH:
         raise UserInputError(f"metadata must be at most {_METADATA_MAX_LENGTH} characters")
     payload = RelayerEnvelope(

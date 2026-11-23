@@ -94,8 +94,9 @@ serve them challenges from a server route with
 the requested signer, then return the challenge unchanged. The caller signs it
 and completes sign-in itself.
 
-A Platform API Key does not authorize gasless wallet operations. Those still
-need a builder or relayer key passed as ``api_key``.
+Gasless wallet operations run on the session alone, with or without a
+Platform API Key. A builder or relayer key passed as ``api_key`` adds its own
+authentication to them.
 
 .. autoclass:: polymarket.PlatformApiKey
 

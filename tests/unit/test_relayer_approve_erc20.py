@@ -30,31 +30,6 @@ from polymarket.errors import UserInputError
 from polymarket.transactions import TransactionHandle
 
 
-def test_approve_erc20_rejects_when_no_api_key() -> None:
-    from eth_account import Account
-
-    from polymarket._internal.wallet import derive_uups_deposit_wallet_address
-
-    async def run() -> None:
-        signer = Account.from_key(PK_DEPLOY_WALLET)
-        wallet = derive_uups_deposit_wallet_address(
-            signer.address, PRODUCTION_CONFIG.wallet_derivation
-        )
-        client = await AsyncSecureClient._create(
-            private_key=PK_DEPLOY_WALLET,
-            wallet=wallet,
-            credentials=bearer_credentials_for(PK_DEPLOY_WALLET),
-            validate_credentials=False,
-        )
-        try:
-            with pytest.raises(UserInputError, match="Builder API Key or Relayer API Key"):
-                await client.approve_erc20(token_address=TOKEN, spender_address=SPENDER, amount=1)
-        finally:
-            await client.close()
-
-    asyncio.run(run())
-
-
 def test_approve_erc20_rejects_invalid_amount() -> None:
     async def run() -> None:
         client = await make_deposit_client()

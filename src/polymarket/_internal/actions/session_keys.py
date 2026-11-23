@@ -196,7 +196,6 @@ async def authorize_session_key(
     idempotency_key: str | None,
 ) -> AuthorizeSessionKeyResult:
     _assert_owner_deposit_wallet(ctx)
-    _require_gasless_api_key(ctx)
     request = _parse_authorize_session_key_request(
         address=address,
         scopes=scopes,
@@ -240,7 +239,6 @@ def authorize_session_key_sync(
     idempotency_key: str | None,
 ) -> AuthorizeSessionKeyResult:
     _assert_owner_deposit_wallet(ctx)
-    _require_gasless_api_key(ctx)
     request = _parse_authorize_session_key_request(
         address=address,
         scopes=scopes,
@@ -283,7 +281,6 @@ async def revoke_session_key(
     idempotency_key: str | None,
 ) -> None:
     _assert_owner_deposit_wallet(ctx)
-    _require_gasless_api_key(ctx)
     request = _parse_revoke_session_key_request(
         address=address,
         idempotency_key=idempotency_key,
@@ -314,7 +311,6 @@ def revoke_session_key_sync(
     idempotency_key: str | None,
 ) -> None:
     _assert_owner_deposit_wallet(ctx)
-    _require_gasless_api_key(ctx)
     request = _parse_revoke_session_key_request(
         address=address,
         idempotency_key=idempotency_key,
@@ -426,14 +422,6 @@ def _assert_owner_deposit_wallet(ctx: _SecureContext) -> None:
         raise UserInputError("Session keys can only be managed for a Deposit Wallet.")
     if ctx.signer_type != "OWNER":
         raise UserInputError("Session keys can only be managed by the Deposit Wallet owner.")
-
-
-def _require_gasless_api_key(ctx: _SecureContext) -> None:
-    if ctx.api_key is None:
-        raise UserInputError(
-            "Session-key management requires api_key=BuilderApiKey(...) or "
-            "api_key=RelayerApiKey(...)."
-        )
 
 
 def _assert_authorization_accepted(status: _AuthorizeSessionSignerStatus) -> None:
