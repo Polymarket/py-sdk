@@ -59,7 +59,6 @@ _CLOB_AUTH_FIELDS = (
     {"name": "message", "type": "string"},
 )
 _MAX_NONCE = 2**32 - 1
-_MAX_VERIFICATION_TOKEN_LENGTH = 2048
 # Session renewal and logout use session credentials only.
 _SESSION_ONLY_PATHS = frozenset({REFRESH_PATH, LOGOUT_PATH})
 
@@ -123,16 +122,7 @@ def checksum_wallet(wallet: str) -> EvmAddress:
         raise UserInputError(f"Invalid wallet address: {error}") from error
 
 
-def checksum_signer(signer: str) -> EvmAddress:
-    try:
-        return EvmAddress(to_checksum_address(signer))
-    except (ValueError, TypeError) as error:
-        raise UserInputError(f"Invalid signer address: {error}") from error
-
-
-def build_challenge_request(
-    *, signer: str, wallet: str | None, nonce: int, verification_token: str | None = None
-) -> dict[str, object]:
+def build_challenge_request(*, signer: str, wallet: str | None, nonce: int) -> dict[str, object]:
     if not _is_int(nonce) or not 0 <= nonce <= _MAX_NONCE:
         raise UserInputError(f"nonce must be an integer between 0 and {_MAX_NONCE}")
     body: dict[str, object] = {"signer": signer}
@@ -140,15 +130,6 @@ def build_challenge_request(
         body["wallet"] = wallet
     if nonce != 0:
         body["nonce"] = nonce
-    if verification_token is not None:
-        if (
-            not isinstance(verification_token, str)  # pyright: ignore[reportUnnecessaryIsInstance]
-            or not 0 < len(verification_token) <= _MAX_VERIFICATION_TOKEN_LENGTH
-        ):
-            raise UserInputError(
-                f"verification_token must be 1 to {_MAX_VERIFICATION_TOKEN_LENGTH} characters"
-            )
-        body["verification_token"] = verification_token
     return body
 
 
@@ -524,40 +505,6 @@ async def revoke_session(auth: AsyncTransport, access_token: str) -> None:
     await auth.post(LOGOUT_PATH, headers=build_bearer_headers(access_token))
 
 
-def request_ownership_challenge_sync(
-    auth: SyncTransport,
-    *,
-    signer: str,
-    wallet: str | None,
-    nonce: int,
-    verification_token: str | None,
-) -> dict[str, Any]:
-    """Request an ownership challenge and return it exactly as issued."""
-    body = build_challenge_request(
-        signer=signer, wallet=wallet, nonce=nonce, verification_token=verification_token
-    )
-    challenge = auth.post_json(CHALLENGE_PATH, json=body)
-    parse_ownership_challenge(challenge)
-    return cast(dict[str, Any], challenge)
-
-
-async def request_ownership_challenge(
-    auth: AsyncTransport,
-    *,
-    signer: str,
-    wallet: str | None,
-    nonce: int,
-    verification_token: str | None,
-) -> dict[str, Any]:
-    """Request an ownership challenge and return it exactly as issued."""
-    body = build_challenge_request(
-        signer=signer, wallet=wallet, nonce=nonce, verification_token=verification_token
-    )
-    challenge = await auth.post_json(CHALLENGE_PATH, json=body)
-    parse_ownership_challenge(challenge)
-    return cast(dict[str, Any], challenge)
-
-
 def _decode_claims(access_token: str) -> AccessTokenClaims | None:
     parts = access_token.split(".")
     if len(parts) < 2:
@@ -688,8 +635,6 @@ __all__ = [
     "parse_ownership_challenge",
     "refresh_session",
     "refresh_session_sync",
-    "request_ownership_challenge",
-    "request_ownership_challenge_sync",
     "revoke_session",
     "revoke_session_sync",
     "same_session_identity",

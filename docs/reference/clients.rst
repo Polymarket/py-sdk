@@ -88,11 +88,7 @@ connections use their own authentication only.
        platform_api_key=PlatformApiKey(os.environ["POLYMARKET_PLATFORM_API_KEY"]),
    )
 
-Keep the key on the server. To sign in browsers or other untrusted clients,
-serve them challenges from a server route with
-``PublicClient.create_ownership_challenge``: check that the caller may sign in as
-the requested signer, then return the challenge unchanged. The caller signs it
-and completes sign-in itself.
+Keep the key on the server.
 
 Gasless wallet operations run on the session alone, with or without a
 Platform API Key. A builder or relayer key passed as ``api_key`` adds its own
