@@ -6,7 +6,11 @@ import asyncio
 import contextlib
 from collections.abc import Awaitable, Callable
 
-from polymarket._internal.auth_session import RENEWAL_LEAD_SECONDS, AsyncAuthSession
+from polymarket._internal.auth_session import (
+    RENEWAL_LEAD_SECONDS,
+    AsyncAuthSession,
+    is_transient_renewal_failure,
+)
 from polymarket.auth import BearerCredentials
 from polymarket.errors import RequestRejectedError, TransportError
 
@@ -43,8 +47,17 @@ class SocketAuthentication:
         self._unfail: Callable[[], None] | None = None
 
     async def prepare(self) -> BearerCredentials:
-        """Return credentials for a new connection, waiting for a due renewal."""
-        return await self._session.ready()
+        """Return credentials for a new connection, waiting for a due renewal.
+
+        A renewal that fails only for now raises ``TransportError``, so the owner
+        reconnects later instead of treating the session as rejected.
+        """
+        try:
+            return await self._session.ready()
+        except Exception as error:
+            if self._session.failure is None and is_transient_renewal_failure(error):
+                raise TransportError("Session renewal is temporarily unavailable.") from error
+            raise
 
     def accepted(self, access_token: str) -> None:
         """Record that the server acknowledged ``access_token`` on this connection."""
