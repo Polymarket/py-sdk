@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.0.0-rc1](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.20.1...polymarket-client-v1.0.0-rc1) (2026-11-24)
+
+
+### Features
+
+* **client:** request combo quotes on the session ([74fe259](https://github.com/Polymarket/py-sdk/commit/74fe2596444c66e0c8a455c76a4c64855753b60b))
+* **client:** restore create_ownership_challenge with signer_address ([76fc8fd](https://github.com/Polymarket/py-sdk/commit/76fc8fd2fd0f27fc62f9e02db57b8c8351f4c428))
+* **client:** run gasless actions on the session alone ([f7617e0](https://github.com/Polymarket/py-sdk/commit/f7617e068d37237f0750bfd68b810c982039d8a8))
+* **client:** send order heartbeats through the API endpoint ([241bd0f](https://github.com/Polymarket/py-sdk/commit/241bd0fa24e9f131fece0d87c1cac1e5fec945ad))
+* **client:** serve ownership challenges without a Platform API Key ([5ed6d9b](https://github.com/Polymarket/py-sdk/commit/5ed6d9b605f029269992b363871415f9c67411c0))
+
+
+### Bug Fixes
+
+* **client:** keep realtime and RFQ connections through a temporary renewal failure ([ce60c53](https://github.com/Polymarket/py-sdk/commit/ce60c538671161dac6ed5578d7ed885f9c96bb11))
+* **client:** keep the upgraded session open when the original client closes ([636d545](https://github.com/Polymarket/py-sdk/commit/636d5456584ec3ae3424b6a0ba80af4050f25b89))
+* **client:** resume market clarification cursors saved by earlier releases ([24f25a2](https://github.com/Polymarket/py-sdk/commit/24f25a2b8aa6a44e10364c942d72be9b97e34657))
+* **client:** retry rate-limited reads as before ([148d09c](https://github.com/Polymarket/py-sdk/commit/148d09c0b0051f5c6607cf374c49af059992b3bf))
+* **client:** split eth_call batches into requests of at most 10 ([9c8f3b9](https://github.com/Polymarket/py-sdk/commit/9c8f3b9855e253745d46067a4a7c24a51019bff4))
+* **client:** wait for a renewal in progress before binding a wallet or logging out ([ca5c3cd](https://github.com/Polymarket/py-sdk/commit/ca5c3cdb2d7a2cf392527b8c8fbfa50139d00a2f))
+
+
+### Documentation
+
+* **client:** mark session credential surfaces as experimental ([a7bff71](https://github.com/Polymarket/py-sdk/commit/a7bff71efbf77d6e1a2624079723caa0e08164f1))
+
 ## [0.20.1](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.20.0...polymarket-client-v0.20.1) (2026-11-20)
 
 
