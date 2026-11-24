@@ -122,6 +122,13 @@ def checksum_wallet(wallet: str) -> EvmAddress:
         raise UserInputError(f"Invalid wallet address: {error}") from error
 
 
+def checksum_signer_address(signer_address: str) -> EvmAddress:
+    try:
+        return EvmAddress(to_checksum_address(signer_address))
+    except (ValueError, TypeError) as error:
+        raise UserInputError(f"Invalid signer_address: {error}") from error
+
+
 def build_challenge_request(*, signer: str, wallet: str | None, nonce: int) -> dict[str, object]:
     if not _is_int(nonce) or not 0 <= nonce <= _MAX_NONCE:
         raise UserInputError(f"nonce must be an integer between 0 and {_MAX_NONCE}")
@@ -505,6 +512,34 @@ async def revoke_session(auth: AsyncTransport, access_token: str) -> None:
     await auth.post(LOGOUT_PATH, headers=build_bearer_headers(access_token))
 
 
+def request_ownership_challenge_sync(
+    auth: SyncTransport,
+    *,
+    signer: str,
+    wallet: str | None,
+    nonce: int,
+) -> dict[str, Any]:
+    """Request an ownership challenge and return it exactly as issued."""
+    body = build_challenge_request(signer=signer, wallet=wallet, nonce=nonce)
+    challenge = auth.post_json(CHALLENGE_PATH, json=body)
+    parse_ownership_challenge(challenge)
+    return cast(dict[str, Any], challenge)
+
+
+async def request_ownership_challenge(
+    auth: AsyncTransport,
+    *,
+    signer: str,
+    wallet: str | None,
+    nonce: int,
+) -> dict[str, Any]:
+    """Request an ownership challenge and return it exactly as issued."""
+    body = build_challenge_request(signer=signer, wallet=wallet, nonce=nonce)
+    challenge = await auth.post_json(CHALLENGE_PATH, json=body)
+    parse_ownership_challenge(challenge)
+    return cast(dict[str, Any], challenge)
+
+
 def _decode_claims(access_token: str) -> AccessTokenClaims | None:
     parts = access_token.split(".")
     if len(parts) < 2:
@@ -635,6 +670,8 @@ __all__ = [
     "parse_ownership_challenge",
     "refresh_session",
     "refresh_session_sync",
+    "request_ownership_challenge",
+    "request_ownership_challenge_sync",
     "revoke_session",
     "revoke_session_sync",
     "same_session_identity",

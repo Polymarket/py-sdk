@@ -11,14 +11,19 @@ from dataclasses import dataclass
 
 import httpx
 import pytest
+from eth_account import Account
 
 from polymarket import (
     AsyncSecureClient,
     BuilderApiKey,
     Environment,
     PlatformApiKey,
+    PublicClient,
 )
+from polymarket._internal.actions import identity
 from polymarket._internal.actions.identity import parse_access_token_claims
+from polymarket._internal.environment import get_environment_config
+from polymarket.clients._transport import SyncTransport
 
 
 @dataclass(frozen=True)
@@ -101,3 +106,59 @@ def test_platform_key_attributes_sign_in_and_requests_but_not_session_upkeep(
     assert key_for("/v1/tags") == {platform_api_key.key}
     # The session is bound to the application identity of the key.
     assert isinstance(client_id, str)
+
+
+@pytest.mark.integration
+def test_platform_challenge_is_an_ownership_attestation_for_the_signer(
+    deposit_wallet_private_key: str,
+    platform_api_key: PlatformApiKey,
+    integration_environment: Environment,
+) -> None:
+    signer = Account.from_key(deposit_wallet_private_key).address
+
+    with PublicClient(
+        environment=integration_environment, platform_api_key=platform_api_key
+    ) as client:
+        challenge = client.create_ownership_challenge(signer_address=signer)
+
+    typed_data = challenge["typedData"]
+    assert typed_data["primaryType"] == "ClobAuth"
+    assert typed_data["message"]["address"].lower() == signer.lower()
+
+
+@pytest.mark.integration
+@pytest.mark.metered
+def test_a_challenge_served_with_the_key_signs_in_a_client_without_it(
+    platform_api_key: PlatformApiKey,
+    integration_environment: Environment,
+) -> None:
+    # A fresh account keeps this sign-in independent of other sessions for the test wallet.
+    signer = identity.signer_from_private_key(Account.create().key.hex())
+    with PublicClient(
+        environment=integration_environment, platform_api_key=platform_api_key
+    ) as backend:
+        served = backend.create_ownership_challenge(
+            signer_address=signer.address, wallet=signer.address
+        )
+
+    # The untrusted client signs the served challenge and signs in without the key.
+    config = get_environment_config(integration_environment)
+    challenge = identity.parse_ownership_challenge(served)
+    signature = identity.sign_ownership_challenge(signer, challenge, chain_id=config.chain_id)
+    untrusted = SyncTransport(base_url=config.predictions_url)
+    try:
+        issued = identity.parse_issued_tokens(
+            untrusted.post_json(
+                identity.LOGIN_PATH,
+                json=identity.build_login_request(
+                    challenge_id=challenge.challenge_id, signature=signature
+                ),
+            )
+        )
+        try:
+            assert identity.issued_for(issued, signer=signer.address, wallet=signer.address)
+            assert parse_access_token_claims(issued.access_token).client_id is not None
+        finally:
+            identity.revoke_session_sync(untrusted, issued.access_token)
+    finally:
+        untrusted.close()

@@ -605,6 +605,36 @@ class AsyncPublicClient:
         """Environment this client sends requests to."""
         return self._ctx.environment
 
+    async def create_ownership_challenge(
+        self,
+        *,
+        signer_address: str,
+        wallet: str | None = None,
+        nonce: int = 0,
+    ) -> dict[str, Any]:
+        """Request the ownership challenge that ``signer_address`` signs to sign in.
+
+        Use it to serve sign-in challenges to browsers and other untrusted
+        clients, which sign them and complete sign-in themselves. With a
+        Platform API Key, the session they open is attributed to your
+        application. Check that the caller may sign in as ``signer_address`` before
+        calling it. Return the challenge to the caller unchanged; it carries
+        no credentials.
+
+        Raises:
+            UserInputError: If an input is invalid.
+            RequestRejectedError: If the challenge request is rejected.
+            RateLimitError: If the challenge request is rate-limited.
+            TransportError: If a network request fails.
+            UnexpectedResponseError: If the challenge is not a valid sign-in challenge.
+        """
+        return await _identity_actions.request_ownership_challenge(
+            self._ctx.auth,
+            signer=_identity_actions.checksum_signer_address(signer_address),
+            wallet=None if wallet is None else _identity_actions.checksum_wallet(wallet),
+            nonce=nonce,
+        )
+
     async def login(
         self, *, private_key: str, wallet: str | None = None, nonce: int = 0
     ) -> BearerCredentials:

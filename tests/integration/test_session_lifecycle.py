@@ -33,6 +33,23 @@ _MIGRATION_NONCE = 3
 
 
 @pytest.mark.integration
+def test_ownership_challenge_needs_no_platform_key(
+    integration_environment: Environment,
+) -> None:
+    signer = Account.create().address
+
+    with PublicClient(environment=integration_environment) as client:
+        challenge = client.create_ownership_challenge(signer_address=signer)
+
+    typed_data = challenge["typedData"]
+    assert typed_data["primaryType"] == "ClobAuth"
+    assert (
+        typed_data["domain"]["chainId"] == get_environment_config(integration_environment).chain_id
+    )
+    assert typed_data["message"]["address"].lower() == signer.lower()
+
+
+@pytest.mark.integration
 def test_sign_in_with_a_wallet_the_signer_cannot_use_is_invalid_input(
     integration_environment: Environment,
 ) -> None:
