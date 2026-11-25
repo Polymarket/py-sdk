@@ -3833,13 +3833,15 @@ class AsyncSecureClient:
         The migration signs each step that needs a signature, such as a Safe
         deployment and the transfer of funds, waits while the transactions
         confirm, and binds the Deposit Wallet to the session with
-        :meth:`upgrade_credentials`. The returned client
-        takes over the session, so use it from now on. The migration continues
-        one that an earlier call started. A failed migration raises
-        :class:`TransactionFailedError`, and a new call starts it again. If an
-        error stops the call after the funds moved, such as a failed bind, a
-        new call finds the finished migration and only binds the Deposit
-        Wallet. The Deposit Wallet needs trading approvals before it trades.
+        :meth:`upgrade_credentials`. A restart after a conflict can ask for
+        another signature. The returned client takes over the session, so use
+        it from now on. The migration continues one that an earlier call
+        started. A failed migration raises :class:`TransactionFailedError`, and
+        a new call starts it again. If the bind fails after the migration
+        completes, this client stays usable, and a new call binds the Deposit
+        Wallet. A bind that took effect without an answer ends the session at
+        its next renewal. Then sign in again. The Deposit Wallet needs trading
+        approvals before it trades.
 
         Example::
 
@@ -3903,7 +3905,8 @@ class AsyncSecureClient:
 
         The sweep signs each step that needs a signature, such as a Safe
         deployment and the transfer of funds, and waits while the transactions
-        confirm. It does not change the session.
+        confirm. A restart after a conflict can ask for another signature. It
+        does not change the session.
 
         Returns:
             The leftovers after the sweep.

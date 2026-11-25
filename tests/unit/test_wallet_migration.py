@@ -1,6 +1,7 @@
 """Wallet migration flow and sweep signature against controlled responses."""
 
 # pyright: reportPrivateUsage=false
+import dataclasses
 import json
 import time
 from typing import Any
@@ -16,8 +17,9 @@ from eth_utils.crypto import keccak
 from polymarket import BearerCredentials, SecureClient
 from polymarket._internal.actions import wallet_migration
 from polymarket._internal.actions.identity import UPGRADE_PATH
-from polymarket._internal.environment import PRODUCTION_CONFIG
-from polymarket.errors import UnexpectedResponseError
+from polymarket._internal.environment import PRODUCTION_CONFIG, with_environment_config
+from polymarket.environments import PRODUCTION
+from polymarket.errors import TimeoutError, UnexpectedResponseError
 from polymarket.models.wallet_migration import WalletMigrationSweep
 
 PRIVATE_KEY = "0x" + "44" * 32
@@ -162,6 +164,43 @@ def test_a_safe_deployment_signature_recovers_to_the_signer_at_the_factory() -> 
     signature = _sign(_safe_deployment(payment="0"))
 
     assert Account.recover_message(_factory_digest_without_payment(), signature=signature) == SIGNER
+
+
+def test_a_resumed_migration_waits_before_its_poll_and_stops_at_the_poll_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sleeps: list[float] = []
+    monkeypatch.setattr(wallet_migration.time, "sleep", sleeps.append)
+    confirming = _step("REQUIRES_FUNDS_TRANSFERS", "execute", sweepSubmitted=True)
+    environment = with_environment_config(
+        PRODUCTION, config=dataclasses.replace(PRODUCTION_CONFIG, relayer_max_polls=1)
+    )
+    saved = BearerCredentials(access_token=_token(None), refresh_token="refresh")
+    with respx.mock(assert_all_called=True) as router:
+        router.post(f"{AUTH}/v1/wallets/migration/start").respond(200, json=confirming)
+        waits_before_execute: list[int] = []
+
+        def execute(_: httpx.Request) -> httpx.Response:
+            waits_before_execute.append(len(sleeps))
+            return httpx.Response(200, json=confirming)
+
+        router.post(f"{AUTH}/v1/wallets/migration/execute").mock(side_effect=execute)
+
+        with (
+            SecureClient._create(
+                private_key=PRIVATE_KEY,
+                credentials=saved,
+                environment=environment,
+                validate_credentials=False,
+                wallet_setup=False,
+            ) as client,
+            pytest.raises(TimeoutError),
+        ):
+            client.migrate_wallet()
+
+    # One poll, after one wait, and no poll after the limit.
+    assert waits_before_execute == [1]
+    assert sleeps == [PRODUCTION_CONFIG.relayer_poll_frequency_ms / 1000]
 
 
 def test_a_safe_deployment_with_a_payment_is_not_signed() -> None:

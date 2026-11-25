@@ -31,7 +31,8 @@ from polymarket.models.wallet_migration import (
 )
 from polymarket.types import HexString
 
-# An execute request confirms its transaction before it answers.
+# An execute request waits while its transaction confirms. It can also answer
+# with a step that is still in progress.
 _REQUEST_TIMEOUT = httpx.Timeout(connect=5.0, read=120.0, write=10.0, pool=5.0)
 
 STATUS_PATH = "/v1/wallets/migration/status"
