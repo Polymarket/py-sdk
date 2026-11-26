@@ -33,6 +33,7 @@ from polymarket._internal.actions import order_heartbeats as _order_heartbeat_ac
 from polymarket._internal.actions import rewards as _rewards_actions
 from polymarket._internal.actions import rfq as _rfq_actions
 from polymarket._internal.actions import session_keys as _session_key_actions
+from polymarket._internal.actions import wallet_migration as _wallet_migration_actions
 from polymarket._internal.actions.gamma import (
     CommentParentEntityType,
     CommentSort,
@@ -279,6 +280,11 @@ from polymarket.models.rtds_events import (
 )
 from polymarket.models.sports_events import SportsEvent
 from polymarket.models.types import ClobAssetId, CtfConditionId
+from polymarket.models.wallet_migration import (
+    WalletLeftovers,
+    WalletMigration,
+    WalletMigrationPreview,
+)
 from polymarket.pagination import AsyncPaginator, Page
 from polymarket.rate_limit import RateLimitUpdateListener
 from polymarket.rfq import (
@@ -3793,6 +3799,135 @@ class AsyncSecureClient:
                 execute that instead.
         """
         return await _combos_actions.execute_collateral_return_plan(self._ctx, plan=plan)
+
+    async def fetch_wallet_migration(self) -> WalletMigration:
+        """Fetch the wallet migration of the authenticated account.
+
+        Experimental: may change in breaking ways, including patch releases.
+
+        The read returns the migration state, the Deposit Wallet, the holdings
+        of the current wallet and the next action. It changes nothing.
+        """
+        return await _wallet_migration_actions.fetch_wallet_migration(self._ctx)
+
+    async def preview_wallet_migration(self) -> WalletMigrationPreview:
+        """Preview the wallet migration of the authenticated account.
+
+        Experimental: may change in breaking ways, including patch releases.
+
+        The read returns what the migration would move and each blocker that
+        stops it, with a code and a plain-language message. It changes
+        nothing.
+
+        Raises:
+            RequestRejectedError: With ``status`` 422 if the account already
+                trades from its Deposit Wallet.
+        """
+        return await _wallet_migration_actions.preview_wallet_migration(self._ctx)
+
+    async def migrate_wallet(self) -> Self:
+        """Move the account to its Deposit Wallet and return a client for it.
+
+        Experimental: may change in breaking ways, including patch releases.
+
+        The migration signs each step that needs a signature, such as a Safe
+        deployment and the transfer of funds, waits while the transactions
+        confirm, and binds the Deposit Wallet to the session with
+        :meth:`upgrade_credentials`. A restart after a conflict can ask for
+        another signature. The returned client takes over the session, so use
+        it from now on. The migration continues one that an earlier call
+        started. A failed migration raises :class:`TransactionFailedError`, and
+        a new call starts it again. If the bind fails after the migration
+        completes, this client stays usable, and a new call binds the Deposit
+        Wallet. A bind that took effect without an answer ends the session at
+        its next renewal. Then sign in again. The Deposit Wallet needs trading
+        approvals before it trades.
+
+        Example::
+
+            preview = await client.preview_wallet_migration()
+            if not preview.blockers:
+                client = await client.migrate_wallet()
+                save_credentials(client.credentials)
+
+        Raises:
+            RequestRejectedError: With ``status`` 422 and a blocker ``code``,
+                such as ``SIBLING_FUNDED``, if the migration cannot start.
+            SigningError: If the signer cannot sign the sweep.
+            TransactionFailedError: If the migration fails.
+            TimeoutError: If the migration does not finish.
+            UnexpectedResponseError: If a response is invalid, or if the
+                migration names a wallet that is not a Deposit Wallet of the
+                signer.
+        """
+        step = await _wallet_migration_actions.run_steps(
+            self._ctx,
+            _wallet_migration_actions.START_PATH,
+            _wallet_migration_actions.EXECUTE_PATH,
+            flow="wallet migration",
+        )
+        wallet = _wallet_migration_actions.deposit_wallet_to_bind(self._ctx, step)
+        return await self.upgrade_credentials(wallet=wallet)
+
+    async def cancel_wallet_migration(self) -> WalletMigration:
+        """Cancel the wallet migration of the authenticated account.
+
+        Experimental: may change in breaking ways, including patch releases.
+
+        A cancel before funds move keeps the account on its current wallet,
+        and the account can migrate later.
+
+        Raises:
+            RequestRejectedError: With ``status`` 409 while a migration
+                transaction is in flight or after funds reached the Deposit
+                Wallet, or with ``status`` 503 while the deployment keeps the
+                cancel off.
+        """
+        return await _wallet_migration_actions.cancel_wallet_migration(self._ctx)
+
+    async def fetch_wallet_leftovers(self) -> WalletLeftovers:
+        """Fetch what the old wallet of a migrated account still holds.
+
+        Experimental: may change in breaking ways, including patch releases.
+
+        The read returns the holdings, their value, the blockers of a leftover
+        sweep and the state of the last sweep. It changes nothing.
+
+        Raises:
+            RequestRejectedError: With ``status`` 409 if the account's wallet is
+                no longer the Deposit Wallet of its migration.
+        """
+        return await _wallet_migration_actions.fetch_wallet_leftovers(self._ctx)
+
+    async def sweep_wallet_leftovers(self) -> WalletLeftovers:
+        """Move what the old wallet still holds to the Deposit Wallet.
+
+        Experimental: may change in breaking ways, including patch releases.
+
+        The sweep signs each step that needs a signature, such as a Safe
+        deployment and the transfer of funds, and waits while the transactions
+        confirm. A restart after a conflict can ask for another signature. It
+        does not change the session.
+
+        Returns:
+            The leftovers after the sweep.
+
+        Raises:
+            RequestRejectedError: With ``status`` 409 if the account has no
+                completed migration, with ``status`` 422 and a blocker ``code``
+                if the sweep cannot run, or with ``status`` 503 while the
+                deployment keeps the sweep off.
+            SigningError: If the signer cannot sign the sweep.
+            TransactionFailedError: If the sweep fails.
+            TimeoutError: If the sweep does not finish.
+        """
+        await _wallet_migration_actions.run_steps(
+            self._ctx,
+            _wallet_migration_actions.SWEEP_START_PATH,
+            _wallet_migration_actions.SWEEP_EXECUTE_PATH,
+            flow="leftover sweep",
+        )
+        return await _wallet_migration_actions.fetch_wallet_leftovers(self._ctx)
 
     async def request_combo_quote(
         self,

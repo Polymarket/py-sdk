@@ -82,3 +82,17 @@ Perps Builder Codes
 
 .. automodule:: polymarket.models.perps.builder_events
    :members:
+
+WalletMigrationState
+--------------------
+
+.. autoclass:: polymarket.WalletMigrationState
+   :members:
+   :undoc-members:
+
+WalletMigrationBlockerCode
+--------------------------
+
+.. autoclass:: polymarket.WalletMigrationBlockerCode
+   :members:
+   :undoc-members:

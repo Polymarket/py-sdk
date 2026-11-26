@@ -334,6 +334,18 @@ from polymarket.models.types import (
     to_ctf_condition_id,
     to_market_condition_id,
 )
+from polymarket.models.wallet_migration import (
+    WalletLeftovers,
+    WalletMigration,
+    WalletMigrationBlocker,
+    WalletMigrationBlockerCode,
+    WalletMigrationManifestEntry,
+    WalletMigrationNextAction,
+    WalletMigrationPreview,
+    WalletMigrationState,
+    WalletMigrationSweepShape,
+    WalletSweepSummary,
+)
 
 __all__ = [
     "PerpsPositionSnapshotFill",
@@ -530,6 +542,16 @@ __all__ = [
     "CollateralReturnPositionAmount",
     "CollateralReturnPositionSummary",
     "CollateralReturnRouterCall",
+    "WalletLeftovers",
+    "WalletMigration",
+    "WalletMigrationBlocker",
+    "WalletMigrationBlockerCode",
+    "WalletMigrationManifestEntry",
+    "WalletMigrationNextAction",
+    "WalletMigrationPreview",
+    "WalletMigrationState",
+    "WalletMigrationSweepShape",
+    "WalletSweepSummary",
     "ComboActivityId",
     "ComboKnownStatus",
     "ComboStatus",
