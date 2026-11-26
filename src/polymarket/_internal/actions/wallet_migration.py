@@ -11,6 +11,7 @@ from eth_account.messages import encode_defunct
 from eth_account.signers.local import LocalAccount
 
 from polymarket._internal.context import AsyncSecureClientContext, SyncSecureClientContext
+from polymarket._internal.wallet import try_classify_wallet_type
 from polymarket.errors import (
     RequestRejectedError,
     SigningError,
@@ -29,7 +30,7 @@ from polymarket.models.wallet_migration import (
     WalletMigrationSweep,
     WalletMigrationSweepShape,
 )
-from polymarket.types import HexString
+from polymarket.types import EvmAddress, HexString
 
 # An execute request waits while its transaction confirms. It can also answer
 # with a step that is still in progress.
@@ -347,6 +348,32 @@ async def run_steps(
             step = await execute({})
 
 
+def deposit_wallet_to_bind(
+    ctx: SyncSecureClientContext | AsyncSecureClientContext, step: WalletMigrationStep
+) -> EvmAddress:
+    """Return the Deposit Wallet that the finished migration ``step`` binds to the session.
+
+    Raises:
+        UnexpectedResponseError: If ``step`` names no wallet, or names a wallet
+            that is not a Deposit Wallet of the signer.
+    """
+    if step.deposit_wallet is None:
+        raise UnexpectedResponseError("The finished wallet migration names no Deposit Wallet.")
+    # The bind accepts a Safe, a proxy wallet or an unknown address, so it does
+    # not stop a wrong destination.
+    wallet_type = try_classify_wallet_type(
+        signer=ctx.signer.address,
+        wallet=step.deposit_wallet,
+        config=ctx.environment_config.wallet_derivation,
+    )
+    if wallet_type != "DEPOSIT_WALLET":
+        raise UnexpectedResponseError(
+            "The finished wallet migration names a wallet that is not a Deposit Wallet "
+            "of the signer."
+        )
+    return step.deposit_wallet
+
+
 def fetch_wallet_migration_sync(ctx: SyncSecureClientContext) -> WalletMigration:
     return WalletMigration.parse_response(ctx.predictions.get_json(STATUS_PATH))
 
@@ -390,6 +417,7 @@ __all__ = [
     "SWEEP_START_PATH",
     "cancel_wallet_migration",
     "cancel_wallet_migration_sync",
+    "deposit_wallet_to_bind",
     "fetch_wallet_leftovers",
     "fetch_wallet_leftovers_sync",
     "fetch_wallet_migration",

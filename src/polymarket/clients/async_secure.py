@@ -3856,7 +3856,9 @@ class AsyncSecureClient:
             SigningError: If the signer cannot sign the sweep.
             TransactionFailedError: If the migration fails.
             TimeoutError: If the migration does not finish.
-            UnexpectedResponseError: If a response is invalid.
+            UnexpectedResponseError: If a response is invalid, or if the
+                migration names a wallet that is not a Deposit Wallet of the
+                signer.
         """
         step = await _wallet_migration_actions.run_steps(
             self._ctx,
@@ -3864,9 +3866,8 @@ class AsyncSecureClient:
             _wallet_migration_actions.EXECUTE_PATH,
             flow="wallet migration",
         )
-        if step.deposit_wallet is None:
-            raise UnexpectedResponseError("The finished wallet migration names no Deposit Wallet.")
-        return await self.upgrade_credentials(wallet=step.deposit_wallet)
+        wallet = _wallet_migration_actions.deposit_wallet_to_bind(self._ctx, step)
+        return await self.upgrade_credentials(wallet=wallet)
 
     async def cancel_wallet_migration(self) -> WalletMigration:
         """Cancel the wallet migration of the authenticated account.
