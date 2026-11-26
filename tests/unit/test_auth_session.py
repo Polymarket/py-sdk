@@ -384,6 +384,59 @@ def test_binding_a_wallet_waits_for_a_renewal_in_progress() -> None:
     assert session.ready() == session.credentials
 
 
+def test_binding_reports_a_short_lived_bound_token_before_its_renewal() -> None:
+    clock = FakeClock()
+    timers = RecordedTimers()
+    reports: list[tuple[str, int]] = []
+    renewed = IssuedTokens(access_token=_token(clock, 900), refresh_token="rotated", expires_in=900)
+    session = SyncAuthSession(
+        credentials=BearerCredentials(access_token=_unbound_token(clock), refresh_token="refresh"),
+        expires_in=900,
+        refresh=lambda _: renewed,
+        on_credentials_changed=lambda credentials: reports.append(
+            (credentials.refresh_token, len(timers.delays))
+        ),
+        clock=clock,
+        timer_factory=timers,
+    )
+    grant = AccessTokenGrant(access_token=_token(clock, 10), expires_in=10)
+
+    session.bind_wallet(EvmAddress(WALLET), lambda _: grant)
+    timers.callbacks[-1]()
+
+    # The bind reports before it starts the renewal timer, which fires at once.
+    assert timers.delays[0] == 0
+    assert reports == [("refresh", 0), ("rotated", 2)]
+    assert session.credentials.refresh_token == "rotated"
+
+
+def test_binding_keeps_the_retry_delay_of_a_renewal_during_its_report() -> None:
+    clock = FakeClock()
+    timers = RecordedTimers()
+    session: SyncAuthSession | None = None
+
+    def refresh(_: BearerCredentials) -> IssuedTokens:
+        raise RequestRejectedError("unavailable", status=503, retry_after=10)
+
+    def listener(_: BearerCredentials) -> None:
+        assert session is not None
+        session.refresh()
+
+    session = SyncAuthSession(
+        credentials=BearerCredentials(access_token=_unbound_token(clock), refresh_token="refresh"),
+        expires_in=900,
+        refresh=refresh,
+        on_credentials_changed=listener,
+        clock=clock,
+        timer_factory=timers,
+    )
+
+    session.bind_wallet(EvmAddress(WALLET), lambda _: _bound_grant(clock))
+
+    # The renewal that the report started keeps the delay that the server asked for.
+    assert timers.delays == [10]
+
+
 def test_logout_waits_for_a_renewal_in_progress() -> None:
     clock = FakeClock()
     started = threading.Event()

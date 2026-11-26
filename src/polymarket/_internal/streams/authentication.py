@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 from collections.abc import Awaitable, Callable
 
+from polymarket._internal.actions.identity import parse_access_token_claims
 from polymarket._internal.auth_session import (
     RENEWAL_LEAD_SECONDS,
     AsyncAuthSession,
@@ -15,6 +16,9 @@ from polymarket.auth import BearerCredentials
 from polymarket.errors import RequestRejectedError, TransportError
 
 _RENEWAL_ATTEMPTS = 3
+_OTHER_WALLET_MESSAGE = (
+    "The session names another wallet now, so this connection cannot authenticate."
+)
 
 
 class SocketAuthentication:
@@ -23,6 +27,10 @@ class SocketAuthentication:
     The connection receives every renewed token in-band. When the acknowledged
     token expires without a successful renewal, ``expired`` runs so the owner can
     reconnect with a current token. A failure that ends the session runs ``fail``.
+
+    The connection uses only tokens for the wallet that the session named when
+    this object was created. A handover that binds another wallet does not move
+    open subscriptions to it, and the handover closes them.
     """
 
     def __init__(
@@ -45,19 +53,24 @@ class SocketAuthentication:
         self._tasks: set[asyncio.Task[None]] = set()
         self._unlisten: Callable[[], None] | None = None
         self._unfail: Callable[[], None] | None = None
+        self._wallet = _wallet_key(session.claims.wallet)
 
     async def prepare(self) -> BearerCredentials:
         """Return credentials for a new connection, waiting for a due renewal.
 
         A renewal that fails only for now raises ``TransportError``, so the owner
-        reconnects later instead of treating the session as rejected.
+        reconnects later instead of treating the session as rejected. A session
+        that names another wallet now also raises ``TransportError``.
         """
         try:
-            return await self._session.ready()
+            credentials = await self._session.ready()
         except Exception as error:
             if self._session.failure is None and is_transient_renewal_failure(error):
                 raise TransportError("Session renewal is temporarily unavailable.") from error
             raise
+        if not self._names_own_wallet(credentials.access_token):
+            raise TransportError(_OTHER_WALLET_MESSAGE)
+        return credentials
 
     def accepted(self, access_token: str) -> None:
         """Record that the server acknowledged ``access_token`` on this connection."""
@@ -70,7 +83,7 @@ class SocketAuthentication:
         self._deadline = asyncio.get_running_loop().call_later(max(0.0, delay), self._expired)
         # A renewal can complete while an acknowledgement is pending.
         current = self._session.credentials.access_token
-        if current != access_token:
+        if current != access_token and self._names_own_wallet(current):
             self._pending = current
             self._start_renewal()
 
@@ -89,6 +102,8 @@ class SocketAuthentication:
             self._unfail = None
 
     def _on_change(self, credentials: BearerCredentials) -> None:
+        if not self._names_own_wallet(credentials.access_token):
+            return
         self._pending = credentials.access_token
         self._start_renewal()
 
@@ -131,6 +146,9 @@ class SocketAuthentication:
         finally:
             self._renewing = False
 
+    def _names_own_wallet(self, access_token: str) -> bool:
+        return _wallet_key(parse_access_token_claims(access_token).wallet) == self._wallet
+
     def _is_current(self, generation: int) -> bool:
         return self._active and generation == self._generation
 
@@ -150,6 +168,10 @@ async def wait_for_acknowledgement(
         with contextlib.suppress(asyncio.InvalidStateError):
             future.cancel()
         raise TransportError(message) from None
+
+
+def _wallet_key(wallet: str | None) -> str | None:
+    return None if wallet is None else wallet.lower()
 
 
 __all__ = ["SocketAuthentication", "wait_for_acknowledgement"]

@@ -134,10 +134,11 @@ class _SessionState:
         self._adopt(tokens.credentials, claims, tokens.expires_in)
 
     def adopt_wallet_binding(self, grant: AccessTokenGrant, wallet: EvmAddress) -> None:
+        # The bound token keeps the expiry of the token that the bind presented,
+        # so it can expire within the renewal lead. The session renews it at once.
         claims = parse_issued_claims(grant.access_token)
         if (
-            grant.expires_in <= RENEWAL_LEAD_SECONDS
-            or claims.sub.lower() != self.claims.sub.lower()
+            claims.sub.lower() != self.claims.sub.lower()
             or claims.client_id != self.claims.client_id
             or claims.wallet is None
             or claims.wallet.lower() != wallet.lower()
@@ -308,7 +309,7 @@ class SyncAuthSession:
         return future.result()
 
     def bind_wallet(self, wallet: EvmAddress, upgrade: Callable[[str], AccessTokenGrant]) -> None:
-        """Bind ``wallet`` to a session without a wallet and adopt the bound access token.
+        """Bind ``wallet`` to the session, which can name another wallet, and adopt the bound token.
 
         A renewal in progress finishes first, and renewals wait while binding runs,
         so a token renewed without the wallet never replaces the bound one.
@@ -326,20 +327,32 @@ class SyncAuthSession:
                     break
             with contextlib.suppress(Exception):
                 pending.result()
+        adopted = False
         try:
             grant = upgrade(access_token)
             with self._lock:
                 self._state.assert_active()
                 self._state.adopt_wallet_binding(grant, wallet)
+            adopted = True
         finally:
             with self._lock:
                 if self._refreshing is binding:
                     self._refreshing = None
-                self._schedule_locked()
+                if not adopted:
+                    self._schedule_locked()
                 credentials = self._state.credentials
             # Renewals that waited on the binding continue with the current credentials.
             binding.set_result(credentials)
-        self._notify(credentials)
+        # Report the bound token before the renewal timer starts. A short-lived bound
+        # token renews at once, and the report of that renewal must come last.
+        try:
+            self._notify(credentials)
+        finally:
+            with self._lock:
+                # A renewal that ran during the report already chose the next renewal,
+                # including any delay that the server asked for.
+                if self._timer is None and self._refreshing is None:
+                    self._schedule_locked()
 
     def logout(self, revoke: Callable[[str], None]) -> None:
         """Revoke the session. Tokens renewed for revocation are never adopted or reported."""
@@ -565,7 +578,7 @@ class AsyncAuthSession:
     async def bind_wallet(
         self, wallet: EvmAddress, upgrade: Callable[[str], Awaitable[AccessTokenGrant]]
     ) -> None:
-        """Bind ``wallet`` to a session without a wallet and adopt the bound access token.
+        """Bind ``wallet`` to the session, which can name another wallet, and adopt the bound token.
 
         A renewal in progress finishes first, and renewals wait while binding runs,
         so a token renewed without the wallet never replaces the bound one.

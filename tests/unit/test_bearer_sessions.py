@@ -2,6 +2,7 @@
 
 # pyright: reportPrivateUsage=false
 import asyncio
+import threading
 import time
 from typing import Any
 
@@ -40,6 +41,11 @@ def _issued(access_token: str, refresh_token: str = "refresh") -> dict[str, Any]
         "expiresIn": 900,
         "refreshExpiresIn": 604800,
     }
+
+
+def _granted(access_token: str) -> dict[str, Any]:
+    """Answer a wallet bind: a new access token without a refresh token."""
+    return {"accessToken": access_token, "tokenType": "Bearer", "expiresIn": 900}
 
 
 def _challenge() -> dict[str, Any]:
@@ -172,7 +178,7 @@ def test_a_second_expired_token_rejection_is_not_replayed() -> None:
 def test_closing_the_original_client_after_an_upgrade_keeps_the_upgraded_session() -> None:
     saved = BearerCredentials(access_token=_token(wallet=None), refresh_token="refresh")
     with respx.mock(assert_all_called=True) as router:
-        _route(router, "POST", f"{AUTH}/v1/auth/upgrade", _ok(_issued(_token())))
+        _route(router, "POST", f"{AUTH}/v1/auth/bind", _ok(_granted(_token())))
         _route(router, "GET", f"{AUTH}/v1/me/trading-status", _ok({"closed_only": False}))
         _route(router, "POST", f"{AUTH}/v1/auth/refresh", _ok(_issued(_token())))
 
@@ -210,7 +216,185 @@ def test_closing_the_original_async_client_after_an_upgrade_keeps_the_upgraded_s
             _ = onboarding.credentials
 
     with respx.mock(assert_all_called=True) as router:
-        _route(router, "POST", f"{AUTH}/v1/auth/upgrade", _ok(_issued(_token())))
+        _route(router, "POST", f"{AUTH}/v1/auth/bind", _ok(_granted(_token())))
         _route(router, "GET", f"{AUTH}/v1/me/trading-status", _ok({"closed_only": False}))
         _route(router, "POST", f"{AUTH}/v1/auth/refresh", _ok(_issued(_token())))
+        asyncio.run(run())
+
+
+def test_upgrading_a_bound_session_rebinds_it_to_another_wallet() -> None:
+    saved = BearerCredentials(access_token=_token(wallet=OTHER_WALLET), refresh_token="refresh")
+    bound = _token(wallet=SIGNER)
+    with respx.mock(assert_all_called=True) as router:
+        binds = _route(router, "POST", f"{AUTH}/v1/auth/bind", _ok(_granted(bound)))
+
+        with SecureClient._create(
+            private_key=PRIVATE_KEY,
+            credentials=saved,
+            validate_credentials=False,
+            wallet_setup=False,
+        ) as onboarding:
+            client = onboarding.upgrade_credentials(wallet=SIGNER)
+
+        with client:
+            assert client.credentials == BearerCredentials(
+                access_token=bound, refresh_token="refresh"
+            )
+
+    assert len(binds) == 1
+
+
+def test_upgrading_a_bound_async_session_rebinds_it_to_another_wallet() -> None:
+    saved = BearerCredentials(access_token=_token(wallet=OTHER_WALLET), refresh_token="refresh")
+    bound = _token(wallet=SIGNER)
+
+    async def run() -> None:
+        async with await AsyncSecureClient._create(
+            private_key=PRIVATE_KEY,
+            credentials=saved,
+            validate_credentials=False,
+            wallet_setup=False,
+        ) as onboarding:
+            client = await onboarding.upgrade_credentials(wallet=SIGNER)
+
+        async with client:
+            assert client.credentials == BearerCredentials(
+                access_token=bound, refresh_token="refresh"
+            )
+
+    with respx.mock(assert_all_called=True) as router:
+        binds = _route(router, "POST", f"{AUTH}/v1/auth/bind", _ok(_granted(bound)))
+        asyncio.run(run())
+
+    assert len(binds) == 1
+
+
+def test_an_overlapping_upgrade_is_rejected() -> None:
+    saved = BearerCredentials(access_token=_token(wallet=OTHER_WALLET), refresh_token="refresh")
+    bound = _token(wallet=SIGNER)
+    started = threading.Event()
+    release = threading.Event()
+
+    def bind(_: httpx.Request) -> httpx.Response:
+        started.set()
+        release.wait(5)
+        return _ok(_granted(bound))
+
+    upgraded: list[SecureClient] = []
+    with respx.mock(assert_all_called=True) as router:
+        binds = router.post(f"{AUTH}/v1/auth/bind").mock(side_effect=bind)
+
+        with SecureClient._create(
+            private_key=PRIVATE_KEY,
+            credentials=saved,
+            validate_credentials=False,
+            wallet_setup=False,
+        ) as onboarding:
+            upgrade = threading.Thread(
+                target=lambda: upgraded.append(onboarding.upgrade_credentials(wallet=SIGNER))
+            )
+            upgrade.start()
+            try:
+                assert started.wait(5)
+                # The session still names OTHER_WALLET, so this call would hand it over at once.
+                with pytest.raises(RuntimeError, match="already running"):
+                    onboarding.upgrade_credentials(wallet=OTHER_WALLET)
+            finally:
+                release.set()
+                upgrade.join(5)
+
+        with upgraded[0] as client:
+            assert client.credentials.access_token == bound
+
+    assert binds.call_count == 1
+
+
+def test_an_overlapping_async_upgrade_is_rejected() -> None:
+    saved = BearerCredentials(access_token=_token(wallet=OTHER_WALLET), refresh_token="refresh")
+    bound = _token(wallet=SIGNER)
+
+    async def run() -> None:
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def bind(_: httpx.Request) -> httpx.Response:
+            started.set()
+            await release.wait()
+            return _ok(_granted(bound))
+
+        binds.mock(side_effect=bind)
+        async with await AsyncSecureClient._create(
+            private_key=PRIVATE_KEY,
+            credentials=saved,
+            validate_credentials=False,
+            wallet_setup=False,
+        ) as onboarding:
+            upgrade = asyncio.create_task(onboarding.upgrade_credentials(wallet=SIGNER))
+            try:
+                await asyncio.wait_for(started.wait(), 5)
+                # The session still names OTHER_WALLET, so this call would hand it over at once.
+                with pytest.raises(RuntimeError, match="already running"):
+                    await asyncio.wait_for(onboarding.upgrade_credentials(wallet=OTHER_WALLET), 5)
+            finally:
+                release.set()
+            client = await asyncio.wait_for(upgrade, 5)
+
+        async with client:
+            assert client.credentials.access_token == bound
+
+    with respx.mock(assert_all_called=True) as router:
+        binds = router.post(f"{AUTH}/v1/auth/bind")
+        asyncio.run(run())
+
+    assert binds.call_count == 1
+
+
+class _Interruption(BaseException):
+    """An interruption that the session does not catch, such as ``KeyboardInterrupt``."""
+
+
+def _interrupt(_: BearerCredentials) -> None:
+    raise _Interruption
+
+
+def test_a_handover_that_fails_after_the_bind_closes_the_original_client() -> None:
+    saved = BearerCredentials(access_token=_token(wallet=OTHER_WALLET), refresh_token="refresh")
+    with respx.mock(assert_all_called=True) as router:
+        _route(router, "POST", f"{AUTH}/v1/auth/bind", _ok(_granted(_token(wallet=SIGNER))))
+
+        with SecureClient._create(
+            private_key=PRIVATE_KEY,
+            credentials=saved,
+            validate_credentials=False,
+            wallet_setup=False,
+            on_credentials_changed=_interrupt,
+        ) as onboarding:
+            with pytest.raises(_Interruption):
+                onboarding.upgrade_credentials(wallet=SIGNER)
+
+            # The session names SIGNER now, so the client for OTHER_WALLET stops.
+            with pytest.raises(RuntimeError, match="failed after the bind"):
+                _ = onboarding.wallet
+
+
+def test_an_async_handover_that_fails_after_the_bind_closes_the_original_client() -> None:
+    saved = BearerCredentials(access_token=_token(wallet=OTHER_WALLET), refresh_token="refresh")
+
+    async def run() -> None:
+        async with await AsyncSecureClient._create(
+            private_key=PRIVATE_KEY,
+            credentials=saved,
+            validate_credentials=False,
+            wallet_setup=False,
+            on_credentials_changed=_interrupt,
+        ) as onboarding:
+            with pytest.raises(_Interruption):
+                await onboarding.upgrade_credentials(wallet=SIGNER)
+
+            # The session names SIGNER now, so the client for OTHER_WALLET stops.
+            with pytest.raises(RuntimeError, match="failed after the bind"):
+                _ = onboarding.wallet
+
+    with respx.mock(assert_all_called=True) as router:
+        _route(router, "POST", f"{AUTH}/v1/auth/bind", _ok(_granted(_token(wallet=SIGNER))))
         asyncio.run(run())

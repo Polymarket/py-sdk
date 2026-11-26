@@ -2,6 +2,7 @@
 
 import contextlib
 import logging
+import threading
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from decimal import Decimal
@@ -701,12 +702,20 @@ class SecureClient:
         self._ended = False
         # Set once upgrade_credentials hands the session to another client.
         self._handed_over = False
+        # Set when upgrade_credentials fails after the session bound another wallet.
+        self._handover_failed = False
+        self._handover_lock = threading.Lock()
         self._ctx_inner = ctx
         self._logger = logger
         self._on_rate_limit_update = on_rate_limit_update
 
     @property
     def _ctx(self) -> SyncSecureClientContext:
+        if self._handover_failed:
+            raise RuntimeError(
+                "SecureClient closed its session because upgrade_credentials failed after "
+                "the bind; create a new SecureClient."
+            )
         if self._handed_over:
             raise RuntimeError(
                 "SecureClient handed its session to the client returned by "
@@ -1097,7 +1106,7 @@ class SecureClient:
         return self._ctx.session.refresh()
 
     def upgrade_credentials(self, *, wallet: str) -> Self:
-        """Bind a wallet to a session that has none and return a client for it.
+        """Bind a wallet to the session and return a client for it.
 
         Experimental: may change in breaking ways, including patch releases.
 
@@ -1108,7 +1117,12 @@ class SecureClient:
         receiving renewals. The returned client takes over the session, and this
         client is closed without ending it, so use the returned client from now
         on. A session already bound to ``wallet`` is handed over without a
-        request. If binding fails, this client stays usable.
+        request. A session bound to another wallet binds ``wallet`` in its
+        place. If binding fails, this client stays usable. If binding succeeds
+        and the handover then fails, this client closes, so create a new client.
+        Finish the requests of this client before the call, and send none until
+        it returns: a request during the call can receive the access token of
+        the new wallet.
 
         Example::
 
@@ -1116,49 +1130,66 @@ class SecureClient:
             save_credentials(upgraded.credentials)
 
         Raises:
-            UserInputError: If the wallet is invalid or the session is bound to
-                another wallet.
+            UserInputError: If the wallet is invalid.
             RequestRejectedError: If binding is rejected.
             RateLimitError: If binding is rate-limited.
             TransportError: If a network request fails or the session is closed.
             UnexpectedResponseError: If the binding response is invalid.
+            RuntimeError: If another ``upgrade_credentials`` call on this client
+                is running.
         """
-        ctx = self._ctx
-        requested = _identity_actions.checksum_wallet(wallet)
-        # Validate the wallet identity before the session changes.
-        account = classify_account(
-            signer=ctx.signer.address,
-            wallet=requested,
-            config=ctx.environment_config.wallet_derivation,
-        )
-        bound = ctx.session.claims.wallet
-        if bound is not None and bound.lower() != requested.lower():
-            raise UserInputError(f"The session is already bound to wallet {bound}.")
-        if bound is None:
-            ctx.session.bind_wallet(
-                requested, partial(_upgrade_session_sync, ctx.auth, wallet=requested)
+        binding_wallet: str | None = None
+        # Overlapping handovers would give two clients one session, maybe for two wallets.
+        if not self._handover_lock.acquire(blocking=False):
+            raise RuntimeError("upgrade_credentials is already running on this client.")
+        try:
+            ctx = self._ctx
+            requested = _identity_actions.checksum_wallet(wallet)
+            # Validate the wallet identity before the session changes.
+            account = classify_account(
+                signer=ctx.signer.address,
+                wallet=requested,
+                config=ctx.environment_config.wallet_derivation,
             )
-        upgraded = type(self)._construct_for_wallet(
-            signer=ctx.signer,
-            wallet=requested,
-            wallet_type=account.wallet_type,
-            signer_type=account.signer_type,
-            environment=ctx.environment,
-            config=ctx.environment_config,
-            auth=ctx.auth,
-            session=ctx.session,
-            api_key=ctx.api_key,
-            platform_api_key=ctx.platform_api_key,
-            logger=self._logger,
-            on_rate_limit_update=self._on_rate_limit_update,
-        )
-        # The upgraded client owns the session and the authentication transport.
-        self._ended = True
-        self._handed_over = True
-        # Closing local resources is best effort, because the session has moved.
-        with contextlib.suppress(Exception):
-            self._close_resources()
-        return upgraded
+            bound = ctx.session.claims.wallet
+            if bound is None or bound.lower() != requested.lower():
+                binding_wallet = requested
+                ctx.session.bind_wallet(
+                    requested, partial(_upgrade_session_sync, ctx.auth, wallet=requested)
+                )
+            upgraded = type(self)._construct_for_wallet(
+                signer=ctx.signer,
+                wallet=requested,
+                wallet_type=account.wallet_type,
+                signer_type=account.signer_type,
+                environment=ctx.environment,
+                config=ctx.environment_config,
+                auth=ctx.auth,
+                session=ctx.session,
+                api_key=ctx.api_key,
+                platform_api_key=ctx.platform_api_key,
+                logger=self._logger,
+                on_rate_limit_update=self._on_rate_limit_update,
+            )
+            # The upgraded client owns the session and the authentication transport.
+            self._ended = True
+            self._handed_over = True
+            # Closing local resources is best effort, because the session has moved.
+            with contextlib.suppress(Exception):
+                self._close_resources()
+            return upgraded
+        except BaseException:
+            # A bind that the session adopted leaves this client on another wallet.
+            if binding_wallet is not None and not self._handed_over:
+                credentials = self._ctx_inner.session.credentials
+                claims = _identity_actions.parse_access_token_claims(credentials.access_token)
+                if claims.wallet is not None and claims.wallet.lower() == binding_wallet.lower():
+                    self._handover_failed = True
+                    with contextlib.suppress(BaseException):
+                        self.close()
+            raise
+        finally:
+            self._handover_lock.release()
 
     def authorize_session_key(
         self,

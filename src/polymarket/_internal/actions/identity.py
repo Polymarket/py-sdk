@@ -38,7 +38,7 @@ CHALLENGE_PATH = "/v1/auth/challenge"
 LOGIN_PATH = "/v1/auth/login"
 MIGRATE_PATH = "/v1/auth/migrate"
 REFRESH_PATH = "/v1/auth/refresh"
-UPGRADE_PATH = "/v1/auth/upgrade"
+BIND_PATH = "/v1/auth/bind"
 LOGOUT_PATH = "/v1/auth/logout"
 
 # Saved L2 credentials prove ownership with an HMAC over this canonical request.
@@ -309,7 +309,7 @@ def parse_issued_tokens(data: object) -> IssuedTokens:
 
 
 def parse_access_token_grant(data: object) -> AccessTokenGrant:
-    invalid = UnexpectedResponseError("The session upgrade response is malformed.")
+    invalid = UnexpectedResponseError("The wallet binding response is malformed.")
     payload = _as_object(data, invalid)
     access_token = payload.get("accessToken")
     expires_in = payload.get("expiresIn")
@@ -485,7 +485,7 @@ def upgrade_session_sync(
 ) -> AccessTokenGrant:
     return parse_access_token_grant(
         auth.post_json(
-            UPGRADE_PATH,
+            BIND_PATH,
             json=build_upgrade_request(wallet),
             headers=build_bearer_headers(access_token),
         )
@@ -497,7 +497,7 @@ async def upgrade_session(
 ) -> AccessTokenGrant:
     return parse_access_token_grant(
         await auth.post_json(
-            UPGRADE_PATH,
+            BIND_PATH,
             json=build_upgrade_request(wallet),
             headers=build_bearer_headers(access_token),
         )
@@ -636,12 +636,12 @@ def _lower(value: str | None) -> str | None:
 
 __all__ = [
     "AUTH_PATH_PREFIX",
+    "BIND_PATH",
     "CHALLENGE_PATH",
     "LOGIN_PATH",
     "LOGOUT_PATH",
     "MIGRATE_PATH",
     "REFRESH_PATH",
-    "UPGRADE_PATH",
     "_MIGRATION_PROOF_PATH",
     "AccessTokenClaims",
     "AccessTokenGrant",
