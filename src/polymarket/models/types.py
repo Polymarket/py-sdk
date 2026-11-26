@@ -15,6 +15,7 @@ CommentId = NewType("CommentId", str)
 ComboActivityId = NewType("ComboActivityId", str)
 ComboConditionId = NewType("ComboConditionId", str)
 ConditionId = NewType("ConditionId", str)
+DirectionalEventId = NewType("DirectionalEventId", str)
 CtfConditionId = ConditionId
 """Deprecated alias for ConditionId. Use ConditionId for new code."""
 EventCreatorId = NewType("EventCreatorId", str)
@@ -58,6 +59,14 @@ def to_market_condition_id(value: str) -> ConditionId:
         return ConditionId(normalized)
     if len(normalized) == 64 and normalized.startswith(("0x01", "0x02")):
         return ConditionId(normalized + "00")
+    if len(normalized) == 64 and normalized.startswith("0x04"):
+        from polymarket._internal.directional import normalize_directional_condition_id
+        from polymarket.errors import UserInputError
+
+        try:
+            return ConditionId(normalize_directional_condition_id(normalized) + "00")
+        except UserInputError as error:
+            raise TypeError(str(error)) from error
     raise TypeError("Expected a 32-byte condition ID or a 31-byte structural market ID")
 
 
@@ -165,6 +174,7 @@ __all__ = [
     "ComboConditionId",
     "ClobAssetId",
     "ConditionId",
+    "DirectionalEventId",
     "CtfConditionId",
     "EventCreatorId",
     "EventExternalPartnerMappingId",

@@ -19,8 +19,24 @@ from polymarket._internal.actions.relayer.calls import (
     split_position_call,
     split_v2_call,
 )
+from polymarket._internal.actions.relayer.directional_calls import (
+    router_compose_threshold_call,
+    router_convert_call,
+    router_decompose_threshold_call,
+    router_horizontal_merge_call,
+    router_horizontal_split_call,
+    router_merge_directional_call,
+    router_split_directional_call,
+)
 
 __all__ = [
+    "router_horizontal_split_call",
+    "router_horizontal_merge_call",
+    "router_convert_call",
+    "router_compose_threshold_call",
+    "router_decompose_threshold_call",
+    "router_merge_directional_call",
+    "router_split_directional_call",
     "MAX_UINT256",
     "TransactionCall",
     "combinatorial_prepare_condition_call",

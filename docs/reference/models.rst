@@ -82,3 +82,17 @@ Perps Builder Codes
 
 .. automodule:: polymarket.models.perps.builder_events
    :members:
+
+DirectionalPair
+---------------
+
+.. autoclass:: polymarket.DirectionalPair
+   :members:
+   :undoc-members:
+
+DecodedPositionId
+-----------------
+
+.. autoclass:: polymarket.DecodedPositionId
+   :members:
+   :undoc-members:
