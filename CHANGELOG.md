@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.2](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.20.1...polymarket-client-v0.20.2) (2026-11-26)
+
+
+### Bug Fixes
+
+* **client:** use JSON error identifiers as fallback codes ([0119cb0](https://github.com/Polymarket/py-sdk/commit/0119cb08cc0a6f5d34bb8f2b5e7e65f07b912fff))
+
 ## [0.20.1](https://github.com/Polymarket/py-sdk/compare/polymarket-client-v0.20.0...polymarket-client-v0.20.1) (2026-11-20)
 
 
