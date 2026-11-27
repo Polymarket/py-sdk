@@ -8,7 +8,6 @@ import pytest
 from polymarket.errors import UnexpectedResponseError
 from polymarket.models.clob.last_trade import LastTradePrice, LastTradePriceForToken
 from polymarket.models.clob.order_book import OrderBook, OrderBookLevel
-from polymarket.models.rtds_events import CryptoPricesChainlinkTwapPayload, PriceUpdatePayload
 
 
 class TestStrictStringFieldsExposeBareDecimal:
@@ -65,42 +64,6 @@ class TestStrictStringValidatorAcceptsAndRejects:
     def test_bool_input_is_rejected(self) -> None:
         with pytest.raises(UnexpectedResponseError):
             OrderBookLevel.parse_response({"price": True, "size": "10"})
-
-
-class TestNumberOrStringValidatorAcceptsBroaderInput:
-    def test_string_input_parses_to_decimal(self) -> None:
-        payload = PriceUpdatePayload.parse_response(
-            {"symbol": "BTC", "timestamp": 0, "value": "1.5"}
-        )
-        assert isinstance(payload.value, Decimal)
-        assert payload.value == Decimal("1.5")
-
-    def test_int_input_parses_to_decimal(self) -> None:
-        payload = PriceUpdatePayload.parse_response({"symbol": "BTC", "timestamp": 0, "value": 1})
-        assert payload.value == Decimal("1")
-
-    def test_float_input_parses_to_decimal(self) -> None:
-        payload = PriceUpdatePayload.parse_response({"symbol": "BTC", "timestamp": 0, "value": 1.5})
-        assert payload.value == Decimal("1.5")
-
-    def test_direct_decimal_input_is_accepted(self) -> None:
-        payload = PriceUpdatePayload.parse_response(
-            {"symbol": "BTC", "timestamp": 0, "value": Decimal("1.5")}
-        )
-        assert payload.value == Decimal("1.5")
-
-    def test_bool_input_is_rejected(self) -> None:
-        with pytest.raises(UnexpectedResponseError):
-            PriceUpdatePayload.parse_response({"symbol": "BTC", "timestamp": 0, "value": True})
-
-
-class TestTwapPayloadExposesBareDecimal:
-    def test_model_field_annotation_is_bare_decimal(self) -> None:
-        assert CryptoPricesChainlinkTwapPayload.model_fields["value"].annotation is Decimal
-
-    def test_get_type_hints_resolves_to_bare_decimal(self) -> None:
-        hints = get_type_hints(CryptoPricesChainlinkTwapPayload)
-        assert hints["value"] is Decimal
 
 
 class TestNoDecimalStringAliasLeaksToPublicSurface:

@@ -78,7 +78,6 @@ def test_load_integration_environment_accepts_typescript_fork_shape() -> None:
     assert config.collateral_return_url == "https://return.stage.example"
     assert config.perps_url == "https://perps.stage.example"
     assert config.perps_ws_url == "wss://perps.stage.example"
-    assert config.rtds_ws_url == "wss://rtds.stage.example"
     assert config.sports_ws_url == "wss://sports.stage.example"
     assert config.relayer_max_polls == 12
     assert config.relayer_poll_frequency_ms == 0

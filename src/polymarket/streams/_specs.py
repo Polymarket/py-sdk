@@ -4,19 +4,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Literal, TypeAlias, TypeVar
 
-from typing_extensions import deprecated
-
 from polymarket.errors import UserInputError
 from polymarket.models.price_events import KnownPriceSource
 
-_COMMENT_EVENT_TYPES: frozenset[str] = frozenset(
-    {"comment_created", "comment_removed", "reaction_created", "reaction_removed"}
-)
-_PARENT_ENTITY_TYPES: frozenset[str] = frozenset({"Event", "Market"})
-_CRYPTO_PRICES_TOPICS: frozenset[str] = frozenset(
-    {"prices.crypto.binance", "prices.crypto.chainlink"}
-)
-_CRYPTO_PRICES_CHAINLINK_TWAP_WINDOWS: frozenset[int] = frozenset({30, 60})
 _EQUITY_EVENT_TYPES: frozenset[str] = frozenset({"update", "subscribe"})
 _PERPS_CANDLE_INTERVALS: frozenset[str] = frozenset({"1m", "5m", "15m", "1h", "4h", "1d", "1w"})
 
@@ -30,12 +20,6 @@ def _validate_perps_instrument_id(instrument_id: object, *, optional: bool = Fal
         raise UserInputError("instrument_id must be non-negative")
 
 
-CommentsEventType = Literal[
-    "comment_created", "comment_removed", "reaction_created", "reaction_removed"
-]
-ParentEntityType = Literal["Event", "Market"]
-CryptoPricesTopic = Literal["prices.crypto.binance", "prices.crypto.chainlink"]
-CryptoPricesChainlinkTwapWindowSeconds = Literal[30, 60]
 EquityPricesEventType = Literal["update", "subscribe"]
 PriceProviderInput: TypeAlias = (
     Literal["chainlink", "pyth", "binance"]
@@ -61,23 +45,6 @@ def _validate_price_api_key(provider_api_key: str | None) -> None:
         return
     if not isinstance(provider_api_key, str):
         raise UserInputError("provider_api_key must be a string")
-
-
-def _normalize_crypto_symbols(symbols: Sequence[str] | None) -> tuple[str, ...] | None:
-    if symbols is None:
-        return None
-    if isinstance(symbols, str | bytes):
-        raise UserInputError("symbols must be a sequence of symbols, not a single string")
-    normalized: list[str] = []
-    for symbol in symbols:
-        if not isinstance(symbol, str):
-            raise UserInputError(f"symbol must be a string, got {type(symbol).__name__}")
-        if not symbol:
-            raise UserInputError("symbol must be non-empty")
-        normalized.append(symbol)
-    if not normalized:
-        raise UserInputError("symbols must be non-empty when provided")
-    return tuple(normalized)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, init=False)
@@ -139,184 +106,6 @@ class SportsSpec:
     """
 
     topic: Literal["sports"] = field(default="sports", init=False)
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class CommentsSpec:
-    """Subscribe to realtime comment and reaction events.
-
-    Filters are optional. When provided, ``types`` limits event kinds and the
-    parent entity fields limit events to a specific market or event.
-    """
-
-    types: Sequence[CommentsEventType] | None = None
-    parent_entity_id: int | None = None
-    parent_entity_type: ParentEntityType | None = None
-    topic: Literal["comments"] = field(default="comments", init=False)
-
-    def __post_init__(self) -> None:
-        if self.types is not None:
-            if isinstance(self.types, str | bytes):
-                raise UserInputError("types must be a sequence, not a single string")
-            normalized: list[CommentsEventType] = []
-            for t in self.types:
-                if not isinstance(t, str) or t not in _COMMENT_EVENT_TYPES:
-                    raise UserInputError(f"invalid comments event type: {t!r}")
-                normalized.append(t)  # type: ignore[arg-type]
-            if not normalized:
-                raise UserInputError("types must be non-empty when provided")
-            object.__setattr__(self, "types", tuple(normalized))
-        if self.parent_entity_id is not None and (
-            isinstance(self.parent_entity_id, bool) or not isinstance(self.parent_entity_id, int)
-        ):
-            raise UserInputError("parent_entity_id must be an int")
-        if (
-            self.parent_entity_type is not None
-            and self.parent_entity_type not in _PARENT_ENTITY_TYPES
-        ):
-            raise UserInputError(
-                f"parent_entity_type must be 'Event' or 'Market', got {self.parent_entity_type!r}"
-            )
-
-
-@deprecated("Use CryptoPriceSpec with AsyncSecureClient.", category=None)
-@dataclass(frozen=True, slots=True, kw_only=True)
-class CryptoPricesSpec:
-    """Subscribe to realtime crypto price updates for a topic.
-
-    When ``symbols`` is omitted, the subscription receives all symbols for the
-    selected topic.
-
-    Deprecated: use ``CryptoPriceSpec`` with an ``AsyncSecureClient`` and
-    explicit canonical USD symbols such as ``btcusd``.
-
-    Examples:
-        Before::
-
-            CryptoPricesSpec(topic="prices.crypto.binance", symbols=["btcusdt"])
-            CryptoPricesSpec(topic="prices.crypto.chainlink", symbols=["btc/usd"])
-
-        After, using AsyncSecureClient::
-
-            CryptoPriceSpec(symbols=["btcusd"])
-
-    The replacement requires authentication and explicit symbols; omitting
-    symbols to receive every symbol is no longer supported.
-    Migrating Binance subscriptions changes the quote currency from USDT to USD
-    and the price source. Chainlink subscriptions also change price source.
-    Consumers that depend on a specific currency or source must assess these
-    changes before migrating. The replacement includes history snapshots as
-    well as live updates. Events use ``CryptoPriceEvent`` and the
-    ``prices.crypto`` topic. Branch on ``event.type``: ``subscribe`` carries
-    history in ``payload.data``, while ``update`` carries ``payload.value``.
-    Payload timestamps are UTC ``datetime`` values instead of epoch-millisecond
-    integers; prices remain ``Decimal`` values.
-    """
-
-    topic: CryptoPricesTopic
-    symbols: Sequence[str] | None = None
-
-    def __post_init__(self) -> None:
-        if self.topic not in _CRYPTO_PRICES_TOPICS:
-            raise UserInputError(
-                f"topic must be one of {sorted(_CRYPTO_PRICES_TOPICS)}, got {self.topic!r}"
-            )
-        object.__setattr__(self, "symbols", _normalize_crypto_symbols(self.symbols))
-
-
-@deprecated("Use CryptoTwapPriceSpec with AsyncSecureClient.", category=None)
-@dataclass(frozen=True, slots=True, kw_only=True)
-class CryptoPricesChainlinkTwapSpec:
-    """Subscribe to Chainlink TWAP price updates.
-
-    ``window_seconds`` selects the 30-second or 60-second averaging window.
-    Symbols are lowercase slash-delimited pairs such as ``btc/usd``. When
-    ``symbols`` is omitted, the subscription receives every symbol.
-
-    Deprecated: use ``CryptoTwapPriceSpec`` for a fixed 60-second USD TWAP
-    with an ``AsyncSecureClient`` and explicit canonical USD symbols such as
-    ``btcusd``. The replacement includes history snapshots and live updates.
-    There is no replacement for the 30-second averaging window.
-
-    Examples:
-        Before::
-
-            CryptoPricesChainlinkTwapSpec(window_seconds=60, symbols=["btc/usd"])
-
-        After, using AsyncSecureClient::
-
-            CryptoTwapPriceSpec(symbols=["btcusd"])
-
-    The replacement requires authentication and explicit symbols; omitting
-    symbols to receive every symbol is no longer supported. Events use
-    ``CryptoTwapPriceEvent`` and the ``prices.crypto.twap`` topic.
-    Branch on ``event.type``: ``subscribe`` carries
-    history in ``payload.data``, while ``update`` carries ``payload.value``.
-    Payload timestamps are UTC ``datetime`` values instead of epoch-millisecond
-    integers; prices remain ``Decimal`` values, with ``window_seconds=60``.
-    """
-
-    window_seconds: CryptoPricesChainlinkTwapWindowSeconds
-    symbols: Sequence[str] | None = None
-    topic: Literal["prices.crypto.chainlink.twap"] = field(
-        default="prices.crypto.chainlink.twap", init=False
-    )
-
-    def __post_init__(self) -> None:
-        if (
-            isinstance(self.window_seconds, bool)
-            or not isinstance(self.window_seconds, int)
-            or self.window_seconds not in _CRYPTO_PRICES_CHAINLINK_TWAP_WINDOWS
-        ):
-            raise UserInputError(f"window_seconds must be 30 or 60, got {self.window_seconds!r}")
-        object.__setattr__(self, "symbols", _normalize_crypto_symbols(self.symbols))
-
-
-@deprecated("Use EquityPriceSpec with AsyncSecureClient.", category=None)
-@dataclass(frozen=True, slots=True, kw_only=True)
-class EquityPricesSpec:
-    """Subscribe to realtime equity price updates for one symbol.
-
-    Deprecated: use ``EquityPriceSpec`` with an ``AsyncSecureClient``.
-
-    Examples:
-        Before::
-
-            EquityPricesSpec(symbol="aapl", types=["update"])
-
-        After, using AsyncSecureClient::
-
-            EquityPriceSpec(symbol="aapl", types=["update"])
-
-    The replacement requires authentication and trims and lowercases symbols.
-    ``types`` still selects ``subscribe`` snapshots and/or ``update`` events;
-    omit it to receive both. The replacement also accepts an empty ``types``
-    sequence to receive both, which the legacy spec rejects.
-    Events use ``EquityPriceEvent`` and the ``prices.equity`` topic instead of
-    ``EquityPricesEvent`` and ``prices.equity.pyth``. Snapshots still carry
-    ``payload.data`` and updates still carry ``payload.value``. Payload
-    timestamps and optional ``received_at`` are UTC ``datetime`` values instead
-    of epoch-millisecond integers; prices remain ``Decimal`` values.
-    """
-
-    symbol: str
-    types: Sequence[EquityPricesEventType] | None = None
-    topic: Literal["prices.equity.pyth"] = field(default="prices.equity.pyth", init=False)
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.symbol, str) or not self.symbol:
-            raise UserInputError("symbol must be a non-empty string")
-        if self.types is not None:
-            if isinstance(self.types, str | bytes):
-                raise UserInputError("types must be a sequence, not a single string")
-            normalized: list[EquityPricesEventType] = []
-            for t in self.types:
-                if not isinstance(t, str) or t not in _EQUITY_EVENT_TYPES:
-                    raise UserInputError(f"invalid equity event type: {t!r}")
-                normalized.append(t)  # type: ignore[arg-type]
-            if not normalized:
-                raise UserInputError("types must be non-empty when provided")
-            object.__setattr__(self, "types", tuple(normalized))
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -572,7 +361,6 @@ class EquityTwapPriceSpec:
 
 
 PriceSpec = CryptoPriceSpec | CryptoTwapPriceSpec | EquityPriceSpec | EquityTwapPriceSpec
-RtdsSpec = CommentsSpec | CryptoPricesSpec | CryptoPricesChainlinkTwapSpec | EquityPricesSpec  # pyright: ignore[reportDeprecated]
 PerpsSpec = (
     PerpsTradesSpec
     | PerpsBboSpec
@@ -581,7 +369,7 @@ PerpsSpec = (
     | PerpsTickersSpec
     | PerpsStatisticsSpec
 )
-PublicSubscription = MarketSpec | SportsSpec | RtdsSpec | PerpsSpec
+PublicSubscription = MarketSpec | SportsSpec | PerpsSpec
 SecureSubscription = PublicSubscription | UserSpec | PriceSpec
 Subscription = SecureSubscription
 
@@ -593,10 +381,6 @@ _SPEC_TYPES: tuple[type[Subscription], ...] = (
     EquityTwapPriceSpec,
     MarketSpec,
     SportsSpec,
-    CommentsSpec,
-    CryptoPricesSpec,  # pyright: ignore[reportDeprecated]
-    CryptoPricesChainlinkTwapSpec,  # pyright: ignore[reportDeprecated]
-    EquityPricesSpec,  # pyright: ignore[reportDeprecated]
     PerpsTradesSpec,
     PerpsBboSpec,
     PerpsBookSpec,
@@ -634,16 +418,8 @@ __all__ = [
     "PriceSpec",
     "PublicSubscription",
     "SecureSubscription",
-    "CommentsEventType",
-    "CommentsSpec",
-    "CryptoPricesChainlinkTwapSpec",
-    "CryptoPricesChainlinkTwapWindowSeconds",
-    "CryptoPricesSpec",
-    "CryptoPricesTopic",
     "EquityPricesEventType",
-    "EquityPricesSpec",
     "MarketSpec",
-    "ParentEntityType",
     "PerpsBboSpec",
     "PerpsBookSpec",
     "PerpsCandlesSpec",
@@ -651,7 +427,6 @@ __all__ = [
     "PerpsStatisticsSpec",
     "PerpsTickersSpec",
     "PerpsTradesSpec",
-    "RtdsSpec",
     "SportsSpec",
     "Subscription",
     "UserSpec",

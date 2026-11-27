@@ -25,7 +25,6 @@ _ROOT_KEYS = {
     "data",
     "combos",
     "perps",
-    "rtds",
     "realtime",
     "sports",
     "relayerMaxPolls",
@@ -61,6 +60,10 @@ _CONTRACT_FIELDS = {
 }
 
 
+# Retired endpoints still present in shared CI configs; accepted and ignored.
+_IGNORED_ROOT_KEYS = {"rtds"}
+
+
 def load_integration_environment(raw_config: str | None) -> Environment:
     """Fork production using the TypeScript integration fixture's JSON shape."""
     if raw_config is None or not raw_config.strip():
@@ -71,7 +74,7 @@ def load_integration_environment(raw_config: str | None) -> Environment:
     except json.JSONDecodeError as error:
         raise ValueError("must contain a valid JSON object") from error
     fork = _require_object(decoded, path="environment config")
-    _reject_unknown_keys(fork, allowed=_ROOT_KEYS, path="environment config")
+    _reject_unknown_keys(fork, allowed=_ROOT_KEYS | _IGNORED_ROOT_KEYS, path="environment config")
 
     config = PRODUCTION_CONFIG
     config_updates: dict[str, object] = {}
@@ -188,13 +191,11 @@ def load_integration_environment(raw_config: str | None) -> Environment:
         _copy_string(perps, "rest", config_updates, "perps_url", path="perps.rest")
         _copy_string(perps, "ws", config_updates, "perps_ws_url", path="perps.ws")
 
-    for json_name, python_name in (("rtds", "rtds_ws_url"), ("sports", "sports_ws_url")):
-        endpoint = _optional_object(fork, json_name)
-        if endpoint is None:
-            continue
-        _reject_unknown_keys(endpoint, allowed={"ws", "headers"}, path=json_name)
-        _require_empty_headers(endpoint, path=json_name)
-        _copy_string(endpoint, "ws", config_updates, python_name, path=f"{json_name}.ws")
+    sports = _optional_object(fork, "sports")
+    if sports is not None:
+        _reject_unknown_keys(sports, allowed={"ws", "headers"}, path="sports")
+        _require_empty_headers(sports, path="sports")
+        _copy_string(sports, "ws", config_updates, "sports_ws_url", path="sports.ws")
 
     realtime = _optional_object(fork, "realtime")
     if realtime is not None:

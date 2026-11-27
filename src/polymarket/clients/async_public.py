@@ -132,21 +132,10 @@ from polymarket.models.perps.position_snapshots import (
     PerpsPositionSnapshotFill,
     PerpsPositionSnapshots,
 )
-from polymarket.models.rtds_events import (
-    CommentsEvent,
-    CryptoPricesChainlinkTwapEvent,
-    CryptoPricesEvent,
-    EquityPricesEvent,
-    RtdsEvent,
-)
 from polymarket.models.sports_events import SportsEvent
 from polymarket.models.types import ClobAssetId, CtfConditionId
 from polymarket.pagination import AsyncPaginator, Page
 from polymarket.streams._specs import (
-    CommentsSpec,
-    CryptoPricesChainlinkTwapSpec,  # pyright: ignore[reportDeprecated]
-    CryptoPricesSpec,  # pyright: ignore[reportDeprecated]
-    EquityPricesSpec,  # pyright: ignore[reportDeprecated]
     MarketSpec,
     PerpsSpec,
     PriceSpec,
@@ -160,7 +149,6 @@ if TYPE_CHECKING:
 
     from polymarket._internal.streams.clob.market import ClobMarketStreamManager
     from polymarket._internal.streams.perps.market import PerpsMarketStreamManager
-    from polymarket._internal.streams.rtds.manager import RtdsStreamManager
     from polymarket._internal.streams.sports.manager import SportsStreamManager
 
 
@@ -584,7 +572,6 @@ class AsyncPublicClient:
         )
         self._market_manager: ClobMarketStreamManager | None = None
         self._sports_manager: SportsStreamManager | None = None
-        self._rtds_manager: RtdsStreamManager | None = None
         self._perps_manager: PerpsMarketStreamManager | None = None
         self._streams_logger = logger
 
@@ -598,26 +585,6 @@ class AsyncPublicClient:
     @overload
     async def subscribe(self, specs: SportsSpec, /) -> SubscriptionHandle[SportsEvent]: ...
     @overload
-    async def subscribe(self, specs: CommentsSpec, /) -> SubscriptionHandle[CommentsEvent]: ...
-    @overload
-    async def subscribe(
-        self,
-        specs: CryptoPricesSpec,  # pyright: ignore[reportDeprecated]
-        /,
-    ) -> SubscriptionHandle[CryptoPricesEvent]: ...
-    @overload
-    async def subscribe(
-        self,
-        specs: CryptoPricesChainlinkTwapSpec,  # pyright: ignore[reportDeprecated]
-        /,
-    ) -> SubscriptionHandle[CryptoPricesChainlinkTwapEvent]: ...
-    @overload
-    async def subscribe(
-        self,
-        specs: EquityPricesSpec,  # pyright: ignore[reportDeprecated]
-        /,
-    ) -> SubscriptionHandle[EquityPricesEvent]: ...
-    @overload
     async def subscribe(self, specs: PerpsSpec, /) -> SubscriptionHandle[PerpsMarketEvent]: ...
     @overload
     async def subscribe(
@@ -629,38 +596,16 @@ class AsyncPublicClient:
     ) -> SubscriptionHandle[SportsEvent]: ...
     @overload
     async def subscribe(
-        self, specs: Sequence[CommentsSpec], /
-    ) -> SubscriptionHandle[CommentsEvent]: ...
-    @overload
-    async def subscribe(
-        self,
-        specs: Sequence[CryptoPricesSpec],  # pyright: ignore[reportDeprecated]
-        /,
-    ) -> SubscriptionHandle[CryptoPricesEvent]: ...
-    @overload
-    async def subscribe(
-        self,
-        specs: Sequence[CryptoPricesChainlinkTwapSpec],  # pyright: ignore[reportDeprecated]
-        /,
-    ) -> SubscriptionHandle[CryptoPricesChainlinkTwapEvent]: ...
-    @overload
-    async def subscribe(
-        self,
-        specs: Sequence[EquityPricesSpec],  # pyright: ignore[reportDeprecated]
-        /,
-    ) -> SubscriptionHandle[EquityPricesEvent]: ...
-    @overload
-    async def subscribe(
         self, specs: Sequence[PerpsSpec], /
     ) -> SubscriptionHandle[PerpsMarketEvent]: ...
     @overload
     async def subscribe(
         self, specs: Sequence[PublicSubscription], /
-    ) -> SubscriptionHandle[MarketEvent | SportsEvent | RtdsEvent | PerpsMarketEvent]: ...
+    ) -> SubscriptionHandle[MarketEvent | SportsEvent | PerpsMarketEvent]: ...
     async def subscribe(
         self,
         specs: PublicSubscription | Sequence[PublicSubscription],
-    ) -> SubscriptionHandle[MarketEvent | SportsEvent | RtdsEvent | PerpsMarketEvent]:
+    ) -> SubscriptionHandle[MarketEvent | SportsEvent | PerpsMarketEvent]:
         """Subscribe to one or more public realtime streams.
 
         Pass a single subscription spec for one stream or a sequence of specs to
@@ -688,16 +633,8 @@ class AsyncPublicClient:
                     )
                 elif isinstance(spec, SportsSpec):
                     handles.append(await self._get_sports_manager().subscribe())
-                elif isinstance(spec, PerpsSpec):
+                elif isinstance(spec, PerpsSpec):  # pyright: ignore[reportUnnecessaryIsInstance]
                     handles.append(await self._get_perps_manager().subscribe(spec))
-                elif isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
-                    spec,
-                    CommentsSpec
-                    | CryptoPricesSpec  # pyright: ignore[reportDeprecated]
-                    | CryptoPricesChainlinkTwapSpec  # pyright: ignore[reportDeprecated]
-                    | EquityPricesSpec,  # pyright: ignore[reportDeprecated]
-                ):
-                    handles.append(await self._get_rtds_manager().subscribe(spec))
                 else:
                     assert_never(spec)
         except BaseException:
@@ -707,13 +644,13 @@ class AsyncPublicClient:
             raise
         if len(handles) == 1:
             return cast(
-                SubscriptionHandle[MarketEvent | SportsEvent | RtdsEvent | PerpsMarketEvent],
+                SubscriptionHandle[MarketEvent | SportsEvent | PerpsMarketEvent],
                 handles[0],
             )
         from polymarket._internal.streams.merged_handle import MergedSubscriptionHandle
 
         return cast(
-            SubscriptionHandle[MarketEvent | SportsEvent | RtdsEvent | PerpsMarketEvent],
+            SubscriptionHandle[MarketEvent | SportsEvent | PerpsMarketEvent],
             MergedSubscriptionHandle(handles),
         )
 
@@ -726,16 +663,6 @@ class AsyncPublicClient:
                 logger=self._streams_logger,
             )
         return self._market_manager
-
-    def _get_rtds_manager(self) -> "RtdsStreamManager":
-        if self._rtds_manager is None:
-            from polymarket._internal.streams.rtds.manager import RtdsStreamManager
-
-            self._rtds_manager = RtdsStreamManager(
-                url=self._ctx.environment_config.rtds_ws_url,
-                logger=self._streams_logger,
-            )
-        return self._rtds_manager
 
     def _get_sports_manager(self) -> "SportsStreamManager":
         if self._sports_manager is None:
@@ -779,26 +706,22 @@ class AsyncPublicClient:
                     await self._sports_manager.close()
             finally:
                 try:
-                    if self._rtds_manager is not None:
-                        await self._rtds_manager.close()
+                    if self._perps_manager is not None:
+                        await self._perps_manager.close()
                 finally:
                     try:
-                        if self._perps_manager is not None:
-                            await self._perps_manager.close()
+                        await self._ctx.gamma.close()
                     finally:
                         try:
-                            await self._ctx.gamma.close()
+                            await self._ctx.data.close()
                         finally:
                             try:
-                                await self._ctx.data.close()
+                                await self._ctx.rfq.close()
                             finally:
                                 try:
-                                    await self._ctx.rfq.close()
+                                    await self._ctx.clob.close()
                                 finally:
-                                    try:
-                                        await self._ctx.clob.close()
-                                    finally:
-                                        await self._ctx.perps.close()
+                                    await self._ctx.perps.close()
 
     @overload
     async def get_market(

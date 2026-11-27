@@ -8,7 +8,6 @@ uv run python -m examples.list_markets
 uv run python -m examples.fetch_market
 uv run python -m examples.pagination
 uv run python -m examples.market_prices
-uv run python -m examples.crypto_twap_stream
 uv run python -m examples.stream_realtime_prices
 uv run python -m examples.search
 uv run python -m examples.list_positions
@@ -19,7 +18,7 @@ uv run python -m examples.create_market_order
 ## Credentials
 
 The read examples (`list_markets`, `fetch_market`, `pagination`,
-`market_prices`, `crypto_twap_stream`, `search`) need no credentials.
+`market_prices`, `search`) need no credentials.
 
 The remaining examples read environment variables — the same ones the
 integration tests use — straight from your shell. Nothing auto-loads a `.env`
@@ -41,12 +40,9 @@ Or pass them inline on the command (as shown in each script's header):
   crypto, fixed 60-second TWAP, and equity prices. It prints recent history and
   live updates, then closes its subscriptions. See `.env.example` for setup.
 
-The legacy price specs (`CryptoPricesSpec`, `CryptoPricesChainlinkTwapSpec`, and
-`EquityPricesSpec`) are deprecated. For new integrations use `CryptoPriceSpec`,
-`CryptoTwapPriceSpec`, and `EquityPriceSpec` with `AsyncSecureClient`. Crypto symbols
-must be canonical lowercase USD pairs such as `btcusd`, rather than `btc/usd` or
-`btcusdt`. Keep existing legacy subscriptions during your application's migration;
-no Python removal date has been scheduled by this change.
+Price streams use `CryptoPriceSpec`, `CryptoTwapPriceSpec`, and `EquityPriceSpec`
+with `AsyncSecureClient`. Crypto symbols must be canonical lowercase USD pairs such
+as `btcusd`, rather than `btc/usd` or `btcusdt`.
 
 New price events use `Decimal` values in the instrument's quote currency and
 timezone-aware timestamps. Crypto prices and crypto TWAPs are quoted in USD.
