@@ -35,7 +35,6 @@ class _EnvironmentConfig:
     gamma_url: str
     data_url: str
     rfq_url: str
-    rtds_ws_url: str
     sports_ws_url: str
     rpc_url: str
     exchange_v3: str = "0xe3333700cA9d93003F00f0F71f8515005F6c00Aa"
@@ -105,7 +104,6 @@ PRODUCTION = _create_environment(
         gamma_url="https://gamma-api.polymarket.com",
         data_url="https://data-api.polymarket.com",
         rfq_url="https://combos-rfq-api.polymarket.com",
-        rtds_ws_url="wss://ws-live-data.polymarket.com",
         sports_ws_url="wss://sports-api.polymarket.com/ws",
         rpc_url="https://polygon.drpc.org",
     ),
